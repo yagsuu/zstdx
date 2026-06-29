@@ -48,8 +48,8 @@ test "unit: Address alignUp/alignDown round and isAligned reports the result" {
     const a = A.fromInt(10);
     try testing.expectEqual(@as(u8, 16), (try a.alignUp(8)).raw());
     try testing.expectEqual(@as(u8, 8), (try a.alignDown(8)).raw());
-    try testing.expect(!try a.isAligned(8));
-    try testing.expect(try A.fromInt(16).isAligned(8));
+    try testing.expect(!a.isAligned(8));
+    try testing.expect(A.fromInt(16).isAligned(8));
 }
 
 test "unit: built-in PhysAddr and VirtAddr aliases have expected raw widths" {

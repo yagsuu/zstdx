@@ -32,7 +32,9 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         /// `Overflow`: arithmetic on `add`, `sub`, `diff`, or `alignUp` would
         ///   exceed the `Int` range.
         /// `InvalidAlignment`: `alignment` is zero or not a power of two.
-        pub const Error = error{ Overflow, InvalidAlignment };
+        pub const OverflowError = error{Overflow};
+        pub const AlignError = error{InvalidAlignment};
+        pub const Error = OverflowError || AlignError;
 
         pub fn fromInt(value: Int) Self {
             return @enumFromInt(value);
@@ -50,21 +52,21 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
             return fromInt(std.math.maxInt(Int));
         }
 
-        pub fn add(self: Self, amount: Int) Error!Self {
+        pub fn add(self: Self, amount: Int) OverflowError!Self {
             return fromInt(std.math.add(Int, self.raw(), amount) catch return error.Overflow);
         }
 
-        pub fn sub(self: Self, amount: Int) Error!Self {
+        pub fn sub(self: Self, amount: Int) OverflowError!Self {
             return fromInt(std.math.sub(Int, self.raw(), amount) catch return error.Overflow);
         }
 
         /// `self - base` as a raw `Int`. Returns `error.Overflow` when
         /// `self < base`.
-        pub fn diff(self: Self, base: Self) Error!Int {
+        pub fn diff(self: Self, base: Self) OverflowError!Int {
             return std.math.sub(Int, self.raw(), base.raw()) catch return error.Overflow;
         }
 
-        fn validateAlignment(alignment: Int) Error!void {
+        fn validateAlignment(alignment: Int) AlignError!void {
             if (alignment == 0 or !bits.isPowerOfTwo(Int, alignment)) return error.InvalidAlignment;
         }
 
@@ -77,13 +79,13 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         }
 
         /// Round the address down to a multiple of `alignment`. Never overflows.
-        pub fn alignDown(self: Self, alignment: Int) Error!Self {
+        pub fn alignDown(self: Self, alignment: Int) AlignError!Self {
             try validateAlignment(alignment);
             return fromInt(self.raw() & ~(alignment - 1));
         }
 
-        pub fn isAligned(self: Self, alignment: Int) Error!bool {
-            try validateAlignment(alignment);
+        pub fn isAligned(self: Self, alignment: Int) bool {
+            std.debug.assert(alignment != 0 and bits.isPowerOfTwo(Int, alignment));
             return (self.raw() & (alignment - 1)) == 0;
         }
     };
