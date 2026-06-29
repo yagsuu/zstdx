@@ -9,4 +9,6 @@ comptime {
     _ = @import("mem/alignment_test.zig");
     _ = @import("mem/fixed_buffer_arena_test.zig");
     _ = @import("addr/address_test.zig");
+    _ = @import("layout/unaligned_test.zig");
+    _ = @import("layout/endian_test.zig");
 }
