@@ -11,4 +11,5 @@ comptime {
     _ = @import("addr/address_test.zig");
     _ = @import("layout/unaligned_test.zig");
     _ = @import("layout/endian_test.zig");
+    _ = @import("bytes/cursor_test.zig");
 }
