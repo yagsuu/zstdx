@@ -118,17 +118,19 @@ Types with non-trivial invariants expose:
 pub fn assertValid(self: *const Self) void;
 ```
 
-Small value types may use a value receiver when their owning spec approves it:
+Pure value types (no buffer or slice field) may use a value receiver when the owning spec approves it:
 
 ```zig
 pub fn assertValid(self: Self) void;
 ```
 
-Expected receiver choices:
+Receiver rules:
 
-- containers: `self: *const Self`;
-- intrusive collections: `self: *const Self`;
-- small immutable value types such as `Range(T)`: `self: Self`.
+- containers, borrowed-buffer types, and stateful walkers use `self: *const Self`;
+- pure value types (`Range(T)`, `Address(Tag, Int)`, `EndianInt(T, endian)`, `Page(Addr, ps).Frame`, `Page(Addr, ps).Count`) use `self: Self`;
+- the choice follows the type's data shape, not its size.
+
+`bytes.Cursor`, `mem.FixedBufferArena`, and similar types that carry a backing slice are containers under this rule and use `*const Self`.
 
 `assertValid` requirements:
 
@@ -136,11 +138,25 @@ Expected receiver choices:
 - never waits, blocks, sleeps, or spins;
 - does not mutate logical state;
 - checks all cheap structural invariants owned by the type;
-- may be O(n) only when the primitive spec documents it;
 - uses assertions for programmer errors;
 - is not a replacement for validation of external input.
 
-An explicit `assertValid()` call always performs the check. `SafetyMode` controls only automatic checks inside operations.
+## `assertValidDeep` convention
+
+Types with O(n) structural invariants too costly for automatic checks may expose:
+
+```zig
+pub fn assertValidDeep(self: *const Self) void;
+```
+
+`assertValidDeep` requirements:
+
+- never allocates;
+- may be O(n) and walks every element or link;
+- does not mutate logical state;
+- complements `assertValid`; callers run `assertValidDeep` explicitly when integration tests or model tests need deeper verification.
+
+An explicit `assertValid()` or `assertValidDeep()` call always performs the check. `SafetyMode` controls only automatic invocations inside operations.
 
 ## Assertion versus error rule
 
@@ -148,7 +164,7 @@ Use errors or `null` for expected runtime conditions:
 
 ```zig
 error.Full
-error.OutOfRange
+error.OutOfBounds
 null
 ```
 
@@ -246,3 +262,7 @@ For consumers:
 - if `SafetyMode` gates a check, one test exercises checked behavior where practical;
 - valid operation tests pass under `.checked` and `.unchecked` where the primitive exposes both;
 - tests must not use `.unchecked` to hide invalid state.
+
+## Open questions
+
+None.

@@ -104,6 +104,7 @@ Only these root exports are eligible in the first implementation slice:
 pub const core = @import("core.zig");
 pub const bits = @import("bits.zig");
 pub const addr = @import("addr.zig");
+pub const ranges = @import("ranges.zig");
 pub const layout = @import("layout.zig");
 pub const bytes = @import("bytes.zig");
 pub const mem = @import("mem.zig");
@@ -124,7 +125,7 @@ Stateless functions stay under their domain namespaces:
 
 ```zig
 zstdx.mem.alignUp
-zstdx.layout.unalignedLoad
+zstdx.bytes.loadUnaligned
 zstdx.algo.binarySearch
 ```
 
@@ -132,7 +133,7 @@ The root facade must not flatten these as:
 
 ```zig
 zstdx.alignUp
-zstdx.unalignedLoad
+zstdx.loadUnaligned
 zstdx.binarySearch
 ```
 

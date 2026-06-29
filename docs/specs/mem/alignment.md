@@ -12,6 +12,8 @@ This spec owns:
 - `mem.alignUp`;
 - `mem.alignDown`;
 - `mem.isAligned`;
+- `mem.alignUpDelta`;
+- `mem.alignDownDelta`;
 - unsigned integer type restrictions;
 - valid alignment requirements;
 - overflow behavior;
@@ -35,6 +37,8 @@ Alignment helpers live under `zstdx.mem`:
 zstdx.mem.alignUp
 zstdx.mem.alignDown
 zstdx.mem.isAligned
+zstdx.mem.alignUpDelta
+zstdx.mem.alignDownDelta
 ```
 
 They are not root-promoted:
@@ -58,6 +62,8 @@ pub const alignment = @import("mem/alignment.zig");
 pub const alignUp = alignment.alignUp;
 pub const alignDown = alignment.alignDown;
 pub const isAligned = alignment.isAligned;
+pub const alignUpDelta = alignment.alignUpDelta;
+pub const alignDownDelta = alignment.alignDownDelta;
 ```
 
 ## Approved API
@@ -70,7 +76,9 @@ pub const Error = error{
 
 pub fn alignUp(comptime T: type, value: T, alignment: T) Error!T;
 pub fn alignDown(comptime T: type, value: T, alignment: T) Error!T;
-pub fn isAligned(comptime T: type, value: T, alignment: T) Error!bool;
+pub fn isAligned(comptime T: type, value: T, alignment: T) bool;
+pub fn alignUpDelta(comptime T: type, value: T, alignment: T) Error!T;
+pub fn alignDownDelta(comptime T: type, value: T, alignment: T) Error!T;
 ```
 
 `T` must be an unsigned integer type. Signed integers, floats, bools, enums,
@@ -81,7 +89,7 @@ Usage:
 ```zig
 const start = try zstdx.mem.alignUp(usize, cursor, @alignOf(Header));
 const base = try zstdx.mem.alignDown(u64, address, 4096);
-if (try zstdx.mem.isAligned(usize, offset, 8)) {
+if (zstdx.mem.isAligned(usize, offset, 8)) {
     // `offset` is 8-byte aligned.
 }
 ```
@@ -94,7 +102,7 @@ if (try zstdx.mem.isAligned(usize, offset, 8)) {
 alignment != 0 and zstdx.bits.isPowerOfTwo(T, alignment)
 ```
 
-All operations return `error.InvalidAlignment` when `alignment` is zero or not a power of two.
+`alignUp` and `alignDown` return `error.InvalidAlignment` when `alignment` is zero or not a power of two. `isAligned` asserts the same precondition because it returns a plain `bool` (no error union); `alignment` is overwhelmingly a comptime constant in practice.
 
 `alignment == 1` is valid. It is a no-op for all operations.
 
@@ -102,10 +110,12 @@ All operations return `error.InvalidAlignment` when `alignment` is zero or not a
 
 `isAligned(T, value, alignment)` returns true iff `value` is already a multiple of `alignment`.
 
+Precondition: `alignment` must be a non-zero power of two. Implementations assert this via `std.debug.assert` rather than returning an error union; the predicate convention is documented in `docs/guidelines/conventions.md`.
+
 For valid alignment:
 
 ```zig
-try isAligned(T, value, alignment) == (value & (alignment - 1) == 0)
+isAligned(T, value, alignment) == (value & (alignment - 1) == 0)
 ```
 
 ## `alignDown` semantics
@@ -142,6 +152,12 @@ const rounded = try std.math.add(T, value, addend);
 return rounded & ~addend;
 ```
 
+## `alignUpDelta` and `alignDownDelta` semantics
+
+`alignUpDelta(T, value, alignment)` returns `alignUp(T, value, alignment) - value`. Inherits `alignUp`'s overflow behavior; returns `error.Overflow` under the same condition.
+
+`alignDownDelta(T, value, alignment)` returns `value - alignDown(T, value, alignment)`. Equivalent to `value & (alignment - 1)` for valid alignment. Never overflows.
+
 ## Behavior contract
 
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
@@ -149,6 +165,8 @@ return rounded & ~addend;
 | `alignUp` | never | never | O(1) | none | pure function | none |
 | `alignDown` | never | never | O(1) | none | pure function | none |
 | `isAligned` | never | never | O(1) | none | pure function | none |
+| `alignUpDelta` | never | never | O(1) | none | pure function | none |
+| `alignDownDelta` | never | never | O(1) | none | pure function | none |
 
 These helpers perform no allocation, waiting, hidden global access, atomics, or barriers.
 
@@ -158,7 +176,7 @@ These helpers perform no allocation, waiting, hidden global access, atomics, or 
 - `alignUp` returns `error.Overflow` when rounding up overflows;
 - invalid `T` is a compile error.
 
-`alignDown` and `isAligned` do not return `error.Overflow`.
+`alignDown` does not return `error.Overflow`. `isAligned` has no error set; it asserts on invalid alignment.
 
 ## Implementation constraints
 
@@ -215,6 +233,10 @@ Where practical:
 comptime {
     std.debug.assert((try zstdx.mem.alignUp(u8, 7, 4)) == 8);
     std.debug.assert((try zstdx.mem.alignDown(u8, 7, 4)) == 4);
-    std.debug.assert(try zstdx.mem.isAligned(u8, 8, 4));
+    std.debug.assert(zstdx.mem.isAligned(u8, 8, 4));
 }
 ```
+
+## Open questions
+
+None.

@@ -8,7 +8,7 @@ It must:
 
 - bounds-check every peek, read, and skip;
 - advance only through explicit read or skip operations;
-- compose typed reads with `zstdx.layout.unalignedLoad`;
+- compose typed reads with `zstdx.bytes.loadUnaligned`;
 - model checkpoints as ordinary value copies.
 
 ## Owned scope
@@ -18,7 +18,7 @@ This spec owns:
 - `bytes.Cursor`;
 - forward read cursor behavior over `[]const u8`;
 - byte-window peek, read, skip, and remaining operations;
-- typed reads through `layout.unalignedLoad`;
+- typed reads through `bytes.loadUnaligned`;
 - cursor value-copy checkpointing semantics;
 - no-allocation and no-waiting behavior;
 - required tests.
@@ -76,7 +76,7 @@ pub const Cursor = struct {
 
     pub const Error = error{EndOfStream};
 
-    pub fn init(bytes: []const u8) Cursor;
+    pub fn wrap(bytes: []const u8) Cursor;
 
     pub fn assertValid(self: Cursor) void;
     pub fn isValid(self: Cursor) bool;
@@ -106,7 +106,7 @@ A valid cursor satisfies:
 cursor.index <= cursor.bytes.len
 ```
 
-`init(bytes)` returns `.{ .bytes = bytes, .index = 0 }`.
+`wrap(bytes)` returns `.{ .bytes = bytes, .index = 0 }`.
 
 `assertValid` asserts the invariant. `isValid` returns the invariant result.
 All operations other than `isValid` and `assertValid` may assert the invariant as
@@ -142,10 +142,10 @@ invalidate previously returned slices.
 
 ## Typed read semantics
 
-`peek(T)` reads `@sizeOf(T)` bytes with `layout.unalignedLoad(T, window)` and
+`peek(T)` reads `@sizeOf(T)` bytes with `bytes.loadUnaligned(T, window)` and
 does not advance.
 
-`read(T)` reads `@sizeOf(T)` bytes with `layout.unalignedLoad(T, window)` and
+`read(T)` reads `@sizeOf(T)` bytes with `bytes.loadUnaligned(T, window)` and
 advances by `@sizeOf(T)` only after the bounds check succeeds.
 
 The cursor must not perform endian conversion. Endian-aware reads must use
@@ -155,7 +155,7 @@ explicit layout types:
 const value = (try cursor.read(zstdx.layout.Le(u32))).native();
 ```
 
-Invalid `T` categories follow the compile-time rules of `layout.unalignedLoad`.
+Invalid `T` categories follow the compile-time rules of `bytes.loadUnaligned`.
 The cursor must not validate externally supplied byte patterns.
 
 ## Error behavior
@@ -199,13 +199,13 @@ between cursor values.
 
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
-| `init` | never | never | O(1) | none | caller-owned memory | none |
-| position helpers | never | never | O(1) | none | caller-owned memory | none |
-| `peekBytes` | never | never | O(1) | none | caller-owned memory | none |
-| `readBytes` | never | never | O(1) | cursor index | caller-owned memory | byte order only |
-| `skip` | never | never | O(1) | cursor index | caller-owned memory | byte order only |
-| `peek(T)` | never | never | O(`@sizeOf(T)`) | none | caller-owned memory | byte order only |
-| `read(T)` | never | never | O(`@sizeOf(T)`) | cursor index | caller-owned memory | byte order only |
+| `wrap` | never | never | O(1) | none | caller-owned buffer | none |
+| position helpers | never | never | O(1) | none | caller-owned buffer | none |
+| `peekBytes` | never | never | O(1) | none | caller-owned buffer | none |
+| `readBytes` | never | never | O(1) | cursor index | caller-owned buffer | byte order only |
+| `skip` | never | never | O(1) | cursor index | caller-owned buffer | byte order only |
+| `peek(T)` | never | never | O(`@sizeOf(T)`) | none | caller-owned buffer | byte order only |
+| `read(T)` | never | never | O(`@sizeOf(T)`) | cursor index | caller-owned buffer | byte order only |
 
 All operations must not allocate, wait, access hidden globals, target-probe, use
 atomics, use barriers, or perform volatile access.
@@ -243,7 +243,7 @@ programmer error, not `error.EndOfStream`.
 TLV walk:
 
 ```zig
-var cursor = zstdx.bytes.Cursor.init(bytes);
+var cursor = zstdx.bytes.Cursor.wrap(bytes);
 
 while (!cursor.isEmpty()) {
     const tag = (try cursor.read(zstdx.layout.Le(u16))).native();
@@ -295,7 +295,7 @@ cursor = branch;
 
 ### Construction and position
 
-- `init` starts at position zero;
+- `wrap` starts at position zero;
 - `remaining` equals the input length at initialization;
 - `remainingBytes` returns the original input at initialization;
 - `isEmpty` is true for an empty input and false for a non-empty input;
@@ -332,7 +332,7 @@ Required when supported by the compile-fail test harness:
 
 - `assertValid` succeeds for every public mutation sequence;
 - `assertValid` catches a manually corrupted `index`;
-- invalid typed-read categories inherit `layout.unalignedLoad` compile failures.
+- invalid typed-read categories inherit `bytes.loadUnaligned` compile failures.
 
 ## Open questions
 

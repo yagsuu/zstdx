@@ -290,3 +290,7 @@ For each consumer:
 - one test covers equal values or duplicate keys where equality/order is involved;
 - hash-based consumers test that collisions do not break lookup;
 - ordering-based consumers test at least one non-trivial ordering different from natural integer ascending order.
+
+## Open questions
+
+None.

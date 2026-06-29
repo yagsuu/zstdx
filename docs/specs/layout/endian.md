@@ -21,7 +21,7 @@ This spec owns:
 - unsigned byte-aligned integer type restrictions;
 - native integer conversion;
 - exact byte-count and alignment guarantees;
-- composition with `layout.unalignedLoad` and `layout.unalignedStore`;
+- composition with `bytes.loadUnaligned` and `bytes.storeUnaligned`;
 - required tests.
 
 This spec does not own:
@@ -220,14 +220,14 @@ The wrapper's alignment is 1, so this models unaligned byte layouts without
 
 ## Unaligned composition
 
-`layout.unalignedLoad` and `layout.unalignedStore` are byte-copy primitives.
+`bytes.loadUnaligned` and `bytes.storeUnaligned` are byte-copy primitives.
 Endian wrappers compose with them for endian-aware unaligned fields:
 
 ```zig
-const le = zstdx.layout.unalignedLoad(zstdx.layout.Le(u32), bytes[pos..][0..4]);
+const le = zstdx.bytes.loadUnaligned(zstdx.layout.Le(u32), bytes[pos..][0..4]);
 const value = le.native();
 
-zstdx.layout.unalignedStore(
+zstdx.bytes.storeUnaligned(
     zstdx.layout.Le(u32),
     bytes[pos..][0..4],
     zstdx.layout.Le(u32).fromNative(value),
@@ -319,9 +319,9 @@ Required for `Le(u8)`, `Le(u16)`, `Le(u32)`, `Le(u64)`, `Be(u8)`, `Be(u16)`,
 
 ### Unaligned composition
 
-- `unalignedLoad(Le(u32), bytes[offset..][0..4]).native()` decodes the expected
-  value at a deliberately unaligned offset;
-- `unalignedStore(Le(u32), bytes[offset..][0..4], Le(u32).fromNative(value))`
+- `bytes.loadUnaligned(Le(u32), bytes[offset..][0..4]).native()` decodes the
+  expected value at a deliberately unaligned offset;
+- `bytes.storeUnaligned(Le(u32), bytes[offset..][0..4], Le(u32).fromNative(value))`
   writes only the selected byte window;
 - equivalent `Be(u32)` load and store cases are covered.
 

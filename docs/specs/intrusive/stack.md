@@ -80,7 +80,7 @@ Returned type:
 
 ```zig
 pub const Self = struct {
-    top: ?*T = null;
+    top: ?*T = null,
 
     pub fn init() Self;
 

@@ -84,10 +84,9 @@ pub const Self = enum(Int) {
 
     pub const TagType = Tag;
     pub const Raw = Int;
-    pub const Error = error{
-        Overflow,
-        InvalidAlignment,
-    };
+    pub const OverflowError = error{Overflow};
+    pub const AlignError = error{InvalidAlignment};
+    pub const Error = OverflowError || AlignError;
 
     pub fn fromInt(value: Int) Self;
     pub fn raw(self: Self) Int;
@@ -95,13 +94,13 @@ pub const Self = enum(Int) {
     pub fn zero() Self;
     pub fn max() Self;
 
-    pub fn add(self: Self, amount: Int) Error!Self;
-    pub fn sub(self: Self, amount: Int) Error!Self;
-    pub fn diff(self: Self, base: Self) Error!Int;
+    pub fn add(self: Self, amount: Int) OverflowError!Self;
+    pub fn sub(self: Self, amount: Int) OverflowError!Self;
+    pub fn diff(self: Self, base: Self) OverflowError!Int;
 
     pub fn alignUp(self: Self, alignment: Int) Error!Self;
-    pub fn alignDown(self: Self, alignment: Int) Error!Self;
-    pub fn isAligned(self: Self, alignment: Int) Error!bool;
+    pub fn alignDown(self: Self, alignment: Int) AlignError!Self;
+    pub fn isAligned(self: Self, alignment: Int) bool;
 };
 ```
 

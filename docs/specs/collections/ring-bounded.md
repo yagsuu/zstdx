@@ -93,7 +93,7 @@ pub const Self = struct {
 
     pub const Error = error{Full};
 
-    pub fn init(buffer: []T) Self;
+    pub fn wrap(buffer: []T) Self;
 
     pub fn len(self: *const Self) usize;
     pub fn capacity(self: *const Self) usize;
@@ -130,7 +130,7 @@ its backing storage.
 `T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
 are compile errors where practical.
 
-`init(buffer)` returns an empty ring backed by `buffer`. `buffer.len` is the
+`wrap(buffer)` returns an empty ring backed by `buffer`. `buffer.len` is the
 runtime item capacity. A zero-length buffer is valid; the ring is both empty and
 full.
 
@@ -167,7 +167,7 @@ the old address. Use `Ring.Static(T, N)` for embedded storage.
 
 ## Construction and clearing
 
-`init(buffer)` is equivalent to:
+`wrap(buffer)` is equivalent to:
 
 ```zig
 .{ .buffer = buffer, .head = 0, .count = 0 }
@@ -213,7 +213,7 @@ documented below.
 
 ## Enqueue semantics
 
-`pushBack(item)` writes `item` to the slot one past the current back and
+`pushBack(item)` writes `item` to `buffer[(head + count) % buffer.len]` and
 increments `count`. It returns `error.Full` and leaves the ring unchanged when
 `isFull()`.
 
@@ -272,7 +272,7 @@ remove from the front. There is no reordering.
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
 | `Bounded` | never | never | comptime | none | type factory | none |
-| `init` | never | never | O(1) | none | caller-owned buffer | empty |
+| `wrap` | never | never | O(1) | none | caller-owned buffer | empty |
 | capacity helpers | never | never | O(1) | none | caller-owned buffer | none |
 | `clearRetainingCapacity` | never | never | O(1) | all front and back pointers | caller-owned buffer | empty |
 | `pushBack` | never | never | O(1) | back pointer | caller-owned buffer | appends to tail |
@@ -332,7 +332,7 @@ Implementation must:
 
 `zacpi` future diagnostic ring buffers whose depth is a runtime configuration
 knob can back the ring with arena-allocated storage and pass the slice through
-`init(buffer)`.
+`wrap(buffer)`.
 
 `zfw` cases where the queue lives in arena-allocated storage rather than an
 inline `[N]T` field map to `Ring.Bounded`. Inline fixed-depth queues continue
@@ -351,7 +351,7 @@ const zstdx = @import("zstdx");
 const TraceRing = zstdx.Ring.Bounded(TraceEntry);
 
 const storage = try arena.allocSlice(TraceEntry, config.trace_depth);
-var trace = TraceRing.init(storage);
+var trace = TraceRing.wrap(storage);
 
 if (trace.pushBackOverwriteOldest(entry)) |_| {
     // oldest trace entry dropped; nothing to release for a value type
@@ -364,7 +364,7 @@ Caller-provided scratch ring with capacity probe:
 const Pending = zstdx.Ring.Bounded(Job);
 
 var scratch: [64]Job = undefined;
-var pending = Pending.init(scratch[0..]);
+var pending = Pending.wrap(scratch[0..]);
 
 while (pending.remaining() != 0 and produce(&job)) {
     pending.pushBackAssumeCapacity(job);
@@ -388,7 +388,7 @@ if (pending.constFront()) |j| {
 
 ### Construction and capacity
 
-- `init(buffer)` starts empty with `head = 0` and `count = 0`;
+- `wrap(buffer)` starts empty with `head = 0` and `count = 0`;
 - `capacity()` equals `buffer.len`;
 - zero-length buffers are both empty and full;
 - `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,

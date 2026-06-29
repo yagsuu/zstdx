@@ -67,16 +67,11 @@ pub const Self = struct {
     pub const Error = error{
         InvalidRange,
         Overflow,
-        OutOfRange,
+        OutOfBounds,
     };
 
-    pub const Split = struct {
-        left: Self,
-        right: Self,
-    };
 
-    pub fn init(start: T, end: T) Error!Self;
-    pub fn initUnchecked(start: T, end: T) Self;
+    pub fn fromBounds(start: T, end: T) Error!Self;
     pub fn fromStartLen(start: T, len: T) Error!Self;
     pub fn empty(at: T) Self;
 
@@ -94,9 +89,10 @@ pub const Self = struct {
     pub fn intersection(self: Self, other: Self) ?Self;
     pub fn span(self: Self, other: Self) Self;
 
-    pub fn splitAt(self: Self, point: T) Error!Split;
+    pub fn prefix(self: Self, point: T) Error!Self;
+    pub fn suffix(self: Self, point: T) Error!Self;
     pub fn offsetOf(self: Self, value: T) ?T;
-    pub fn atOffset(self: Self, offset: T) Error!T;
+    pub fn atOffset(self: Self, offset: T) ?T;
 
     pub fn shiftForward(self: Self, amount: T) Error!Self;
     pub fn shiftBackward(self: Self, amount: T) Error!Self;
@@ -125,13 +121,13 @@ start == end
 
 ## Constructors
 
-`init(start, end)` returns `error.InvalidRange` when `end < start`.
-
-`initUnchecked(start, end)` does not validate. Caller must uphold `start <= end`. Use only when the invariant has already been proven.
+`fromBounds(start, end)` returns `error.InvalidRange` when `end < start`.
 
 `fromStartLen(start, len)` constructs `[start, start + len)`. It returns `error.Overflow` when `start + len` overflows `T`.
 
 `empty(at)` returns `[at, at)`.
+
+Callers with proven validity may construct via struct literal: `Range(T){ .start = a, .end = b }`. There is no `initUnchecked` variant.
 
 ## Validation
 
@@ -177,29 +173,29 @@ Empty ranges may be adjacent by the same boundary rule.
 
 `span` never overflows because its result uses existing bounds.
 
-## Split and offset
+## Prefix, suffix, and offset
 
-`splitAt(point)` accepts `point` in `[start, end]`.
+`prefix(point)` accepts `point` in `[start, end]` and returns `[start, point)`. A point outside `[start, end]` returns `error.OutOfBounds`.
 
-- `point == start` returns an empty left range.
-- `point == end` returns an empty right range.
-- a point outside `[start, end]` returns `error.OutOfRange`.
+`suffix(point)` accepts `point` in `[start, end]` and returns `[point, end)`. A point outside `[start, end]` returns `error.OutOfBounds`.
 
-`offsetOf(value)` returns `value - start` if `value` is contained, else `null`.
+`point == start` produces an empty prefix; `point == end` produces an empty suffix.
 
-`atOffset(offset)` returns `start + offset` when `offset < len()`. It returns `error.OutOfRange` otherwise. Overflow is impossible for valid ranges when `offset < len()`.
+`offsetOf(value)` returns `value - start` when `value` is contained, else `null`.
+
+`atOffset(offset)` returns `start + offset` when `offset < len()`, else `null`. Round trip with `offsetOf` preserves containment.
 
 ## Shift
 
 `shiftForward(amount)` adds `amount` to both bounds. It returns `error.Overflow` if either addition overflows.
 
-`shiftBackward(amount)` subtracts `amount` from both bounds. It returns `error.Overflow` if either subtraction underflows.
+`shiftBackward(amount)` subtracts `amount` from both bounds. It returns `error.Overflow` if either subtraction underflows. Underflow is reported as `error.Overflow` because the saturating value would not be representable in `T`.
 
 ## Behavior contract
 
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
-| all operations | never | never | O(1) | none | value type; caller-owned | none |
+| all operations | never | never | O(1) | none | value type | none |
 
 `Range(T)` performs no allocation, waits, atomics, barriers, or hidden global access.
 
@@ -207,7 +203,7 @@ Empty ranges may be adjacent by the same boundary rule.
 
 - malformed constructor input returns `error.InvalidRange`;
 - arithmetic overflow or underflow returns `error.Overflow`;
-- split/offset requests outside the range return `error.OutOfRange`;
+- split/offset requests outside the range return `error.OutOfBounds`;
 - invalid `T` is a compile error;
 - methods that require a valid receiver may assert on invalid `self`.
 
@@ -228,8 +224,8 @@ Empty ranges may be adjacent by the same boundary rule.
 
 Required for `Range(usize)` and at least one small unsigned integer type such as `Range(u8)`:
 
-- `init` accepts valid and empty ranges;
-- `init` rejects `end < start`;
+- `fromBounds` accepts valid and empty ranges;
+- `fromBounds` rejects `end < start`;
 - `fromStartLen` catches overflow;
 - `empty` creates `[at, at)`;
 - `isValid` and `assertValid` cover valid ranges;
@@ -240,10 +236,14 @@ Required for `Range(usize)` and at least one small unsigned integer type such as
 - `isAdjacent` detects boundary contact;
 - `intersection` returns expected ranges and `null` for no overlap;
 - `span` covers disjoint ranges;
-- `splitAt` handles start, middle, and end;
-- `splitAt` rejects outside points;
+- `prefix` and `suffix` handle start, middle, and end;
+- `prefix` and `suffix` reject outside points with `error.OutOfBounds`;
 - `offsetOf` and `atOffset` round trip;
-- `atOffset` rejects `offset == len()`;
+- `atOffset(len())` returns `null`;
 - `shiftForward` catches overflow;
 - `shiftBackward` catches underflow;
 - signed integer instantiation fails at compile time where practical.
+
+## Open questions
+
+None.

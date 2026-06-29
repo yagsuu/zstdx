@@ -80,7 +80,7 @@ pub const FixedBufferArena = struct {
         index: usize,
     };
 
-    pub fn init(buffer: []u8) FixedBufferArena;
+    pub fn wrap(buffer: []u8) FixedBufferArena;
 
     pub fn assertValid(self: FixedBufferArena) void;
     pub fn isValid(self: FixedBufferArena) bool;
@@ -116,7 +116,7 @@ A valid arena satisfies:
 arena.index <= arena.buffer.len
 ```
 
-`init(buffer)` returns `.{ .buffer = buffer, .index = 0 }`.
+`wrap(buffer)` returns `.{ .buffer = buffer, .index = 0 }`.
 
 `assertValid` asserts the invariant. `isValid` returns the invariant result. All
 operations other than `isValid` and `assertValid` may assert the invariant as a
@@ -225,16 +225,16 @@ value-copy branching.
 
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
-| `init` | none | never | O(1) | none | caller-owned memory | none |
-| position helpers | none | never | O(1) | none | caller-owned memory | none |
-| `allocBytes` | caller buffer | never | O(1) | arena index | caller-owned memory | byte order only |
-| `allocAlignedBytes` | caller buffer | never | O(1) | arena index | caller-owned memory | byte order only |
-| `alloc(T)` | caller buffer | never | O(1) | arena index | caller-owned memory | byte order only |
-| `allocSlice` | caller buffer | never | O(1) | arena index | caller-owned memory | byte order only |
-| `allocator` | caller buffer | never | allocator call | arena index | caller-owned memory | byte order only |
-| `mark` | none | never | O(1) | none | caller-owned memory | none |
-| `restore` | none | never | O(1) | later allocations | caller-owned memory | none |
-| `reset` | none | never | O(1) | all allocations | caller-owned memory | none |
+| `wrap` | none | never | O(1) | none | caller-owned buffer | none |
+| position helpers | none | never | O(1) | none | caller-owned buffer | none |
+| `allocBytes` | caller buffer | never | O(1) | arena index | caller-owned buffer | byte order only |
+| `allocAlignedBytes` | caller buffer | never | O(1) | arena index | caller-owned buffer | byte order only |
+| `alloc(T)` | caller buffer | never | O(1) | arena index | caller-owned buffer | byte order only |
+| `allocSlice` | caller buffer | never | O(1) | arena index | caller-owned buffer | byte order only |
+| `allocator` | caller buffer | never | allocator call | arena index | caller-owned buffer | byte order only |
+| `mark` | none | never | O(1) | none | caller-owned buffer | none |
+| `restore` | none | never | O(1) | later allocations | caller-owned buffer | none |
+| `reset` | none | never | O(1) | all allocations | caller-owned buffer | none |
 
 These operations perform no heap allocation, waiting, hidden global access,
 atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
@@ -270,7 +270,7 @@ Build a temporary table list:
 
 ```zig
 var scratch: [4096]u8 = undefined;
-var arena = zstdx.mem.FixedBufferArena.init(&scratch);
+var arena = zstdx.mem.FixedBufferArena.wrap(&scratch);
 
 const tables = try arena.allocSlice(Table, table_count);
 ```
@@ -289,7 +289,7 @@ Interop with allocator-taking code:
 
 ```zig
 var scratch: [8192]u8 = undefined;
-var arena = zstdx.mem.FixedBufferArena.init(&scratch);
+var arena = zstdx.mem.FixedBufferArena.wrap(&scratch);
 
 var list = std.ArrayListUnmanaged(u32){};
 try list.append(arena.allocator(), 42);
@@ -308,7 +308,7 @@ try list.append(arena.allocator(), 42);
 
 ### Construction and capacity
 
-- `init` starts with `used() == 0`;
+- `wrap` starts with `used() == 0`;
 - `capacity()` equals `buffer.len`;
 - `remaining()` equals `buffer.len` at initialization;
 - `remainingBytes()` returns the full buffer at initialization;

@@ -57,7 +57,10 @@ Proposals must not include:
 - `docs/specs/mem/alignment.md`
 - `docs/specs/bits/bitset-static.md`
 - `docs/specs/addr/address.md`
-- `docs/specs/layout/unaligned.md`
+- `docs/specs/addr/pages.md`
+- `docs/specs/ranges/range-set.md`
+- `docs/specs/ranges/range-map.md`
+- `docs/specs/bytes/unaligned.md`
 - `docs/specs/layout/endian.md`
 - `docs/specs/bytes/cursor.md`
 - `docs/specs/mem/fixed-buffer-arena.md`
@@ -68,6 +71,7 @@ Proposals must not include:
 - `docs/specs/intrusive/list.md`
 - `docs/specs/intrusive/queue.md`
 - `docs/specs/intrusive/stack.md`
+- `docs/specs/bytes/access.md`
 
 ## Queue
 
@@ -79,10 +83,6 @@ first-slice limits in `docs/specs/project/scope.md`.
 
 ### High-value follow-up — address/page and hardware-adjacent primitives
 
-- `docs/specs/addr/pages.md`
-- `docs/specs/ranges/range-set.md`
-- `docs/specs/ranges/range-map.md`
-- `docs/specs/layout/checked-offset.md`
 - `docs/specs/layout/assert-struct-layout.md`
 - `docs/specs/barrier/overview.md`
 - `docs/specs/barrier/compiler.md`

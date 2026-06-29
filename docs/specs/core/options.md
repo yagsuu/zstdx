@@ -195,3 +195,7 @@ For every primitive using `SafetyMode`:
 - no test relies on build-mode-dependent behavior unless the test target mode is explicit.
 
 Tests may use `.unchecked` for valid operation paths. Tests must not use `.unchecked` to hide broken invariants.
+
+## Open questions
+
+None.

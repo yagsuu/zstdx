@@ -74,12 +74,12 @@ There is no `zstdx.List.SinglyLinked`, `zstdx.SinglyLinkedList`, or
 ```zig
 pub const List = struct {
     pub const SinglyLinkedNode = struct {
-        next: ?*@This() = null;
+        next: ?*@This() = null,
     };
 
     pub const DoublyLinkedNode = struct {
-        prev: ?*@This() = null;
-        next: ?*@This() = null;
+        prev: ?*@This() = null,
+        next: ?*@This() = null,
     };
 
     pub fn SinglyLinked(comptime T: type, comptime node_field: []const u8) type;
@@ -91,27 +91,27 @@ Returned `SinglyLinked` type:
 
 ```zig
 pub const Self = struct {
-    head: ?*T = null;
-    tail: ?*T = null;
+    head: ?*T = null,
+    tail: ?*T = null,
 
     pub fn init() Self;
 
     pub fn isEmpty(self: *const Self) bool;
 
-    pub fn first(self: *Self) ?*T;
-    pub fn constFirst(self: *const Self) ?*const T;
-    pub fn last(self: *Self) ?*T;
-    pub fn constLast(self: *const Self) ?*const T;
+    pub fn front(self: *Self) ?*T;
+    pub fn constFront(self: *const Self) ?*const T;
+    pub fn back(self: *Self) ?*T;
+    pub fn constBack(self: *const Self) ?*const T;
 
     pub fn next(item: *T) ?*T;
     pub fn constNext(item: *const T) ?*const T;
 
-    pub fn prepend(self: *Self, item: *T) void;
-    pub fn append(self: *Self, item: *T) void;
+    pub fn pushFront(self: *Self, item: *T) void;
+    pub fn pushBack(self: *Self, item: *T) void;
     pub fn insertAfter(self: *Self, previous: *T, item: *T) void;
 
-    pub fn popFirst(self: *Self) ?*T;
-    pub fn remove(self: *Self, item: *T) bool;
+    pub fn popFront(self: *Self) ?*T;
+    pub fn tryRemove(self: *Self, item: *T) bool;
 
     pub fn clear(self: *Self) void;
 
@@ -123,30 +123,30 @@ Returned `DoublyLinked` type:
 
 ```zig
 pub const Self = struct {
-    head: ?*T = null;
-    tail: ?*T = null;
+    head: ?*T = null,
+    tail: ?*T = null,
 
     pub fn init() Self;
 
     pub fn isEmpty(self: *const Self) bool;
 
-    pub fn first(self: *Self) ?*T;
-    pub fn constFirst(self: *const Self) ?*const T;
-    pub fn last(self: *Self) ?*T;
-    pub fn constLast(self: *const Self) ?*const T;
+    pub fn front(self: *Self) ?*T;
+    pub fn constFront(self: *const Self) ?*const T;
+    pub fn back(self: *Self) ?*T;
+    pub fn constBack(self: *const Self) ?*const T;
 
     pub fn next(item: *T) ?*T;
     pub fn constNext(item: *const T) ?*const T;
     pub fn previous(item: *T) ?*T;
     pub fn constPrevious(item: *const T) ?*const T;
 
-    pub fn prepend(self: *Self, item: *T) void;
-    pub fn append(self: *Self, item: *T) void;
+    pub fn pushFront(self: *Self, item: *T) void;
+    pub fn pushBack(self: *Self, item: *T) void;
     pub fn insertBefore(self: *Self, next_item: *T, item: *T) void;
     pub fn insertAfter(self: *Self, previous_item: *T, item: *T) void;
 
-    pub fn popFirst(self: *Self) ?*T;
-    pub fn popLast(self: *Self) ?*T;
+    pub fn popFront(self: *Self) ?*T;
+    pub fn popBack(self: *Self) ?*T;
     pub fn remove(self: *Self, item: *T) void;
 
     pub fn clear(self: *Self) void;
@@ -156,7 +156,8 @@ pub const Self = struct {
 ```
 
 There is no `len`, `capacity`, `remaining`, `isFull`, `asSlice`, `peek`,
-`enqueue`, `dequeue`, `orderedRemove`, or `swapRemove` alias.
+`enqueue`, `dequeue`, `orderedRemove`, `swapRemove`, `append`, `prepend`,
+`popFirst`, `popLast`, `first`, or `last` alias.
 
 ## Type and node-field contract
 
@@ -188,8 +189,8 @@ var ready = ReadyList.init();
 var all = AllList.init();
 var task: Task = .{ .id = 1 };
 
-ready.append(&task);
-all.append(&task);
+ready.pushBack(&task);
+all.pushBack(&task);
 ```
 
 A node must be initialized to `.{}` before its first insertion. Insert operations
@@ -225,13 +226,13 @@ mutation preserves every invariant owned by the list.
 
 ## Endpoint and traversal access
 
-`first()` returns `head`, or `null` when empty.
+`front()` returns `head`, or `null` when empty.
 
-`constFirst()` returns the read-only equivalent.
+`constFront()` returns the read-only equivalent.
 
-`last()` returns `tail`, or `null` when empty.
+`back()` returns `tail`, or `null` when empty.
 
-`constLast()` returns the read-only equivalent.
+`constBack()` returns the read-only equivalent.
 
 `next(item)` returns the next parent object stored in `item`'s embedded node, or
 `null` when `item` has no next object.
@@ -249,10 +250,10 @@ are null.
 
 ## Singly linked insertion
 
-`prepend(item)` inserts `item` before the current head. When the list is empty,
+`pushFront(item)` inserts `item` before the current head. When the list is empty,
 it sets both `head` and `tail` to `item`.
 
-`append(item)` inserts `item` after the current tail in O(1). When the list is
+`pushBack(item)` inserts `item` after the current tail in O(1). When the list is
 empty, it sets both `head` and `tail` to `item`.
 
 `insertAfter(previous, item)` inserts `item` immediately after `previous`.
@@ -264,21 +265,23 @@ detached.
 
 ## Singly linked removal
 
-`popFirst()` removes and returns the head object. It returns `null` when empty.
+`popFront()` removes and returns the head object. It returns `null` when empty.
 When the removed object was the tail, the list becomes empty.
 
-`remove(item)` scans from `head`. If `item` is found, it unlinks `item`, updates
+`tryRemove(item)` scans from `head`. If `item` is found, it unlinks `item`, updates
 `head` and `tail` as needed, detaches `item`'s selected node, and returns `true`.
-If `item` is not found, it leaves the list unchanged and returns `false`.
+If `item` is not found, it leaves the list unchanged and returns `false`. The
+`Try` prefix marks the scan-and-report contract; `DoublyLinked.remove` is the
+O(1) precondition counterpart.
 
 Singly linked removal preserves the relative order of remaining objects.
 
 ## Doubly linked insertion
 
-`prepend(item)` inserts `item` before the current head. When the list is empty,
+`pushFront(item)` inserts `item` before the current head. When the list is empty,
 it sets both `head` and `tail` to `item`.
 
-`append(item)` inserts `item` after the current tail. When the list is empty, it
+`pushBack(item)` inserts `item` after the current tail. When the list is empty, it
 sets both `head` and `tail` to `item`.
 
 `insertBefore(next_item, item)` inserts `item` immediately before `next_item`.
@@ -294,10 +297,10 @@ detached.
 
 ## Doubly linked removal
 
-`popFirst()` removes and returns the head object. It returns `null` when empty.
+`popFront()` removes and returns the head object. It returns `null` when empty.
 When the removed object was the tail, the list becomes empty.
 
-`popLast()` removes and returns the tail object. It returns `null` when empty.
+`popBack()` removes and returns the tail object. It returns `null` when empty.
 When the removed object was the head, the list becomes empty.
 
 `remove(item)` unlinks `item` in O(1). `item` must be linked in this list. The
@@ -330,8 +333,8 @@ neighbor relationships. Remaining objects stay at the same addresses.
 
 `clear()` invalidates every membership in the list and detaches every node.
 
-Iteration order is link order from `first()` through repeated `next()` calls.
-`DoublyLinked` reverse order is link order from `last()` through repeated
+Iteration order is link order from `front()` through repeated `next()` calls.
+`DoublyLinked` reverse order is link order from `back()` through repeated
 `previous()` calls.
 
 ## Behavior contract
@@ -344,12 +347,12 @@ Singly linked operations:
 | `init` | never | never | O(1) | none | caller-owned value | empty |
 | `isEmpty` | never | never | O(1) | none | caller-owned value | none |
 | endpoint access | never | never | O(1) | none | caller-owned value | link order |
-| `next` | never | never | O(1) | none | caller-owned object | link order |
-| `prepend` | never | never | O(1) | head endpoint | caller-owned value | inserts at head |
-| `append` | never | never | O(1) | tail endpoint | caller-owned value | inserts at tail |
+| `next` | never | never | O(1) | none | caller-owned value | link order |
+| `pushFront` | never | never | O(1) | head endpoint | caller-owned value | inserts at head |
+| `pushBack` | never | never | O(1) | tail endpoint | caller-owned value | inserts at tail |
 | `insertAfter` | never | never | O(1) | successor of anchor | caller-owned value | inserts after anchor |
-| `popFirst` | never | never | O(1) | removed head | caller-owned value | removes head |
-| `remove` | never | never | O(n) | removed item | caller-owned value | preserves order |
+| `popFront` | never | never | O(1) | removed head | caller-owned value | removes head |
+| `tryRemove` | never | never | O(n) | removed item | caller-owned value | preserves order |
 | `clear` | never | never | O(n) | all memberships | caller-owned value | empty |
 | `assertValid` | never | never | O(n) | none | caller-owned value | verifies topology |
 
@@ -361,13 +364,13 @@ Doubly linked operations:
 | `init` | never | never | O(1) | none | caller-owned value | empty |
 | `isEmpty` | never | never | O(1) | none | caller-owned value | none |
 | endpoint access | never | never | O(1) | none | caller-owned value | link order |
-| `next` / `previous` | never | never | O(1) | none | caller-owned object | link order |
-| `prepend` | never | never | O(1) | head endpoint | caller-owned value | inserts at head |
-| `append` | never | never | O(1) | tail endpoint | caller-owned value | inserts at tail |
+| `next` / `previous` | never | never | O(1) | none | caller-owned value | link order |
+| `pushFront` | never | never | O(1) | head endpoint | caller-owned value | inserts at head |
+| `pushBack` | never | never | O(1) | tail endpoint | caller-owned value | inserts at tail |
 | `insertBefore` | never | never | O(1) | predecessor of anchor | caller-owned value | inserts before anchor |
 | `insertAfter` | never | never | O(1) | successor of anchor | caller-owned value | inserts after anchor |
-| `popFirst` | never | never | O(1) | removed head | caller-owned value | removes head |
-| `popLast` | never | never | O(1) | removed tail | caller-owned value | removes tail |
+| `popFront` | never | never | O(1) | removed head | caller-owned value | removes head |
+| `popBack` | never | never | O(1) | removed tail | caller-owned value | removes tail |
 | `remove` | never | never | O(1) | removed item | caller-owned value | preserves order |
 | `clear` | never | never | O(n) | all memberships | caller-owned value | empty |
 | `assertValid` | never | never | O(n) | none | caller-owned value | verifies topology |
@@ -381,7 +384,7 @@ The public API has no error set.
 
 - empty endpoint access returns `null`;
 - empty pops return `null`;
-- `SinglyLinked.remove(item)` returns `false` when `item` is not found;
+- `SinglyLinked.tryRemove(item)` returns `false` when `item` is not found;
 - invalid type and field combinations are compile errors where practical;
 - double insert is a programmer error;
 - removing a node through the wrong list is a programmer error;
@@ -390,6 +393,37 @@ The public API has no error set.
 
 Operations with programmer-error preconditions may assert those preconditions
 when practical, but the spec does not require runtime owner tracking.
+
+## Implementation constraints
+
+- intrusive list values do not maintain a `count`. Operations that would require a count must not exist on the public surface.
+- intrusive list values do not embed another `List.SinglyLinked`, `Queue`, or `Stack` value.
+- `clear()` must detach every node's selected field; dropping endpoint pointers without detaching is prohibited.
+- `popFront`, `popBack`, `tryRemove`, and `remove` must detach the returned node's selected `next` and `prev` fields to `null` before returning.
+- the public `Self` value does not expose anything beyond endpoints and the operations declared above.
+
+## Concurrency
+
+Intrusive lists are not thread-safe. Concurrent access from multiple threads requires caller-owned external synchronization. Immutable reads through an immutable list value require no synchronization beyond ordinary Zig aliasing rules.
+
+## Iteration with removal
+
+`tryRemove` and `remove` invalidate the removed object's link neighbors. A caller iterating via `next()`/`previous()` MUST cache the next pointer before calling `tryRemove`/`remove` on the current item:
+
+```zig
+var it: ?*T = list.front();
+while (it) |item| {
+    const next_item = ReadyList.next(item);
+    if (shouldRemove(item)) _ = list.tryRemove(item);
+    it = next_item;
+}
+```
+
+Alternatively, callers may drain via destructive `while (list.popFront()) |item| { ... }` iteration when relative order is not required.
+
+## Shared node-type aliasing
+
+`List.SinglyLinkedNode` is the embedded node type for `List.SinglyLinked`, `Queue`, and `Stack`. The comptime type check is identical across the three primitives. The same physical `SinglyLinkedNode` field MUST NOT be wired into more than one `List.SinglyLinked`, `Queue`, or `Stack` instance simultaneously. Comptime type checking is not sufficient to prevent this; reuse is a programmer-error precondition and may be detected by `assertValid` in some configurations but is not guaranteed.
 
 ## Debug assertion behavior
 
@@ -433,10 +467,10 @@ var ready = ReadyList.init();
 var thread_a: Thread = .{ .id = 1 };
 var thread_b: Thread = .{ .id = 2 };
 
-ready.append(&thread_a);
-ready.append(&thread_b);
+ready.pushBack(&thread_a);
+ready.pushBack(&thread_b);
 
-while (ready.popFirst()) |thread| {
+while (ready.popFront()) |thread| {
     consume(thread);
 }
 ```
@@ -454,7 +488,7 @@ const Devices = zstdx.intrusive.List.DoublyLinked(Device, "all_node");
 var devices = Devices.init();
 var device: Device = .{ .id = 7 };
 
-devices.append(&device);
+devices.pushBack(&device);
 devices.remove(&device);
 ```
 
@@ -482,27 +516,27 @@ Construction tests:
 
 Singly linked tests:
 
-- prepend into empty list;
-- append into empty list;
-- prepend before existing head;
-- append after existing tail;
+- pushFront into empty list;
+- pushBack into empty list;
+- pushFront before existing head;
+- pushBack after existing tail;
 - insert after head, interior item, and tail;
 - pop the only item;
 - pop head from a multi-item list;
 - remove head, interior item, and tail;
-- remove a missing item returns `false` and preserves the list;
+- `tryRemove` of a missing item returns `false` and preserves the list;
 - reinsert an item after removal;
 - clear empty, one-item, and multi-item lists;
 - traversal with repeated `next()` observes link order.
 
 Doubly linked tests:
 
-- prepend into empty list;
-- append into empty list;
+- pushFront into empty list;
+- pushBack into empty list;
 - insert before head, interior item, and tail;
 - insert after head, interior item, and tail;
-- pop first from one-item and multi-item lists;
-- pop last from one-item and multi-item lists;
+- popFront from one-item and multi-item lists;
+- popBack from one-item and multi-item lists;
 - remove head, interior item, and tail;
 - reinsert an item after removal;
 - clear empty, one-item, and multi-item lists;

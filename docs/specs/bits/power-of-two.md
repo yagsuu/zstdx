@@ -180,3 +180,7 @@ comptime {
     std.debug.assert((try zstdx.bits.nextPowerOfTwo(u8, 7)) == 8);
 }
 ```
+
+## Open questions
+
+None.

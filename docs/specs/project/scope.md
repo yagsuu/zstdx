@@ -241,10 +241,14 @@ Planned primitives:
 - `layout.EndianInt(T, endian)`
 - `layout.Le(T)`
 - `layout.Be(T)`
-- `layout.unalignedLoad`
-- `layout.unalignedStore`
-- `layout.CheckedOffset`
 - `layout.assertStructLayout`
+- `bytes.loadUnaligned`
+- `bytes.storeUnaligned`
+- `bytes.load`
+- `bytes.store`
+- `bytes.loadSlice`
+- `bytes.storeSlice`
+- `bytes.loadTail`
 - `bytes.Cursor`
 - `bytes.Builder`
 - `bytes.StaticBuilder(N)`
@@ -496,7 +500,7 @@ Approved first-slice candidates:
 8. `addr.Address`;
 9. `addr.PhysAddr` and `addr.VirtAddr`;
 10. `layout.Le`, `layout.Be`;
-11. `layout.unalignedLoad`, `layout.unalignedStore`;
+11. `bytes.loadUnaligned`, `bytes.storeUnaligned`;
 12. `bytes.Cursor`;
 13. `mem.FixedBufferArena`;
 14. `mem.BumpAllocator`;

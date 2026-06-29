@@ -31,8 +31,8 @@ Source directory ownership is defined by `docs/specs/architecture.md`.
 - `src/addr/` — strong address, size, page, frame, and range types.
 - `src/barrier/` — generic compiler, CPU, IO, and DMA ordering surfaces.
 - `src/arch/` — architecture-specific CPU and fence helpers.
-- `src/layout/` — endian, unaligned, packed-view, and layout assertion helpers.
-- `src/bytes/` — byte cursors, builders, endian readers/writers.
+- `src/layout/` — endian, packed-view, and layout assertion helpers.
+- `src/bytes/` — byte cursors, builders, unaligned and bounds-checked byte access, endian readers/writers.
 - `src/mem/` — memory alignment, allocators, and memory-resource primitives.
 - `src/collections/` — non-intrusive containers.
 - `src/intrusive/` — intrusive containers.
@@ -121,19 +121,98 @@ zstdx public names use the baseline Zig naming rules with these package terms:
 - `Static`, `Bounded`, `Managed`, and `Unmanaged` are nested under the family they specialize: `List.Static`, not
   `StaticList`;
 - slice exposure uses `asSlice` / `asConstSlice` unless a spec deliberately exposes fields;
-- list-like containers append;
+- list-like containers use directional verbs `pushBack` / `popFront` / `pushFront` / `popBack` and `front` / `back` accessors;
 - stack-like containers push/pop;
-- queue, ring, and deque containers use directional names such as `pushBack` and `popFront`.
+- queue, ring, and deque containers use the same directional names: `pushBack`, `popFront`, `pushFront`, `popBack`, `front`, `back`;
+- intrusive single-ended containers (`Queue`, `Stack`) follow their family's vocabulary; intrusive doubly-linked lists use the deque vocabulary.
 
 ## Constructors
 
-zstdx constructor vocabulary:
+zstdx constructor vocabulary is closed. Pick the verb by argument shape and fallibility:
 
-- `Type.init(...)` initializes without allocation unless the spec says otherwise.
-- `Type.initCapacity(...)` may allocate or reserve capacity if the spec says so.
-- `Type.from(input)` performs pure reinterpretation or conversion from one input.
-- `Type.wrap(storage)` borrows caller-owned storage.
+- `Type.init(...)` — infallible. No allocation, no argument validation. Includes the no-arg form `Type.init()` for inline-storage static containers.
+- `Type.initCapacity(allocator, n)` — may allocate or reserve capacity if the owning spec says so.
+- `Type.wrap(storage)` — infallible, borrows caller-owned storage. Used by every `Bounded` container and any type that takes a backing buffer at runtime.
+- `Type.fromX(input)` — single-input reinterpretation. Use `fromInt`, `fromNative`, `fromBytes`, `fromAddress`, etc. May be infallible (`Type.fromInt(value: Int) Self`) or fallible (`Type.fromAddress(addr: Addr) Error!Self`).
+- `Type.fromXY(a, b) Error!Self` — multi-input validating constructor. Pick a domain-specific verb: `fromStartLen`, `fromBounds`, `fromBaseCount`, `fromAddressBytes`.
 - `deinit` releases resources owned by the value.
+
+Any constructor that returns an error union is named `from*`, never `init`. There is no `Type.initUnchecked` variant — callers with proven validity use a struct literal.
+
+## Error vocabulary
+
+zstdx uses one canonical name per error condition. Reuse these names across specs; do not invent near-duplicates.
+
+| Error | Meaning |
+| --- | --- |
+| `Overflow` | Arithmetic over- or under-flow; the saturating value is not representable in `T`. Covers both directions. |
+| `OutOfBounds` | Index or offset outside the addressable domain of a value or container. |
+| `EndOfStream` | Sequential consumer exhausted past the end of the input. |
+| `InvalidAlignment` | Alignment **argument** is malformed: zero or not a power of two. |
+| `Misaligned` | A **value** is not aligned to a required boundary. |
+| `Full` | Fixed-capacity container has no room. |
+| `OutOfMemory` | Allocator-shaped exhaustion; matches the `std.mem.Allocator` convention. |
+| `InvalidRange` | Constructor input violates `end >= start`. |
+| `Overlap` | Map insertion would overlap an existing entry. |
+
+Specs must not introduce near-duplicates such as `OutOfRange`, `Truncated`, or `Underflow`.
+
+## Error placement
+
+- Free functions in a module → module-level `pub const Error = error{...}`.
+- Types with state or methods → nested `pub const Error = error{...}` inside the type or returned namespace.
+- Domain facades do not re-export error sets. A caller writes `zstdx.bytes.Cursor.Error` or `zstdx.mem.alignment.Error`, never `zstdx.bytes.Error`.
+
+Per-operation error sets may narrow the type-level union when a method can only produce a subset of variants. The type-level `Error` remains a documentary union over every variant the type can return.
+
+## Predicate return convention
+
+- "is X?" / "has X?" / "contains X?" predicates return plain `bool`. Out-of-domain inputs return `false`; comptime-checkable programmer errors use `std.debug.assert`.
+- Mutators that take a runtime index return `Error!void` with `OutOfBounds`.
+- Optional lookups return `?T` or `?*T`; do not wrap optional lookups in an error union.
+
+## Capacity vocabulary
+
+Static containers expose their comptime capacity as a `pub const` on the returned type. The constant name uses the singular element noun plus `_capacity`:
+
+- `item_capacity` for element containers (`List.Static`, `Ring.Static`).
+- `range_capacity` for range containers (`RangeSet.Static`).
+- `entry_capacity` for key-value containers (`RangeMap.Static`).
+- `bit_capacity` for bitsets (`BitSet.Static`).
+
+The comptime factory parameter name matches: `comptime capacity_items`, `capacity_ranges`, `capacity_entries`, `capacity_bits`.
+
+Inline-storage containers expose their backing array as `buffer`:
+
+```zig
+buffer: [capacity_items]T = undefined,
+```
+
+Runtime helpers return `usize`: `len()`, `capacity()`, `remaining()`, `isEmpty()`, `isFull()`. Every static and bounded container exposes the same five helpers; the `count()` name is reserved for set-flavored types where population differs from slot count.
+
+## Set-flavored exception
+
+`BitSet.Static` and any future set-flavored primitive use set semantics:
+
+- `count(self) usize` returns the population (set-element count), not the slot count.
+- `<element>_capacity` (e.g. `bit_capacity`) gives the slot count.
+- `clearRetainingCapacity(self)` clears every element.
+- `setAll(self)` sets every element (paired with `set(index)` / `unset(index)`).
+- Set-flavored types do not expose `insert(index)` / `remove(index)`; callers use `set` / `unset`.
+
+## Behavior contract concurrency column
+
+The `Concurrency` column of behavior-contract tables uses one of five closed terms:
+
+| Term | Meaning |
+| --- | --- |
+| `pure function` | Free function with no receiver state. |
+| `value type` | Receiver is a self-contained value with no external storage. |
+| `type factory` | The `Static(T, N)` / `Bounded(T)` generic-factory row itself. |
+| `caller-owned value` | Static container that owns inline storage. |
+| `caller-owned buffer` | Bounded container or other type that borrows external storage. |
+
+No other phrasings are permitted. Specs that need to distinguish read-only from mutable access state that distinction in prose under `## Concurrency and ordering`, not in the column.
 
 ## Runtime contracts
 

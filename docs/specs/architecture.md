@@ -176,26 +176,31 @@ src/
   bits.zig
   bits/
     power_of_two.zig
-    bit_flags.zig
     set.zig
 
   addr.zig
   addr/
     address.zig
+    pages.zig
+
+  ranges.zig
+  ranges/
+    set.zig
+    map.zig
 
   layout.zig
   layout/
     endian.zig
-    unaligned.zig
 
   bytes.zig
   bytes/
     cursor.zig
+    unaligned.zig
+    access.zig
 
   mem.zig
   mem/
     fixed_buffer_arena.zig
-    bump_allocator.zig
     alignment.zig
 
   collections.zig
@@ -223,22 +228,26 @@ test/
 
   bits/
     power_of_two_test.zig
-    bit_flags_test.zig
     set_test.zig
 
   addr/
     address_test.zig
+    pages_test.zig
+
+  ranges/
+    set_test.zig
+    map_test.zig
 
   layout/
     endian_test.zig
-    unaligned_test.zig
 
   bytes/
     cursor_test.zig
+    unaligned_test.zig
+    access_test.zig
 
   mem/
     fixed_buffer_arena_test.zig
-    bump_allocator_test.zig
     alignment_test.zig
 
   collections/

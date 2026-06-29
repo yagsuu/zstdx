@@ -98,17 +98,17 @@ pub const Self = struct {
 
     pub fn clearRetainingCapacity(self: *Self) void;
 
-    pub fn append(self: *Self, item: T) Error!void;
+    pub fn append(self: *Self, item: T) error{Full}!void;
     pub fn appendAssumeCapacity(self: *Self, item: T) void;
-    pub fn appendSlice(self: *Self, items: []const T) Error!void;
+    pub fn appendSlice(self: *Self, items: []const T) error{Full}!void;
 
     pub fn insert(self: *Self, index: usize, item: T) Error!void;
-    pub fn orderedRemove(self: *Self, index: usize) Error!T;
-    pub fn swapRemove(self: *Self, index: usize) Error!T;
+    pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T;
+    pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T;
     pub fn pop(self: *Self) ?T;
 
-    pub fn at(self: *Self, index: usize) Error!*T;
-    pub fn constAt(self: *const Self, index: usize) Error!*const T;
+    pub fn at(self: *Self, index: usize) error{OutOfBounds}!*T;
+    pub fn constAt(self: *const Self, index: usize) error{OutOfBounds}!*const T;
 
     pub fn assertValid(self: *const Self) void;
 };
@@ -228,6 +228,9 @@ value stays at the same address.
 `index` is not the old last index, the item formerly at the last index moves to
 `index`. Other indexes and pointers remain valid while the list value stays at
 the same address.
+
+`clearRetainingCapacity()` invalidates all indexes and all initialized-element
+pointers and slices previously returned by the list.
 
 Iteration order is the order of `asConstSlice()`. Only `orderedRemove` preserves
 relative order across removal.

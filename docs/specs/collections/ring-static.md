@@ -85,7 +85,7 @@ Returned type:
 
 ```zig
 pub const Self = struct {
-    items: [capacity_items]T = undefined,
+    buffer: [capacity_items]T = undefined,
     head: usize = 0,
     count: usize = 0,
 
@@ -171,14 +171,14 @@ These operations do not inspect spare storage.
 
 ## Pointer access
 
-`front()` returns `&items[head]` when the ring is non-empty, otherwise `null`.
+`front()` returns `&buffer[head]` when the ring is non-empty, otherwise `null`.
 
 `constFront()` returns the read-only equivalent.
 
 `back()` returns a pointer to the most recently enqueued live element when the
 ring is non-empty, otherwise `null`. The back slot is the unique index `b` such
-that the live elements are `items[head], items[head + 1 mod item_capacity], …,
-items[b]`.
+that the live elements are `buffer[head], buffer[head + 1 mod item_capacity], …,
+buffer[b]`.
 
 `constBack()` returns the read-only equivalent.
 
@@ -187,7 +187,7 @@ invalidates pointers and slices into the old value.
 
 ## Enqueue semantics
 
-`pushBack(item)` writes `item` to the slot one past the current back and
+`pushBack(item)` writes `item` to `buffer[(head + count) % item_capacity]` and
 increments `count`. It returns `error.Full` and leaves the ring unchanged when
 `isFull()`.
 
@@ -212,7 +212,7 @@ Capacity is not constrained to a power of two.
 
 ## Dequeue semantics
 
-`popFront()` removes and returns `items[head]`, advances `head` with branch
+`popFront()` removes and returns `buffer[head]`, advances `head` with branch
 wrap, and decrements `count`. It returns `null` when empty. The vacated slot
 becomes spare storage.
 

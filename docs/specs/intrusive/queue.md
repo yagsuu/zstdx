@@ -77,8 +77,8 @@ Returned type:
 
 ```zig
 pub const Self = struct {
-    head: ?*T = null;
-    tail: ?*T = null;
+    head: ?*T = null,
+    tail: ?*T = null,
 
     pub fn init() Self;
 

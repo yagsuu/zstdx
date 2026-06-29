@@ -1,20 +1,26 @@
-# Layout unaligned access
+# Bytes unaligned access
 
 Status: Approved.
 
-`zstdx.layout.unalignedLoad` and `zstdx.layout.unalignedStore` copy a
+`zstdx.bytes.loadUnaligned` and `zstdx.bytes.storeUnaligned` copy a
 fixed-size value representation to or from a byte window whose address may be
 less aligned than the value type.
 
 They are byte-copy primitives. They do not perform endian conversion, bounds
 checking, validation, volatile access, or pointer reinterpretation.
 
+These primitives are the fixed-window foundation underneath the bounds-checked
+random-access helpers in `docs/specs/bytes/access.md` and the sequential
+`bytes.Cursor` in `docs/specs/bytes/cursor.md`. Random-access and sequential
+typed reads compose by carving a `*const [@sizeOf(T)]u8` window and calling
+`loadUnaligned` on it.
+
 ## Owned scope
 
 This spec owns:
 
-- `layout.unalignedLoad`;
-- `layout.unalignedStore`;
+- `bytes.loadUnaligned`;
+- `bytes.storeUnaligned`;
 - unaligned fixed-size byte-window loads and stores;
 - allowed type categories and caller validity rules;
 - no-allocation and no-waiting behavior;
@@ -34,42 +40,42 @@ This spec does not own:
 
 ## Public namespace
 
-Unaligned helpers live under `zstdx.layout`:
+Unaligned helpers live under `zstdx.bytes`:
 
 ```zig
-zstdx.layout.unalignedLoad
-zstdx.layout.unalignedStore
+zstdx.bytes.loadUnaligned
+zstdx.bytes.storeUnaligned
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.unalignedLoad // not exported
-zstdx.unalignedStore // not exported
+zstdx.loadUnaligned  // not exported
+zstdx.storeUnaligned // not exported
 ```
 
 Source ownership:
 
 ```text
-src/layout.zig
-src/layout/unaligned.zig
-test/layout/unaligned_test.zig
+src/bytes.zig
+src/bytes/unaligned.zig
+test/bytes/unaligned_test.zig
 ```
 
-`src/layout.zig` re-exports:
+`src/bytes.zig` re-exports:
 
 ```zig
-pub const unaligned = @import("layout/unaligned.zig");
+pub const unaligned = @import("bytes/unaligned.zig");
 
-pub const unalignedLoad = unaligned.unalignedLoad;
-pub const unalignedStore = unaligned.unalignedStore;
+pub const loadUnaligned = unaligned.loadUnaligned;
+pub const storeUnaligned = unaligned.storeUnaligned;
 ```
 
 ## Approved API
 
 ```zig
-pub fn unalignedLoad(comptime T: type, bytes: *const [@sizeOf(T)]u8) T;
-pub fn unalignedStore(comptime T: type, bytes: *[@sizeOf(T)]u8, value: T) void;
+pub fn loadUnaligned(comptime T: type, bytes: *const [@sizeOf(T)]u8) T;
+pub fn storeUnaligned(comptime T: type, bytes: *[@sizeOf(T)]u8, value: T) void;
 ```
 
 `bytes` is a fixed-size byte window. Its pointer may have byte alignment only;
@@ -79,8 +85,12 @@ No slice overload is approved in this spec. Callers with a slice must establish
 bounds first, then pass a fixed window:
 
 ```zig
-const value = zstdx.layout.unalignedLoad(u32, bytes[offset..][0..4]);
+const value = zstdx.bytes.loadUnaligned(u32, bytes[offset..][0..4]);
 ```
+
+The bounds-checked `zstdx.bytes.load` and `zstdx.bytes.store` helpers in
+`docs/specs/bytes/access.md` compose these primitives for callers that need
+the bounds check at a runtime offset.
 
 ## Type contract
 
@@ -91,7 +101,7 @@ Supported uses:
 - fixed-size arrays;
 - packed structs whose owning spec proves bit layout;
 - extern structs whose owning spec proves size, alignment, and offsets;
-- endian wrapper types after `layout.Le(T)` and `layout.Be(T)` are approved.
+- endian wrapper types `layout.Le(T)` and `layout.Be(T)`.
 
 Invalid or unsupported type categories must fail at compile time where
 practical:
@@ -112,7 +122,7 @@ semantic type.
 
 ## Load semantics
 
-`unalignedLoad(T, bytes)` copies exactly `@sizeOf(T)` bytes from `bytes` into a
+`loadUnaligned(T, bytes)` copies exactly `@sizeOf(T)` bytes from `bytes` into a
 new `T` value and returns it.
 
 The result has the same object representation as the source bytes. No byte
@@ -123,8 +133,8 @@ The implementation must not read outside `bytes[0..@sizeOf(T)]` and must not use
 
 ## Store semantics
 
-`unalignedStore(T, bytes, value)` copies exactly `@sizeOf(T)` bytes from `value`
-into `bytes`.
+`storeUnaligned(T, bytes, value)` copies exactly `@sizeOf(T)` bytes from
+`value` into `bytes`.
 
 No byte order conversion occurs.
 
@@ -135,29 +145,25 @@ use `@ptrCast(@alignCast(...))` to reinterpret the destination as `*T`.
 
 Endian behavior belongs to `layout.Le(T)` and `layout.Be(T)`, not this spec.
 
-Once endian wrapper types are approved, endian-aware code should compose them
-with unaligned access:
+Endian-aware code composes endian wrappers with unaligned access:
 
 ```zig
-const raw = zstdx.layout.unalignedLoad(zstdx.layout.Le(u32), bytes);
+const raw = zstdx.bytes.loadUnaligned(zstdx.layout.Le(u32), bytes);
 const value = raw.native();
 
-zstdx.layout.unalignedStore(
+zstdx.bytes.storeUnaligned(
     zstdx.layout.Le(u32),
     bytes,
     zstdx.layout.Le(u32).fromNative(value),
 );
 ```
 
-Until those wrappers exist, downstream projects may continue using
-`std.mem.readInt` and `std.mem.writeInt` for endian-aware byte access.
-
 ## Behavior contract
 
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `unalignedLoad` | never | never | O(`@sizeOf(T)`) | none | caller-owned memory | none |
-| `unalignedStore` | never | never | O(`@sizeOf(T)`) | destination bytes | caller-owned memory | none |
+| Operation         | Allocation | Waiting | Bounds          | Invalidation       | Concurrency         | Ordering |
+| ---               | ---        | ---     | ---             | ---                | ---                 | ---      |
+| `loadUnaligned`   | never      | never   | O(`@sizeOf(T)`) | none               | caller-owned buffer | none     |
+| `storeUnaligned`  | never      | never   | O(`@sizeOf(T)`) | destination bytes  | caller-owned buffer | none     |
 
 These helpers perform no allocation, waiting, hidden global access, atomics,
 barriers, volatile access, or target probing.
@@ -189,38 +195,38 @@ Implementation must:
 Native object-representation load from a fixed byte window:
 
 ```zig
-const value = zstdx.layout.unalignedLoad(u32, bytes[pos..][0..4]);
+const value = zstdx.bytes.loadUnaligned(u32, bytes[pos..][0..4]);
 ```
 
 Native object-representation store:
 
 ```zig
-zstdx.layout.unalignedStore(u64, bytes[pos..][0..8], value);
+zstdx.bytes.storeUnaligned(u64, bytes[pos..][0..8], value);
 ```
 
 Packed flags through an integer lane:
 
 ```zig
-const bits = zstdx.layout.unalignedLoad(u32, bytes[pos..][0..4]);
+const bits = zstdx.bytes.loadUnaligned(u32, bytes[pos..][0..4]);
 const flags: Flags = @bitCast(bits);
 ```
 
-Endian-aware access after endian wrappers are approved:
+Endian-aware access through endian wrappers:
 
 ```zig
-const le = zstdx.layout.unalignedLoad(zstdx.layout.Le(u64), bytes[pos..][0..8]);
+const le = zstdx.bytes.loadUnaligned(zstdx.layout.Le(u64), bytes[pos..][0..8]);
 const phys = le.native();
 ```
 
 ## Planned consumers
 
 `zvm` uses this shape for KVM MMIO/PIO byte payload marshaling and identity
-digest byte encoders. Endian-aware TLV helpers should compose through
-`layout.Le(T)` after that spec lands.
+digest byte encoders. Endian-aware TLV helpers compose through
+`layout.Le(T)` and `layout.Be(T)`.
 
 `zfw` uses this shape for UEFI NV variable record headers, GUID byte fields, and
-device-path node lengths. Packed flag words should load an integer lane first,
-then `@bitCast` to the packed flag type.
+device-path node lengths. Packed flag words load an integer lane first, then
+`@bitCast` to the packed flag type.
 
 `zacpi` uses this shape under ACPI little-endian helpers. XSDT entries are the
 load-bearing case: `u64` entries begin after a 36-byte SDT header, so they are
@@ -263,9 +269,9 @@ Where practical:
 ```zig
 comptime {
     var bytes = [_]u8{ 0x34, 0x12 };
-    const value = zstdx.layout.unalignedLoad(u16, &bytes);
+    const value = zstdx.bytes.loadUnaligned(u16, &bytes);
     var out = [_]u8{ 0, 0 };
-    zstdx.layout.unalignedStore(u16, &out, value);
+    zstdx.bytes.storeUnaligned(u16, &out, value);
     std.debug.assert(out[0] == bytes[0]);
     std.debug.assert(out[1] == bytes[1]);
 }

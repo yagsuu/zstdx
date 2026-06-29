@@ -73,41 +73,38 @@ pub const Self = struct {
     pub const Error = error{OutOfBounds};
     pub const Word = u64;
     pub const word_bits = @bitSizeOf(Word);
-    pub const bit_count = capacity_bits;
+    pub const bit_capacity = capacity_bits;
     pub const word_count = capacity_bits / word_bits +
         @intFromBool(capacity_bits % word_bits != 0);
 
     pub fn init() Self;
     pub fn full() Self;
 
-    pub fn clearAll(self: *Self) void;
-    pub fn fill(self: *Self) void;
+    pub fn clearRetainingCapacity(self: *Self) void;
+    pub fn setAll(self: *Self) void;
 
-    pub fn isEmpty(self: Self) bool;
-    pub fn isFull(self: Self) bool;
-    pub fn count(self: Self) usize;
+    pub fn isEmpty(self: *const Self) bool;
+    pub fn isFull(self: *const Self) bool;
+    pub fn count(self: *const Self) usize;
 
-    pub fn isSet(self: Self, index: usize) Error!bool;
+    pub fn isSet(self: *const Self, index: usize) bool;
     pub fn set(self: *Self, index: usize) Error!void;
     pub fn unset(self: *Self, index: usize) Error!void;
     pub fn assign(self: *Self, index: usize, value: bool) Error!void;
     pub fn toggle(self: *Self, index: usize) Error!void;
 
-    pub fn insert(self: *Self, index: usize) Error!bool;
-    pub fn remove(self: *Self, index: usize) Error!bool;
-
-    pub fn firstSet(self: Self) ?usize;
+    pub fn firstSet(self: *const Self) ?usize;
     pub fn popFirstSet(self: *Self) ?usize;
 
-    pub fn eql(self: Self, other: Self) bool;
-    pub fn containsAll(self: Self, other: Self) bool;
-    pub fn containsAny(self: Self, other: Self) bool;
+    pub fn eql(self: *const Self, other: *const Self) bool;
+    pub fn containsAll(self: *const Self, other: *const Self) bool;
+    pub fn containsAny(self: *const Self, other: *const Self) bool;
 
-    pub fn unionWith(self: *Self, other: Self) void;
-    pub fn intersectWith(self: *Self, other: Self) void;
-    pub fn differenceWith(self: *Self, other: Self) void;
+    pub fn unionWith(self: *Self, other: *const Self) void;
+    pub fn intersectWith(self: *Self, other: *const Self) void;
+    pub fn differenceWith(self: *Self, other: *const Self) void;
 
-    pub fn assertValid(self: Self) void;
+    pub fn assertValid(self: *const Self) void;
 };
 ```
 
@@ -118,19 +115,19 @@ the unused-bit invariant.
 
 ## Capacity
 
-`bit_count` is a comptime bit count. `Static(0)` is valid.
+`bit_capacity` is a comptime bit count. `Static(0)` is valid.
 
 Valid indexes are:
 
 ```text
-0 <= index < bit_count
+0 <= index < bit_capacity
 ```
 
-Index-taking operations return `error.OutOfBounds` when `index >= bit_count`.
+Mutators (`set`, `unset`, `assign`, `toggle`) return `error.OutOfBounds` when `index >= bit_capacity`. `isSet` returns `false` for out-of-range indexes; predicate queries do not error.
 
 ## Unused-bit invariant
 
-When `bit_count` is not a multiple of `word_bits`, the final word has unused high
+When `bit_capacity` is not a multiple of `word_bits`, the final word has unused high
 bits. Those bits must always be zero after every public operation.
 
 `assertValid()` asserts that every unused high bit is zero.
@@ -153,21 +150,21 @@ For `Static(0)`, both `init()` and `full()` produce the same value.
 
 ## Whole-set operations
 
-`clearAll()` clears every valid bit.
+`clearRetainingCapacity()` clears every valid bit. The slot count `bit_capacity` is unchanged.
 
-`fill()` sets every valid bit and clears every unused high bit.
+`setAll()` sets every valid bit and clears every unused high bit.
 
 `isEmpty()` returns true when no valid bits are set.
 
 `isFull()` returns true when every valid bit is set. `Static(0).isFull()` returns
 true because every bit in the empty universe is set.
 
-`count()` returns the number of valid set bits. It ignores unused high bits;
+`count()` returns the population (number of valid set bits). It ignores unused high bits;
 valid receivers have no unused high bits set.
 
 ## Single-index operations
 
-`isSet(index)` returns whether `index` is set.
+`isSet(index)` returns whether `index` is set. Returns `false` for `index >= bit_capacity`.
 
 `set(index)` sets `index`.
 
@@ -176,12 +173,6 @@ valid receivers have no unused high bits set.
 `assign(index, value)` sets or clears `index` according to `value`.
 
 `toggle(index)` flips `index`.
-
-`insert(index)` sets `index` and returns true iff the bit changed from unset to
-set.
-
-`remove(index)` clears `index` and returns true iff the bit changed from set to
-unset.
 
 ## Lowest-set-bit operations
 
@@ -218,17 +209,17 @@ All set algebra operations must preserve the unused-bit invariant.
 
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
-| single-index operations | never | never | O(1) | none | caller-owned | none |
-| `firstSet`, `popFirstSet` | never | never | O(word_count) | none | caller-owned | none |
-| whole-set operations | never | never | O(word_count) | none | caller-owned | none |
-| set algebra | never | never | O(word_count) | none | caller-owned | none |
+| single-index operations | never | never | O(1) | none | caller-owned value | none |
+| `firstSet`, `popFirstSet` | never | never | O(word_count) | none | caller-owned value | none |
+| whole-set operations | never | never | O(word_count) | none | caller-owned value | none |
+| set algebra | never | never | O(word_count) | none | caller-owned value | none |
 
 `BitSet.Static` performs no allocation, waiting, hidden global access, atomics, or
 barriers.
 
 ## Error behavior
 
-- index-taking operations return `error.OutOfBounds` for `index >= bit_count`;
+- index-taking mutators return `error.OutOfBounds` for `index >= bit_capacity`;
 - methods that require a valid receiver may assert on invalid unused high bits;
 - `Static(N)` itself has no fallible construction path.
 
@@ -260,9 +251,7 @@ Required capacities:
 - `init()` is empty;
 - `full()` sets only valid bits;
 - `Static(0)` is both empty and full;
-- `clearAll()` clears a full set;
-- `fill()` fills an empty set;
-- `count()` covers empty, partial, and full sets;
+- `setAll()` fills an empty set;
 - `isEmpty()` and `isFull()` cover empty, partial, and full sets.
 
 ### Single-index behavior
@@ -271,9 +260,8 @@ Required capacities:
 - `unset` clears an existing bit;
 - `assign` sets and clears;
 - `toggle` flips both directions;
-- `insert` returns true only when the bit was previously unset;
-- `remove` returns true only when the bit was previously set;
-- `index == bit_count` returns `error.OutOfBounds`.
+- mutators return `error.OutOfBounds` when `index == bit_capacity`;
+- `isSet` returns `false` for `index >= bit_capacity` without erroring.
 
 ### Lowest-set-bit behavior
 
@@ -295,7 +283,11 @@ Required capacities:
 ### Invariant tests
 
 - `assertValid()` succeeds after every public mutation;
-- unused high bits stay clear after `full`, `fill`, `toggle`, `unionWith`,
+- unused high bits stay clear after `full`, `setAll`, `toggle`, `unionWith`,
   `intersectWith`, and `differenceWith`;
 - debug assertion behavior for manually corrupted unused high bits is covered
   where practical.
+
+## Open questions
+
+None.

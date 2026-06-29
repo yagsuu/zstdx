@@ -86,7 +86,7 @@ pub const Self = struct {
 
     pub const Error = error{Full, OutOfBounds};
 
-    pub fn init(buffer: []T) Self;
+    pub fn wrap(buffer: []T) Self;
 
     pub fn len(self: *const Self) usize;
     pub fn capacity(self: *const Self) usize;
@@ -99,17 +99,17 @@ pub const Self = struct {
 
     pub fn clearRetainingCapacity(self: *Self) void;
 
-    pub fn append(self: *Self, item: T) Error!void;
+    pub fn append(self: *Self, item: T) error{Full}!void;
     pub fn appendAssumeCapacity(self: *Self, item: T) void;
-    pub fn appendSlice(self: *Self, items: []const T) Error!void;
+    pub fn appendSlice(self: *Self, items: []const T) error{Full}!void;
 
     pub fn insert(self: *Self, index: usize, item: T) Error!void;
-    pub fn orderedRemove(self: *Self, index: usize) Error!T;
-    pub fn swapRemove(self: *Self, index: usize) Error!T;
+    pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T;
+    pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T;
     pub fn pop(self: *Self) ?T;
 
-    pub fn at(self: *Self, index: usize) Error!*T;
-    pub fn constAt(self: *const Self, index: usize) Error!*const T;
+    pub fn at(self: *Self, index: usize) error{OutOfBounds}!*T;
+    pub fn constAt(self: *const Self, index: usize) error{OutOfBounds}!*const T;
 
     pub fn assertValid(self: *const Self) void;
 };
@@ -126,7 +126,7 @@ its backing storage.
 `T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
 are compile errors where practical.
 
-`init(buffer)` returns an empty list backed by `buffer`. `buffer.len` is the
+`wrap(buffer)` returns an empty list backed by `buffer`. `buffer.len` is the
 runtime item capacity. A zero-length buffer is valid; the list is both empty and
 full.
 
@@ -162,7 +162,7 @@ the old address. Use `List.Static(T, N)` for embedded storage.
 
 ## Construction and clearing
 
-`init(buffer)` is equivalent to:
+`wrap(buffer)` is equivalent to:
 
 ```zig
 .{ .buffer = buffer, .count = 0 }
@@ -266,7 +266,7 @@ relative order across removal.
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
 | `Bounded` | never | never | comptime | none | type factory | none |
-| `init` | never | never | O(1) | none | caller-owned buffer | empty |
+| `wrap` | never | never | O(1) | none | caller-owned buffer | empty |
 | capacity helpers | never | never | O(1) | none | caller-owned buffer | none |
 | `asSlice` | never | never | O(1) | none | caller-owned buffer | current order |
 | `asConstSlice` | never | never | O(1) | none | caller-owned buffer | current order |
@@ -340,7 +340,7 @@ const zstdx = @import("zstdx");
 const TableList = zstdx.List.Bounded(Table);
 
 var scratch: [16]Table = undefined;
-var tables = TableList.init(scratch[0..]);
+var tables = TableList.wrap(scratch[0..]);
 
 try tables.append(table0);
 try tables.append(table1);
@@ -353,7 +353,7 @@ _ = indexed;
 const EntryList = zstdx.List.Bounded(Entry);
 
 const storage = try arena.allocSlice(Entry, entry_count);
-var entries = EntryList.init(storage);
+var entries = EntryList.wrap(storage);
 
 try entries.appendSlice(initial_entries);
 const removed = try entries.orderedRemove(0);
@@ -364,7 +364,7 @@ _ = removed;
 
 ### Construction and capacity
 
-- `init(buffer)` starts empty;
+- `wrap(buffer)` starts empty;
 - `capacity()` equals `buffer.len`;
 - zero-length buffers are both empty and full;
 - `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,
