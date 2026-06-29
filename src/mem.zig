@@ -9,3 +9,5 @@ pub const FixedBufferArena = fixed_buffer_arena.FixedBufferArena;
 pub const alignUp = alignment.alignUp;
 pub const alignDown = alignment.alignDown;
 pub const isAligned = alignment.isAligned;
+pub const alignUpDelta = alignment.alignUpDelta;
+pub const alignDownDelta = alignment.alignDownDelta;

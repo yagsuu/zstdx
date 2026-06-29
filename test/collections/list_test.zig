@@ -44,13 +44,13 @@ test "unit: List.Static runs the append/remove/insert sequence" {
 
 test "unit: List.Bounded runs the same sequence over borrowed storage" {
     var backing: [3]u8 = undefined;
-    var bounded = List.Bounded(u8).init(&backing);
+    var bounded = List.Bounded(u8).wrap(&backing);
     try exerciseSequence(@TypeOf(bounded), &bounded);
 }
 
 test "unit: List.Bounded models the sibling table-list shape" {
     var scratch: [4]u32 = undefined;
-    var tables = List.Bounded(u32).init(&scratch);
+    var tables = List.Bounded(u32).wrap(&scratch);
     try tables.appendSlice(&.{ 10, 20 });
     try testing.expectEqualSlices(u32, &.{ 10, 20 }, tables.asConstSlice());
 }

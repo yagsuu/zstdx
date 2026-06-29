@@ -16,7 +16,7 @@ pub const BitSet = struct {
 
             const Self = @This();
 
-            /// `OutOfBounds`: index is at or past `bit_count`.
+            /// `OutOfBounds`: mutator received an index at or past `bit_capacity`.
             pub const Error = error{OutOfBounds};
 
             /// Backing storage word type.
@@ -25,10 +25,10 @@ pub const BitSet = struct {
             /// Bits per backing word.
             pub const word_bits = @bitSizeOf(Word);
 
-            /// Comptime bit capacity.
-            pub const bit_count = capacity_bits;
+            /// Comptime bit capacity (slot count).
+            pub const bit_capacity = capacity_bits;
 
-            /// Number of backing words; rounded up from `bit_count / word_bits`.
+            /// Number of backing words; rounded up from `bit_capacity / word_bits`.
             pub const word_count = capacity_bits / word_bits + @intFromBool(capacity_bits % word_bits != 0);
 
             /// Empty set.
@@ -39,13 +39,13 @@ pub const BitSet = struct {
             /// Set with every valid bit set and every unused high bit clear.
             pub fn full() Self {
                 var self: Self = .{};
-                self.fill();
+                self.setAll();
                 return self;
             }
 
             fn lastMask() Word {
-                if (bit_count == 0) return 0;
-                const rem = bit_count % word_bits;
+                if (bit_capacity == 0) return 0;
+                const rem = bit_capacity % word_bits;
                 if (rem == 0) return ~@as(Word, 0);
                 return (@as(Word, 1) << @as(std.math.Log2Int(Word), @intCast(rem))) - 1;
             }
@@ -55,24 +55,25 @@ pub const BitSet = struct {
             }
 
             fn checkIndex(index: usize) Error!void {
-                if (index >= bit_count) return error.OutOfBounds;
+                if (index >= bit_capacity) return error.OutOfBounds;
             }
 
             fn clearUnused(self: *Self) void {
                 if (word_count > 0) self.words[word_count - 1] &= lastMask();
             }
 
-            pub fn clearAll(self: *Self) void {
+            /// Clear every valid bit; slot count is unchanged.
+            pub fn clearRetainingCapacity(self: *Self) void {
                 for (&self.words) |*word| word.* = 0;
             }
 
             /// Set every valid bit; unused high bits stay clear.
-            pub fn fill(self: *Self) void {
+            pub fn setAll(self: *Self) void {
                 for (&self.words) |*word| word.* = ~@as(Word, 0);
                 self.clearUnused();
             }
 
-            pub fn isEmpty(self: Self) bool {
+            pub fn isEmpty(self: *const Self) bool {
                 self.assertValid();
                 for (self.words) |word| if (word != 0) return false;
                 return true;
@@ -80,36 +81,38 @@ pub const BitSet = struct {
 
             /// `Static(0).isFull()` is true because every bit in the empty
             /// universe is set.
-            pub fn isFull(self: Self) bool {
+            pub fn isFull(self: *const Self) bool {
                 self.assertValid();
                 if (word_count == 0) return true;
                 for (self.words[0 .. word_count - 1]) |word| if (word != ~@as(Word, 0)) return false;
                 return self.words[word_count - 1] == lastMask();
             }
 
-            pub fn count(self: Self) usize {
+            /// Population (number of set bits).
+            pub fn count(self: *const Self) usize {
                 self.assertValid();
                 var total: usize = 0;
                 for (self.words) |word| total += @popCount(word);
                 return total;
             }
 
-            pub fn isSet(self: Self, index: usize) Error!bool {
-                try checkIndex(index);
+            /// True when `index` is set. Returns `false` for
+            /// `index >= bit_capacity`; never errors.
+            pub fn isSet(self: *const Self, index: usize) bool {
                 self.assertValid();
-                if (bit_count == 0) unreachable;
+                if (index >= bit_capacity) return false;
                 return (self.words[index / word_bits] & mask(index)) != 0;
             }
 
             pub fn set(self: *Self, index: usize) Error!void {
                 try checkIndex(index);
-                if (bit_count == 0) unreachable;
+                if (bit_capacity == 0) unreachable;
                 self.words[index / word_bits] |= mask(index);
             }
 
             pub fn unset(self: *Self, index: usize) Error!void {
                 try checkIndex(index);
-                if (bit_count == 0) unreachable;
+                if (bit_capacity == 0) unreachable;
                 self.words[index / word_bits] &= ~mask(index);
             }
 
@@ -119,28 +122,12 @@ pub const BitSet = struct {
 
             pub fn toggle(self: *Self, index: usize) Error!void {
                 try checkIndex(index);
-                if (bit_count == 0) unreachable;
+                if (bit_capacity == 0) unreachable;
                 self.words[index / word_bits] ^= mask(index);
             }
 
-            /// Sets `index` and returns true iff the bit changed from unset to
-            /// set.
-            pub fn insert(self: *Self, index: usize) Error!bool {
-                const was_set = try self.isSet(index);
-                if (!was_set) try self.set(index);
-                return !was_set;
-            }
-
-            /// Clears `index` and returns true iff the bit changed from set to
-            /// unset.
-            pub fn remove(self: *Self, index: usize) Error!bool {
-                const was_set = try self.isSet(index);
-                if (was_set) try self.unset(index);
-                return was_set;
-            }
-
             /// Lowest set index, or `null` when empty.
-            pub fn firstSet(self: Self) ?usize {
+            pub fn firstSet(self: *const Self) ?usize {
                 self.assertValid();
                 for (self.words, 0..) |word, word_index| {
                     if (word != 0) return word_index * word_bits + @ctz(word);
@@ -155,20 +142,20 @@ pub const BitSet = struct {
                 return index;
             }
 
-            pub fn eql(self: Self, other: Self) bool {
+            pub fn eql(self: *const Self, other: *const Self) bool {
                 self.assertValid();
                 other.assertValid();
                 return std.mem.eql(Word, &self.words, &other.words);
             }
 
-            pub fn containsAll(self: Self, other: Self) bool {
+            pub fn containsAll(self: *const Self, other: *const Self) bool {
                 self.assertValid();
                 other.assertValid();
                 for (self.words, other.words) |a, b| if ((a & b) != b) return false;
                 return true;
             }
 
-            pub fn containsAny(self: Self, other: Self) bool {
+            pub fn containsAny(self: *const Self, other: *const Self) bool {
                 self.assertValid();
                 other.assertValid();
                 for (self.words, other.words) |a, b| if ((a & b) != 0) return true;
@@ -176,29 +163,29 @@ pub const BitSet = struct {
             }
 
             /// `self <- self ∪ other`.
-            pub fn unionWith(self: *Self, other: Self) void {
+            pub fn unionWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* |= b;
                 self.clearUnused();
             }
 
             /// `self <- self ∩ other`.
-            pub fn intersectWith(self: *Self, other: Self) void {
+            pub fn intersectWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* &= b;
                 self.clearUnused();
             }
 
             /// `self <- self \ other`.
-            pub fn differenceWith(self: *Self, other: Self) void {
+            pub fn differenceWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* &= ~b;
                 self.clearUnused();
             }
 
-            /// Asserts the unused-bit invariant: every bit past `bit_count` in
+            /// Asserts the unused-bit invariant: every bit past `bit_capacity` in
             /// the last word is zero.
-            pub fn assertValid(self: Self) void {
+            pub fn assertValid(self: *const Self) void {
                 if (word_count > 0) std.debug.assert((self.words[word_count - 1] & ~lastMask()) == 0);
             }
         };

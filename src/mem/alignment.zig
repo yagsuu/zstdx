@@ -35,8 +35,25 @@ pub fn alignDown(comptime T: type, value: T, alignment: T) Error!T {
     return value & ~(alignment - 1);
 }
 
-/// True when `value` is a multiple of `alignment`.
-pub fn isAligned(comptime T: type, value: T, alignment: T) Error!bool {
-    try validate(T, alignment);
+/// True when `value` is a multiple of `alignment`. `alignment` must be a
+/// non-zero power of two; the precondition is asserted, not error-checked.
+pub fn isAligned(comptime T: type, value: T, alignment: T) bool {
+    comptime requireUnsignedInt(T);
+    std.debug.assert(alignment != 0 and bits.isPowerOfTwo(T, alignment));
     return (value & (alignment - 1)) == 0;
+}
+
+/// Padding required to reach the next multiple of `alignment` from `value`.
+/// Equal to `alignUp(value, alignment) - value`. Returns `error.Overflow`
+/// under the same condition as `alignUp`.
+pub fn alignUpDelta(comptime T: type, value: T, alignment: T) Error!T {
+    const rounded = try alignUp(T, value, alignment);
+    return rounded - value;
+}
+
+/// Bytes past the previous multiple of `alignment`. Equal to
+/// `value - alignDown(value, alignment)`. Cannot overflow.
+pub fn alignDownDelta(comptime T: type, value: T, alignment: T) Error!T {
+    try validate(T, alignment);
+    return value & (alignment - 1);
 }

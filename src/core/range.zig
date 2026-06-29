@@ -24,27 +24,13 @@ pub fn Range(comptime T: type) type {
 
         /// `InvalidRange`: caller passed `end < start`.
         /// `Overflow`: arithmetic on `start`, `end`, or `len` exceeded `T`.
-        /// `OutOfRange`: value or split point lies outside `[start, end)` /
-        ///   `[start, end]`.
-        pub const Error = error{ InvalidRange, Overflow, OutOfRange };
-
-        /// Result of `splitAt`. `left` is `[start, point)`, `right` is
-        /// `[point, end)`; either side may be empty when `point` is a boundary.
-        pub const Split = struct {
-            left: Self,
-            right: Self,
-        };
+        /// `OutOfBounds`: point lies outside `[start, end]`.
+        pub const Error = error{ InvalidRange, Overflow, OutOfBounds };
 
         /// Construct `[start, end)`. Returns `error.InvalidRange` when
         /// `end < start`.
-        pub fn init(start: T, end: T) Error!Self {
+        pub fn fromBounds(start: T, end: T) Error!Self {
             if (end < start) return error.InvalidRange;
-            return .{ .start = start, .end = end };
-        }
-
-        /// Construct `[start, end)` without validating the invariant. Caller
-        /// upholds `start <= end`.
-        pub fn initUnchecked(start: T, end: T) Self {
             return .{ .start = start, .end = end };
         }
 
@@ -52,7 +38,7 @@ pub fn Range(comptime T: type) type {
         /// `start + length` exceeds `T`.
         pub fn fromStartLen(start: T, length: T) Error!Self {
             const end = std.math.add(T, start, length) catch return error.Overflow;
-            return init(start, end);
+            return fromBounds(start, end);
         }
 
         /// Empty range positioned at `at`.
@@ -124,15 +110,20 @@ pub fn Range(comptime T: type) type {
             };
         }
 
-        /// Split at `point` in `[start, end]`. Out-of-range points return
-        /// `error.OutOfRange`; `self` is unchanged.
-        pub fn splitAt(self: Self, point: T) Error!Split {
+        /// Prefix of `self` ending at `point`. `point` must lie in
+        /// `[start, end]`; otherwise returns `error.OutOfBounds`.
+        pub fn prefix(self: Self, point: T) Error!Self {
             self.assertValid();
-            if (point < self.start or point > self.end) return error.OutOfRange;
-            return .{
-                .left = .{ .start = self.start, .end = point },
-                .right = .{ .start = point, .end = self.end },
-            };
+            if (point < self.start or point > self.end) return error.OutOfBounds;
+            return .{ .start = self.start, .end = point };
+        }
+
+        /// Suffix of `self` starting at `point`. `point` must lie in
+        /// `[start, end]`; otherwise returns `error.OutOfBounds`.
+        pub fn suffix(self: Self, point: T) Error!Self {
+            self.assertValid();
+            if (point < self.start or point > self.end) return error.OutOfBounds;
+            return .{ .start = point, .end = self.end };
         }
 
         /// `value - start` when `value` is contained, else `null`.
@@ -142,10 +133,11 @@ pub fn Range(comptime T: type) type {
             return value - self.start;
         }
 
-        /// `start + offset` when `offset < len()`, else `error.OutOfRange`.
-        pub fn atOffset(self: Self, offset: T) Error!T {
+        /// `start + offset` when `offset < len()`, else `null`. Symmetric
+        /// with `offsetOf`; round trip preserves containment.
+        pub fn atOffset(self: Self, offset: T) ?T {
             self.assertValid();
-            if (offset >= self.len()) return error.OutOfRange;
+            if (offset >= self.len()) return null;
             return self.start + offset;
         }
 

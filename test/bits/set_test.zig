@@ -20,19 +20,20 @@ test "unit: BitSet.Static index ops cover first/middle/last and reject OOB" {
     const Set = BitSet.Static(129);
     var set: Set = .{};
     try testing.expect(set.isEmpty());
-    try testing.expect(try set.insert(0));
-    try testing.expect(!try set.insert(0));
+    try set.set(0);
     try set.set(64);
     try set.set(128);
-    try testing.expect(try set.isSet(128));
+    try testing.expect(set.isSet(128));
     try testing.expectEqual(@as(usize, 3), set.count());
     try testing.expectEqual(@as(?usize, 0), set.firstSet());
     try testing.expectEqual(@as(?usize, 0), set.popFirstSet());
     try set.assign(1, true);
     try set.toggle(1);
-    try testing.expect(!try set.isSet(1));
-    try testing.expect(try set.remove(64));
-    try testing.expectError(error.OutOfBounds, set.set(129));
+    try testing.expect(!set.isSet(1));
+    try set.unset(64);
+    try testing.expect(!set.isSet(64));
+    try testing.expect(!set.isSet(Set.bit_capacity));
+    try testing.expectError(error.OutOfBounds, set.set(Set.bit_capacity));
     set.assertValid();
 }
 
@@ -40,21 +41,21 @@ test "unit: BitSet.Static set algebra preserves unused high bits" {
     const Set = BitSet.Static(129);
     var full = Set.full();
     try testing.expect(full.isFull());
-    full.clearAll();
+    full.clearRetainingCapacity();
     try testing.expect(full.isEmpty());
-    full.fill();
+    full.setAll();
 
     var other = Set.init();
     try other.set(128);
-    try testing.expect(full.containsAll(other));
-    try testing.expect(full.containsAny(other));
+    try testing.expect(full.containsAll(&other));
+    try testing.expect(full.containsAny(&other));
 
     var unioned = Set.init();
-    unioned.unionWith(other);
-    try testing.expect(unioned.eql(other));
-    unioned.intersectWith(other);
-    try testing.expect(unioned.eql(other));
-    unioned.differenceWith(other);
+    unioned.unionWith(&other);
+    try testing.expect(unioned.eql(&other));
+    unioned.intersectWith(&other);
+    try testing.expect(unioned.eql(&other));
+    unioned.differenceWith(&other);
     try testing.expect(unioned.isEmpty());
 }
 

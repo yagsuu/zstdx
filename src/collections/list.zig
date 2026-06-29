@@ -73,7 +73,7 @@ pub const List = struct {
                 self.count = 0;
             }
 
-            pub fn append(self: *Self, item: T) Error!void {
+            pub fn append(self: *Self, item: T) error{Full}!void {
                 if (self.isFull()) return error.Full;
                 self.appendAssumeCapacity(item);
             }
@@ -88,7 +88,7 @@ pub const List = struct {
 
             /// Append `items` in order. `error.Full` when the batch does not
             /// fit; the list is unchanged.
-            pub fn appendSlice(self: *Self, items: []const T) Error!void {
+            pub fn appendSlice(self: *Self, items: []const T) error{Full}!void {
                 if (items.len > self.remaining()) return error.Full;
                 @memcpy(self.buffer[self.count..][0..items.len], items);
                 self.count += items.len;
@@ -105,7 +105,7 @@ pub const List = struct {
             }
 
             /// Remove and return `buffer[index]`, shifting later items left.
-            pub fn orderedRemove(self: *Self, index: usize) Error!T {
+            pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
                 const out = self.buffer[index];
                 std.mem.copyForwards(T, self.buffer[index .. self.count - 1], self.buffer[index + 1 .. self.count]);
@@ -115,7 +115,7 @@ pub const List = struct {
 
             /// Remove and return `buffer[index]`; moves the last item into
             /// the vacated slot.
-            pub fn swapRemove(self: *Self, index: usize) Error!T {
+            pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
                 const out = self.buffer[index];
                 self.count -= 1;
@@ -131,12 +131,12 @@ pub const List = struct {
 
             /// Mutable pointer into `buffer[index]`. Invalidated by any
             /// subsequent mutation that shifts elements.
-            pub fn at(self: *Self, index: usize) Error!*T {
+            pub fn at(self: *Self, index: usize) error{OutOfBounds}!*T {
                 if (index >= self.count) return error.OutOfBounds;
                 return &self.buffer[index];
             }
 
-            pub fn constAt(self: *const Self, index: usize) Error!*const T {
+            pub fn constAt(self: *const Self, index: usize) error{OutOfBounds}!*const T {
                 if (index >= self.count) return error.OutOfBounds;
                 return &self.buffer[index];
             }
@@ -163,7 +163,7 @@ pub const List = struct {
             pub const Error = error{ Full, OutOfBounds };
 
             /// Wrap `buffer` as backing storage; capacity is `buffer.len`.
-            pub fn init(buffer: []T) Self {
+            pub fn wrap(buffer: []T) Self {
                 return .{ .buffer = buffer };
             }
 
@@ -206,7 +206,7 @@ pub const List = struct {
                 self.count = 0;
             }
 
-            pub fn append(self: *Self, item: T) Error!void {
+            pub fn append(self: *Self, item: T) error{Full}!void {
                 if (self.isFull()) return error.Full;
                 self.appendAssumeCapacity(item);
             }
@@ -221,7 +221,7 @@ pub const List = struct {
 
             /// Append `items` in order. `error.Full` when the batch does not
             /// fit; the list is unchanged.
-            pub fn appendSlice(self: *Self, items: []const T) Error!void {
+            pub fn appendSlice(self: *Self, items: []const T) error{Full}!void {
                 if (items.len > self.remaining()) return error.Full;
                 @memcpy(self.buffer[self.count..][0..items.len], items);
                 self.count += items.len;
@@ -238,7 +238,7 @@ pub const List = struct {
             }
 
             /// Remove and return `buffer[index]`, shifting later items left.
-            pub fn orderedRemove(self: *Self, index: usize) Error!T {
+            pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
                 const out = self.buffer[index];
                 std.mem.copyForwards(T, self.buffer[index .. self.count - 1], self.buffer[index + 1 .. self.count]);
@@ -248,7 +248,7 @@ pub const List = struct {
 
             /// Remove and return `buffer[index]`; moves the last item into
             /// the vacated slot.
-            pub fn swapRemove(self: *Self, index: usize) Error!T {
+            pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
                 const out = self.buffer[index];
                 self.count -= 1;
@@ -264,12 +264,12 @@ pub const List = struct {
 
             /// Mutable pointer into `buffer[index]`. Invalidated by any
             /// subsequent mutation that shifts elements.
-            pub fn at(self: *Self, index: usize) Error!*T {
+            pub fn at(self: *Self, index: usize) error{OutOfBounds}!*T {
                 if (index >= self.count) return error.OutOfBounds;
                 return &self.buffer[index];
             }
 
-            pub fn constAt(self: *const Self, index: usize) Error!*const T {
+            pub fn constAt(self: *const Self, index: usize) error{OutOfBounds}!*const T {
                 if (index >= self.count) return error.OutOfBounds;
                 return &self.buffer[index];
             }

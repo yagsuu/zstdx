@@ -22,7 +22,7 @@ pub const FixedBufferArena = struct {
         index: usize,
     };
 
-    pub fn init(buffer: []u8) FixedBufferArena {
+    pub fn wrap(buffer: []u8) FixedBufferArena {
         return .{ .buffer = buffer };
     }
 
