@@ -8,4 +8,5 @@ comptime {
     _ = @import("bits/set_test.zig");
     _ = @import("mem/alignment_test.zig");
     _ = @import("mem/fixed_buffer_arena_test.zig");
+    _ = @import("addr/address_test.zig");
 }
