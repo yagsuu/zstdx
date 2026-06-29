@@ -6,3 +6,6 @@ pub const addr = @import("addr.zig");
 pub const layout = @import("layout.zig");
 pub const bytes = @import("bytes.zig");
 pub const mem = @import("mem.zig");
+pub const collections = @import("collections.zig");
+
+pub const List = collections.List;

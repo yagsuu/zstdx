@@ -12,4 +12,5 @@ comptime {
     _ = @import("layout/unaligned_test.zig");
     _ = @import("layout/endian_test.zig");
     _ = @import("bytes/cursor_test.zig");
+    _ = @import("collections/list_test.zig");
 }
