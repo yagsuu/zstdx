@@ -202,6 +202,7 @@ src/
   mem/
     arena.zig
     alignment.zig
+    pool.zig
 
   collections.zig
   collections/
@@ -249,6 +250,7 @@ test/
   mem/
     arena_test.zig
     alignment_test.zig
+    pool_test.zig
 
   collections/
     list_test.zig

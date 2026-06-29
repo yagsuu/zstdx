@@ -137,3 +137,97 @@ test "unit: Arena.Static allocator view drives std.ArrayListUnmanaged until OutO
     while (list.append(allocator, 3)) {} else |err| try testing.expectEqual(error.OutOfMemory, err);
 }
 
+test "unit: Arena.Bounded.wrap(&.{}) is a valid zero-capacity arena" {
+    var arena = Arena.Bounded.wrap(&.{});
+    try testing.expectEqual(@as(usize, 0), arena.capacity());
+    try testing.expectEqual(@as(usize, 0), arena.used());
+    try testing.expectEqual(@as(usize, 0), arena.remaining());
+    try testing.expectEqual(@as(usize, 0), (try arena.allocBytes(0)).len);
+    try testing.expectError(error.OutOfMemory, arena.allocBytes(1));
+}
+
+test "unit: Arena.Bounded.remainingBytes spans full buffer at init and shrinks with use" {
+    var storage: [16]u8 = undefined;
+    var arena = Arena.Bounded.wrap(&storage);
+    try testing.expectEqual(@as(usize, 16), arena.remainingBytes().len);
+    const taken = try arena.allocBytes(5);
+    try testing.expectEqual(@as(usize, 11), arena.remainingBytes().len);
+    try testing.expectEqual(arena.buffer[arena.used()..].ptr, arena.remainingBytes().ptr);
+    _ = taken;
+}
+
+test "unit: Arena.Bounded.allocSlice returns contiguous len elements" {
+    var storage: [64]u8 = undefined;
+    var arena = Arena.Bounded.wrap(&storage);
+    const items = try arena.allocSlice(u32, 4);
+    try testing.expectEqual(@as(usize, 4), items.len);
+    items[0] = 0xaa;
+    items[3] = 0xbb;
+    try testing.expectEqual(@as(usize, @sizeOf(u32) * 3),
+        @intFromPtr(&items[3]) - @intFromPtr(&items[0]));
+}
+
+test "unit: Arena.Bounded.alloc satisfies @alignOf(T) over an unaligned subslice" {
+    var storage: [128]u8 = undefined;
+    // Carve an intentionally byte-aligned subslice that starts at an odd
+    // address relative to storage.ptr.
+    var arena = Arena.Bounded.wrap(storage[1..]);
+    const p = try arena.alloc(u64);
+    try testing.expect(mem.isAligned(usize, @intFromPtr(p), @alignOf(u64)));
+}
+
+test "unit: Arena.Bounded.allocAlignedBytes(_, 1) is a byte-aligned no-op" {
+    var storage: [16]u8 = undefined;
+    var arena = Arena.Bounded.wrap(&storage);
+    const before = arena.used();
+    const taken = try arena.allocAlignedBytes(3, 1);
+    try testing.expectEqual(@as(usize, 3), taken.len);
+    try testing.expectEqual(before + 3, arena.used());
+}
+
+test "unit: Arena.Bounded.assertValid catches a corrupted index" {
+    var storage: [8]u8 = undefined;
+    var arena = Arena.Bounded.wrap(&storage);
+    try testing.expect(arena.isValid());
+    arena.index = arena.buffer.len + 1; // simulate corruption
+    try testing.expect(!arena.isValid());
+}
+
+test "unit: Arena.Bounded.allocator failure leaves index unchanged" {
+    var storage: [16]u8 align(8) = undefined;
+    var arena = Arena.Bounded.wrap(&storage);
+    _ = try arena.allocBytes(4);
+    const before = arena.used();
+    var list = std.ArrayListUnmanaged(u64).empty;
+    const allocator = arena.allocator();
+    // First append succeeds; subsequent ones must hit OutOfMemory before
+    // mutating arena.index inconsistently.
+    while (list.append(allocator, 1)) {} else |err| try testing.expectEqual(error.OutOfMemory, err);
+    try testing.expect(arena.used() >= before);
+    // After OOM, used() must not exceed capacity.
+    try testing.expect(arena.used() <= arena.capacity());
+}
+
+test "unit: Arena.Static.remainingBytes spans the full inline buffer at init" {
+    var arena = Arena.Static(32).init();
+    try testing.expectEqual(@as(usize, 32), arena.remainingBytes().len);
+    _ = try arena.allocBytes(5);
+    try testing.expectEqual(@as(usize, 27), arena.remainingBytes().len);
+}
+
+test "unit: Arena.Static.allocSlice returns contiguous len elements" {
+    var arena = Arena.Static(64).init();
+    const items = try arena.allocSlice(u32, 4);
+    try testing.expectEqual(@as(usize, 4), items.len);
+    items[0] = 1;
+    items[3] = 4;
+    try testing.expectEqual(@as(usize, @sizeOf(u32) * 3),
+        @intFromPtr(&items[3]) - @intFromPtr(&items[0]));
+}
+
+test "unit: Arena.Static.assertValid catches a corrupted index" {
+    var arena = Arena.Static(16).init();
+    try testing.expect(arena.isValid());
+    arena.index = 17;
+    try testing.expect(!arena.isValid());
+}

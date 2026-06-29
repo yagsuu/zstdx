@@ -89,6 +89,7 @@ types are compile errors where practical.
 pub const Self = struct {
     buffer: [N]Slot = undefined,
     free_head: ?*Slot = null,
+    bump_index: usize = 0,
     live_count: usize = 0,
 
     pub const Slot = union(enum) {
@@ -123,6 +124,7 @@ pub const Self = struct {
 pub const Self = struct {
     buffer: []Slot,
     free_head: ?*Slot = null,
+    bump_index: usize = 0,
     live_count: usize = 0,
 
     pub const Slot = union(enum) {
@@ -225,11 +227,16 @@ These operations do not walk the free list.
 
 `acquire()` returns a pointer into the pool's storage for one slot.
 
-- If `free_head == null`, returns `error.OutOfMemory` and leaves the pool
-  unchanged.
-- Otherwise: pops the head slot from the free list, switches the slot to
-  the `.occupied` tag with the payload left uninitialized (`undefined`),
-  increments `live_count`, and returns `&slot.occupied`.
+- If `free_head` is non-null, pops the head slot from the free list,
+  switches the slot to the `.occupied` tag with the payload left
+  uninitialized (`undefined`), increments `live_count`, and returns
+  `&slot.occupied`.
+- Otherwise, if `bump_index < capacity()`, carves the next un-touched slot
+  from storage at `buffer[bump_index]`, advances `bump_index`, marks the
+  slot `.occupied` with an uninitialized payload, increments `live_count`,
+  and returns `&slot.occupied`.
+- Otherwise (no free slot and `bump_index == capacity()`), returns
+  `error.OutOfMemory` and leaves the pool unchanged.
 
 The returned pointer satisfies `@alignOf(T)` and references uninitialized
 storage. Callers must initialize before reading.
@@ -297,11 +304,12 @@ synchronize shared mutable access.
 
 ## Error behavior
 
-- `acquire` returns `error.OutOfMemory` when the free list is empty;
+- `acquire` returns `error.OutOfMemory` when both the free list is empty
+  and the bump cursor has reached `capacity()`;
 - `release` does not return an error; misuse is a programmer error;
 - zero-sized `T` is a compile error;
-- corrupted `free_head`, `live_count`, or `Slot` tag is a programmer error
-  caught by `assertValid` where practical.
+- corrupted `free_head`, `bump_index`, `live_count`, or `Slot` tag is a
+  programmer error caught by `assertValid` where practical.
 
 All error returns leave the pool unchanged.
 
@@ -309,11 +317,12 @@ All error returns leave the pool unchanged.
 
 `assertValid()` walks the free list and checks:
 
-- `live_count <= capacity()`;
-- every visited slot pointer lies inside the pool's `buffer`;
-- the free list has no cycles (bounded by `capacity() - live_count + 1`
+- `bump_index <= capacity()`;
+- `live_count <= bump_index`;
+- every visited free-list slot pointer lies inside the pool's `buffer`;
+- the free list has no cycles (bounded by `bump_index - live_count + 1`
   steps);
-- the free list contains exactly `capacity() - live_count` entries.
+- the free list contains exactly `bump_index - live_count` entries.
 
 `assertValid()` is called explicitly. Operations do not call it
 unconditionally on hot paths.

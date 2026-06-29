@@ -1,24 +1,27 @@
 //! Bump arena family. `Static(N)` owns inline storage; `Bounded` borrows
-//! caller `[]u8`. Lifecycle is `mark`/`restore` and `reset`; every error
-//! leaves `index` unchanged. See docs/specs/mem/arena-bounded.md and
+//! caller `[]u8`. See docs/specs/mem/arena-bounded.md and
 //! docs/specs/mem/arena-static.md.
 
 const std = @import("std");
 
 const alignment = @import("alignment.zig");
 
-/// Fixed-capacity bump arena family.
+/// `OutOfMemory`: remaining capacity does not fit the request.
+/// `InvalidAlignment`: `byte_alignment` is zero or not a power of two.
+/// `Overflow`: alignment rounding or typed byte count exceeded `usize`.
+const ArenaError = error{ OutOfMemory, InvalidAlignment, Overflow };
+
+/// Fixed-capacity bump arena family. Each variant exposes the same
+/// `Error` set under its own type; private helpers share the algorithm.
 pub const Arena = struct {
-    /// `OutOfMemory`: remaining capacity does not fit the request.
-    /// `InvalidAlignment`: `byte_alignment` is zero or not a power of two.
-    /// `Overflow`: alignment rounding or typed byte count exceeded `usize`.
-    pub const Error = error{ OutOfMemory, InvalidAlignment, Overflow };
 
     /// Borrowed `[]u8` bump arena. Owns nothing; the caller keeps `buffer`
     /// alive while any allocation is live.
     pub const Bounded = struct {
         buffer: []u8,
         index: usize = 0,
+
+        pub const Error = ArenaError;
 
         /// Opaque checkpoint of the current allocation position.
         pub const Mark = struct {
@@ -110,6 +113,8 @@ pub const Arena = struct {
 
             const Self = @This();
 
+            pub const Error = ArenaError;
+
             /// Opaque checkpoint of the current allocation position. Marks
             /// from one variant or one capacity cannot be restored into a
             /// different one.
@@ -200,7 +205,7 @@ pub const Arena = struct {
     }
 };
 
-fn allocBytesInto(buffer: []u8, index: *usize, len: usize, byte_alignment: usize) Arena.Error![]u8 {
+fn allocBytesInto(buffer: []u8, index: *usize, len: usize, byte_alignment: usize) ArenaError![]u8 {
     const absolute = @intFromPtr(buffer.ptr) + index.*;
     const aligned_absolute = alignment.alignUp(usize, absolute, byte_alignment) catch |err| return switch (err) {
         error.InvalidAlignment => error.InvalidAlignment,
@@ -216,13 +221,13 @@ fn allocBytesInto(buffer: []u8, index: *usize, len: usize, byte_alignment: usize
     return out;
 }
 
-fn allocOneInto(comptime T: type, buffer: []u8, index: *usize) Arena.Error!*T {
+fn allocOneInto(comptime T: type, buffer: []u8, index: *usize) ArenaError!*T {
     comptime if (@sizeOf(T) == 0) @compileError("cannot allocate zero-sized type");
     const bytes = try allocBytesInto(buffer, index, @sizeOf(T), @alignOf(T));
     return @ptrCast(@alignCast(bytes.ptr));
 }
 
-fn allocSliceInto(comptime T: type, buffer: []u8, index: *usize, len: usize) Arena.Error![]T {
+fn allocSliceInto(comptime T: type, buffer: []u8, index: *usize, len: usize) ArenaError![]T {
     comptime if (@sizeOf(T) == 0) @compileError("cannot allocate zero-sized type");
     const byte_count = std.math.mul(usize, @sizeOf(T), len) catch return error.Overflow;
     if (len == 0) return &[_]T{};

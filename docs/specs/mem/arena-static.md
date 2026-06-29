@@ -111,8 +111,9 @@ equality may permit such cross-arena calls at compile time depending on Zig
 anonymous-struct deduplication; runtime assertions catch out-of-range marks
 inside `restore`.
 
-`Static(0)` is valid. Every allocation against `Static(0)` returns
-`error.OutOfMemory`.
+`Static(0)` is valid. Every non-zero allocation against `Static(0)`
+returns `error.OutOfMemory`. Zero-length byte allocations succeed
+without advancing.
 
 ## Invariant
 

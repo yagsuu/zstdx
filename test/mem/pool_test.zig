@@ -157,3 +157,48 @@ test "unit: Pool families produce distinct types per element and capacity" {
     try testing.expect(Pool.Bounded(Frame) != Pool.Bounded(u32));
     try testing.expect(Pool.Static(Frame, 4) != Pool.Static(Frame, 8));
 }
+test "unit: Pool.Static live acquisitions do not alias" {
+    var pool = Pool.Static(Frame, 4).init();
+    const a = try pool.acquire();
+    a.* = .{ .id = 1, .payload = 100 };
+    const b = try pool.acquire();
+    b.* = .{ .id = 2, .payload = 200 };
+    try testing.expect(a != b);
+    try testing.expectEqual(@as(u32, 1), a.id);
+    try testing.expectEqual(@as(u32, 2), b.id);
+    try testing.expect(@intFromPtr(a) != @intFromPtr(b));
+}
+
+test "unit: Pool.Static len + remaining == capacity across mutations" {
+    var pool = Pool.Static(Frame, 4).init();
+    try testing.expectEqual(pool.capacity(), pool.len() + pool.remaining());
+    const a = try pool.acquire();
+    try testing.expectEqual(pool.capacity(), pool.len() + pool.remaining());
+    _ = try pool.acquire();
+    try testing.expectEqual(pool.capacity(), pool.len() + pool.remaining());
+    pool.release(a);
+    try testing.expectEqual(pool.capacity(), pool.len() + pool.remaining());
+    pool.clearRetainingCapacity();
+    try testing.expectEqual(pool.capacity(), pool.len() + pool.remaining());
+}
+
+test "unit: Pool.Static.isValid returns boolean and detects corruption" {
+    var pool = Pool.Static(Frame, 4).init();
+    try testing.expect(pool.isValid());
+    _ = try pool.acquire();
+    try testing.expect(pool.isValid());
+    pool.live_count = pool.capacity() + 1; // simulate corruption
+    try testing.expect(!pool.isValid());
+}
+
+test "unit: Pool.Static(T, 1) cycles its only slot without losing it" {
+    var pool = Pool.Static(Frame, 1).init();
+    var i: usize = 0;
+    while (i < 4) : (i += 1) {
+        const item = try pool.acquire();
+        try testing.expectError(error.OutOfMemory, pool.acquire());
+        item.* = .{ .id = @intCast(i), .payload = 0 };
+        pool.release(item);
+    }
+    pool.assertValid();
+}

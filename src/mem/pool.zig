@@ -1,14 +1,5 @@
-//! Typed, fixed-capacity, intrusive-free-list object pool family. See
+//! Typed, fixed-capacity intrusive-free-list object pool family. See
 //! docs/specs/mem/pool.md.
-//!
-//! Storage discipline: a bump-then-freelist hybrid. Until a slot is
-//! released, the pool serves new allocations by carving from an unused
-//! tail. Released slots are linked into a LIFO free list whose pointers
-//! reference the live pool storage. The eager-link `init()` strategy
-//! would require self-referential pointers to outlive the return-by-value
-//! of `init()`, which is unsafe; the bump-then-freelist strategy avoids
-//! constructing any pointer into pool storage until a `release` call
-//! against a pool whose address is already stable.
 
 const std = @import("std");
 
@@ -169,6 +160,12 @@ pub const Pool = struct {
     }
 };
 
+// Bump-then-freelist hybrid: until a slot is released, allocations are
+// carved off the unused tail (`bump_index`). Released slots are linked
+// into a LIFO free list whose pointers reference live pool storage. The
+// eager-link `init()` design is unsafe because the free-list pointers
+// would outlive the return-by-value of `init()`; this design forms
+// internal pointers only after the pool's address is stable.
 fn acquireSlot(
     comptime Slot: type,
     comptime T: type,

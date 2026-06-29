@@ -150,14 +150,23 @@ These operations do not allocate, reserve, grow, compact, or reset storage.
 
 `allocBytes(len)` is equivalent to `allocAlignedBytes(len, 1)`.
 
-`allocAlignedBytes(len, alignment)` validates `alignment`, rounds `index` up to
-`alignment`, and returns the selected byte window. It advances `index` only after
-all checks succeed.
+`allocAlignedBytes(len, alignment)` validates `alignment`, advances `index`
+so the returned window starts on an address that is a multiple of
+`alignment`, and returns the selected byte window. It advances `index`
+only after all checks succeed.
+
+The alignment is computed against the absolute address of
+`arena.buffer.ptr + arena.index`, not against `arena.index` alone, so the
+returned pointer always satisfies `alignment` regardless of the backing
+buffer's own alignment.
 
 Required behavior:
 
 ```zig
-const start = try stdx.mem.alignUp(usize, arena.index, alignment);
+const absolute = @intFromPtr(arena.buffer.ptr) + arena.index;
+const aligned = try stdx.mem.alignUp(usize, absolute, alignment);
+const padding = aligned - absolute;
+const start = try std.math.add(usize, arena.index, padding);
 const end = try std.math.add(usize, start, len);
 if (end > arena.buffer.len) return error.OutOfMemory;
 return arena.buffer[start..end];
