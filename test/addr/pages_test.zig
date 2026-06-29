@@ -2,8 +2,8 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
-const addr = zstdx.addr;
+const stdx = @import("stdx");
+const addr = stdx.addr;
 
 const testing = std.testing;
 

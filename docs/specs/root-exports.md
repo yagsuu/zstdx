@@ -2,13 +2,13 @@
 
 Status: Approved.
 
-`src/zstdx.zig` is the public package facade. It exports domain namespaces and may promote approved flagship type families at root for ergonomic imports.
+`src/stdx.zig` is the public package facade. It exports domain namespaces and may promote approved flagship type families at root for ergonomic imports.
 
 ## Owned scope
 
 This spec owns:
 
-- exact public declarations in `src/zstdx.zig`;
+- exact public declarations in `src/stdx.zig`;
 - which domain facades are exported from root;
 - which type families are root-promoted;
 - rules for adding, removing, and renaming root exports;
@@ -19,14 +19,14 @@ This spec does not own:
 - implementation files;
 - per-primitive method signatures;
 - domain facade internals;
-- source tree layout beyond `src/zstdx.zig`.
+- source tree layout beyond `src/stdx.zig`.
 
 ## Package facade
 
-`src/zstdx.zig` begins with:
+`src/stdx.zig` begins with:
 
 ```zig
-//! Public zstdx facade. Spec: docs/specs/root-exports.md.
+//! Public stdx facade. Spec: docs/specs/root-exports.md.
 ```
 
 ## Domain namespace exports
@@ -91,8 +91,8 @@ pub const CritBitTree = collections.CritBitTree;
 Root promotion rules:
 
 - promote families, not individual variants;
-- use `zstdx.List.Static`, not `zstdx.StaticList`;
-- use `zstdx.Heap.Binary`, not `zstdx.BinaryHeap`;
+- use `stdx.List.Static`, not `stdx.StaticList`;
+- use `stdx.Heap.Binary`, not `stdx.BinaryHeap`;
 - do not promote a family until its owning domain facade and spec exist;
 - do not promote names that collide with intrusive or domain namespaces.
 
@@ -115,7 +115,7 @@ pub const List = collections.List;
 pub const Ring = collections.Ring;
 ```
 
-`List` and `Ring` are eligible because they are first-slice flagship families. `intrusive` types are not root-promoted initially; callers use `zstdx.intrusive.Queue`, `zstdx.intrusive.Stack`, etc.
+`List` and `Ring` are eligible because they are first-slice flagship families. `intrusive` types are not root-promoted initially; callers use `stdx.intrusive.Queue`, `stdx.intrusive.Stack`, etc.
 
 ## Exports that stay namespaced
 
@@ -124,17 +124,17 @@ pub const Ring = collections.Ring;
 Stateless functions stay under their domain namespaces:
 
 ```zig
-zstdx.mem.alignUp
-zstdx.bytes.loadUnaligned
-zstdx.algo.binarySearch
+stdx.mem.alignUp
+stdx.bytes.loadUnaligned
+stdx.algo.binarySearch
 ```
 
 The root facade must not flatten these as:
 
 ```zig
-zstdx.alignUp
-zstdx.loadUnaligned
-zstdx.binarySearch
+stdx.alignUp
+stdx.loadUnaligned
+stdx.binarySearch
 ```
 
 ### Strong address aliases
@@ -142,15 +142,15 @@ zstdx.binarySearch
 Strong address aliases stay under `addr`:
 
 ```zig
-zstdx.addr.PhysAddr
-zstdx.addr.VirtAddr
+stdx.addr.PhysAddr
+stdx.addr.VirtAddr
 ```
 
 The root facade must not flatten them as:
 
 ```zig
-zstdx.PhysAddr
-zstdx.VirtAddr
+stdx.PhysAddr
+stdx.VirtAddr
 ```
 
 ### Policy/backend-heavy domains
@@ -158,11 +158,11 @@ zstdx.VirtAddr
 These domains stay namespaced:
 
 ```zig
-zstdx.arch.x86
-zstdx.barrier
-zstdx.io
-zstdx.concurrent
-zstdx.sync
+stdx.arch.x86
+stdx.barrier
+stdx.io
+stdx.concurrent
+stdx.sync
 ```
 
 ## Import examples
@@ -170,11 +170,11 @@ zstdx.sync
 Preferred family imports:
 
 ```zig
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const List = zstdx.List;
-const Ring = zstdx.Ring;
-const PhysAddr = zstdx.addr.PhysAddr;
+const List = stdx.List;
+const Ring = stdx.Ring;
+const PhysAddr = stdx.addr.PhysAddr;
 
 var tasks = List.Static(Task, 64).init();
 var ready = Ring.Static(Task, 128).init();
@@ -184,11 +184,11 @@ const pa = PhysAddr.fromInt(0x1000);
 Namespace-oriented imports:
 
 ```zig
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const bits = zstdx.bits;
-const mem = zstdx.mem;
-const addr = zstdx.addr;
+const bits = stdx.bits;
+const mem = stdx.mem;
+const addr = stdx.addr;
 
 const aligned = mem.alignUp(size, 4096);
 const is_pow2 = bits.isPowerOfTwo(4096);
@@ -198,9 +198,9 @@ const pa = addr.PhysAddr.fromInt(0x1000);
 Intrusive types remain namespaced:
 
 ```zig
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const RunQueue = zstdx.intrusive.Queue(Thread, "runq_node");
+const RunQueue = stdx.intrusive.Queue(Thread, "runq_node");
 ```
 
 ## Export change rules

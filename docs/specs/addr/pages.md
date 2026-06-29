@@ -2,13 +2,13 @@
 
 Status: Approved.
 
-`zstdx.addr.Page(Addr, page_size)` is a zero-cost family for page-sized address domains. It binds an approved address type and a comptime page size, then exposes page-size metadata, page counts, page-aligned frames, and page-counted ranges. The page family uses `Addr.Raw` as the backing integer width, but public names distinguish byte addresses, page counts, and frame indices.
+`stdx.addr.Page(Addr, page_size)` is a zero-cost family for page-sized address domains. It binds an approved address type and a comptime page size, then exposes page-size metadata, page counts, page-aligned frames, and page-counted ranges. The page family uses `Addr.Raw` as the backing integer width, but public names distinguish byte addresses, page counts, and frame indices.
 
 ## Owned scope
 
 This spec owns:
 
-- common exact page-size constants under `zstdx.addr.pages`;
+- common exact page-size constants under `stdx.addr.pages`;
 - `addr.Page(Addr, page_size)`;
 - page-size validation for `Page` instantiations;
 - nested `Page.Size` metadata;
@@ -36,23 +36,23 @@ This spec does not own:
 
 ## Public namespace
 
-Page primitives live under `zstdx.addr` and `zstdx.addr.pages`:
+Page primitives live under `stdx.addr` and `stdx.addr.pages`:
 
 ```zig
-zstdx.addr.pages._4kib
-zstdx.addr.pages._16kib
-zstdx.addr.pages._64kib
-zstdx.addr.pages._2mib
-zstdx.addr.pages._1gib
+stdx.addr.pages._4kib
+stdx.addr.pages._16kib
+stdx.addr.pages._64kib
+stdx.addr.pages._2mib
+stdx.addr.pages._1gib
 
-zstdx.addr.Page
+stdx.addr.Page
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.Page // not exported
-zstdx.PageFrame // not exported
+stdx.Page // not exported
+stdx.PageFrame // not exported
 ```
 
 Source ownership:
@@ -208,8 +208,8 @@ The constants do not imply architecture support, page-table support, hugepage av
 Different address domains produce different frame and range types even when `page_size` matches:
 
 ```zig
-const Phys4K = zstdx.addr.Page(zstdx.addr.PhysAddr, zstdx.addr.pages._4kib);
-const Virt4K = zstdx.addr.Page(zstdx.addr.VirtAddr, zstdx.addr.pages._4kib);
+const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
+const Virt4K = stdx.addr.Page(stdx.addr.VirtAddr, stdx.addr.pages._4kib);
 
 // Phys4K.Frame and Virt4K.Frame are distinct types.
 ```
@@ -217,8 +217,8 @@ const Virt4K = zstdx.addr.Page(zstdx.addr.VirtAddr, zstdx.addr.pages._4kib);
 Different page sizes produce different frame and range types even when `Addr` matches:
 
 ```zig
-const Phys4K = zstdx.addr.Page(zstdx.addr.PhysAddr, zstdx.addr.pages._4kib);
-const Phys2M = zstdx.addr.Page(zstdx.addr.PhysAddr, zstdx.addr.pages._2mib);
+const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
+const Phys2M = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._2mib);
 
 // Phys4K.Frame and Phys2M.Frame are distinct types.
 ```
@@ -432,7 +432,7 @@ These helpers perform no allocation, waiting, sleeping, spinning, hidden global 
 
 Explicit `assertValid()` calls always perform the check.
 
-Automatic invariant checks inside operations, if implemented, must be gated through `zstdx.core.debug.checksEnabled` when the operation exposes a `SafetyMode` option. This spec does not require `Page` operations to expose a `SafetyMode` option.
+Automatic invariant checks inside operations, if implemented, must be gated through `stdx.core.debug.checksEnabled` when the operation exposes a `SafetyMode` option. This spec does not require `Page` operations to expose a `SafetyMode` option.
 
 Assertions document programmer errors. Malformed external inputs must use the error-returning constructors and conversion APIs.
 
@@ -452,14 +452,14 @@ Implementation must:
 - keep all page constants policy-free exact byte counts;
 - keep `Page` under `addr`, not root.
 
-Implementation may reuse `zstdx.bits.isPowerOfTwo` and `zstdx.addr.Address` arithmetic when behavior exactly matches this spec.
+Implementation may reuse `stdx.bits.isPowerOfTwo` and `stdx.addr.Address` arithmetic when behavior exactly matches this spec.
 
 ## Usage
 
 Physical page family:
 
 ```zig
-const Phys4K = zstdx.addr.Page(zstdx.addr.PhysAddr, zstdx.addr.pages._4kib);
+const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
 
 const base = try Phys4K.Frame.fromAddressInt(0x1000);
 const count = Phys4K.Count.fromPages(16);
@@ -472,11 +472,11 @@ Custom guest-physical page family:
 
 ```zig
 const GpaTag = opaque {};
-const Gpa = zstdx.addr.Address(GpaTag, u64);
-const Gpa4K = zstdx.addr.Page(Gpa, zstdx.addr.pages._4kib);
+const Gpa = stdx.addr.Address(GpaTag, u64);
+const Gpa4K = stdx.addr.Page(Gpa, stdx.addr.pages._4kib);
 
 const base = try Gpa4K.Frame.fromAddress(Gpa.fromInt(0x0010_0000));
-const pages = try Gpa4K.Count.fromBytesExact(2 * zstdx.addr.pages._4kib);
+const pages = try Gpa4K.Count.fromBytesExact(2 * stdx.addr.pages._4kib);
 const range = try Gpa4K.FrameRange.fromBaseCount(base, pages);
 
 _ = range;
@@ -485,7 +485,7 @@ _ = range;
 Rounded byte capacity:
 
 ```zig
-const Phys4K = zstdx.addr.Page(zstdx.addr.PhysAddr, zstdx.addr.pages._4kib);
+const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
 
 const pages = try Phys4K.Count.fromBytesRoundUp(blob_len);
 const backing_bytes = try pages.toBytes();
@@ -496,7 +496,7 @@ _ = backing_bytes;
 Sub-page and unaligned wire addresses stay outside `Page`:
 
 ```zig
-const hpet_register = zstdx.addr.PhysAddr.fromInt(0xFED0_00F0);
+const hpet_register = stdx.addr.PhysAddr.fromInt(0xFED0_00F0);
 _ = hpet_register;
 ```
 
@@ -596,8 +596,8 @@ Where practical:
 
 ```zig
 comptime {
-    const A = zstdx.addr.Address(enum { a }, u8);
-    const A4 = zstdx.addr.Page(A, 4);
+    const A = stdx.addr.Address(enum { a }, u8);
+    const A4 = stdx.addr.Page(A, 4);
 
     std.debug.assert(A4.Size.bytes == 4);
     std.debug.assert(A4.Size.mask == 3);

@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.bits` owns power-of-two integer helpers used by alignment, ring capacities, bitsets, hash maps, and other low-level primitives.
+`stdx.bits` owns power-of-two integer helpers used by alignment, ring capacities, bitsets, hash maps, and other low-level primitives.
 
 ## Owned scope
 
@@ -26,17 +26,17 @@ This spec does not own:
 
 ## Public namespace
 
-Power-of-two helpers live under `zstdx.bits`:
+Power-of-two helpers live under `stdx.bits`:
 
 ```zig
-zstdx.bits.isPowerOfTwo
-zstdx.bits.nextPowerOfTwo
+stdx.bits.isPowerOfTwo
+stdx.bits.nextPowerOfTwo
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.isPowerOfTwo // not exported
+stdx.isPowerOfTwo // not exported
 ```
 
 Source ownership:
@@ -71,11 +71,11 @@ pub fn nextPowerOfTwo(comptime T: type, value: T) Error!T;
 Usage:
 
 ```zig
-if (zstdx.bits.isPowerOfTwo(usize, capacity)) {
+if (stdx.bits.isPowerOfTwo(usize, capacity)) {
     // capacity is a power of two.
 }
 
-const next = try zstdx.bits.nextPowerOfTwo(usize, requested);
+const next = try stdx.bits.nextPowerOfTwo(usize, requested);
 ```
 
 ## `isPowerOfTwo` semantics
@@ -177,7 +177,7 @@ Where practical:
 
 ```zig
 comptime {
-    std.debug.assert((try zstdx.bits.nextPowerOfTwo(u8, 7)) == 8);
+    std.debug.assert((try stdx.bits.nextPowerOfTwo(u8, 7)) == 8);
 }
 ```
 

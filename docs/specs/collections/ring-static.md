@@ -2,10 +2,10 @@
 
 Status: Approved.
 
-`zstdx.collections.Ring.Static(T, N)` is an inline fixed-capacity FIFO. It owns
+`stdx.collections.Ring.Static(T, N)` is an inline fixed-capacity FIFO. It owns
 its storage, preserves enqueue order, and never allocates.
 
-The root facade may expose the same family as `zstdx.Ring.Static(T, N)`.
+The root facade may expose the same family as `stdx.Ring.Static(T, N)`.
 
 ## Owned scope
 
@@ -37,16 +37,16 @@ This spec does not own:
 
 ## Public namespace
 
-`Ring` lives under `zstdx.collections`:
+`Ring` lives under `stdx.collections`:
 
 ```zig
-zstdx.collections.Ring
+stdx.collections.Ring
 ```
 
 It is root-promoted by the first-slice root facade:
 
 ```zig
-zstdx.Ring
+stdx.Ring
 ```
 
 Source ownership:
@@ -65,7 +65,7 @@ pub const ring = @import("collections/ring.zig");
 pub const Ring = ring.Ring;
 ```
 
-`src/zstdx.zig` re-exports:
+`src/stdx.zig` re-exports:
 
 ```zig
 pub const collections = @import("collections.zig");
@@ -321,9 +321,9 @@ lands.
 UART RX FIFO with overrun reporting:
 
 ```zig
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const RxFifo = zstdx.Ring.Static(u8, 16);
+const RxFifo = stdx.Ring.Static(u8, 16);
 
 var rx = RxFifo.init();
 
@@ -342,7 +342,7 @@ fn guestRead(out: *u8) bool {
 Pending-notification queue with drop-oldest and ownership transfer:
 
 ```zig
-const Pending = zstdx.Ring.Static(NotifyEntry, 8);
+const Pending = stdx.Ring.Static(NotifyEntry, 8);
 
 var pending = Pending.init();
 
@@ -354,7 +354,7 @@ if (pending.pushBackOverwriteOldest(entry)) |dropped| {
 Pointer access for large `T`:
 
 ```zig
-const Events = zstdx.Ring.Static(Event, 32);
+const Events = stdx.Ring.Static(Event, 32);
 
 var events = Events.init();
 

@@ -2,13 +2,13 @@
 
 Status: Approved.
 
-`zstdx.core.debug` owns the minimal shared helper that maps `SafetyMode` to whether optional zstdx checks are compiled into an operation. Per-type invariant checks remain owned by each primitive.
+`stdx.core.debug` owns the minimal shared helper that maps `SafetyMode` to whether optional zstdx checks are compiled into an operation. Per-type invariant checks remain owned by each primitive.
 
 ## Owned scope
 
 This spec owns:
 
-- `zstdx.core.debug.checksEnabled`;
+- `stdx.core.debug.checksEnabled`;
 - the `assertValid` method convention;
 - assertion-versus-error rules;
 - `SafetyMode` interaction rules for debug checks;
@@ -26,17 +26,17 @@ This spec does not own:
 
 ## Public namespace
 
-`checksEnabled` lives under `zstdx.core.debug`:
+`checksEnabled` lives under `stdx.core.debug`:
 
 ```zig
-zstdx.core.debug.checksEnabled
+stdx.core.debug.checksEnabled
 ```
 
 It is not root-promoted:
 
 ```zig
-zstdx.debug // not exported
-zstdx.checksEnabled // not exported
+stdx.debug // not exported
+stdx.checksEnabled // not exported
 ```
 
 Source ownership:
@@ -55,7 +55,7 @@ pub const debug = @import("core/debug.zig");
 ## Approved API
 
 ```zig
-pub fn checksEnabled(comptime mode: zstdx.core.SafetyMode) bool;
+pub fn checksEnabled(comptime mode: stdx.core.SafetyMode) bool;
 ```
 
 Semantics:
@@ -95,7 +95,7 @@ pub fn checksEnabled(comptime mode: SafetyMode) bool {
 Cheap automatic check:
 
 ```zig
-if (zstdx.core.debug.checksEnabled(opts.safety)) {
+if (stdx.core.debug.checksEnabled(opts.safety)) {
     self.assertValid();
 }
 ```
@@ -103,7 +103,7 @@ if (zstdx.core.debug.checksEnabled(opts.safety)) {
 Expensive automatic check:
 
 ```zig
-if (zstdx.core.debug.checksEnabled(opts.safety)) {
+if (stdx.core.debug.checksEnabled(opts.safety)) {
     self.assertValidDeep();
 }
 ```
@@ -249,12 +249,12 @@ These are deferred until a concrete primitive or diagnostic spec needs them.
 
 ## Required tests
 
-For `zstdx.core.debug`:
+For `stdx.core.debug`:
 
 - `checksEnabled(.checked)` is comptime `true`;
 - `checksEnabled(.unchecked)` is comptime `false`;
 - `checksEnabled(.build_mode)` matches `builtin.mode`;
-- function is public as `zstdx.core.debug.checksEnabled`.
+- function is public as `stdx.core.debug.checksEnabled`.
 
 For consumers:
 

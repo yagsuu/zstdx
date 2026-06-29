@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.core.Range(T)` is a small half-open range value for unsigned integer domains. It is used for indices, byte offsets, bitmap spans, allocator extents, and other count-like intervals. Address-specific ranges are owned by address/page specs.
+`stdx.core.Range(T)` is a small half-open range value for unsigned integer domains. It is used for indices, byte offsets, bitmap spans, allocator extents, and other count-like intervals. Address-specific ranges are owned by address/page specs.
 
 ## Owned scope
 
@@ -24,16 +24,16 @@ This spec does not own:
 
 ## Public namespace
 
-`Range` lives under `zstdx.core`:
+`Range` lives under `stdx.core`:
 
 ```zig
-zstdx.core.Range
+stdx.core.Range
 ```
 
 It is not root-promoted:
 
 ```zig
-zstdx.Range // not exported
+stdx.Range // not exported
 ```
 
 Source ownership:

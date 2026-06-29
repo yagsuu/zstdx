@@ -3,9 +3,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const List = zstdx.List;
+const List = stdx.List;
 
 const testing = std.testing;
 

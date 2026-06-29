@@ -2,13 +2,13 @@
 
 Status: Approved.
 
-`zstdx.bytes.Cursor` is a forward read cursor over caller-owned immutable bytes.
+`stdx.bytes.Cursor` is a forward read cursor over caller-owned immutable bytes.
 
 It must:
 
 - bounds-check every peek, read, and skip;
 - advance only through explicit read or skip operations;
-- compose typed reads with `zstdx.bytes.loadUnaligned`;
+- compose typed reads with `stdx.bytes.loadUnaligned`;
 - model checkpoints as ordinary value copies.
 
 ## Owned scope
@@ -39,16 +39,16 @@ This spec does not own:
 
 ## Public namespace
 
-`Cursor` lives under `zstdx.bytes`:
+`Cursor` lives under `stdx.bytes`:
 
 ```zig
-zstdx.bytes.Cursor
+stdx.bytes.Cursor
 ```
 
 It is not root-promoted:
 
 ```zig
-zstdx.Cursor // not exported
+stdx.Cursor // not exported
 ```
 
 Source ownership:
@@ -152,7 +152,7 @@ The cursor must not perform endian conversion. Endian-aware reads must use
 explicit layout types:
 
 ```zig
-const value = (try cursor.read(zstdx.layout.Le(u32))).native();
+const value = (try cursor.read(stdx.layout.Le(u32))).native();
 ```
 
 Invalid `T` categories follow the compile-time rules of `bytes.loadUnaligned`.
@@ -243,11 +243,11 @@ programmer error, not `error.EndOfStream`.
 TLV walk:
 
 ```zig
-var cursor = zstdx.bytes.Cursor.wrap(bytes);
+var cursor = stdx.bytes.Cursor.wrap(bytes);
 
 while (!cursor.isEmpty()) {
-    const tag = (try cursor.read(zstdx.layout.Le(u16))).native();
-    const len = (try cursor.read(zstdx.layout.Le(u32))).native();
+    const tag = (try cursor.read(stdx.layout.Le(u16))).native();
+    const len = (try cursor.read(stdx.layout.Le(u32))).native();
     const payload = try cursor.readBytes(len);
 
     try handle(tag, payload);
@@ -258,7 +258,7 @@ Unaligned field after a one-byte prefix:
 
 ```zig
 try cursor.skip(1);
-const value = (try cursor.read(zstdx.layout.Le(u16))).native();
+const value = (try cursor.read(stdx.layout.Le(u16))).native();
 ```
 
 Fixed header plus byte tail:
@@ -313,8 +313,8 @@ cursor = branch;
 ### Typed reads
 
 - `read(u8)` returns the first byte and advances one byte;
-- `read(zstdx.layout.Le(u16))` decodes the expected little-endian value;
-- `read(zstdx.layout.Be(u32))` decodes the expected big-endian value;
+- `read(stdx.layout.Le(u16))` decodes the expected little-endian value;
+- `read(stdx.layout.Be(u32))` decodes the expected big-endian value;
 - typed reads work after a deliberate one-byte skip to an unaligned position;
 - `peek(T)` returns the same value as the corresponding `read(T)` and does not
   advance;

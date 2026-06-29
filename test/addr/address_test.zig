@@ -2,9 +2,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const addr = zstdx.addr;
+const addr = stdx.addr;
 
 const TagA = opaque {};
 const TagB = opaque {};

@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.core` owns zero-allocation callback type factories and semantic laws for ordering, equality, and hashing. These traits exist to keep collection and algorithm specs consistent without forcing runtime vtables or broad policy objects.
+`stdx.core` owns zero-allocation callback type factories and semantic laws for ordering, equality, and hashing. These traits exist to keep collection and algorithm specs consistent without forcing runtime vtables or broad policy objects.
 
 The traits are concrete public API, but source implementation lands only when an approved consumer needs them.
 
@@ -39,20 +39,20 @@ No generic trait object or runtime interface is approved.
 
 ## Public namespace
 
-Traits live under `zstdx.core`:
+Traits live under `stdx.core`:
 
 ```zig
-zstdx.core.Order
-zstdx.core.Compare
-zstdx.core.LessThan
-zstdx.core.Eql
-zstdx.core.Hash
+stdx.core.Order
+stdx.core.Compare
+stdx.core.LessThan
+stdx.core.Eql
+stdx.core.Hash
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.Compare // not exported
+stdx.Compare // not exported
 ```
 
 Source ownership:
@@ -133,7 +133,7 @@ pub fn sort(
     comptime T: type,
     items: []T,
     context: anytype,
-    comptime lessThan: zstdx.core.LessThan(@TypeOf(context), T),
+    comptime lessThan: stdx.core.LessThan(@TypeOf(context), T),
 ) void;
 ```
 
@@ -238,7 +238,7 @@ Strict ordering:
 pub fn Options(comptime Context: type, comptime T: type) type {
     return struct {
         context: Context = {},
-        comptime lessThan: zstdx.core.LessThan(Context, T),
+        comptime lessThan: stdx.core.LessThan(Context, T),
     };
 }
 ```
@@ -249,7 +249,7 @@ Three-way ordering:
 pub fn Options(comptime Context: type, comptime T: type) type {
     return struct {
         context: Context = {},
-        comptime compare: zstdx.core.Compare(Context, T),
+        comptime compare: stdx.core.Compare(Context, T),
     };
 }
 ```
@@ -260,8 +260,8 @@ Hash/equality:
 pub fn Options(comptime Context: type, comptime K: type) type {
     return struct {
         context: Context = {},
-        comptime hash: zstdx.core.Hash(Context, K),
-        comptime eql: zstdx.core.Eql(Context, K),
+        comptime hash: stdx.core.Hash(Context, K),
+        comptime eql: stdx.core.Eql(Context, K),
     };
 }
 ```
@@ -276,9 +276,9 @@ A consumer spec may add debug checks for easy-to-detect violations, but such che
 
 ## Required tests
 
-For `zstdx.core`:
+For `stdx.core`:
 
-- `Order` is public through `zstdx.core`;
+- `Order` is public through `stdx.core`;
 - `Compare`, `LessThan`, `Eql`, and `Hash` type factories compile for `Context = void` and a scalar `T`;
 - pointer operands are accepted without copying values;
 - a callback with pointer context compiles.

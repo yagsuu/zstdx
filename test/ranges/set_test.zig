@@ -2,8 +2,8 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
-const RangeSet = zstdx.ranges.RangeSet;
+const stdx = @import("stdx");
+const RangeSet = stdx.ranges.RangeSet;
 const testing = std.testing;
 
 fn expectRanges(comptime Range: type, expected: []const Range, actual: []const Range) !void {
@@ -177,7 +177,7 @@ test "model: RangeSet matches bitset over small domain" {
 
 test "comptime: RangeSet mutates at compile time" {
     comptime {
-        const Set = zstdx.ranges.RangeSet.Static(u8, 4);
+        const Set = stdx.ranges.RangeSet.Static(u8, 4);
         const Range = Set.Range;
 
         var set = Set.init();

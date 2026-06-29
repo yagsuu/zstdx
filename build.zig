@@ -4,8 +4,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const host_target = b.standardTargetOptions(.{});
 
-    const zstdx = b.addModule("zstdx", .{
-        .root_source_file = b.path("src/zstdx.zig"),
+    const stdx = b.addModule("stdx", .{
+        .root_source_file = b.path("src/stdx.zig"),
         .target = host_target,
         .optimize = optimize,
     });
@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("test/all.zig"),
         .target = host_target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "zstdx", .module = zstdx }},
+        .imports = &.{.{ .name = "stdx", .module = stdx }},
     });
     const tests = b.addTest(.{ .root_module = tests_root });
     const run_tests = b.addRunArtifact(tests);

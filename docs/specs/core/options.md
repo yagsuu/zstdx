@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.core` owns shared option vocabulary only when a concrete primitive needs it. This spec approves `SafetyMode` and option-shape rules. Growth, poisoning, stats, allocation-policy, and concurrency-policy abstractions are not approved here.
+`stdx.core` owns shared option vocabulary only when a concrete primitive needs it. This spec approves `SafetyMode` and option-shape rules. Growth, poisoning, stats, allocation-policy, and concurrency-policy abstractions are not approved here.
 
 ## Owned scope
 
@@ -25,16 +25,16 @@ This spec does not own:
 
 ## Public namespace
 
-`SafetyMode` lives under `zstdx.core`:
+`SafetyMode` lives under `stdx.core`:
 
 ```zig
-zstdx.core.SafetyMode
+stdx.core.SafetyMode
 ```
 
 It is not root-promoted:
 
 ```zig
-zstdx.SafetyMode // not exported
+stdx.SafetyMode // not exported
 ```
 
 Source ownership:
@@ -96,7 +96,7 @@ Default shape:
 
 ```zig
 pub const Options = struct {
-    safety: zstdx.core.SafetyMode = .build_mode,
+    safety: stdx.core.SafetyMode = .build_mode,
 };
 ```
 
@@ -185,7 +185,7 @@ Any primitive using `SafetyMode` must state:
 
 For `SafetyMode` itself:
 
-- the enum is public through `zstdx.core`;
+- the enum is public through `stdx.core`;
 - values are exactly `build_mode`, `checked`, and `unchecked`.
 
 For every primitive using `SafetyMode`:

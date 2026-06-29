@@ -2,9 +2,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const SafetyMode = zstdx.core.SafetyMode;
+const SafetyMode = stdx.core.SafetyMode;
 
 const testing = std.testing;
 

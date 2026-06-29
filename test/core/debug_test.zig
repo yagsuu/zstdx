@@ -3,9 +3,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const debug = zstdx.core.debug;
+const debug = stdx.core.debug;
 
 const testing = std.testing;
 

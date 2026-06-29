@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.ranges.RangeSet` is a fixed-capacity canonical set of unsigned half-open ranges. It stores `zstdx.core.Range(T)` values sorted by start, merges overlapping or adjacent ranges on insertion, and subtracts ranges with head/tail splitting on removal.
+`stdx.ranges.RangeSet` is a fixed-capacity canonical set of unsigned half-open ranges. It stores `stdx.core.Range(T)` values sorted by start, merges overlapping or adjacent ranges on insertion, and subtracts ranges with head/tail splitting on removal.
 
 ## Owned scope
 
@@ -37,16 +37,16 @@ This spec does not own:
 
 ## Public namespace
 
-`RangeSet` lives under `zstdx.ranges`:
+`RangeSet` lives under `stdx.ranges`:
 
 ```zig
-zstdx.ranges.RangeSet
+stdx.ranges.RangeSet
 ```
 
 It is not root-promoted:
 
 ```zig
-zstdx.RangeSet // not exported
+stdx.RangeSet // not exported
 ```
 
 Source ownership:
@@ -76,7 +76,7 @@ pub const RangeSet = struct {
 };
 ```
 
-`T` must be an unsigned integer type. Other types are compile errors because `RangeSet` stores `zstdx.core.Range(T)`.
+`T` must be an unsigned integer type. Other types are compile errors because `RangeSet` stores `stdx.core.Range(T)`.
 
 ### `Static` returned type
 
@@ -85,7 +85,7 @@ pub const Self = struct {
     buffer: [capacity_ranges]Range = undefined,
     count: usize = 0,
 
-    pub const Range = zstdx.core.Range(T);
+    pub const Range = stdx.core.Range(T);
     pub const Error = error{ Full, InvalidRange };
     pub const range_capacity = capacity_ranges;
 
@@ -122,7 +122,7 @@ pub const Self = struct {
     buffer: []Range,
     count: usize = 0,
 
-    pub const Range = zstdx.core.Range(T);
+    pub const Range = stdx.core.Range(T);
     pub const Error = error{ Full, InvalidRange };
 
     pub fn wrap(buffer: []Range) Self;
@@ -155,7 +155,7 @@ pub const Self = struct {
 
 ## Type and capacity contract
 
-`RangeSet` stores `zstdx.core.Range(T)` values.
+`RangeSet` stores `stdx.core.Range(T)` values.
 
 A valid set satisfies:
 
@@ -341,7 +341,7 @@ Concurrent mutation is outside the contract. Callers must externally synchronize
 
 Explicit `assertValid()` calls always perform the check.
 
-Automatic invariant checks inside operations, if implemented, must be gated through `zstdx.core.debug.checksEnabled` when the operation exposes a `SafetyMode` option. This spec does not require `RangeSet` operations to expose a `SafetyMode` option.
+Automatic invariant checks inside operations, if implemented, must be gated through `stdx.core.debug.checksEnabled` when the operation exposes a `SafetyMode` option. This spec does not require `RangeSet` operations to expose a `SafetyMode` option.
 
 Assertions document programmer errors and internal invariant failures. Malformed external ranges passed to `insert` or `remove` must return `error.InvalidRange`.
 
@@ -349,7 +349,7 @@ Assertions document programmer errors and internal invariant failures. Malformed
 
 Implementation must:
 
-- use `zstdx.core.Range(T)` as the stored range value;
+- use `stdx.core.Range(T)` as the stored range value;
 - reject non-unsigned `T` where practical through `Range(T)`;
 - keep initialized ranges in `buffer[0..count]`;
 - leave `buffer[count..]` as spare storage;
@@ -369,8 +369,8 @@ Implementation may use binary search for query start points and linear compactio
 Static set:
 
 ```zig
-const RangeSet = zstdx.ranges.RangeSet;
-const Range = zstdx.core.Range(u64);
+const RangeSet = stdx.ranges.RangeSet;
+const Range = stdx.core.Range(u64);
 
 var used = RangeSet.Static(u64, 8).init();
 
@@ -383,7 +383,7 @@ try used.insert(try Range.fromBounds(20, 30));
 Bounded set:
 
 ```zig
-const RangeSet = zstdx.ranges.RangeSet;
+const RangeSet = stdx.ranges.RangeSet;
 
 var backing: [16]RangeSet.Bounded(u64).Range = undefined;
 var free = RangeSet.Bounded(u64).wrap(backing[0..]);
@@ -488,7 +488,7 @@ Where practical:
 
 ```zig
 comptime {
-    const Set = zstdx.ranges.RangeSet.Static(u8, 4);
+    const Set = stdx.ranges.RangeSet.Static(u8, 4);
     const Range = Set.Range;
 
     var set = Set.init();

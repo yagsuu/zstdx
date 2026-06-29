@@ -2,9 +2,9 @@
 
 Status: Approved.
 
-`zstdx.intrusive.Queue(T, field)` is a caller-node-backed FIFO queue. It never
+`stdx.intrusive.Queue(T, field)` is a caller-node-backed FIFO queue. It never
 allocates, never moves parent objects, and stores membership in an embedded
-`zstdx.intrusive.List.SinglyLinkedNode` field owned by the caller's object.
+`stdx.intrusive.List.SinglyLinkedNode` field owned by the caller's object.
 
 ## Owned scope
 
@@ -34,10 +34,10 @@ This spec does not own:
 
 ## Public namespace
 
-`Queue` lives under `zstdx.intrusive`:
+`Queue` lives under `stdx.intrusive`:
 
 ```zig
-zstdx.intrusive.Queue
+stdx.intrusive.Queue
 ```
 
 It is not root-promoted. Callers use the intrusive namespace explicitly.
@@ -58,14 +58,14 @@ pub const queue = @import("intrusive/queue.zig");
 pub const Queue = queue.Queue;
 ```
 
-`src/zstdx.zig` re-exports the namespace only:
+`src/stdx.zig` re-exports the namespace only:
 
 ```zig
 pub const intrusive = @import("intrusive.zig");
 ```
 
-There is no `zstdx.Queue`, `zstdx.QueueNode`, or
-`zstdx.intrusive.QueueNode` alias.
+There is no `stdx.Queue`, `stdx.QueueNode`, or
+`stdx.intrusive.QueueNode` alias.
 
 ## Approved API
 
@@ -118,12 +118,12 @@ Example:
 ```zig
 const Task = struct {
     id: u32,
-    ready_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
-    free_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
+    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
+    free_node: stdx.intrusive.List.SinglyLinkedNode = .{},
 };
 
-const ReadyQueue = zstdx.intrusive.Queue(Task, "ready_node");
-const FreeQueue = zstdx.intrusive.Queue(Task, "free_node");
+const ReadyQueue = stdx.intrusive.Queue(Task, "ready_node");
+const FreeQueue = stdx.intrusive.Queue(Task, "free_node");
 
 var ready = ReadyQueue.init();
 var free = FreeQueue.init();
@@ -295,10 +295,10 @@ Run queue:
 ```zig
 const Thread = struct {
     id: u32,
-    runq_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
+    runq_node: stdx.intrusive.List.SinglyLinkedNode = .{},
 };
 
-const RunQueue = zstdx.intrusive.Queue(Thread, "runq_node");
+const RunQueue = stdx.intrusive.Queue(Thread, "runq_node");
 
 var runq = RunQueue.init();
 var thread_a: Thread = .{ .id = 1 };
@@ -317,10 +317,10 @@ Free list queue discipline:
 ```zig
 const Buffer = struct {
     bytes: [4096]u8,
-    free_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
+    free_node: stdx.intrusive.List.SinglyLinkedNode = .{},
 };
 
-const FreeBuffers = zstdx.intrusive.Queue(Buffer, "free_node");
+const FreeBuffers = stdx.intrusive.Queue(Buffer, "free_node");
 
 var free = FreeBuffers.init();
 var buffer: Buffer = .{ .bytes = undefined };

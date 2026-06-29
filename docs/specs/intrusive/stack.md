@@ -2,9 +2,9 @@
 
 Status: Approved.
 
-`zstdx.intrusive.Stack(T, field)` is a caller-node-backed LIFO stack. It never
+`stdx.intrusive.Stack(T, field)` is a caller-node-backed LIFO stack. It never
 allocates, never moves parent objects, and stores membership in an embedded
-`zstdx.intrusive.List.SinglyLinkedNode` field owned by the caller's object.
+`stdx.intrusive.List.SinglyLinkedNode` field owned by the caller's object.
 
 ## Owned scope
 
@@ -37,10 +37,10 @@ This spec does not own:
 
 ## Public namespace
 
-`Stack` lives under `zstdx.intrusive`:
+`Stack` lives under `stdx.intrusive`:
 
 ```zig
-zstdx.intrusive.Stack
+stdx.intrusive.Stack
 ```
 
 It is not root-promoted. Callers use the intrusive namespace explicitly.
@@ -61,14 +61,14 @@ pub const stack = @import("intrusive/stack.zig");
 pub const Stack = stack.Stack;
 ```
 
-`src/zstdx.zig` re-exports the namespace only:
+`src/stdx.zig` re-exports the namespace only:
 
 ```zig
 pub const intrusive = @import("intrusive.zig");
 ```
 
-There is no `zstdx.Stack`, `zstdx.StackNode`, or
-`zstdx.intrusive.StackNode` alias.
+There is no `stdx.Stack`, `stdx.StackNode`, or
+`stdx.intrusive.StackNode` alias.
 
 ## Approved API
 
@@ -118,12 +118,12 @@ Example:
 ```zig
 const Frame = struct {
     id: u32,
-    ready_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
-    free_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
+    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
+    free_node: stdx.intrusive.List.SinglyLinkedNode = .{},
 };
 
-const ReadyStack = zstdx.intrusive.Stack(Frame, "ready_node");
-const FreeStack = zstdx.intrusive.Stack(Frame, "free_node");
+const ReadyStack = stdx.intrusive.Stack(Frame, "ready_node");
+const FreeStack = stdx.intrusive.Stack(Frame, "free_node");
 
 var ready = ReadyStack.init();
 var free = FreeStack.init();
@@ -292,10 +292,10 @@ Free-object stack:
 ```zig
 const Slot = struct {
     id: u16,
-    free_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
+    free_node: stdx.intrusive.List.SinglyLinkedNode = .{},
 };
 
-const FreeSlots = zstdx.intrusive.Stack(Slot, "free_node");
+const FreeSlots = stdx.intrusive.Stack(Slot, "free_node");
 
 var free = FreeSlots.init();
 var slot_a: Slot = .{ .id = 1 };
@@ -313,10 +313,10 @@ Parser work stack:
 ```zig
 const Frame = struct {
     offset: usize,
-    stack_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
+    stack_node: stdx.intrusive.List.SinglyLinkedNode = .{},
 };
 
-const Frames = zstdx.intrusive.Stack(Frame, "stack_node");
+const Frames = stdx.intrusive.Stack(Frame, "stack_node");
 
 var frames = Frames.init();
 var root: Frame = .{ .offset = 0 };

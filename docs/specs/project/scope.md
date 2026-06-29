@@ -8,9 +8,9 @@ Status: Approved.
 
 ## Package identity
 
-- The final public import name is `zstdx`.
-- Public examples use `const zstdx = @import("zstdx");`.
-- The repository may retain an old directory name temporarily, but specs and public API use `zstdx`.
+- The package name is `zstdx`.
+- The public import name is `stdx`. Public examples use `const stdx = @import("stdx");`.
+- Source paths use `src/stdx.zig` for the package facade.
 
 ## Owned scope
 
@@ -65,27 +65,27 @@ Downstream packages may consume `zstdx` primitives to implement those systems. E
 
 ## Public namespace policy
 
-The public package facade is `src/zstdx.zig`.
+The public package facade is `src/stdx.zig`.
 
 Subsystem namespaces are canonical:
 
 ```zig
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const bits = zstdx.bits;
-const addr = zstdx.addr;
-const mem = zstdx.mem;
-const layout = zstdx.layout;
-const bytes = zstdx.bytes;
-const intrusive = zstdx.intrusive;
+const bits = stdx.bits;
+const addr = stdx.addr;
+const mem = stdx.mem;
+const layout = stdx.layout;
+const bytes = stdx.bytes;
+const intrusive = stdx.intrusive;
 ```
 
 Root exports should promote flagship type families after their owning specs approve the exact surface:
 
 ```zig
-const List = zstdx.List;
-const Ring = zstdx.Ring;
-const HashMap = zstdx.HashMap;
+const List = stdx.List;
+const Ring = stdx.Ring;
+const HashMap = stdx.HashMap;
 ```
 
 Root promotion does not replace the canonical subsystem home. Exact root exports are owned by `docs/specs/root-exports.md`.

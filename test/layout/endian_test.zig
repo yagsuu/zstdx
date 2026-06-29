@@ -2,10 +2,10 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const layout = zstdx.layout;
-const bytes = zstdx.bytes;
+const layout = stdx.layout;
+const bytes = stdx.bytes;
 
 const Le = layout.Le;
 const Be = layout.Be;

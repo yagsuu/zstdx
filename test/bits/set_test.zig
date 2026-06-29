@@ -2,9 +2,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const BitSet = zstdx.bits.BitSet;
+const BitSet = stdx.bits.BitSet;
 
 const testing = std.testing;
 

@@ -2,9 +2,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
-const bytes = zstdx.bytes;
-const Le = zstdx.layout.Le;
+const stdx = @import("stdx");
+const bytes = stdx.bytes;
+const Le = stdx.layout.Le;
 
 const testing = std.testing;
 

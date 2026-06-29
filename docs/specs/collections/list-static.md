@@ -2,10 +2,10 @@
 
 Status: Approved.
 
-`zstdx.collections.List.Static(T, N)` is an inline fixed-capacity sequence.
+`stdx.collections.List.Static(T, N)` is an inline fixed-capacity sequence.
 It owns its storage, preserves insertion order by default, and never allocates.
 
-The root facade may expose the same family as `zstdx.List.Static(T, N)`.
+The root facade may expose the same family as `stdx.List.Static(T, N)`.
 
 ## Owned scope
 
@@ -31,16 +31,16 @@ This spec does not own:
 
 ## Public namespace
 
-`List` lives under `zstdx.collections`:
+`List` lives under `stdx.collections`:
 
 ```zig
-zstdx.collections.List
+stdx.collections.List
 ```
 
 It is root-promoted by the first-slice root facade:
 
 ```zig
-zstdx.List
+stdx.List
 ```
 
 Source ownership:
@@ -59,7 +59,7 @@ pub const list = @import("collections/list.zig");
 pub const List = list.List;
 ```
 
-`src/zstdx.zig` re-exports:
+`src/stdx.zig` re-exports:
 
 ```zig
 pub const collections = @import("collections.zig");
@@ -306,9 +306,9 @@ when text-specific behavior is not required.
 ## Examples
 
 ```zig
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const EventList = zstdx.List.Static(Event, 64);
+const EventList = stdx.List.Static(Event, 64);
 
 var events = EventList.init();
 try events.append(.{ .id = 1 });
@@ -322,7 +322,7 @@ _ = removed_unordered;
 ```
 
 ```zig
-const FreeList = zstdx.List.Static(u16, 32);
+const FreeList = stdx.List.Static(u16, 32);
 
 var free = FreeList.init();
 free.appendAssumeCapacity(7);

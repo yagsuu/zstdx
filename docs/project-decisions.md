@@ -17,7 +17,7 @@ Use these labels in specs and planning documents:
 
 ### Project
 
-- The final package/import name is `zstdx`.
+- The package name is `zstdx`. The public import name is `stdx`.
 - `zstdx` is intended to be a high-performance Zig primitive library.
 - `zstdx` is domain-neutral: kernels, hypervisors, firmware, drivers, runtimes, game engines, compilers, storage systems, and high-performance userspace code are valid consumers.
 - `zstdx` owns reusable primitives: allocators, collections, intrusive structures, synchronization primitives, barriers, strong address/size/page types, layout helpers, byte helpers, rings, tags, scatter/gather helpers, diagnostics, and tests.
@@ -44,7 +44,7 @@ Use these labels in specs and planning documents:
 - Barriers and fences are deferred from the first implementation slice.
 - Runtime metadata types are not approved without a concrete consumer; behavior contracts are specified in per-primitive docs instead.
 - `SafetyMode` is approved; `GrowthPolicy`, `PoisonPolicy`, and `StatsPolicy` are deferred until concrete consumers need them.
-- Core trait callbacks are approved as zero-allocation function type factories under `zstdx.core`, not runtime trait objects.
+- Core trait callbacks are approved as zero-allocation function type factories under `stdx.core`, not runtime trait objects.
 - `core.debug.checksEnabled` is approved as the only shared debug helper; `assertValid` remains a per-type method convention.
 - Power-of-two helpers are owned by `bits`; memory alignment helpers are owned by `mem`.
 

@@ -3,9 +3,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const Ring = zstdx.Ring;
+const Ring = stdx.Ring;
 
 const testing = std.testing;
 

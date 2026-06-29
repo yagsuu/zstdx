@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.ranges.RangeMap` is a fixed-capacity sorted map from unsigned half-open ranges to caller-defined values. It stores `zstdx.core.Range(T)` plus `V` entries, rejects overlapping inserts, supports overwrite-style assignment and range removal with splitting, and leaves value equality/coalescing policy explicit.
+`stdx.ranges.RangeMap` is a fixed-capacity sorted map from unsigned half-open ranges to caller-defined values. It stores `stdx.core.Range(T)` plus `V` entries, rejects overlapping inserts, supports overwrite-style assignment and range removal with splitting, and leaves value equality/coalescing policy explicit.
 
 ## Owned scope
 
@@ -40,16 +40,16 @@ This spec does not own:
 
 ## Public namespace
 
-`RangeMap` lives under `zstdx.ranges`:
+`RangeMap` lives under `stdx.ranges`:
 
 ```zig
-zstdx.ranges.RangeMap
+stdx.ranges.RangeMap
 ```
 
 It is not root-promoted:
 
 ```zig
-zstdx.RangeMap // not exported
+stdx.RangeMap // not exported
 ```
 
 Source ownership:
@@ -79,7 +79,7 @@ pub const RangeMap = struct {
 };
 ```
 
-`T` must be an unsigned integer type. Other key-domain types are compile errors because `RangeMap` stores `zstdx.core.Range(T)`.
+`T` must be an unsigned integer type. Other key-domain types are compile errors because `RangeMap` stores `stdx.core.Range(T)`.
 
 `V` must be a runtime value type with `@sizeOf(V) > 0`. Zero-sized value types are compile errors where practical.
 
@@ -90,7 +90,7 @@ pub const Self = struct {
     buffer: [capacity_entries]Entry = undefined,
     count: usize = 0,
 
-    pub const Range = zstdx.core.Range(T);
+    pub const Range = stdx.core.Range(T);
 
     pub const Entry = struct {
         range: Range,
@@ -119,7 +119,7 @@ pub const Self = struct {
     pub fn coalesceAdjacent(
         self: *Self,
         context: anytype,
-        comptime eql: zstdx.core.Eql(@TypeOf(context), V),
+        comptime eql: stdx.core.Eql(@TypeOf(context), V),
     ) void;
 
     pub fn contains(self: *const Self, value: T) bool;
@@ -142,7 +142,7 @@ pub const Self = struct {
     buffer: []Entry,
     count: usize = 0,
 
-    pub const Range = zstdx.core.Range(T);
+    pub const Range = stdx.core.Range(T);
 
     pub const Entry = struct {
         range: Range,
@@ -170,7 +170,7 @@ pub const Self = struct {
     pub fn coalesceAdjacent(
         self: *Self,
         context: anytype,
-        comptime eql: zstdx.core.Eql(@TypeOf(context), V),
+        comptime eql: stdx.core.Eql(@TypeOf(context), V),
     ) void;
 
     pub fn contains(self: *const Self, value: T) bool;
@@ -190,7 +190,7 @@ pub const Self = struct {
 
 ## Type and capacity contract
 
-A `RangeMap` entry stores a `zstdx.core.Range(T)` and one `V` value.
+A `RangeMap` entry stores a `stdx.core.Range(T)` and one `V` value.
 
 A valid map satisfies:
 
@@ -377,7 +377,7 @@ The right value is removed as an ordinary stored value; `RangeMap` does not dein
 
 `coalesceAdjacent` never allocates, never fails, and never increases `len()`.
 
-`context` is borrowed only for the duration of the call and is not stored. The callback is comptime-known, following `zstdx.core.Eql` conventions.
+`context` is borrowed only for the duration of the call and is not stored. The callback is comptime-known, following `stdx.core.Eql` conventions.
 
 ## Query semantics
 
@@ -462,7 +462,7 @@ Concurrent mutation is outside the contract. Callers must externally synchronize
 
 Explicit `assertValid()` calls always perform the check.
 
-Automatic invariant checks inside operations, if implemented, must be gated through `zstdx.core.debug.checksEnabled` when the operation exposes a `SafetyMode` option. This spec does not require `RangeMap` operations to expose a `SafetyMode` option.
+Automatic invariant checks inside operations, if implemented, must be gated through `stdx.core.debug.checksEnabled` when the operation exposes a `SafetyMode` option. This spec does not require `RangeMap` operations to expose a `SafetyMode` option.
 
 Assertions document programmer errors and internal invariant failures. Malformed external ranges passed to mutators must return `error.InvalidRange`.
 
@@ -470,7 +470,7 @@ Assertions document programmer errors and internal invariant failures. Malformed
 
 Implementation must:
 
-- use `zstdx.core.Range(T)` as the stored range value;
+- use `stdx.core.Range(T)` as the stored range value;
 - reject non-unsigned `T` where practical through `Range(T)`;
 - reject zero-sized `V` where practical;
 - keep initialized entries in `buffer[0..count]`;
@@ -494,7 +494,7 @@ Implementation may use binary search for query start points and linear compactio
 Overlap-rejecting map:
 
 ```zig
-const RangeMap = zstdx.ranges.RangeMap;
+const RangeMap = stdx.ranges.RangeMap;
 const MemoryKind = enum { usable_ram, reserved };
 
 var map = RangeMap.Static(u64, MemoryKind, 8).init();
@@ -644,7 +644,7 @@ Where practical:
 
 ```zig
 comptime {
-    const Map = zstdx.ranges.RangeMap.Static(u8, enum { a, b }, 4);
+    const Map = stdx.ranges.RangeMap.Static(u8, enum { a, b }, 4);
     const Range = Map.Range;
 
     var map = Map.init();

@@ -2,8 +2,8 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
-const IntrusiveList = zstdx.intrusive.List;
+const stdx = @import("stdx");
+const IntrusiveList = stdx.intrusive.List;
 const testing = std.testing;
 
 const Item = struct {

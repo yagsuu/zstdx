@@ -2,8 +2,8 @@
 
 Status: Approved.
 
-`zstdx.layout.EndianInt(T, endian)` is a byte-stable integer storage type.
-`zstdx.layout.Le(T)` and `zstdx.layout.Be(T)` specialize it for little-endian
+`stdx.layout.EndianInt(T, endian)` is a byte-stable integer storage type.
+`stdx.layout.Le(T)` and `stdx.layout.Be(T)` specialize it for little-endian
 and big-endian fields.
 
 Endian wrappers model wire, ABI, and persisted integer lanes whose byte order is
@@ -39,20 +39,20 @@ This spec does not own:
 
 ## Public namespace
 
-Endian integer wrappers live under `zstdx.layout`:
+Endian integer wrappers live under `stdx.layout`:
 
 ```zig
-zstdx.layout.EndianInt
-zstdx.layout.Le
-zstdx.layout.Be
+stdx.layout.EndianInt
+stdx.layout.Le
+stdx.layout.Be
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.EndianInt // not exported
-zstdx.Le // not exported
-zstdx.Be // not exported
+stdx.EndianInt // not exported
+stdx.Le // not exported
+stdx.Be // not exported
 ```
 
 Source ownership:
@@ -154,10 +154,10 @@ integer before using endian wrappers.
 For a valid `T`:
 
 ```zig
-@sizeOf(zstdx.layout.Le(T)) == @bitSizeOf(T) / 8
-@sizeOf(zstdx.layout.Be(T)) == @bitSizeOf(T) / 8
-@alignOf(zstdx.layout.Le(T)) == 1
-@alignOf(zstdx.layout.Be(T)) == 1
+@sizeOf(stdx.layout.Le(T)) == @bitSizeOf(T) / 8
+@sizeOf(stdx.layout.Be(T)) == @bitSizeOf(T) / 8
+@alignOf(stdx.layout.Le(T)) == 1
+@alignOf(stdx.layout.Be(T)) == 1
 ```
 
 The returned type is an `extern struct` wrapping exactly one field:
@@ -170,8 +170,8 @@ bytes: [@bitSizeOf(T) / 8]u8
 bit width:
 
 ```zig
-@sizeOf(zstdx.layout.Le(u24)) == 3
-@sizeOf(zstdx.layout.Be(u40)) == 5
+@sizeOf(stdx.layout.Le(u24)) == 3
+@sizeOf(stdx.layout.Be(u40)) == 5
 ```
 
 ## Byte order
@@ -207,12 +207,12 @@ Endian wrappers are intended for explicit wire and ABI fields:
 
 ```zig
 const Header = extern struct {
-    length: zstdx.layout.Le(u16),
-    generation: zstdx.layout.Le(u64),
+    length: stdx.layout.Le(u16),
+    generation: stdx.layout.Le(u64),
 };
 
 const length = header.length.native();
-header.generation = zstdx.layout.Le(u64).fromNative(next_generation);
+header.generation = stdx.layout.Le(u64).fromNative(next_generation);
 ```
 
 The wrapper's alignment is 1, so this models unaligned byte layouts without
@@ -224,13 +224,13 @@ The wrapper's alignment is 1, so this models unaligned byte layouts without
 Endian wrappers compose with them for endian-aware unaligned fields:
 
 ```zig
-const le = zstdx.bytes.loadUnaligned(zstdx.layout.Le(u32), bytes[pos..][0..4]);
+const le = stdx.bytes.loadUnaligned(stdx.layout.Le(u32), bytes[pos..][0..4]);
 const value = le.native();
 
-zstdx.bytes.storeUnaligned(
-    zstdx.layout.Le(u32),
+stdx.bytes.storeUnaligned(
+    stdx.layout.Le(u32),
     bytes[pos..][0..4],
-    zstdx.layout.Le(u32).fromNative(value),
+    stdx.layout.Le(u32).fromNative(value),
 );
 ```
 
@@ -337,7 +337,7 @@ Where practical:
 
 ```zig
 comptime {
-    const le = zstdx.layout.Le(u16).fromNative(0x1234);
+    const le = stdx.layout.Le(u16).fromNative(0x1234);
     std.debug.assert(le.bytes[0] == 0x34);
     std.debug.assert(le.bytes[1] == 0x12);
     std.debug.assert(le.native() == 0x1234);

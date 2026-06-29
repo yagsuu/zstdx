@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.bits.BitSet.Static(N)` is a fixed-capacity set of integer indexes in
+`stdx.bits.BitSet.Static(N)` is a fixed-capacity set of integer indexes in
 `0..N`. It is used for slot occupancy, free-index tracking, resource masks, and
 small bounded integer domains.
 
@@ -30,16 +30,16 @@ This spec does not own:
 
 ## Public namespace
 
-`BitSet` lives under `zstdx.bits`:
+`BitSet` lives under `stdx.bits`:
 
 ```zig
-zstdx.bits.BitSet
+stdx.bits.BitSet
 ```
 
 It is not root-promoted:
 
 ```zig
-zstdx.BitSet // not exported
+stdx.BitSet // not exported
 ```
 
 Source ownership:
@@ -141,7 +141,7 @@ For `Static(0)`, there are no words and the invariant is always true.
 A default struct literal is also an empty set:
 
 ```zig
-var set: zstdx.bits.BitSet.Static(64) = .{};
+var set: stdx.bits.BitSet.Static(64) = .{};
 ```
 
 `full()` returns a set with every valid bit set and every unused high bit clear.

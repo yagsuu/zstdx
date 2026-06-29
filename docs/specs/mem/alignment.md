@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.mem` owns small unsigned-integer alignment helpers used by allocators,
+`stdx.mem` owns small unsigned-integer alignment helpers used by allocators,
 fixed storage, byte layout, address lowering, and bounded data structures.
 
 ## Owned scope
@@ -31,20 +31,20 @@ This spec does not own:
 
 ## Public namespace
 
-Alignment helpers live under `zstdx.mem`:
+Alignment helpers live under `stdx.mem`:
 
 ```zig
-zstdx.mem.alignUp
-zstdx.mem.alignDown
-zstdx.mem.isAligned
-zstdx.mem.alignUpDelta
-zstdx.mem.alignDownDelta
+stdx.mem.alignUp
+stdx.mem.alignDown
+stdx.mem.isAligned
+stdx.mem.alignUpDelta
+stdx.mem.alignDownDelta
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.alignUp // not exported
+stdx.alignUp // not exported
 ```
 
 Source ownership:
@@ -87,9 +87,9 @@ pointers, and comptime integers without an explicit `T` are compile errors.
 Usage:
 
 ```zig
-const start = try zstdx.mem.alignUp(usize, cursor, @alignOf(Header));
-const base = try zstdx.mem.alignDown(u64, address, 4096);
-if (zstdx.mem.isAligned(usize, offset, 8)) {
+const start = try stdx.mem.alignUp(usize, cursor, @alignOf(Header));
+const base = try stdx.mem.alignDown(u64, address, 4096);
+if (stdx.mem.isAligned(usize, offset, 8)) {
     // `offset` is 8-byte aligned.
 }
 ```
@@ -99,7 +99,7 @@ if (zstdx.mem.isAligned(usize, offset, 8)) {
 `alignment` is valid when it is a non-zero power of two:
 
 ```zig
-alignment != 0 and zstdx.bits.isPowerOfTwo(T, alignment)
+alignment != 0 and stdx.bits.isPowerOfTwo(T, alignment)
 ```
 
 `alignUp` and `alignDown` return `error.InvalidAlignment` when `alignment` is zero or not a power of two. `isAligned` asserts the same precondition because it returns a plain `bool` (no error union); `alignment` is overwhelmingly a comptime constant in practice.
@@ -182,7 +182,7 @@ These helpers perform no allocation, waiting, hidden global access, atomics, or 
 
 Implementation must:
 
-- reuse or exactly match `zstdx.bits.isPowerOfTwo` semantics for alignment validation;
+- reuse or exactly match `stdx.bits.isPowerOfTwo` semantics for alignment validation;
 - avoid unchecked overflow;
 - avoid loops;
 - compile for all unsigned integer widths Zig supports;
@@ -231,9 +231,9 @@ Where practical:
 
 ```zig
 comptime {
-    std.debug.assert((try zstdx.mem.alignUp(u8, 7, 4)) == 8);
-    std.debug.assert((try zstdx.mem.alignDown(u8, 7, 4)) == 4);
-    std.debug.assert(zstdx.mem.isAligned(u8, 8, 4));
+    std.debug.assert((try stdx.mem.alignUp(u8, 7, 4)) == 8);
+    std.debug.assert((try stdx.mem.alignDown(u8, 7, 4)) == 4);
+    std.debug.assert(stdx.mem.isAligned(u8, 8, 4));
 }
 ```
 

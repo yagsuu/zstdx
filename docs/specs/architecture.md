@@ -21,7 +21,7 @@ zstdx/
     project-decisions.md
 
   src/
-    zstdx.zig
+    stdx.zig
 
     core.zig
     core/
@@ -94,10 +94,10 @@ This tree is an ownership map, not permission to create empty scaffolding. Files
 
 ## Public package facade
 
-`src/zstdx.zig` is the public package facade and build module root.
+`src/stdx.zig` is the public package facade and build module root.
 
 ```zig
-//! Public zstdx facade. Spec: docs/specs/root-exports.md.
+//! Public stdx facade. Spec: docs/specs/root-exports.md.
 
 pub const core = @import("core.zig");
 pub const bits = @import("bits.zig");
@@ -109,7 +109,7 @@ pub const collections = @import("collections.zig");
 pub const intrusive = @import("intrusive.zig");
 ```
 
-`src/zstdx.zig` may promote flagship families after `docs/specs/root-exports.md` approves the exact surface:
+`src/stdx.zig` may promote flagship families after `docs/specs/root-exports.md` approves the exact surface:
 
 ```zig
 pub const List = collections.List;
@@ -165,7 +165,7 @@ Only this source tree is eligible before more specs land:
 
 ```text
 src/
-  zstdx.zig
+  stdx.zig
 
   core.zig
   core/
@@ -302,7 +302,7 @@ A file named `manager.zig` is allowed only when the approved spec owns a public 
 Approved dependency direction:
 
 ```text
-zstdx.zig
+stdx.zig
   -> domain facades
 
 facades
@@ -346,9 +346,9 @@ Architecture-specific code lives only under `src/arch/` and is surfaced through 
 Approved architecture namespaces:
 
 ```zig
-zstdx.arch.x86
-zstdx.arch.aarch64
-zstdx.arch.riscv
+stdx.arch.x86
+stdx.arch.aarch64
+stdx.arch.riscv
 ```
 
 Architecture-specific code must:
@@ -362,24 +362,24 @@ Generic modules must not perform architecture or target probing directly.
 
 ## Build shape
 
-`build.zig` creates a public module named `zstdx` from `src/zstdx.zig`.
+`build.zig` creates a public module named `stdx` from `src/stdx.zig`.
 
 ```zig
-const zstdx_mod = b.createModule(.{
-    .root_source_file = b.path("src/zstdx.zig"),
+const stdx_mod = b.createModule(.{
+    .root_source_file = b.path("src/stdx.zig"),
     .target = target,
     .optimize = optimize,
 });
 ```
 
-The default test module imports `zstdx`:
+The default test module imports `stdx`:
 
 ```zig
 const test_mod = b.createModule(.{
     .root_source_file = b.path("test/all.zig"),
     .target = target,
     .optimize = optimize,
-    .imports = &.{.{ .name = "zstdx", .module = zstdx_mod }},
+    .imports = &.{.{ .name = "stdx", .module = stdx_mod }},
 });
 ```
 

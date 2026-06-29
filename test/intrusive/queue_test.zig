@@ -2,9 +2,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
-const List = zstdx.intrusive.List;
-const Queue = zstdx.intrusive.Queue;
+const stdx = @import("stdx");
+const List = stdx.intrusive.List;
+const Queue = stdx.intrusive.Queue;
 const testing = std.testing;
 
 const Item = struct {

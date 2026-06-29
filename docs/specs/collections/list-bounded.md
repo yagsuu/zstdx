@@ -2,10 +2,10 @@
 
 Status: Approved.
 
-`zstdx.collections.List.Bounded(T)` is a caller-storage-backed sequence with
+`stdx.collections.List.Bounded(T)` is a caller-storage-backed sequence with
 runtime capacity. It preserves insertion order by default and never allocates.
 
-The root facade may expose the same family as `zstdx.List.Bounded(T)`.
+The root facade may expose the same family as `stdx.List.Bounded(T)`.
 
 ## Owned scope
 
@@ -33,16 +33,16 @@ This spec does not own:
 
 ## Public namespace
 
-`List` lives under `zstdx.collections`:
+`List` lives under `stdx.collections`:
 
 ```zig
-zstdx.collections.List
+stdx.collections.List
 ```
 
 It is root-promoted by the first-slice root facade:
 
 ```zig
-zstdx.List
+stdx.List
 ```
 
 Source ownership:
@@ -61,7 +61,7 @@ pub const list = @import("collections/list.zig");
 pub const List = list.List;
 ```
 
-`src/zstdx.zig` re-exports:
+`src/stdx.zig` re-exports:
 
 ```zig
 pub const collections = @import("collections.zig");
@@ -335,9 +335,9 @@ scratch lists can use `List.Bounded` when capacity is supplied by the caller.
 ## Examples
 
 ```zig
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const TableList = zstdx.List.Bounded(Table);
+const TableList = stdx.List.Bounded(Table);
 
 var scratch: [16]Table = undefined;
 var tables = TableList.wrap(scratch[0..]);
@@ -350,7 +350,7 @@ _ = indexed;
 ```
 
 ```zig
-const EntryList = zstdx.List.Bounded(Entry);
+const EntryList = stdx.List.Bounded(Entry);
 
 const storage = try arena.allocSlice(Entry, entry_count);
 var entries = EntryList.wrap(storage);

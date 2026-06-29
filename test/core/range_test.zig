@@ -2,9 +2,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const Range = zstdx.core.Range;
+const Range = stdx.core.Range;
 
 const testing = std.testing;
 

@@ -59,7 +59,7 @@ Disallowed zstdx split shapes:
 
 ## Namespace facades
 
-`src/zstdx.zig` is the public package facade. Domain facade files such as `src/bits.zig` may re-export stable
+`src/stdx.zig` is the public package facade. Domain facade files such as `src/bits.zig` may re-export stable
 public surfaces for one domain.
 
 Domain facades follow the baseline thin-facade rule in `docs/guidelines/zig.md`. They may:
@@ -161,7 +161,7 @@ Specs must not introduce near-duplicates such as `OutOfRange`, `Truncated`, or `
 
 - Free functions in a module → module-level `pub const Error = error{...}`.
 - Types with state or methods → nested `pub const Error = error{...}` inside the type or returned namespace.
-- Domain facades do not re-export error sets. A caller writes `zstdx.bytes.Cursor.Error` or `zstdx.mem.alignment.Error`, never `zstdx.bytes.Error`.
+- Domain facades do not re-export error sets. A caller writes `stdx.bytes.Cursor.Error` or `stdx.mem.alignment.Error`, never `stdx.bytes.Error`.
 
 Per-operation error sets may narrow the type-level union when a method can only produce a subset of variants. The type-level `Error` remains a documentary union over every variant the type can return.
 

@@ -2,8 +2,8 @@
 
 Status: Approved.
 
-`zstdx.intrusive.List.SinglyLinked(T, field)` and
-`zstdx.intrusive.List.DoublyLinked(T, field)` are caller-node-backed linked
+`stdx.intrusive.List.SinglyLinked(T, field)` and
+`stdx.intrusive.List.DoublyLinked(T, field)` are caller-node-backed linked
 lists. They never allocate, never move parent objects, and store membership in an
 embedded node field owned by the caller's object.
 
@@ -36,10 +36,10 @@ This spec does not own:
 
 ## Public namespace
 
-`List` lives under `zstdx.intrusive`:
+`List` lives under `stdx.intrusive`:
 
 ```zig
-zstdx.intrusive.List
+stdx.intrusive.List
 ```
 
 It is not root-promoted. Callers use the intrusive namespace explicitly.
@@ -60,14 +60,14 @@ pub const list = @import("intrusive/list.zig");
 pub const List = list.List;
 ```
 
-`src/zstdx.zig` re-exports the namespace only:
+`src/stdx.zig` re-exports the namespace only:
 
 ```zig
 pub const intrusive = @import("intrusive.zig");
 ```
 
-There is no `zstdx.List.SinglyLinked`, `zstdx.SinglyLinkedList`, or
-`zstdx.DoublyLinkedList` root alias.
+There is no `stdx.List.SinglyLinked`, `stdx.SinglyLinkedList`, or
+`stdx.DoublyLinkedList` root alias.
 
 ## Approved API
 
@@ -178,12 +178,12 @@ Example:
 ```zig
 const Task = struct {
     id: u32,
-    ready_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
-    all_node: zstdx.intrusive.List.DoublyLinkedNode = .{},
+    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
+    all_node: stdx.intrusive.List.DoublyLinkedNode = .{},
 };
 
-const ReadyList = zstdx.intrusive.List.SinglyLinked(Task, "ready_node");
-const AllList = zstdx.intrusive.List.DoublyLinked(Task, "all_node");
+const ReadyList = stdx.intrusive.List.SinglyLinked(Task, "ready_node");
+const AllList = stdx.intrusive.List.DoublyLinked(Task, "all_node");
 
 var ready = ReadyList.init();
 var all = AllList.init();
@@ -458,10 +458,10 @@ Singly linked ready list:
 ```zig
 const Thread = struct {
     id: u32,
-    ready_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
+    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
 };
 
-const ReadyList = zstdx.intrusive.List.SinglyLinked(Thread, "ready_node");
+const ReadyList = stdx.intrusive.List.SinglyLinked(Thread, "ready_node");
 
 var ready = ReadyList.init();
 var thread_a: Thread = .{ .id = 1 };
@@ -480,10 +480,10 @@ Doubly linked all-objects list:
 ```zig
 const Device = struct {
     id: u32,
-    all_node: zstdx.intrusive.List.DoublyLinkedNode = .{},
+    all_node: stdx.intrusive.List.DoublyLinkedNode = .{},
 };
 
-const Devices = zstdx.intrusive.List.DoublyLinked(Device, "all_node");
+const Devices = stdx.intrusive.List.DoublyLinked(Device, "all_node");
 
 var devices = Devices.init();
 var device: Device = .{ .id = 7 };
@@ -497,12 +497,12 @@ Multi-membership:
 ```zig
 const Task = struct {
     id: u32,
-    ready_node: zstdx.intrusive.List.SinglyLinkedNode = .{},
-    all_node: zstdx.intrusive.List.DoublyLinkedNode = .{},
+    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
+    all_node: stdx.intrusive.List.DoublyLinkedNode = .{},
 };
 
-const Ready = zstdx.intrusive.List.SinglyLinked(Task, "ready_node");
-const All = zstdx.intrusive.List.DoublyLinked(Task, "all_node");
+const Ready = stdx.intrusive.List.SinglyLinked(Task, "ready_node");
+const All = stdx.intrusive.List.DoublyLinked(Task, "all_node");
 ```
 
 ## Required tests

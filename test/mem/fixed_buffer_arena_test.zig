@@ -2,9 +2,9 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const mem = zstdx.mem;
+const mem = stdx.mem;
 
 const FixedBufferArena = mem.FixedBufferArena;
 

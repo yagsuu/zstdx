@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.addr.Address(Tag, Int)` is a zero-cost strong integer type for
+`stdx.addr.Address(Tag, Int)` is a zero-cost strong integer type for
 address-like domains. It prevents accidental mixing of values that share the
 same integer representation but have different meanings.
 
@@ -34,19 +34,19 @@ This spec does not own:
 
 ## Public namespace
 
-Address primitives live under `zstdx.addr`:
+Address primitives live under `stdx.addr`:
 
 ```zig
-zstdx.addr.Address
-zstdx.addr.PhysAddr
-zstdx.addr.VirtAddr
+stdx.addr.Address
+stdx.addr.PhysAddr
+stdx.addr.VirtAddr
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.Address // not exported
-zstdx.PhysAddr // not exported
+stdx.Address // not exported
+stdx.PhysAddr // not exported
 ```
 
 Source ownership:
@@ -127,13 +127,13 @@ Recommended tags are zero-sized unique types:
 
 ```zig
 const GpaTag = opaque {};
-const Gpa = zstdx.addr.Address(GpaTag, u64);
+const Gpa = stdx.addr.Address(GpaTag, u64);
 ```
 
 Small enum or struct tag types are also valid when that matches project style:
 
 ```zig
-const PioPort = zstdx.addr.Address(enum { pio_port }, u16);
+const PioPort = stdx.addr.Address(enum { pio_port }, u16);
 ```
 
 Different tags produce different address types, even when `Int` is the same.
@@ -196,10 +196,10 @@ Underflow maps to `error.Overflow`; there is no separate underflow error.
 
 ## Alignment
 
-Address alignment follows the same validity rule as `zstdx.mem` alignment:
+Address alignment follows the same validity rule as `stdx.mem` alignment:
 
 ```zig
-alignment != 0 and zstdx.bits.isPowerOfTwo(Int, alignment)
+alignment != 0 and stdx.bits.isPowerOfTwo(Int, alignment)
 ```
 
 All alignment operations return `error.InvalidAlignment` when `alignment` is
@@ -257,7 +257,7 @@ Implementation must:
 - reject non-unsigned-integer `Int` types at compile time;
 - never store a `Tag` value;
 - avoid unchecked arithmetic overflow and underflow;
-- reuse or exactly match `zstdx.mem` alignment semantics;
+- reuse or exactly match `stdx.mem` alignment semantics;
 - avoid loops;
 - compile for all unsigned integer widths Zig supports.
 
@@ -266,8 +266,8 @@ Implementation must:
 Custom address domains:
 
 ```zig
-const Gpa = zstdx.addr.Address(enum { gpa }, u64);
-const PioPort = zstdx.addr.Address(enum { pio_port }, u16);
+const Gpa = stdx.addr.Address(enum { gpa }, u64);
+const PioPort = stdx.addr.Address(enum { pio_port }, u16);
 
 const base = Gpa.fromInt(0x1000);
 const next = try base.add(0x100);
@@ -280,8 +280,8 @@ _ = next;
 Built-in aliases:
 
 ```zig
-const pa = zstdx.addr.PhysAddr.fromInt(0x1000);
-const va = zstdx.addr.VirtAddr.fromInt(@intFromPtr(ptr));
+const pa = stdx.addr.PhysAddr.fromInt(0x1000);
+const va = stdx.addr.VirtAddr.fromInt(@intFromPtr(ptr));
 
 _ = pa;
 _ = va;
@@ -347,7 +347,7 @@ Where practical:
 
 ```zig
 comptime {
-    const A = zstdx.addr.Address(enum { a }, u8);
+    const A = stdx.addr.Address(enum { a }, u8);
 
     std.debug.assert(A.fromInt(4).raw() == 4);
     std.debug.assert((try A.fromInt(7).alignUp(4)).raw() == 8);

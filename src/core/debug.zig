@@ -7,7 +7,7 @@ const options = @import("options.zig");
 
 const SafetyMode = options.SafetyMode;
 
-/// Returns true when the caller's `mode` should compile zstdx's optional
+/// Returns true when the caller's `mode` should compile stdx's optional
 /// safety checks. `.build_mode` enables them in Debug and ReleaseSafe and
 /// disables them in ReleaseFast and ReleaseSmall.
 pub fn checksEnabled(comptime mode: SafetyMode) bool {

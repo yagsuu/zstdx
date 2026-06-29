@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.mem.FixedBufferArena` is a caller-buffer-backed scratch arena for bounded
+`stdx.mem.FixedBufferArena` is a caller-buffer-backed scratch arena for bounded
 construction phases, parsers, boot-time setup, and tests that need predictable
 allocation without a heap fallback.
 
@@ -35,16 +35,16 @@ This spec does not own:
 
 ## Public namespace
 
-`FixedBufferArena` lives under `zstdx.mem`:
+`FixedBufferArena` lives under `stdx.mem`:
 
 ```zig
-zstdx.mem.FixedBufferArena
+stdx.mem.FixedBufferArena
 ```
 
 It is not root-promoted:
 
 ```zig
-zstdx.FixedBufferArena // not exported
+stdx.FixedBufferArena // not exported
 ```
 
 Source ownership:
@@ -145,7 +145,7 @@ all checks succeed.
 Required behavior:
 
 ```zig
-const start = try zstdx.mem.alignUp(usize, arena.index, alignment);
+const start = try stdx.mem.alignUp(usize, arena.index, alignment);
 const end = try std.math.add(usize, start, len);
 if (end > arena.buffer.len) return error.OutOfMemory;
 return arena.buffer[start..end];
@@ -255,7 +255,7 @@ All error returns leave `index` unchanged.
 Implementation must:
 
 - store only the caller buffer and current index in the arena value;
-- reuse or exactly match `zstdx.mem.alignUp` alignment validity and overflow
+- reuse or exactly match `stdx.mem.alignUp` alignment validity and overflow
   behavior;
 - use checked addition and multiplication for allocation sizes;
 - avoid unchecked `index + padding + len` arithmetic;
@@ -270,7 +270,7 @@ Build a temporary table list:
 
 ```zig
 var scratch: [4096]u8 = undefined;
-var arena = zstdx.mem.FixedBufferArena.wrap(&scratch);
+var arena = stdx.mem.FixedBufferArena.wrap(&scratch);
 
 const tables = try arena.allocSlice(Table, table_count);
 ```
@@ -289,7 +289,7 @@ Interop with allocator-taking code:
 
 ```zig
 var scratch: [8192]u8 = undefined;
-var arena = zstdx.mem.FixedBufferArena.wrap(&scratch);
+var arena = stdx.mem.FixedBufferArena.wrap(&scratch);
 
 var list = std.ArrayListUnmanaged(u32){};
 try list.append(arena.allocator(), 42);

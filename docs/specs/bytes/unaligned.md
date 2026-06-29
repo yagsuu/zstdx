@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.bytes.loadUnaligned` and `zstdx.bytes.storeUnaligned` copy a
+`stdx.bytes.loadUnaligned` and `stdx.bytes.storeUnaligned` copy a
 fixed-size value representation to or from a byte window whose address may be
 less aligned than the value type.
 
@@ -40,18 +40,18 @@ This spec does not own:
 
 ## Public namespace
 
-Unaligned helpers live under `zstdx.bytes`:
+Unaligned helpers live under `stdx.bytes`:
 
 ```zig
-zstdx.bytes.loadUnaligned
-zstdx.bytes.storeUnaligned
+stdx.bytes.loadUnaligned
+stdx.bytes.storeUnaligned
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.loadUnaligned  // not exported
-zstdx.storeUnaligned // not exported
+stdx.loadUnaligned  // not exported
+stdx.storeUnaligned // not exported
 ```
 
 Source ownership:
@@ -85,10 +85,10 @@ No slice overload is approved in this spec. Callers with a slice must establish
 bounds first, then pass a fixed window:
 
 ```zig
-const value = zstdx.bytes.loadUnaligned(u32, bytes[offset..][0..4]);
+const value = stdx.bytes.loadUnaligned(u32, bytes[offset..][0..4]);
 ```
 
-The bounds-checked `zstdx.bytes.load` and `zstdx.bytes.store` helpers in
+The bounds-checked `stdx.bytes.load` and `stdx.bytes.store` helpers in
 `docs/specs/bytes/access.md` compose these primitives for callers that need
 the bounds check at a runtime offset.
 
@@ -148,13 +148,13 @@ Endian behavior belongs to `layout.Le(T)` and `layout.Be(T)`, not this spec.
 Endian-aware code composes endian wrappers with unaligned access:
 
 ```zig
-const raw = zstdx.bytes.loadUnaligned(zstdx.layout.Le(u32), bytes);
+const raw = stdx.bytes.loadUnaligned(stdx.layout.Le(u32), bytes);
 const value = raw.native();
 
-zstdx.bytes.storeUnaligned(
-    zstdx.layout.Le(u32),
+stdx.bytes.storeUnaligned(
+    stdx.layout.Le(u32),
     bytes,
-    zstdx.layout.Le(u32).fromNative(value),
+    stdx.layout.Le(u32).fromNative(value),
 );
 ```
 
@@ -195,26 +195,26 @@ Implementation must:
 Native object-representation load from a fixed byte window:
 
 ```zig
-const value = zstdx.bytes.loadUnaligned(u32, bytes[pos..][0..4]);
+const value = stdx.bytes.loadUnaligned(u32, bytes[pos..][0..4]);
 ```
 
 Native object-representation store:
 
 ```zig
-zstdx.bytes.storeUnaligned(u64, bytes[pos..][0..8], value);
+stdx.bytes.storeUnaligned(u64, bytes[pos..][0..8], value);
 ```
 
 Packed flags through an integer lane:
 
 ```zig
-const bits = zstdx.bytes.loadUnaligned(u32, bytes[pos..][0..4]);
+const bits = stdx.bytes.loadUnaligned(u32, bytes[pos..][0..4]);
 const flags: Flags = @bitCast(bits);
 ```
 
 Endian-aware access through endian wrappers:
 
 ```zig
-const le = zstdx.bytes.loadUnaligned(zstdx.layout.Le(u64), bytes[pos..][0..8]);
+const le = stdx.bytes.loadUnaligned(stdx.layout.Le(u64), bytes[pos..][0..8]);
 const phys = le.native();
 ```
 
@@ -269,9 +269,9 @@ Where practical:
 ```zig
 comptime {
     var bytes = [_]u8{ 0x34, 0x12 };
-    const value = zstdx.bytes.loadUnaligned(u16, &bytes);
+    const value = stdx.bytes.loadUnaligned(u16, &bytes);
     var out = [_]u8{ 0, 0 };
-    zstdx.bytes.storeUnaligned(u16, &out, value);
+    stdx.bytes.storeUnaligned(u16, &out, value);
     std.debug.assert(out[0] == bytes[0]);
     std.debug.assert(out[1] == bytes[1]);
 }

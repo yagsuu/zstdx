@@ -2,10 +2,10 @@
 
 Status: Approved.
 
-`zstdx.collections.Ring.Bounded(T)` is a caller-storage-backed FIFO with runtime
+`stdx.collections.Ring.Bounded(T)` is a caller-storage-backed FIFO with runtime
 capacity. It preserves enqueue order and never allocates.
 
-The root facade may expose the same family as `zstdx.Ring.Bounded(T)`.
+The root facade may expose the same family as `stdx.Ring.Bounded(T)`.
 
 ## Owned scope
 
@@ -39,16 +39,16 @@ This spec does not own:
 
 ## Public namespace
 
-`Ring` lives under `zstdx.collections`:
+`Ring` lives under `stdx.collections`:
 
 ```zig
-zstdx.collections.Ring
+stdx.collections.Ring
 ```
 
 It is root-promoted by the first-slice root facade:
 
 ```zig
-zstdx.Ring
+stdx.Ring
 ```
 
 Source ownership:
@@ -67,7 +67,7 @@ pub const ring = @import("collections/ring.zig");
 pub const Ring = ring.Ring;
 ```
 
-`src/zstdx.zig` re-exports:
+`src/stdx.zig` re-exports:
 
 ```zig
 pub const collections = @import("collections.zig");
@@ -346,9 +346,9 @@ depths are fixed at comptime and use `Ring.Static`.
 Arena-backed diagnostic ring:
 
 ```zig
-const zstdx = @import("zstdx");
+const stdx = @import("stdx");
 
-const TraceRing = zstdx.Ring.Bounded(TraceEntry);
+const TraceRing = stdx.Ring.Bounded(TraceEntry);
 
 const storage = try arena.allocSlice(TraceEntry, config.trace_depth);
 var trace = TraceRing.wrap(storage);
@@ -361,7 +361,7 @@ if (trace.pushBackOverwriteOldest(entry)) |_| {
 Caller-provided scratch ring with capacity probe:
 
 ```zig
-const Pending = zstdx.Ring.Bounded(Job);
+const Pending = stdx.Ring.Bounded(Job);
 
 var scratch: [64]Job = undefined;
 var pending = Pending.wrap(scratch[0..]);

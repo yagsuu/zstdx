@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx.bytes` provides bounds-checked random-access load and store primitives
+`stdx.bytes` provides bounds-checked random-access load and store primitives
 over caller-owned byte buffers. They are the foundation that stateful byte
 walkers and builders compose on top of.
 
@@ -11,8 +11,8 @@ The primitives must:
 - bounds-check every load and store before reading or writing a single byte;
 - detect `offset + len` overflow as an out-of-bounds condition rather than
   silently wrapping the sum;
-- compose typed loads with `zstdx.bytes.loadUnaligned`;
-- compose typed stores with `zstdx.bytes.storeUnaligned`;
+- compose typed loads with `stdx.bytes.loadUnaligned`;
+- compose typed stores with `stdx.bytes.storeUnaligned`;
 - never allocate;
 - never wait, block, sleep, or spin;
 - never access hidden globals;
@@ -27,8 +27,8 @@ This spec owns:
   `usize` byte offset;
 - random-access byte-slice store from a caller-supplied source slice;
 - the shared bounds error mode used by `bytes` primitives;
-- composition rules with `zstdx.bytes.loadUnaligned` and
-  `zstdx.bytes.storeUnaligned`;
+- composition rules with `stdx.bytes.loadUnaligned` and
+  `stdx.bytes.storeUnaligned`;
 - no-allocation, no-waiting, and no-hidden-state behavior;
 - required tests.
 
@@ -51,24 +51,24 @@ This spec does not own:
 
 ## Public namespace
 
-Access helpers live under `zstdx.bytes`:
+Access helpers live under `stdx.bytes`:
 
 ```zig
-zstdx.bytes.load
-zstdx.bytes.store
-zstdx.bytes.loadSlice
-zstdx.bytes.storeSlice
-zstdx.bytes.loadTail
+stdx.bytes.load
+stdx.bytes.store
+stdx.bytes.loadSlice
+stdx.bytes.storeSlice
+stdx.bytes.loadTail
 ```
 
 They are not root-promoted:
 
 ```zig
-zstdx.load        // not exported
-zstdx.store       // not exported
-zstdx.loadSlice   // not exported
-zstdx.storeSlice  // not exported
-zstdx.loadTail    // not exported
+stdx.load        // not exported
+stdx.store       // not exported
+stdx.loadSlice   // not exported
+stdx.storeSlice  // not exported
+stdx.loadTail    // not exported
 ```
 
 Source ownership:
@@ -170,23 +170,23 @@ requested window does not fit within `bytes`.
 bytes[offset..][0..@sizeOf(T)]
 ```
 
-using `zstdx.bytes.loadUnaligned(T, window)`, where `window` is a
+using `stdx.bytes.loadUnaligned(T, window)`, where `window` is a
 `*const [@sizeOf(T)]u8` borrow into `bytes`.
 
 The function must:
 
 - inherit the compile-time `T` restrictions of
-  `zstdx.bytes.loadUnaligned`;
+  `stdx.bytes.loadUnaligned`;
 - assemble the `*const [@sizeOf(T)]u8` window only after the bounds check
   succeeds;
 - not perform endian conversion;
 - not validate value content; callers requiring endian conversion use
-  `zstdx.layout.Le(T)` or `zstdx.layout.Be(T)` as the type argument.
+  `stdx.layout.Le(T)` or `stdx.layout.Be(T)` as the type argument.
 
 Endian composition:
 
 ```zig
-const value = (try zstdx.bytes.load(zstdx.layout.Le(u32), table, offset)).native();
+const value = (try stdx.bytes.load(stdx.layout.Le(u32), table, offset)).native();
 ```
 
 ## `store(T, ...)` semantics
@@ -197,13 +197,13 @@ const value = (try zstdx.bytes.load(zstdx.layout.Le(u32), table, offset)).native
 bytes[offset..][0..@sizeOf(T)]
 ```
 
-using `zstdx.bytes.storeUnaligned(T, window, value)`, where `window` is a
+using `stdx.bytes.storeUnaligned(T, window, value)`, where `window` is a
 `*[@sizeOf(T)]u8` borrow into `bytes`.
 
 The function must:
 
 - inherit the compile-time `T` restrictions of
-  `zstdx.bytes.storeUnaligned`;
+  `stdx.bytes.storeUnaligned`;
 - assemble the `*[@sizeOf(T)]u8` window only after the bounds check succeeds;
 - not perform endian conversion;
 - not partially write any byte when the bounds check fails.
@@ -211,11 +211,11 @@ The function must:
 Endian composition:
 
 ```zig
-try zstdx.bytes.store(
-    zstdx.layout.Le(u32),
+try stdx.bytes.store(
+    stdx.layout.Le(u32),
     table,
     offset,
-    zstdx.layout.Le(u32).fromNative(value),
+    stdx.layout.Le(u32).fromNative(value),
 );
 ```
 
@@ -280,7 +280,7 @@ random-access primitives in this spec:
 
 ```zig
 pub fn read(self: *Cursor, comptime T: type) Error!T {
-    const value = try zstdx.bytes.load(T, self.bytes, self.index);
+    const value = try stdx.bytes.load(T, self.bytes, self.index);
     self.index += @sizeOf(T);
     return value;
 }
@@ -340,8 +340,8 @@ inherited from `bytes.loadUnaligned` and `bytes.storeUnaligned`.
 ### Random-access typed load
 
 ```zig
-const length = (try zstdx.bytes.load(
-    zstdx.layout.Le(u32),
+const length = (try stdx.bytes.load(
+    stdx.layout.Le(u32),
     table,
     @offsetOf(Header, "length"),
 )).native();
@@ -350,18 +350,18 @@ const length = (try zstdx.bytes.load(
 ### Random-access typed store
 
 ```zig
-try zstdx.bytes.store(
-    zstdx.layout.Le(u32),
+try stdx.bytes.store(
+    stdx.layout.Le(u32),
     table,
     @offsetOf(Header, "length"),
-    zstdx.layout.Le(u32).fromNative(length),
+    stdx.layout.Le(u32).fromNative(length),
 );
 ```
 
 ### Variable-length payload after a fixed header
 
 ```zig
-const payload = try zstdx.bytes.loadSlice(
+const payload = try stdx.bytes.loadSlice(
     table,
     @sizeOf(Header),
     length - @sizeOf(Header),
@@ -371,24 +371,24 @@ const payload = try zstdx.bytes.loadSlice(
 ### Rest of buffer after a parsed prefix
 
 ```zig
-const rest = try zstdx.bytes.loadTail(packet, header_size);
+const rest = try stdx.bytes.loadTail(packet, header_size);
 ```
 
 ### Bulk copy into an output buffer
 
 ```zig
-try zstdx.bytes.storeSlice(output, offset, payload);
+try stdx.bytes.storeSlice(output, offset, payload);
 ```
 
 ### Composition with `Cursor`
 
 ```zig
-var cursor = zstdx.bytes.Cursor.wrap(table);
+var cursor = stdx.bytes.Cursor.wrap(table);
 try cursor.skip(@offsetOf(Header, "length"));
-const length = (try cursor.read(zstdx.layout.Le(u32))).native();
+const length = (try cursor.read(stdx.layout.Le(u32))).native();
 
 const tail_offset = @sizeOf(Header);
-const payload = try zstdx.bytes.loadSlice(table, tail_offset, length - tail_offset);
+const payload = try stdx.bytes.loadSlice(table, tail_offset, length - tail_offset);
 ```
 
 ## Consumer requirements
@@ -439,9 +439,9 @@ const payload = try zstdx.bytes.loadSlice(table, tail_offset, length - tail_offs
 ### Typed read and write composition
 
 - `load(u8)` returns the byte at `offset` and matches `bytes[offset]`;
-- `load(zstdx.layout.Le(u16))` decodes the expected little-endian value at an
+- `load(stdx.layout.Le(u16))` decodes the expected little-endian value at an
   unaligned offset;
-- `load(zstdx.layout.Be(u32))` decodes the expected big-endian value at an
+- `load(stdx.layout.Be(u32))` decodes the expected big-endian value at an
   unaligned offset;
 - round-trip: `store(T, dst, offset, value)` followed by
   `load(T, dst, offset)` yields `value` for `T` covering `u8`, `u16`, `u32`,

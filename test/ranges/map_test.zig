@@ -2,8 +2,8 @@
 
 const std = @import("std");
 
-const zstdx = @import("zstdx");
-const RangeMap = zstdx.ranges.RangeMap;
+const stdx = @import("stdx");
+const RangeMap = stdx.ranges.RangeMap;
 const testing = std.testing;
 
 const Kind = enum { a, b, c };
@@ -270,7 +270,7 @@ test "model: RangeMap matches optional array over small domain" {
 
 test "comptime: RangeMap mutates at compile time" {
     comptime {
-        const Map = zstdx.ranges.RangeMap.Static(u8, enum { a, b }, 4);
+        const Map = stdx.ranges.RangeMap.Static(u8, enum { a, b }, 4);
         const Range = Map.Range;
 
         var map = Map.init();
