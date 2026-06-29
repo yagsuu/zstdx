@@ -65,6 +65,7 @@ Proposals must not include:
 - `docs/specs/bytes/cursor.md`
 - `docs/specs/mem/arena-bounded.md`
 - `docs/specs/mem/arena-static.md`
+- `docs/specs/mem/pool.md`
 - `docs/specs/collections/list-static.md`
 - `docs/specs/collections/list-bounded.md`
 - `docs/specs/collections/ring-static.md`
@@ -99,7 +100,6 @@ first-slice limits in `docs/specs/project/scope.md`.
 
 ### Allocation and collection follow-up
 
-- `docs/specs/mem/pool-allocator.md`
 - `docs/specs/mem/bitmap-allocator.md`
 - `docs/specs/collections/deque-static.md`
 - `docs/specs/collections/deque-bounded.md`

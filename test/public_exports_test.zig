@@ -24,6 +24,9 @@ test "contract: first-slice public exports are exact" {
     _ = stdx.mem.Arena;
     _ = stdx.mem.Arena.Bounded;
     _ = stdx.mem.Arena.Static;
+    _ = stdx.mem.Pool;
+    _ = stdx.mem.Pool.Static;
+    _ = stdx.mem.Pool.Bounded;
     _ = stdx.addr.Address;
     _ = stdx.addr.PhysAddr;
     _ = stdx.addr.VirtAddr;
@@ -61,4 +64,5 @@ test "contract: first-slice public exports are exact" {
     try testing.expect(!@hasDecl(stdx, "SinglyLinkedList"));
     try testing.expect(!@hasDecl(stdx, "DoublyLinkedList"));
     try testing.expect(!@hasDecl(stdx, "io"));
+    try testing.expect(!@hasDecl(stdx, "Pool"));
 }
