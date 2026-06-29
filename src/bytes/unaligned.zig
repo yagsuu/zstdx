@@ -1,6 +1,6 @@
 //! Unaligned byte-window loads and stores. Pure byte copies; no endian
 //! conversion and no typed pointer reinterpretation. See
-//! docs/specs/layout/unaligned.md.
+//! docs/specs/bytes/unaligned.md.
 
 const std = @import("std");
 
@@ -8,7 +8,7 @@ const std = @import("std");
 /// is exact, so no bounds check happens here. Unsupported categories — slice,
 /// pointer, optional, error union/set, union, function, zero-sized,
 /// comptime-only — are compile errors.
-pub fn unalignedLoad(comptime T: type, bytes: *const [@sizeOf(T)]u8) T {
+pub fn loadUnaligned(comptime T: type, bytes: *const [@sizeOf(T)]u8) T {
     validateType(T);
     var value: T = undefined;
     @memcpy(std.mem.asBytes(&value), bytes);
@@ -16,8 +16,8 @@ pub fn unalignedLoad(comptime T: type, bytes: *const [@sizeOf(T)]u8) T {
 }
 
 /// Copy `@sizeOf(T)` bytes from `value` into `bytes`. Same type restrictions
-/// and zero-conversion guarantees as `unalignedLoad`.
-pub fn unalignedStore(comptime T: type, bytes: *[@sizeOf(T)]u8, value: T) void {
+/// and zero-conversion guarantees as `loadUnaligned`.
+pub fn storeUnaligned(comptime T: type, bytes: *[@sizeOf(T)]u8, value: T) void {
     validateType(T);
     @memcpy(bytes, std.mem.asBytes(&value));
 }

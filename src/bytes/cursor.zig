@@ -4,7 +4,7 @@
 
 const std = @import("std");
 
-const unalignedLoad = @import("../layout.zig").unalignedLoad;
+const loadUnaligned = @import("unaligned.zig").loadUnaligned;
 
 /// Forward read cursor over `bytes`. Borrows the slice; never allocates and
 /// never waits. Every read/skip leaves the cursor unchanged on
@@ -16,7 +16,7 @@ pub const Cursor = struct {
     /// `EndOfStream`: operation would read past `bytes.len`.
     pub const Error = error{EndOfStream};
 
-    pub fn init(bytes: []const u8) Cursor {
+    pub fn wrap(bytes: []const u8) Cursor {
         return .{ .bytes = bytes };
     }
 
@@ -68,10 +68,10 @@ pub const Cursor = struct {
     }
 
     /// Read `T` from the next `@sizeOf(T)` bytes without advancing. Routed
-    /// through `layout.unalignedLoad`; type restrictions are enforced there.
+    /// through `bytes.loadUnaligned`; type restrictions are enforced there.
     pub fn peek(self: Cursor, comptime T: type) Error!T {
         const window = try self.peekBytes(@sizeOf(T));
-        return unalignedLoad(T, window[0..@sizeOf(T)]);
+        return loadUnaligned(T, window[0..@sizeOf(T)]);
     }
 
     /// Read `T` and advance by `@sizeOf(T)` bytes.

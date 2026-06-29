@@ -5,6 +5,7 @@ const std = @import("std");
 const zstdx = @import("zstdx");
 
 const layout = zstdx.layout;
+const bytes = zstdx.bytes;
 
 const Le = layout.Le;
 const Be = layout.Be;
@@ -45,7 +46,7 @@ test "unit: EndianInt round-trips zero, max, and a non-palindrome value" {
 
 test "unit: EndianInt composes with unaligned load/store" {
     const Le32 = Le(u32);
-    var bytes: [@sizeOf(Le32)]u8 = undefined;
-    layout.unalignedStore(Le32, &bytes, Le32.fromNative(0xaabbccdd));
-    try testing.expectEqual(@as(u32, 0xaabbccdd), layout.unalignedLoad(Le32, &bytes).native());
+    var buf: [@sizeOf(Le32)]u8 = undefined;
+    bytes.storeUnaligned(Le32, &buf, Le32.fromNative(0xaabbccdd));
+    try testing.expectEqual(@as(u32, 0xaabbccdd), bytes.loadUnaligned(Le32, &buf).native());
 }

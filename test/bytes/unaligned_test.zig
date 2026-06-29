@@ -1,33 +1,33 @@
-//! Unaligned layout access contract tests. Spec: docs/specs/layout/unaligned.md.
+//! Unaligned bytes access contract tests. Spec: docs/specs/bytes/unaligned.md.
 
 const std = @import("std");
 
 const zstdx = @import("zstdx");
 
-const layout = zstdx.layout;
+const bytes = zstdx.bytes;
 
 const testing = std.testing;
 
 test "unit: unaligned load/store round-trips every supported integer width" {
     inline for (.{ u8, u16, u32, u64, usize }) |T| {
-        var bytes: [@sizeOf(T)]u8 = undefined;
-        layout.unalignedStore(T, &bytes, @as(T, 7));
-        try testing.expectEqual(@as(T, 7), layout.unalignedLoad(T, &bytes));
+        var buf: [@sizeOf(T)]u8 = undefined;
+        bytes.storeUnaligned(T, &buf, @as(T, 7));
+        try testing.expectEqual(@as(T, 7), bytes.loadUnaligned(T, &buf));
     }
 }
 
 test "unit: unaligned load/store works on fixed-size arrays" {
     var arr_bytes: [@sizeOf([3]u8)]u8 = undefined;
-    layout.unalignedStore([3]u8, &arr_bytes, .{ 1, 2, 3 });
-    try testing.expectEqual([3]u8{ 1, 2, 3 }, layout.unalignedLoad([3]u8, &arr_bytes));
+    bytes.storeUnaligned([3]u8, &arr_bytes, .{ 1, 2, 3 });
+    try testing.expectEqual([3]u8{ 1, 2, 3 }, bytes.loadUnaligned([3]u8, &arr_bytes));
 }
 
 test "unit: unaligned load/store accepts a packed struct" {
     const Packed = packed struct { a: u3, b: u5 };
     try testing.expectEqual(@as(usize, 1), @sizeOf(Packed));
     var packed_bytes: [1]u8 = undefined;
-    layout.unalignedStore(Packed, &packed_bytes, .{ .a = 5, .b = 17 });
-    try testing.expectEqual(@as(u5, 17), layout.unalignedLoad(Packed, &packed_bytes).b);
+    bytes.storeUnaligned(Packed, &packed_bytes, .{ .a = 5, .b = 17 });
+    try testing.expectEqual(@as(u5, 17), bytes.loadUnaligned(Packed, &packed_bytes).b);
 }
 
 test "unit: unaligned load/store accepts an extern struct" {
@@ -35,6 +35,6 @@ test "unit: unaligned load/store accepts an extern struct" {
     try testing.expectEqual(@as(usize, 4), @alignOf(Extern));
     try testing.expect(@offsetOf(Extern, "b") >= 4);
     var ext_bytes: [@sizeOf(Extern)]u8 = undefined;
-    layout.unalignedStore(Extern, &ext_bytes, .{ .a = 1, .b = 2 });
-    try testing.expectEqual(@as(u32, 2), layout.unalignedLoad(Extern, &ext_bytes).b);
+    bytes.storeUnaligned(Extern, &ext_bytes, .{ .a = 1, .b = 2 });
+    try testing.expectEqual(@as(u32, 2), bytes.loadUnaligned(Extern, &ext_bytes).b);
 }
