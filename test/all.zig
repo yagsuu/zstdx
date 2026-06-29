@@ -13,4 +13,5 @@ comptime {
     _ = @import("layout/endian_test.zig");
     _ = @import("bytes/cursor_test.zig");
     _ = @import("collections/list_test.zig");
+    _ = @import("collections/ring_test.zig");
 }
