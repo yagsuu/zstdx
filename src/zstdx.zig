@@ -3,10 +3,12 @@
 pub const core = @import("core.zig");
 pub const bits = @import("bits.zig");
 pub const addr = @import("addr.zig");
+pub const ranges = @import("ranges.zig");
 pub const layout = @import("layout.zig");
 pub const bytes = @import("bytes.zig");
 pub const mem = @import("mem.zig");
 pub const collections = @import("collections.zig");
+pub const intrusive = @import("intrusive.zig");
 
 pub const List = collections.List;
 pub const Ring = collections.Ring;
