@@ -130,7 +130,7 @@ Receiver rules:
 - pure value types (`Range(T)`, `Address(Tag, Int)`, `EndianInt(T, endian)`, `Page(Addr, ps).Frame`, `Page(Addr, ps).Count`) use `self: Self`;
 - the choice follows the type's data shape, not its size.
 
-`bytes.Cursor`, `mem.FixedBufferArena`, and similar types that carry a backing slice are containers under this rule and use `*const Self`.
+`bytes.Cursor`, `mem.Arena.Bounded`, and similar types that carry a backing slice are containers under this rule and use `*const Self`.
 
 `assertValid` requirements:
 

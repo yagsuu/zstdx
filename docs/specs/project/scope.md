@@ -270,7 +270,7 @@ Planned primitives:
 - `mem.alignUp`
 - `mem.alignDown`
 - `mem.isAligned`
-- `mem.FixedBufferArena`
+- `mem.Arena.Bounded`
 - `mem.BumpAllocator`
 - `mem.PoolAllocator(T)`
 - `mem.BitmapAllocator`
@@ -502,7 +502,7 @@ Approved first-slice candidates:
 10. `layout.Le`, `layout.Be`;
 11. `bytes.loadUnaligned`, `bytes.storeUnaligned`;
 12. `bytes.Cursor`;
-13. `mem.FixedBufferArena`;
+13. `mem.Arena.Bounded`;
 14. `mem.BumpAllocator`;
 15. `List.Static`;
 16. `List.Bounded`;

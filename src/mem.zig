@@ -1,10 +1,10 @@
-//! Memory primitives. See docs/specs/mem/alignment.md and
-//! docs/specs/mem/fixed-buffer-arena.md.
+//! Memory primitives. See docs/specs/mem/alignment.md,
+//! docs/specs/mem/arena-bounded.md, and docs/specs/mem/arena-static.md.
 
 pub const alignment = @import("mem/alignment.zig");
-pub const fixed_buffer_arena = @import("mem/fixed_buffer_arena.zig");
+pub const arena = @import("mem/arena.zig");
 
-pub const FixedBufferArena = fixed_buffer_arena.FixedBufferArena;
+pub const Arena = arena.Arena;
 
 pub const alignUp = alignment.alignUp;
 pub const alignDown = alignment.alignDown;

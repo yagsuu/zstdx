@@ -144,7 +144,7 @@ Deferred until an allocator or container spec requires poisoning.
 
 Candidate consumers:
 
-- `mem.FixedBufferArena`;
+- `mem.Arena.Bounded`;
 - `mem.BumpAllocator`;
 - `mem.PoolAllocator`;
 - `List.Static`;

@@ -63,7 +63,8 @@ Proposals must not include:
 - `docs/specs/bytes/unaligned.md`
 - `docs/specs/layout/endian.md`
 - `docs/specs/bytes/cursor.md`
-- `docs/specs/mem/fixed-buffer-arena.md`
+- `docs/specs/mem/arena-bounded.md`
+- `docs/specs/mem/arena-static.md`
 - `docs/specs/collections/list-static.md`
 - `docs/specs/collections/list-bounded.md`
 - `docs/specs/collections/ring-static.md`

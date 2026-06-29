@@ -21,7 +21,9 @@ test "contract: first-slice public exports are exact" {
     _ = stdx.mem.alignUp;
     _ = stdx.mem.alignDown;
     _ = stdx.mem.isAligned;
-    _ = stdx.mem.FixedBufferArena;
+    _ = stdx.mem.Arena;
+    _ = stdx.mem.Arena.Bounded;
+    _ = stdx.mem.Arena.Static;
     _ = stdx.addr.Address;
     _ = stdx.addr.PhysAddr;
     _ = stdx.addr.VirtAddr;

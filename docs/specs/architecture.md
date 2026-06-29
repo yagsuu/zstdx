@@ -200,7 +200,7 @@ src/
 
   mem.zig
   mem/
-    fixed_buffer_arena.zig
+    arena.zig
     alignment.zig
 
   collections.zig
@@ -247,7 +247,7 @@ test/
     access_test.zig
 
   mem/
-    fixed_buffer_arena_test.zig
+    arena_test.zig
     alignment_test.zig
 
   collections/
