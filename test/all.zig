@@ -20,6 +20,7 @@ comptime {
     _ = @import("addr/pages_test.zig");
     _ = @import("ranges/set_test.zig");
     _ = @import("ranges/map_test.zig");
+    _ = @import("graph/forest_test.zig");
     _ = @import("layout/endian_test.zig");
     _ = @import("bytes/unaligned_test.zig");
     _ = @import("bytes/access_test.zig");

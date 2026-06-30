@@ -4,6 +4,7 @@ pub const core = @import("core.zig");
 pub const bits = @import("bits.zig");
 pub const addr = @import("addr.zig");
 pub const ranges = @import("ranges.zig");
+pub const graph = @import("graph.zig");
 pub const layout = @import("layout.zig");
 pub const bytes = @import("bytes.zig");
 pub const mem = @import("mem.zig");

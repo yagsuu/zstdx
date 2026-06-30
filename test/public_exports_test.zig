@@ -6,11 +6,12 @@ const stdx = @import("stdx");
 
 const testing = std.testing;
 
-const first_slice_root_exports = [_][]const u8{
+const approved_root_exports = [_][]const u8{
     "core",
     "bits",
     "addr",
     "ranges",
+    "graph",
     "layout",
     "bytes",
     "mem",
@@ -35,8 +36,8 @@ fn expectExactDecls(comptime namespace: type, comptime expected: []const []const
     }
 }
 
-test "contract: root public exports are exactly the approved first slice" {
-    try expectExactDecls(stdx, &first_slice_root_exports);
+test "contract: root public exports are exactly the approved surface" {
+    try expectExactDecls(stdx, &approved_root_exports);
 }
 
 test "contract: root promotions alias canonical collection families" {
@@ -69,6 +70,7 @@ test "contract: root facade does not flatten domain-owned symbols" {
         "Queue",
         "Stack",
         "io",
+        "Forest",
     }) |name| {
         try testing.expect(!@hasDecl(stdx, name));
     }
