@@ -207,15 +207,18 @@ pub const Arena = struct {
 
 fn allocBytesInto(buffer: []u8, index: *usize, len: usize, byte_alignment: usize) ArenaError![]u8 {
     const absolute = @intFromPtr(buffer.ptr) + index.*;
-    const aligned_absolute = alignment.alignUp(usize, absolute, byte_alignment) catch |err| return switch (err) {
-        error.InvalidAlignment => error.InvalidAlignment,
-        error.Overflow => error.Overflow,
+    const aligned_absolute = alignment.alignUp(usize, absolute, byte_alignment) catch |err| switch (err) {
+        error.InvalidAlignment => return error.InvalidAlignment,
+        error.Overflow => return error.Overflow,
     };
+
     if (len == 0) return buffer[index.*..index.*];
+
     const padding = aligned_absolute - absolute;
     const start = std.math.add(usize, index.*, padding) catch return error.Overflow;
     const end = std.math.add(usize, start, len) catch return error.Overflow;
     if (end > buffer.len) return error.OutOfMemory;
+
     const out = buffer[start..end];
     index.* = end;
     return out;
@@ -230,7 +233,9 @@ fn allocOneInto(comptime T: type, buffer: []u8, index: *usize) ArenaError!*T {
 fn allocSliceInto(comptime T: type, buffer: []u8, index: *usize, len: usize) ArenaError![]T {
     comptime if (@sizeOf(T) == 0) @compileError("cannot allocate zero-sized type");
     const byte_count = std.math.mul(usize, @sizeOf(T), len) catch return error.Overflow;
+
     if (len == 0) return &[_]T{};
+
     const bytes = try allocBytesInto(buffer, index, byte_count, @alignOf(T));
     const ptr: [*]T = @ptrCast(@alignCast(bytes.ptr));
     return ptr[0..len];
@@ -250,7 +255,6 @@ fn boundedAlloc(ctx: *anyopaque, len: usize, alignment_value: std.mem.Alignment,
     return bytes.ptr;
 }
 
-
 fn noopResize(ctx: *anyopaque, memory: []u8, alignment_value: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
     _ = ctx;
     _ = memory;
@@ -260,7 +264,13 @@ fn noopResize(ctx: *anyopaque, memory: []u8, alignment_value: std.mem.Alignment,
     return false;
 }
 
-fn noopRemap(ctx: *anyopaque, memory: []u8, alignment_value: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+fn noopRemap(
+    ctx: *anyopaque,
+    memory: []u8,
+    alignment_value: std.mem.Alignment,
+    new_len: usize,
+    ret_addr: usize,
+) ?[*]u8 {
     _ = ctx;
     _ = memory;
     _ = alignment_value;

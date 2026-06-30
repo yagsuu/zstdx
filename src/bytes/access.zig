@@ -9,17 +9,20 @@ pub const Error = error{EndOfStream};
 fn checkedEnd(bytes_len: usize, offset: usize, len: usize) Error!usize {
     if (offset > bytes_len) return error.EndOfStream;
     if (len > bytes_len - offset) return error.EndOfStream;
+
     return offset + len;
 }
 
 pub fn load(comptime T: type, bytes: []const u8, offset: usize) Error!T {
     const end = try checkedEnd(bytes.len, offset, @sizeOf(T));
-    return unaligned.loadUnaligned(T, bytes[offset..end][0..@sizeOf(T)]);
+    const window = bytes[offset..end][0..@sizeOf(T)];
+    return unaligned.loadUnaligned(T, window);
 }
 
 pub fn store(comptime T: type, bytes: []u8, offset: usize, value: T) Error!void {
     const end = try checkedEnd(bytes.len, offset, @sizeOf(T));
-    unaligned.storeUnaligned(T, bytes[offset..end][0..@sizeOf(T)], value);
+    const window = bytes[offset..end][0..@sizeOf(T)];
+    unaligned.storeUnaligned(T, window, value);
 }
 
 pub fn loadSlice(bytes: []const u8, offset: usize, len: usize) Error![]const u8 {

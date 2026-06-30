@@ -27,8 +27,11 @@ pub fn nextPowerOfTwo(comptime T: type, value: T) Error!T {
     comptime requireUnsignedInt(T);
     if (value <= 1) return 1;
     if (isPowerOfTwo(T, value)) return value;
+
     const bits = @bitSizeOf(T);
     const highest: T = @as(T, 1) << (bits - 1);
     if (value > highest) return error.Overflow;
-    return @as(T, 1) << @as(std.math.Log2Int(T), @intCast(bits - @clz(value - 1)));
+
+    const shift_amount: std.math.Log2Int(T) = @intCast(bits - @clz(value - 1));
+    return @as(T, 1) << shift_amount;
 }

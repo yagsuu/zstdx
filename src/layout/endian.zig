@@ -13,7 +13,10 @@ fn requireEndianInt(comptime T: type) void {
         @compileError("EndianInt requires an unsigned integer type");
     }
     const bits = @bitSizeOf(T);
-    if (bits < 8 or bits > 128 or bits % 8 != 0) {
+    const too_small = bits < 8;
+    const too_large = bits > 128;
+    const not_byte_aligned = bits % 8 != 0;
+    if (too_small or too_large or not_byte_aligned) {
         @compileError("EndianInt requires a byte-aligned unsigned integer from 8 to 128 bits");
     }
 }
@@ -53,7 +56,8 @@ pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) ty
                     .big => bytes_len - 1 - i,
                 };
                 const shift: std.math.Log2Int(T) = @intCast(source_index * 8);
-                self.bytes[i] = @intCast((value >> shift) & 0xff);
+                const byte_value: T = (value >> shift) & 0xff;
+                self.bytes[i] = @intCast(byte_value);
             }
             return self;
         }

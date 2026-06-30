@@ -8,38 +8,8 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
     return struct {
         top: ?*T = null,
 
-        const Self = @This();
         const Node = List.SinglyLinkedNode;
-
-        fn node(item: *T) *Node {
-            return &@field(item.*, node_field);
-        }
-
-        fn constNode(item: *const T) *const Node {
-            return &@field(item.*, node_field);
-        }
-
-        fn itemFromNode(item_node: *Node) *T {
-            return @fieldParentPtr(node_field, item_node);
-        }
-
-        fn constItemFromNode(item_node: *const Node) *const T {
-            return @fieldParentPtr(node_field, item_node);
-        }
-
-        fn next(item: *T) ?*T {
-            const next_node = node(item).next orelse return null;
-            return itemFromNode(next_node);
-        }
-
-        fn constNext(item: *const T) ?*const T {
-            const next_node = constNode(item).next orelse return null;
-            return constItemFromNode(next_node);
-        }
-
-        fn assertDetached(item: *T) void {
-            std.debug.assert(node(item).next == null);
-        }
+        const Self = @This();
 
         pub fn init() Self {
             return .{};
@@ -59,6 +29,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
 
         pub fn push(self: *Self, item: *T) void {
             assertDetached(item);
+
             node(item).next = if (self.top) |top_item| node(top_item) else null;
             self.top = item;
         }
@@ -90,6 +61,36 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
                 slow = if (slow) |slow_item| constNext(slow_item) else null;
                 if (fast != null and slow != null and fast.? == slow.?) unreachable;
             }
+        }
+
+        fn node(item: *T) *Node {
+            return &@field(item.*, node_field);
+        }
+
+        fn constNode(item: *const T) *const Node {
+            return &@field(item.*, node_field);
+        }
+
+        fn itemFromNode(item_node: *Node) *T {
+            return @fieldParentPtr(node_field, item_node);
+        }
+
+        fn constItemFromNode(item_node: *const Node) *const T {
+            return @fieldParentPtr(node_field, item_node);
+        }
+
+        fn next(item: *T) ?*T {
+            const next_node = node(item).next orelse return null;
+            return itemFromNode(next_node);
+        }
+
+        fn constNext(item: *const T) ?*const T {
+            const next_node = constNode(item).next orelse return null;
+            return constItemFromNode(next_node);
+        }
+
+        fn assertDetached(item: *T) void {
+            std.debug.assert(node(item).next == null);
         }
     };
 }

@@ -161,6 +161,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 const raw_end = std.math.add(AddressInt, start.raw(), byte_len) catch return error.Overflow;
                 const end_frame = try Frame.nextAlignedAddress(Addr.fromInt(raw_end));
                 const bytes = std.math.sub(AddressInt, end_frame.addressInt(), base.addressInt()) catch unreachable;
+
                 return fromBaseCount(base, try Count.fromBytesExact(bytes));
             }
 
@@ -205,6 +206,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
             pub fn containsFrameRange(self: This, other: This) bool {
                 self.assertValid();
                 other.assertValid();
+
                 const self_start = self.base.addressInt();
                 const self_end = self.end().addressInt();
                 const other_start = other.base.addressInt();
@@ -215,7 +217,9 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
             pub fn overlaps(self: This, other: This) bool {
                 self.assertValid();
                 other.assertValid();
+
                 if (self.isEmpty() or other.isEmpty()) return false;
+
                 return self.base.addressInt() < other.end().addressInt() and other.base.addressInt() < self.end().addressInt();
             }
 
@@ -227,19 +231,23 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
 
             pub fn intersection(self: This, other: This) ?This {
                 if (!self.overlaps(other)) return null;
+
                 const start = @max(self.base.addressInt(), other.base.addressInt());
                 const finish = @min(self.end().addressInt(), other.end().addressInt());
+                const base = Frame.fromAddressInt(start) catch unreachable;
                 const count = Count.fromBytesExact(finish - start) catch unreachable;
-                return fromBaseCount(Frame.fromAddressInt(start) catch unreachable, count) catch unreachable;
+                return fromBaseCount(base, count) catch unreachable;
             }
 
             pub fn span(self: This, other: This) This {
                 self.assertValid();
                 other.assertValid();
+
                 const start = @min(self.base.addressInt(), other.base.addressInt());
                 const finish = @max(self.end().addressInt(), other.end().addressInt());
+                const base = Frame.fromAddressInt(start) catch unreachable;
                 const count = Count.fromBytesExact(finish - start) catch unreachable;
-                return fromBaseCount(Frame.fromAddressInt(start) catch unreachable, count) catch unreachable;
+                return fromBaseCount(base, count) catch unreachable;
             }
 
             pub fn splitAt(self: This, at: Frame) Error!struct { left: This, right: This } {

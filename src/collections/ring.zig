@@ -69,6 +69,7 @@ pub const Ring = struct {
 
             fn addWrap(index: usize, amount: usize) usize {
                 if (item_capacity == 0) return 0;
+
                 var result = index + amount;
                 if (result >= item_capacity) result -= item_capacity;
                 return result;
@@ -91,6 +92,7 @@ pub const Ring = struct {
             pub fn pushBackAssumeCapacity(self: *Self, item: T) void {
                 std.debug.assert(!self.isFull());
                 if (item_capacity == 0) unreachable;
+
                 const index = self.nextBackIndex();
                 self.buffer[index] = item;
                 self.count += 1;
@@ -101,10 +103,12 @@ pub const Ring = struct {
             /// unchanged.
             pub fn pushBackOverwriteOldest(self: *Self, item: T) ?T {
                 if (item_capacity == 0) return item;
+
                 if (!self.isFull()) {
                     self.pushBackAssumeCapacity(item);
                     return null;
                 }
+
                 const out = self.buffer[self.head];
                 self.buffer[self.head] = item;
                 self.head = advance(self.head);
@@ -113,6 +117,7 @@ pub const Ring = struct {
 
             pub fn popFront(self: *Self) ?T {
                 if (self.count == 0) return null;
+
                 const out = self.buffer[self.head];
                 self.head = advance(self.head);
                 self.count -= 1;
@@ -201,6 +206,7 @@ pub const Ring = struct {
 
             fn addWrap(self: *const Self, index: usize, amount: usize) usize {
                 if (self.buffer.len == 0) return 0;
+
                 var result = index + amount;
                 if (result >= self.buffer.len) result -= self.buffer.len;
                 return result;
@@ -222,6 +228,7 @@ pub const Ring = struct {
             pub fn pushBackAssumeCapacity(self: *Self, item: T) void {
                 std.debug.assert(!self.isFull());
                 if (self.buffer.len == 0) unreachable;
+
                 const index = self.nextBackIndex();
                 self.buffer[index] = item;
                 self.count += 1;
@@ -229,10 +236,12 @@ pub const Ring = struct {
 
             pub fn pushBackOverwriteOldest(self: *Self, item: T) ?T {
                 if (self.buffer.len == 0) return item;
+
                 if (!self.isFull()) {
                     self.pushBackAssumeCapacity(item);
                     return null;
                 }
+
                 const out = self.buffer[self.head];
                 self.buffer[self.head] = item;
                 self.head = self.advance(self.head);
@@ -241,6 +250,7 @@ pub const Ring = struct {
 
             pub fn popFront(self: *Self) ?T {
                 if (self.count == 0) return null;
+
                 const out = self.buffer[self.head];
                 self.head = self.advance(self.head);
                 self.count -= 1;

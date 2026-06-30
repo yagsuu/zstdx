@@ -70,8 +70,9 @@ pub const Cursor = struct {
     /// Read `T` from the next `@sizeOf(T)` bytes without advancing. Routed
     /// through `bytes.loadUnaligned`; type restrictions are enforced there.
     pub fn peek(self: Cursor, comptime T: type) Error!T {
-        const window = try self.peekBytes(@sizeOf(T));
-        return loadUnaligned(T, window[0..@sizeOf(T)]);
+        const bytes = try self.peekBytes(@sizeOf(T));
+        const window = bytes[0..@sizeOf(T)];
+        return loadUnaligned(T, window);
     }
 
     /// Read `T` and advance by `@sizeOf(T)` bytes.

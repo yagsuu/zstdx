@@ -28,8 +28,7 @@ pub const TagAllocator = struct {
         }
         const TagT = TagFactory(DomainT, IntT);
         const cap_const: usize = capacity_tags;
-        const wc_const: usize = cap_const / BitmapWordBits +
-            @intFromBool(cap_const % BitmapWordBits != 0);
+        const wc_const: usize = wordCountFor(cap_const);
         return struct {
             words: [wc_const]Word = [_]Word{0} ** wc_const,
             allocated_count: usize = 0,
@@ -166,6 +165,7 @@ pub const TagAllocator = struct {
                 // No-mutation-on-error: validate fully before touching.
                 if (!fitsInIntCapacity(Int, tag_capacity)) return error.OutOfBounds;
                 if (!fitsInStorage(words.len, tag_capacity)) return error.OutOfBounds;
+
                 for (words) |*w| w.* = 0;
                 return .{
                     .words = words,
@@ -235,6 +235,7 @@ pub const TagAllocator = struct {
             pub fn isValid(self: *const Self) bool {
                 if (!fitsInIntCapacity(Int, self.tag_capacity)) return false;
                 if (!fitsInStorage(self.words.len, self.tag_capacity)) return false;
+
                 return checkInvariants(
                     self.words,
                     self.tag_capacity,
@@ -254,7 +255,7 @@ const BitmapWord = u64;
 const BitmapWordBits: usize = @bitSizeOf(BitmapWord);
 
 fn wordCountFor(tag_capacity: usize) usize {
-    return tag_capacity / BitmapWordBits + @intFromBool(tag_capacity % BitmapWordBits != 0);
+    return @divFloor(tag_capacity, BitmapWordBits) + @intFromBool(tag_capacity % BitmapWordBits != 0);
 }
 
 fn lastMaskFor(tag_capacity: usize) BitmapWord {
@@ -322,10 +323,7 @@ fn fitsInIntCapacity(comptime IntT: type, tag_capacity: usize) bool {
 }
 
 fn fitsInStorage(words_len: usize, tag_capacity: usize) bool {
-    const div = tag_capacity / BitmapWordBits;
-    const rem = tag_capacity % BitmapWordBits;
-    const required = div + @intFromBool(rem != 0);
-    return required <= words_len;
+    return wordCountFor(tag_capacity) <= words_len;
 }
 
 /// Shared invariant check:

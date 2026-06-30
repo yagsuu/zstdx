@@ -20,12 +20,12 @@ pub fn Range(comptime T: type) type {
         start: T,
         end: T,
 
-        const Self = @This();
-
         /// `InvalidRange`: caller passed `end < start`.
         /// `Overflow`: arithmetic on `start`, `end`, or `len` exceeded `T`.
         /// `OutOfBounds`: point lies outside `[start, end]`.
         pub const Error = error{ InvalidRange, Overflow, OutOfBounds };
+
+        const Self = @This();
 
         /// Construct `[start, end)`. Returns `error.InvalidRange` when
         /// `end < start`.
@@ -94,8 +94,10 @@ pub fn Range(comptime T: type) type {
         pub fn intersection(self: Self, other: Self) ?Self {
             self.assertValid();
             other.assertValid();
+
             const start = @max(self.start, other.start);
             const end = @min(self.end, other.end);
+
             if (end <= start) return null;
             return .{ .start = start, .end = end };
         }
@@ -145,6 +147,7 @@ pub fn Range(comptime T: type) type {
         /// either endpoint would exceed `T`.
         pub fn shiftForward(self: Self, amount: T) Error!Self {
             self.assertValid();
+
             const start = std.math.add(T, self.start, amount) catch return error.Overflow;
             const end = std.math.add(T, self.end, amount) catch return error.Overflow;
             return .{ .start = start, .end = end };
@@ -154,6 +157,7 @@ pub fn Range(comptime T: type) type {
         /// subtraction would underflow `T`.
         pub fn shiftBackward(self: Self, amount: T) Error!Self {
             self.assertValid();
+
             if (amount > self.start) return error.Overflow;
             return .{ .start = self.start - amount, .end = self.end - amount };
         }

@@ -23,6 +23,7 @@ fn validate(comptime T: type, alignment: T) Error!void {
 /// Smallest multiple of `alignment` that is `>= value`.
 pub fn alignUp(comptime T: type, value: T, alignment: T) Error!T {
     try validate(T, alignment);
+
     const mask = alignment - 1;
     const added = std.math.add(T, value, mask) catch return error.Overflow;
     return added & ~mask;

@@ -180,7 +180,9 @@ fn acquireSlot(
         live_count.* += 1;
         return &slot.occupied;
     }
+
     if (bump_index.* >= buffer.len) return error.OutOfMemory;
+
     const slot = &buffer[bump_index.*];
     bump_index.* += 1;
     slot.* = .{ .occupied = undefined };
@@ -198,6 +200,7 @@ fn releaseSlot(
     const slot: *Slot = @alignCast(@fieldParentPtr("occupied", item));
     std.debug.assert(slot.* == .occupied);
     std.debug.assert(live_count.* > 0);
+
     slot.* = .{ .free = free_head.* };
     free_head.* = slot;
     live_count.* -= 1;
@@ -212,6 +215,7 @@ fn checkValid(
 ) bool {
     if (bump_index > buffer.len) return false;
     if (live_count > bump_index) return false;
+
     const free_count = bump_index - live_count;
     var seen: usize = 0;
     var current = free_head;
@@ -222,14 +226,17 @@ fn checkValid(
         if (slot.* != .free) return false;
         current = slot.free;
     }
+
     return seen == free_count;
 }
 
 fn slotInBuffer(comptime Slot: type, buffer: []const Slot, slot: *const Slot) bool {
     if (buffer.len == 0) return false;
+
     const slot_addr = @intFromPtr(slot);
     const base_addr = @intFromPtr(buffer.ptr);
     if (slot_addr < base_addr) return false;
+
     const offset = slot_addr - base_addr;
     if (offset % @sizeOf(Slot) != 0) return false;
     return offset / @sizeOf(Slot) < buffer.len;

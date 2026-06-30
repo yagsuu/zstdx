@@ -73,6 +73,7 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         /// Round the address up to a multiple of `alignment`.
         pub fn alignUp(self: Self, alignment: Int) Error!Self {
             try validateAlignment(alignment);
+
             const mask = alignment - 1;
             const added = std.math.add(Int, self.raw(), mask) catch return error.Overflow;
             return fromInt(added & ~mask);

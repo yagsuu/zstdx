@@ -17,28 +17,8 @@ pub const List = struct {
             head: ?*T = null,
             tail: ?*T = null,
 
-            const Self = @This();
             const Node = SinglyLinkedNode;
-
-            fn node(item: *T) *Node {
-                return &@field(item.*, node_field);
-            }
-
-            fn constNode(item: *const T) *const Node {
-                return &@field(item.*, node_field);
-            }
-
-            fn itemFromNode(item_node: *Node) *T {
-                return @fieldParentPtr(node_field, item_node);
-            }
-
-            fn constItemFromNode(item_node: *const Node) *const T {
-                return @fieldParentPtr(node_field, item_node);
-            }
-
-            fn assertDetached(item: *T) void {
-                std.debug.assert(node(item).next == null);
-            }
+            const Self = @This();
 
             pub fn init() Self {
                 return .{};
@@ -76,6 +56,7 @@ pub const List = struct {
 
             pub fn pushFront(self: *Self, item: *T) void {
                 assertDetached(item);
+
                 const item_node = node(item);
                 item_node.next = if (self.head) |head_item| node(head_item) else null;
                 self.head = item;
@@ -84,6 +65,7 @@ pub const List = struct {
 
             pub fn pushBack(self: *Self, item: *T) void {
                 assertDetached(item);
+
                 if (self.tail) |tail_item| {
                     node(tail_item).next = node(item);
                     self.tail = item;
@@ -95,6 +77,7 @@ pub const List = struct {
 
             pub fn insertAfter(self: *Self, previous: *T, item: *T) void {
                 assertDetached(item);
+
                 const previous_node = node(previous);
                 const item_node = node(item);
                 item_node.next = previous_node.next;
@@ -104,6 +87,7 @@ pub const List = struct {
 
             pub fn popFront(self: *Self) ?*T {
                 const item = self.head orelse return null;
+
                 const item_node = node(item);
                 self.head = if (item_node.next) |next_node| itemFromNode(next_node) else null;
                 if (self.tail == item) self.tail = self.head;
@@ -129,6 +113,7 @@ pub const List = struct {
                     previous = current_item;
                     current = if (current_node.next) |next_node| itemFromNode(next_node) else null;
                 }
+
                 return false;
             }
 
@@ -165,16 +150,6 @@ pub const List = struct {
                 std.debug.assert(last == self.tail);
                 std.debug.assert(constNode(self.tail.?).next == null);
             }
-        };
-    }
-
-    pub fn DoublyLinked(comptime T: type, comptime node_field: []const u8) type {
-        return struct {
-            head: ?*T = null,
-            tail: ?*T = null,
-
-            const Self = @This();
-            const Node = DoublyLinkedNode;
 
             fn node(item: *T) *Node {
                 return &@field(item.*, node_field);
@@ -193,10 +168,18 @@ pub const List = struct {
             }
 
             fn assertDetached(item: *T) void {
-                const item_node = node(item);
-                std.debug.assert(item_node.prev == null);
-                std.debug.assert(item_node.next == null);
+                std.debug.assert(node(item).next == null);
             }
+        };
+    }
+
+    pub fn DoublyLinked(comptime T: type, comptime node_field: []const u8) type {
+        return struct {
+            head: ?*T = null,
+            tail: ?*T = null,
+
+            const Node = DoublyLinkedNode;
+            const Self = @This();
 
             pub fn init() Self {
                 return .{};
@@ -244,6 +227,7 @@ pub const List = struct {
 
             pub fn pushFront(self: *Self, item: *T) void {
                 assertDetached(item);
+
                 const item_node = node(item);
                 if (self.head) |head_item| {
                     item_node.next = node(head_item);
@@ -257,6 +241,7 @@ pub const List = struct {
 
             pub fn pushBack(self: *Self, item: *T) void {
                 assertDetached(item);
+
                 const item_node = node(item);
                 if (self.tail) |tail_item| {
                     item_node.prev = node(tail_item);
@@ -270,29 +255,35 @@ pub const List = struct {
 
             pub fn insertBefore(self: *Self, next_item: *T, item: *T) void {
                 assertDetached(item);
+
                 const next_node = node(next_item);
                 const item_node = node(item);
                 item_node.prev = next_node.prev;
                 item_node.next = next_node;
+
                 if (next_node.prev) |previous_node| {
                     previous_node.next = item_node;
                 } else {
                     self.head = item;
                 }
+
                 next_node.prev = item_node;
             }
 
             pub fn insertAfter(self: *Self, previous_item: *T, item: *T) void {
                 assertDetached(item);
+
                 const previous_node = node(previous_item);
                 const item_node = node(item);
                 item_node.prev = previous_node;
                 item_node.next = previous_node.next;
+
                 if (previous_node.next) |next_node| {
                     next_node.prev = item_node;
                 } else {
                     self.tail = item;
                 }
+
                 previous_node.next = item_node;
             }
 
@@ -310,16 +301,19 @@ pub const List = struct {
 
             pub fn remove(self: *Self, item: *T) void {
                 const item_node = node(item);
+
                 if (item_node.prev) |previous_node| {
                     previous_node.next = item_node.next;
                 } else {
                     self.head = if (item_node.next) |next_node| itemFromNode(next_node) else null;
                 }
+
                 if (item_node.next) |next_node| {
                     next_node.prev = item_node.prev;
                 } else {
                     self.tail = if (item_node.prev) |previous_node| itemFromNode(previous_node) else null;
                 }
+
                 item_node.prev = null;
                 item_node.next = null;
             }
@@ -373,6 +367,28 @@ pub const List = struct {
                     current = constPrevious(item);
                 }
                 std.debug.assert(last == self.head);
+            }
+
+            fn node(item: *T) *Node {
+                return &@field(item.*, node_field);
+            }
+
+            fn constNode(item: *const T) *const Node {
+                return &@field(item.*, node_field);
+            }
+
+            fn itemFromNode(item_node: *Node) *T {
+                return @fieldParentPtr(node_field, item_node);
+            }
+
+            fn constItemFromNode(item_node: *const Node) *const T {
+                return @fieldParentPtr(node_field, item_node);
+            }
+
+            fn assertDetached(item: *T) void {
+                const item_node = node(item);
+                std.debug.assert(item_node.prev == null);
+                std.debug.assert(item_node.next == null);
             }
         };
     }

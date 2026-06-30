@@ -24,6 +24,7 @@ pub fn storeUnaligned(comptime T: type, bytes: *[@sizeOf(T)]u8, value: T) void {
 
 fn validateType(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("unsupported zero-sized unaligned type");
+
     switch (@typeInfo(T)) {
         .pointer,
         .optional,

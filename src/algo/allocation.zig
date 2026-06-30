@@ -63,10 +63,16 @@ pub const BestFit = struct {
             const maybe = try candidateFor(source, index, request);
             const candidate = maybe orelse continue;
             const leftover = leftoverOf(candidate);
-            if (best == null or
-                leftover < best_leftover or
-                (leftover == best_leftover and isEarlier(candidate, best.?)))
-            {
+
+            if (best) |current_best| {
+                const strictly_smaller = leftover < best_leftover;
+                const tied_and_earlier = leftover == best_leftover and isEarlier(candidate, current_best);
+
+                if (strictly_smaller or tied_and_earlier) {
+                    best = candidate;
+                    best_leftover = leftover;
+                }
+            } else {
                 best = candidate;
                 best_leftover = leftover;
             }
@@ -86,10 +92,16 @@ pub const WorstFit = struct {
             const maybe = try candidateFor(source, index, request);
             const candidate = maybe orelse continue;
             const leftover = leftoverOf(candidate);
-            if (best == null or
-                leftover > best_leftover or
-                (leftover == best_leftover and isEarlier(candidate, best.?)))
-            {
+
+            if (best) |current_best| {
+                const strictly_larger = leftover > best_leftover;
+                const tied_and_earlier = leftover == best_leftover and isEarlier(candidate, current_best);
+
+                if (strictly_larger or tied_and_earlier) {
+                    best = candidate;
+                    best_leftover = leftover;
+                }
+            } else {
                 best = candidate;
                 best_leftover = leftover;
             }

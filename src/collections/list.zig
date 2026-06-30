@@ -82,6 +82,7 @@ pub const List = struct {
             pub fn appendAssumeCapacity(self: *Self, item: T) void {
                 std.debug.assert(!self.isFull());
                 if (capacity_items == 0) unreachable;
+
                 self.buffer[self.count] = item;
                 self.count += 1;
             }
@@ -99,6 +100,7 @@ pub const List = struct {
             pub fn insert(self: *Self, index: usize, item: T) Error!void {
                 if (index > self.count) return error.OutOfBounds;
                 if (self.isFull()) return error.Full;
+
                 std.mem.copyBackwards(T, self.buffer[index + 1 .. self.count + 1], self.buffer[index..self.count]);
                 self.buffer[index] = item;
                 self.count += 1;
@@ -107,6 +109,7 @@ pub const List = struct {
             /// Remove and return `buffer[index]`, shifting later items left.
             pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
+
                 const out = self.buffer[index];
                 std.mem.copyForwards(T, self.buffer[index .. self.count - 1], self.buffer[index + 1 .. self.count]);
                 self.count -= 1;
@@ -117,6 +120,7 @@ pub const List = struct {
             /// the vacated slot.
             pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
+
                 const out = self.buffer[index];
                 self.count -= 1;
                 if (index != self.count) self.buffer[index] = self.buffer[self.count];
@@ -215,6 +219,7 @@ pub const List = struct {
             pub fn appendAssumeCapacity(self: *Self, item: T) void {
                 std.debug.assert(!self.isFull());
                 if (self.buffer.len == 0) unreachable;
+
                 self.buffer[self.count] = item;
                 self.count += 1;
             }
@@ -232,6 +237,7 @@ pub const List = struct {
             pub fn insert(self: *Self, index: usize, item: T) Error!void {
                 if (index > self.count) return error.OutOfBounds;
                 if (self.isFull()) return error.Full;
+
                 std.mem.copyBackwards(T, self.buffer[index + 1 .. self.count + 1], self.buffer[index..self.count]);
                 self.buffer[index] = item;
                 self.count += 1;
@@ -240,6 +246,7 @@ pub const List = struct {
             /// Remove and return `buffer[index]`, shifting later items left.
             pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
+
                 const out = self.buffer[index];
                 std.mem.copyForwards(T, self.buffer[index .. self.count - 1], self.buffer[index + 1 .. self.count]);
                 self.count -= 1;
@@ -250,6 +257,7 @@ pub const List = struct {
             /// the vacated slot.
             pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
+
                 const out = self.buffer[index];
                 self.count -= 1;
                 if (index != self.count) self.buffer[index] = self.buffer[self.count];
