@@ -30,10 +30,14 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         pub const Raw = Int;
 
         /// `Overflow`: arithmetic on `add`, `sub`, `diff`, or `alignUp` would
-        ///   exceed the `Int` range.
-        /// `InvalidAlignment`: `alignment` is zero or not a power of two.
+        /// exceed the `Int` range.
         pub const OverflowError = error{Overflow};
+
+        /// `InvalidAlignment`: `alignment` is zero or not a power of two.
         pub const AlignError = error{InvalidAlignment};
+
+        /// Union of `OverflowError` and `AlignError`. Use this when a method's
+        /// signature may produce either variant.
         pub const Error = OverflowError || AlignError;
 
         pub fn fromInt(value: Int) Self {
@@ -86,7 +90,8 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         }
 
         pub fn isAligned(self: Self, alignment: Int) bool {
-            std.debug.assert(alignment != 0 and bits.isPowerOfTwo(Int, alignment));
+            std.debug.assert(alignment != 0);
+            std.debug.assert(bits.isPowerOfTwo(Int, alignment));
             return (self.raw() & (alignment - 1)) == 0;
         }
     };
