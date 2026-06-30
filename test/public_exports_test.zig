@@ -18,6 +18,7 @@ const first_slice_root_exports = [_][]const u8{
     "intrusive",
     "algo",
     "tags",
+    "arch",
     "List",
     "Ring",
 };

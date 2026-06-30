@@ -15,6 +15,7 @@ comptime {
     _ = @import("algo/allocation_test.zig");
     _ = @import("tags/tag_test.zig");
     _ = @import("tags/allocator_test.zig");
+    _ = @import("arch/x86_64_test.zig");
     _ = @import("addr/address_test.zig");
     _ = @import("addr/pages_test.zig");
     _ = @import("ranges/set_test.zig");
