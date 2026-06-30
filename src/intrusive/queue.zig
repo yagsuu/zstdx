@@ -70,7 +70,11 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
         }
 
         pub fn assertValid(self: *const Self) void {
-            std.debug.assert((self.head == null) == (self.tail == null));
+            if (self.head == null) {
+                std.debug.assert(self.tail == null);
+            } else {
+                std.debug.assert(self.tail != null);
+            }
             if (self.head == null) return;
 
             var slow: ?*const T = self.head;

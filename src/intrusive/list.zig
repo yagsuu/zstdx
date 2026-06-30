@@ -129,7 +129,11 @@ pub const List = struct {
             }
 
             pub fn assertValid(self: *const Self) void {
-                std.debug.assert((self.head == null) == (self.tail == null));
+                if (self.head == null) {
+                    std.debug.assert(self.tail == null);
+                } else {
+                    std.debug.assert(self.tail != null);
+                }
                 if (self.head == null) return;
 
                 var slow: ?*const T = self.head;
@@ -300,6 +304,7 @@ pub const List = struct {
             }
 
             pub fn remove(self: *Self, item: *T) void {
+                self.assertAttached(item);
                 const item_node = node(item);
 
                 if (item_node.prev) |previous_node| {
@@ -331,7 +336,11 @@ pub const List = struct {
             }
 
             pub fn assertValid(self: *const Self) void {
-                std.debug.assert((self.head == null) == (self.tail == null));
+                if (self.head == null) {
+                    std.debug.assert(self.tail == null);
+                } else {
+                    std.debug.assert(self.tail != null);
+                }
                 if (self.head == null) return;
 
                 std.debug.assert(constNode(self.head.?).prev == null);
@@ -389,6 +398,11 @@ pub const List = struct {
                 const item_node = node(item);
                 std.debug.assert(item_node.prev == null);
                 std.debug.assert(item_node.next == null);
+            }
+
+            fn assertAttached(self: *const Self, item: *T) void {
+                const item_node = node(item);
+                std.debug.assert(item_node.prev != null or item_node.next != null or self.head == item);
             }
         };
     }
