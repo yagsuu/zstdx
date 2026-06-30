@@ -20,6 +20,7 @@ const approved_root_exports = [_][]const u8{
     "algo",
     "tags",
     "arch",
+    "diag",
     "List",
     "Ring",
 };
@@ -70,6 +71,9 @@ test "contract: root facade does not flatten domain-owned symbols" {
         "Queue",
         "Stack",
         "io",
+        "Diagnostics",
+        "Scope",
+        "ScopeOptions",
         "Forest",
     }) |name| {
         try testing.expect(!@hasDecl(stdx, name));
