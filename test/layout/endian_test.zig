@@ -14,7 +14,7 @@ const testing = std.testing;
 
 test "unit: EndianInt has byte alignment and exact size for every supported width" {
     inline for (.{ Le(u16), Be(u16), Le(u24), Be(u40), Le(u128) }) |T| {
-        try testing.expectEqual(T.byte_count, @sizeOf(T));
+        try testing.expectEqual(T.count_bytes, @sizeOf(T));
         try testing.expectEqual(@as(usize, 1), @alignOf(T));
     }
 }

@@ -24,7 +24,7 @@ fn requireEndianInt(comptime T: type) void {
 /// Wrapper around an unsigned byte-aligned integer `T` (8..128 bits, exact
 /// multiples of 8; `usize`/`isize` rejected) that stores it as a fixed-size
 /// byte array in the chosen endianness. The returned type is an
-/// `extern struct` with `@sizeOf == byte_count` and `@alignOf == 1`.
+/// `extern struct` with `@sizeOf == count_bytes` and `@alignOf == 1`.
 pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) type {
     comptime requireEndianInt(T);
     const bits = @bitSizeOf(T);
@@ -41,10 +41,10 @@ pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) ty
         pub const byte_order = endian_value;
 
         /// Bit width of `Native`.
-        pub const bit_count = bits;
+        pub const count_bits = bits;
 
         /// Storage width in bytes.
-        pub const byte_count = bytes_len;
+        pub const count_bytes = bytes_len;
 
         /// Encode `value` into the wrapper's byte order.
         pub fn fromNative(value: T) Self {

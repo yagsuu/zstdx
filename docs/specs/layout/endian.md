@@ -85,12 +85,12 @@ Returned type from `EndianInt`:
 
 ```zig
 pub const Self = extern struct {
-    bytes: [byte_count]u8,
+    bytes: [count_bytes]u8,
 
     pub const Native = T;
     pub const byte_order = endian;
-    pub const bit_count = @bitSizeOf(T);
-    pub const byte_count = bit_count / 8;
+    pub const count_bits = @bitSizeOf(T);
+    pub const count_bytes = count_bits / 8;
 
     pub fn fromNative(value: T) Self;
     pub fn native(self: Self) T;
@@ -241,8 +241,8 @@ offset spec owns that behavior.
 
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
-| `fromNative` | never | never | O(`byte_count`) | none | value type | none |
-| `native` | never | never | O(`byte_count`) | none | value type | none |
+| `fromNative` | never | never | O(`count_bytes`) | none | value type | none |
+| `native` | never | never | O(`count_bytes`) | none | value type | none |
 | `Le` | never | never | comptime | none | type factory | none |
 | `Be` | never | never | comptime | none | type factory | none |
 
@@ -264,7 +264,7 @@ Implementation must:
 
 - use `@bitSizeOf(T) / 8` as the byte count;
 - never use `@sizeOf(T)` as the integer lane width;
-- preserve exactly `byte_count` bytes;
+- preserve exactly `count_bytes` bytes;
 - be independent of target native endianness;
 - avoid allocation, global state, atomics, fences, and volatile access;
 - avoid pointer reinterpretation as a larger aligned integer;
