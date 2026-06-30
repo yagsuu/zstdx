@@ -1,14 +1,12 @@
 //! x86_64 architecture primitives. Spec: docs/specs/arch/x86_64.md.
-//!
-//! Thin, inline-asm-only wrappers for x86_64 instruction primitives. The
-//! module is `@import`-able on any target; bodies that emit inline assembly
-//! are gated with `if (!supported) @compileError(...);` so non-x86_64 builds
-//! see compile errors only at use sites, never at import.
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// True iff the build target is x86_64.
+/// True iff the build target is x86_64. The module is `@import`-able on any
+/// target; bodies that emit inline assembly gate on `if (!supported)
+/// @compileError(wrong_target);` so non-x86_64 builds see compile errors only
+/// at use sites, never at import.
 pub const supported: bool = builtin.cpu.arch == .x86_64;
 
 const wrong_target = "stdx.arch.x86_64: this operation requires an x86_64 target";
@@ -17,14 +15,19 @@ const wrong_target = "stdx.arch.x86_64: this operation requires an x86_64 target
 pub const Port = enum(u16) {
     _,
 
+    /// Wrap a raw `u16` port number as a strong `Port` value. Compiles on any
+    /// target.
     pub fn fromInt(value: u16) Port {
         return @enumFromInt(value);
     }
 
+    /// Return the underlying `u16` port number. Compiles on any target.
     pub fn raw(self: Port) u16 {
         return @intFromEnum(self);
     }
 
+    /// Execute `inb dx, al` and return the byte. Privileged per IOPL/TSS I/O
+    /// permission bitmap; raises `#GP` when access is denied. `memory` clobber.
     pub fn in8(self: Port) u8 {
         if (!supported) @compileError(wrong_target);
         return asm volatile ("inb %[port], %[ret]"
@@ -33,6 +36,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
+    /// Execute `inw dx, ax` and return the word. Privileged per IOPL/TSS; raises
+    /// `#GP` on denied access. `memory` clobber.
     pub fn in16(self: Port) u16 {
         if (!supported) @compileError(wrong_target);
         return asm volatile ("inw %[port], %[ret]"
@@ -41,6 +46,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
+    /// Execute `inl dx, eax` and return the dword. Privileged per IOPL/TSS;
+    /// raises `#GP` on denied access. `memory` clobber.
     pub fn in32(self: Port) u32 {
         if (!supported) @compileError(wrong_target);
         return asm volatile ("inl %[port], %[ret]"
@@ -49,6 +56,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
+    /// Execute `outb al, dx` writing `value`. Privileged per IOPL/TSS; raises
+    /// `#GP` on denied access. `memory` clobber.
     pub fn out8(self: Port, value: u8) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("outb %[value], %[port]"
@@ -58,6 +67,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
+    /// Execute `outw ax, dx` writing `value`. Privileged per IOPL/TSS; raises
+    /// `#GP` on denied access. `memory` clobber.
     pub fn out16(self: Port, value: u16) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("outw %[value], %[port]"
@@ -67,6 +78,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
+    /// Execute `outl eax, dx` writing `value`. Privileged per IOPL/TSS; raises
+    /// `#GP` on denied access. `memory` clobber.
     pub fn out32(self: Port, value: u32) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("outl %[value], %[port]"
@@ -76,6 +89,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
+    /// Execute `rep insb` reading `dst.len` bytes from the port into `dst`.
+    /// Requires `DF` clear and slice alignment. Clobbers `rcx`, `rdi`, `memory`.
     pub fn inSlice8(self: Port, dst: []u8) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("rep insb"
@@ -86,6 +101,8 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
+    /// Execute `rep insw` reading `dst.len` 16-bit words into `dst`. Requires
+    /// `DF` clear and slice alignment. Clobbers `rcx`, `rdi`, `memory`.
     pub fn inSlice16(self: Port, dst: []u16) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("rep insw"
@@ -96,6 +113,8 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
+    /// Execute `rep insd` reading `dst.len` 32-bit dwords into `dst`. Requires
+    /// `DF` clear and slice alignment. Clobbers `rcx`, `rdi`, `memory`.
     pub fn inSlice32(self: Port, dst: []u32) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("rep insl"
@@ -106,6 +125,8 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
+    /// Execute `rep outsb` writing `src.len` bytes to the port. Requires `DF`
+    /// clear and slice alignment. Clobbers `rcx`, `rsi`, `memory`.
     pub fn outSlice8(self: Port, src: []const u8) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("rep outsb"
@@ -116,6 +137,8 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rsi = true, .memory = true });
     }
 
+    /// Execute `rep outsw` writing `src.len` 16-bit words. Requires `DF` clear
+    /// and slice alignment. Clobbers `rcx`, `rsi`, `memory`.
     pub fn outSlice16(self: Port, src: []const u16) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("rep outsw"
@@ -126,6 +149,8 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rsi = true, .memory = true });
     }
 
+    /// Execute `rep outsd` writing `src.len` 32-bit dwords. Requires `DF` clear
+    /// and slice alignment. Clobbers `rcx`, `rsi`, `memory`.
     pub fn outSlice32(self: Port, src: []const u32) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("rep outsl"
@@ -146,7 +171,9 @@ pub fn ioWait() void {
         : .{ .memory = true });
 }
 
+/// Raw `cpuid` access by leaf and subleaf. Unprivileged at any CPL.
 pub const Cpuid = struct {
+    /// Snapshot of the four CPUID output registers from a single `cpuid` call.
     pub const Result = struct {
         eax: u32,
         ebx: u32,
@@ -165,11 +192,15 @@ pub const Cpuid = struct {
         _,
     };
 
+    /// Execute `cpuid` with `ecx = 0` against `which` and return the four
+    /// output registers. Unprivileged.
     pub fn leaf(which: Leaf) Result {
         if (!supported) @compileError(wrong_target);
         return subleaf(which, 0);
     }
 
+    /// Execute `cpuid` with `eax = which` and `ecx = sub`, returning the four
+    /// output registers. Unprivileged.
     pub fn subleaf(which: Leaf, sub: u32) Result {
         if (!supported) @compileError(wrong_target);
         var a: u32 = undefined;
@@ -187,28 +218,40 @@ pub const Cpuid = struct {
         return .{ .eax = a, .ebx = b, .ecx = c, .edx = d };
     }
 
+    /// Return `leaf(.max_basic).eax`, the highest basic CPUID leaf supported by
+    /// the running CPU. Unprivileged.
     pub fn maxBasicLeaf() u32 {
         if (!supported) @compileError(wrong_target);
         return leaf(.max_basic).eax;
     }
 
+    /// Return `leaf(.max_extended).eax`, the highest extended CPUID leaf
+    /// supported by the running CPU. Unprivileged.
     pub fn maxExtendedLeaf() u32 {
         if (!supported) @compileError(wrong_target);
         return leaf(.max_extended).eax;
     }
 };
 
+/// Strong MSR-address value type. `read`/`write` execute `rdmsr`/`wrmsr`, both
+/// privileged (CPL 0); accessing an unimplemented address raises `#GP`.
 pub const Msr = enum(u32) {
     _,
 
+    /// Wrap a raw `u32` MSR address as a strong `Msr` value. Compiles on any
+    /// target.
     pub fn fromInt(value: u32) Msr {
         return @enumFromInt(value);
     }
 
+    /// Return the underlying `u32` MSR address. Compiles on any target.
     pub fn raw(self: Msr) u32 {
         return @intFromEnum(self);
     }
 
+    /// Execute `rdmsr` against `self` and return the combined `edx:eax` as
+    /// `u64`. Privileged (CPL 0); raises `#GP` on unimplemented MSRs. `memory`
+    /// clobber.
     pub fn read(self: Msr) u64 {
         if (!supported) @compileError(wrong_target);
         var lo: u32 = undefined;
@@ -221,6 +264,9 @@ pub const Msr = enum(u32) {
         return (@as(u64, hi) << 32) | @as(u64, lo);
     }
 
+    /// Execute `wrmsr` against `self` with `edx:eax` split from `value`.
+    /// Privileged (CPL 0); raises `#GP` on unimplemented MSRs or reserved-bit
+    /// violations. `memory` clobber.
     pub fn write(self: Msr, value: u64) void {
         if (!supported) @compileError(wrong_target);
         const lo: u32 = @truncate(value);
@@ -234,18 +280,23 @@ pub const Msr = enum(u32) {
     }
 };
 
-// IA32 MSR addresses used by the FsBase/GsBase MSR fallback.
 const IA32_FS_BASE: u32 = 0xC000_0100;
 const IA32_GS_BASE: u32 = 0xC000_0101;
 
+/// Control-register and extended control-register access. All operations are
+/// privileged (CPL 0); calls from CPL > 0 raise `#GP`.
 pub const ControlRegister = struct {
+    /// `CR0` access (`mov cr0, rNN` / `mov rNN, cr0`). Privileged (CPL 0).
     pub const Cr0 = struct {
+        /// Execute `mov %cr0, rNN` and return the value. Privileged (CPL 0).
         pub fn read() u64 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%cr0, %[ret]"
                 : [ret] "=r" (-> u64),
             );
         }
+        /// Execute `mov rNN, %cr0` writing `value`. Privileged (CPL 0).
+        /// `memory` clobber.
         pub fn write(value: u64) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%cr0"
@@ -255,7 +306,11 @@ pub const ControlRegister = struct {
         }
     };
 
+    /// `CR2` read-only access. Writes occur only during exception handling and
+    /// are out of scope.
     pub const Cr2 = struct {
+        /// Execute `mov %cr2, rNN` and return the page-fault linear address.
+        /// Privileged (CPL 0).
         pub fn read() u64 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%cr2, %[ret]"
@@ -264,13 +319,18 @@ pub const ControlRegister = struct {
         }
     };
 
+    /// `CR3` access (paging root). Privileged (CPL 0); `write` may invalidate
+    /// TLB entries per architectural rules.
     pub const Cr3 = struct {
+        /// Execute `mov %cr3, rNN` and return the value. Privileged (CPL 0).
         pub fn read() u64 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%cr3, %[ret]"
                 : [ret] "=r" (-> u64),
             );
         }
+        /// Execute `mov rNN, %cr3` writing `value`. Privileged (CPL 0); may
+        /// invalidate TLB entries per architectural rules. `memory` clobber.
         pub fn write(value: u64) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%cr3"
@@ -280,13 +340,17 @@ pub const ControlRegister = struct {
         }
     };
 
+    /// `CR4` access (architectural feature enables). Privileged (CPL 0).
     pub const Cr4 = struct {
+        /// Execute `mov %cr4, rNN` and return the value. Privileged (CPL 0).
         pub fn read() u64 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%cr4, %[ret]"
                 : [ret] "=r" (-> u64),
             );
         }
+        /// Execute `mov rNN, %cr4` writing `value`. Privileged (CPL 0); raises
+        /// `#GP` on reserved-bit violations. `memory` clobber.
         pub fn write(value: u64) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%cr4"
@@ -296,13 +360,17 @@ pub const ControlRegister = struct {
         }
     };
 
+    /// `CR8` access (task priority register). Privileged (CPL 0).
     pub const Cr8 = struct {
+        /// Execute `mov %cr8, rNN` and return the value. Privileged (CPL 0).
         pub fn read() u64 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%cr8, %[ret]"
                 : [ret] "=r" (-> u64),
             );
         }
+        /// Execute `mov rNN, %cr8` writing `value`. Privileged (CPL 0).
+        /// `memory` clobber.
         pub fn write(value: u64) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%cr8"
@@ -312,7 +380,11 @@ pub const ControlRegister = struct {
         }
     };
 
+    /// Extended control register 0 access via `xgetbv`/`xsetbv` with `ecx = 0`.
+    /// Requires `Cr4.OSXSAVE`. Privileged (CPL 0).
     pub const Xcr0 = struct {
+        /// Execute `xgetbv` with `ecx = 0` and return the combined `edx:eax` as
+        /// `u64`. Requires `Cr4.OSXSAVE`.
         pub fn read() u64 {
             if (!supported) @compileError(wrong_target);
             var lo: u32 = undefined;
@@ -324,6 +396,9 @@ pub const ControlRegister = struct {
             );
             return (@as(u64, hi) << 32) | @as(u64, lo);
         }
+        /// Execute `xsetbv` with `ecx = 0` and `edx:eax` split from `value`.
+        /// Privileged (CPL 0); requires `Cr4.OSXSAVE`; raises `#GP` when bits
+        /// violate CPU support. `memory` clobber.
         pub fn write(value: u64) void {
             if (!supported) @compileError(wrong_target);
             const lo: u32 = @truncate(value);
@@ -338,7 +413,10 @@ pub const ControlRegister = struct {
     };
 };
 
+/// `RFLAGS` access via `pushfq`/`popfq`. Unprivileged; flag writes affecting
+/// privileged state are masked per architectural rules at the current CPL.
 pub const Rflags = struct {
+    /// Execute `pushfq; pop rNN` and return the value as `u64`. Unprivileged.
     pub fn read() u64 {
         if (!supported) @compileError(wrong_target);
         return asm volatile (
@@ -348,6 +426,9 @@ pub const Rflags = struct {
         );
     }
 
+    /// Push `value` and execute `popfq`. Unprivileged; bits the caller cannot
+    /// modify at the current CPL are silently ignored. Clobbers `memory` and
+    /// `cc`.
     pub fn write(value: u64) void {
         if (!supported) @compileError(wrong_target);
         asm volatile (
@@ -359,12 +440,17 @@ pub const Rflags = struct {
     }
 };
 
+/// Interrupt-flag control on the issuing logical CPU.
 pub const Interrupts = struct {
+    /// Execute `sti`. Privileged (CPL 0); raises `#GP` when called below CPL 0.
+    /// `memory` clobber.
     pub fn enable() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("sti" ::: .{ .memory = true });
     }
 
+    /// Execute `cli`. Privileged (CPL 0); raises `#GP` when called below CPL 0.
+    /// `memory` clobber.
     pub fn disable() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("cli" ::: .{ .memory = true });
@@ -377,23 +463,31 @@ pub const Interrupts = struct {
     }
 };
 
+/// CPU one-shot instructions: `hlt`, `pause`, `int3`.
 pub const Cpu = struct {
+    /// Execute `hlt`. Privileged (CPL 0). The CPU halts until the next
+    /// interrupt. `memory` clobber.
     pub fn halt() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("hlt" ::: .{ .memory = true });
     }
 
+    /// Execute `pause`. Unprivileged. No `memory` clobber; pair with explicit
+    /// fences when ordering against memory access is required.
     pub fn pause() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("pause");
     }
 
+    /// Execute `int3`. Unprivileged. Raises `#BP` by design; behavior depends
+    /// on the installed exception handler. `memory` clobber.
     pub fn breakpoint() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("int3" ::: .{ .memory = true });
     }
 };
 
+/// Load and store helpers for the GDT, IDT, and task register.
 pub const Descriptor = struct {
     /// Architectural pseudo-descriptor used by lgdt/sgdt/lidt/sidt: 16-bit
     /// limit followed by a 64-bit base, packed with no padding.
@@ -412,7 +506,11 @@ pub const Descriptor = struct {
         }
     };
 
+    /// GDT load (`lgdt`, privileged) and store (`sgdt`, CPU/OS-policy
+    /// dependent at CPL > 0).
     pub const Gdt = struct {
+        /// Execute `lgdt [ptr]`. Privileged (CPL 0); raises `#GP` when called
+        /// below CPL 0. `memory` clobber.
         pub fn load(ptr: *const Pointer) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("lgdt %[ptr]"
@@ -421,6 +519,8 @@ pub const Descriptor = struct {
                 : .{ .memory = true });
         }
 
+        /// Execute `sgdt` into a stack temporary and return it. Accessibility
+        /// at CPL > 0 is a CPU/OS policy decision. `memory` clobber.
         pub fn store() Pointer {
             if (!supported) @compileError(wrong_target);
             var p: Pointer = undefined;
@@ -432,7 +532,11 @@ pub const Descriptor = struct {
         }
     };
 
+    /// IDT load (`lidt`, privileged) and store (`sidt`, CPU/OS-policy
+    /// dependent at CPL > 0).
     pub const Idt = struct {
+        /// Execute `lidt [ptr]`. Privileged (CPL 0); raises `#GP` when called
+        /// below CPL 0. `memory` clobber.
         pub fn load(ptr: *const Pointer) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("lidt %[ptr]"
@@ -441,6 +545,8 @@ pub const Descriptor = struct {
                 : .{ .memory = true });
         }
 
+        /// Execute `sidt` into a stack temporary and return it. Accessibility
+        /// at CPL > 0 is a CPU/OS policy decision. `memory` clobber.
         pub fn store() Pointer {
             if (!supported) @compileError(wrong_target);
             var p: Pointer = undefined;
@@ -452,7 +558,11 @@ pub const Descriptor = struct {
         }
     };
 
+    /// Task register load (`ltr`, privileged) and store (`str`).
     pub const TaskRegister = struct {
+        /// Execute `ltr selector`. Privileged (CPL 0); raises `#GP` when called
+        /// below CPL 0 or when the selector violates architectural rules.
+        /// `memory` clobber.
         pub fn load(selector: u16) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("ltr %[sel]"
@@ -461,6 +571,8 @@ pub const Descriptor = struct {
                 : .{ .memory = true });
         }
 
+        /// Execute `str` and return the current task-register selector.
+        /// Accessibility at CPL > 0 is a CPU/OS policy decision.
         pub fn store() u16 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("str %[ret]"
@@ -470,8 +582,13 @@ pub const Descriptor = struct {
     };
 };
 
+/// Segment-register and segment-base access.
 pub const Segment = struct {
+    /// Code-segment selector access. `read` is unprivileged; loading `cs`
+    /// requires a far return.
     pub const Cs = struct {
+        /// Execute `mov %cs, rNN` and return the current selector.
+        /// Unprivileged.
         pub fn read() u16 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%cs, %[ret]"
@@ -495,13 +612,19 @@ pub const Segment = struct {
         }
     };
 
+    /// `DS` selector access. `write` is privileged (CPL 0).
     pub const Ds = struct {
+        /// Execute `mov %ds, rNN` and return the current selector.
+        /// Unprivileged.
         pub fn read() u16 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%ds, %[ret]"
                 : [ret] "=r" (-> u16),
             );
         }
+        /// Execute `mov rNN, %ds` loading `selector`. Privileged (CPL 0);
+        /// raises `#GP` when called below CPL 0 or on architectural violations.
+        /// `memory` clobber.
         pub fn write(selector: u16) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%ds"
@@ -511,13 +634,19 @@ pub const Segment = struct {
         }
     };
 
+    /// `ES` selector access. `write` is privileged (CPL 0).
     pub const Es = struct {
+        /// Execute `mov %es, rNN` and return the current selector.
+        /// Unprivileged.
         pub fn read() u16 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%es, %[ret]"
                 : [ret] "=r" (-> u16),
             );
         }
+        /// Execute `mov rNN, %es` loading `selector`. Privileged (CPL 0);
+        /// raises `#GP` when called below CPL 0 or on architectural violations.
+        /// `memory` clobber.
         pub fn write(selector: u16) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%es"
@@ -527,13 +656,19 @@ pub const Segment = struct {
         }
     };
 
+    /// `FS` selector access. `write` is privileged (CPL 0).
     pub const Fs = struct {
+        /// Execute `mov %fs, rNN` and return the current selector.
+        /// Unprivileged.
         pub fn read() u16 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%fs, %[ret]"
                 : [ret] "=r" (-> u16),
             );
         }
+        /// Execute `mov rNN, %fs` loading `selector`. Privileged (CPL 0);
+        /// raises `#GP` when called below CPL 0 or on architectural violations.
+        /// `memory` clobber.
         pub fn write(selector: u16) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%fs"
@@ -543,13 +678,19 @@ pub const Segment = struct {
         }
     };
 
+    /// `GS` selector access. `write` is privileged (CPL 0).
     pub const Gs = struct {
+        /// Execute `mov %gs, rNN` and return the current selector.
+        /// Unprivileged.
         pub fn read() u16 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%gs, %[ret]"
                 : [ret] "=r" (-> u16),
             );
         }
+        /// Execute `mov rNN, %gs` loading `selector`. Privileged (CPL 0);
+        /// raises `#GP` when called below CPL 0 or on architectural violations.
+        /// `memory` clobber.
         pub fn write(selector: u16) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%gs"
@@ -559,13 +700,19 @@ pub const Segment = struct {
         }
     };
 
+    /// `SS` selector access. `write` is privileged (CPL 0).
     pub const Ss = struct {
+        /// Execute `mov %ss, rNN` and return the current selector.
+        /// Unprivileged.
         pub fn read() u16 {
             if (!supported) @compileError(wrong_target);
             return asm volatile ("mov %%ss, %[ret]"
                 : [ret] "=r" (-> u16),
             );
         }
+        /// Execute `mov rNN, %ss` loading `selector`. Privileged (CPL 0);
+        /// raises `#GP` when called below CPL 0 or on architectural violations.
+        /// `memory` clobber.
         pub fn write(selector: u16) void {
             if (!supported) @compileError(wrong_target);
             asm volatile ("mov %[v], %%ss"
@@ -575,7 +722,13 @@ pub const Segment = struct {
         }
     };
 
+    /// FS-base access. Uses `rdfsbase`/`wrfsbase` when FSGSBASE is advertised
+    /// and `Cr4.FSGSBASE` is set; otherwise falls back to `IA32_FS_BASE` MSR.
+    /// MSR fallback is privileged (CPL 0).
     pub const FsBase = struct {
+        /// Read the current FS base. Uses `rdfsbase` when CPUID advertises
+        /// FSGSBASE and `Cr4.FSGSBASE` is set; otherwise falls back to `rdmsr`
+        /// against `IA32_FS_BASE`. MSR fallback is privileged (CPL 0).
         pub fn read() u64 {
             if (!supported) @compileError(wrong_target);
             if (fsgsbaseSupported()) {
@@ -585,6 +738,9 @@ pub const Segment = struct {
             }
             return Msr.fromInt(IA32_FS_BASE).read();
         }
+        /// Write the FS base. Uses `wrfsbase` when CPUID advertises FSGSBASE
+        /// and `Cr4.FSGSBASE` is set; otherwise falls back to `wrmsr` against
+        /// `IA32_FS_BASE`. MSR fallback is privileged (CPL 0). `memory` clobber.
         pub fn write(value: u64) void {
             if (!supported) @compileError(wrong_target);
             if (fsgsbaseSupported()) {
@@ -598,7 +754,13 @@ pub const Segment = struct {
         }
     };
 
+    /// GS-base access. Uses `rdgsbase`/`wrgsbase` when FSGSBASE is advertised
+    /// and `Cr4.FSGSBASE` is set; otherwise falls back to `IA32_GS_BASE` MSR.
+    /// MSR fallback is privileged (CPL 0).
     pub const GsBase = struct {
+        /// Read the current GS base. Uses `rdgsbase` when CPUID advertises
+        /// FSGSBASE and `Cr4.FSGSBASE` is set; otherwise falls back to `rdmsr`
+        /// against `IA32_GS_BASE`. MSR fallback is privileged (CPL 0).
         pub fn read() u64 {
             if (!supported) @compileError(wrong_target);
             if (fsgsbaseSupported()) {
@@ -608,6 +770,9 @@ pub const Segment = struct {
             }
             return Msr.fromInt(IA32_GS_BASE).read();
         }
+        /// Write the GS base. Uses `wrgsbase` when CPUID advertises FSGSBASE
+        /// and `Cr4.FSGSBASE` is set; otherwise falls back to `wrmsr` against
+        /// `IA32_GS_BASE`. MSR fallback is privileged (CPL 0). `memory` clobber.
         pub fn write(value: u64) void {
             if (!supported) @compileError(wrong_target);
             if (fsgsbaseSupported()) {
@@ -621,6 +786,8 @@ pub const Segment = struct {
         }
     };
 
+    /// Execute `swapgs`. Privileged (CPL 0); exchanges `GS.base` with
+    /// `IA32_KERNEL_GS_BASE`. `memory` clobber.
     pub fn swapGs() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("swapgs" ::: .{ .memory = true });
@@ -645,23 +812,31 @@ fn fsgsbaseSupported() bool {
     return supports;
 }
 
+/// Raw x86 fence instructions. All unprivileged.
 pub const Fence = struct {
+    /// Execute `lfence`. Unprivileged. Architectural load fence; `memory`
+    /// clobber.
     pub fn lfence() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("lfence" ::: .{ .memory = true });
     }
 
+    /// Execute `sfence`. Unprivileged. Architectural store fence; `memory`
+    /// clobber.
     pub fn sfence() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("sfence" ::: .{ .memory = true });
     }
 
+    /// Execute `mfence`. Unprivileged. Architectural full memory fence;
+    /// `memory` clobber.
     pub fn mfence() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("mfence" ::: .{ .memory = true });
     }
 };
 
+/// Cache-line maintenance and full-cache control instructions.
 pub const Cache = struct {
     /// L1 cache-line size in bytes, derived from `CPUID.1:EBX[15:8] * 8`.
     /// Falls back to 64 when CPUID does not advertise a size.
@@ -673,6 +848,7 @@ pub const Cache = struct {
         return @as(usize, clflush_qwords) * 8;
     }
 
+    /// Execute `clflush [addr]`. Unprivileged. `memory` clobber.
     pub fn flush(addr: usize) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("clflush (%[addr])"
@@ -681,6 +857,8 @@ pub const Cache = struct {
             : .{ .memory = true });
     }
 
+    /// Execute `clflushopt [addr]`. Unprivileged; may compile down to `clflush`
+    /// when `clflushopt` is unavailable. `memory` clobber.
     pub fn flushOptimized(addr: usize) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("clflushopt (%[addr])"
@@ -689,6 +867,8 @@ pub const Cache = struct {
             : .{ .memory = true });
     }
 
+    /// Execute `clwb [addr]`. Unprivileged; may compile down to `clflushopt`
+    /// or `clflush` when `clwb` is unavailable. `memory` clobber.
     pub fn writeBack(addr: usize) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("clwb (%[addr])"
@@ -697,21 +877,30 @@ pub const Cache = struct {
             : .{ .memory = true });
     }
 
+    /// Walk `[ptr, ptr + len)` in `lineSize()` steps, calling `flush` per line.
+    /// Unprivileged.
     pub fn flushRange(ptr: [*]const u8, len: usize) void {
         if (!supported) @compileError(wrong_target);
         rangeWalk(ptr, len, flush);
     }
 
+    /// Walk `[ptr, ptr + len)` in `lineSize()` steps, calling `writeBack` per
+    /// line. Unprivileged.
     pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
         if (!supported) @compileError(wrong_target);
         rangeWalk(ptr, len, writeBack);
     }
 
+    /// Execute `wbinvd`. Privileged (CPL 0); raises `#GP` when called below
+    /// CPL 0. `memory` clobber.
     pub fn writeBackInvalidate() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("wbinvd" ::: .{ .memory = true });
     }
 
+    /// Execute `invd`. Privileged (CPL 0); raises `#GP` when called below
+    /// CPL 0. Loses dirty cache state when no prior write-back was issued.
+    /// `memory` clobber.
     pub fn invalidate() void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("invd" ::: .{ .memory = true });
@@ -721,16 +910,23 @@ pub const Cache = struct {
 /// Walk `[ptr, ptr + len)` in `Cache.lineSize()` steps, invoking `op` on the
 /// line-aligned address of every covered line.
 fn rangeWalk(ptr: [*]const u8, len: usize, comptime op: fn (usize) void) void {
-    if (len == 0) return;
+    if (!supported) @compileError(wrong_target);
+
     const line = Cache.lineSize();
+    std.debug.assert(line > 0);
+    std.debug.assert(std.math.isPowerOfTwo(line));
+
     const start = @intFromPtr(ptr);
-    const end = start + len;
+    const end = std.math.add(usize, start, len) catch unreachable;
+    if (len == 0) return;
+
     var cursor = start & ~(line - 1);
     while (cursor < end) : (cursor += line) {
         op(cursor);
     }
 }
 
+/// Current-privilege-level probe.
 pub const Privilege = struct {
     /// Bits 0-1 of the `cs` segment selector hold the architectural RPL/CPL,
     /// so truncating `cs` to `u2` extracts the current privilege level.
