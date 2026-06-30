@@ -200,7 +200,14 @@ pub const RangeMap = struct {
     }
 };
 
-fn insertEntry(comptime Range: type, comptime Entry: type, buffer: []Entry, count: *usize, range: Range, value: anytype) error{ Full, InvalidRange, Overlap }!void {
+fn insertEntry(
+    comptime Range: type,
+    comptime Entry: type,
+    buffer: []Entry,
+    count: *usize,
+    range: Range,
+    value: anytype,
+) error{ Full, InvalidRange, Overlap }!void {
     if (!range.isValid()) return error.InvalidRange;
     if (range.isEmpty()) return;
 
@@ -214,31 +221,52 @@ fn insertEntry(comptime Range: type, comptime Entry: type, buffer: []Entry, coun
     count.* += 1;
 }
 
-fn assignEntry(comptime Range: type, comptime Entry: type, buffer: []Entry, count: *usize, range: Range, value: anytype) error{ Full, InvalidRange, Overlap }!void {
+fn assignEntry(
+    comptime Range: type,
+    comptime Entry: type,
+    buffer: []Entry,
+    count: *usize,
+    range: Range,
+    value: anytype,
+) error{ Full, InvalidRange, Overlap }!void {
     if (!range.isValid()) return error.InvalidRange;
     if (range.isEmpty()) return;
 
     const final_count = assignedCount(Range, Entry, buffer[0..count.*], range);
     if (final_count > buffer.len) return error.Full;
 
+    std.debug.assert(range.isValid());
+    std.debug.assert(!range.isEmpty());
+    std.debug.assert(final_count <= buffer.len);
     removeEntry(Range, Entry, buffer, count, range) catch unreachable;
     insertEntry(Range, Entry, buffer, count, range, value) catch unreachable;
 }
 
-fn assignedCount(comptime Range: type, comptime Entry: type, entries: []const Entry, range: Range) usize {
+fn assignedCount(
+    comptime Range: type,
+    comptime Entry: type,
+    entries: []const Entry,
+    range: Range,
+) usize {
     var result: usize = 1;
     for (entries) |entry| {
-        if (!entry.range.overlaps(range)) {
-            result += 1;
-        } else {
+        if (entry.range.overlaps(range)) {
             if (entry.range.start < range.start) result += 1;
             if (range.end < entry.range.end) result += 1;
+        } else {
+            result += 1;
         }
     }
     return result;
 }
 
-fn removeEntry(comptime Range: type, comptime Entry: type, buffer: []Entry, count: *usize, range: Range) error{ Full, InvalidRange, Overlap }!void {
+fn removeEntry(
+    comptime Range: type,
+    comptime Entry: type,
+    buffer: []Entry,
+    count: *usize,
+    range: Range,
+) error{ Full, InvalidRange, Overlap }!void {
     if (!range.isValid()) return error.InvalidRange;
     if (range.isEmpty()) return;
 
@@ -251,32 +279,44 @@ fn removeEntry(comptime Range: type, comptime Entry: type, buffer: []Entry, coun
     var i: usize = 0;
     while (i < count.*) {
         const entry = buffer[i];
-        if (!entry.range.overlaps(range)) {
-            i += 1;
-        } else if (range.start <= entry.range.start and range.end >= entry.range.end) {
-            std.mem.copyForwards(Entry, buffer[i .. count.* - 1], buffer[i + 1 .. count.*]);
-            count.* -= 1;
-        } else if (range.start <= entry.range.start) {
-            buffer[i].range.start = range.end;
-            i += 1;
-        } else if (range.end >= entry.range.end) {
-            buffer[i].range.end = range.start;
-            i += 1;
-        } else {
-            const tail = Entry{
-                .range = Range{ .start = range.end, .end = entry.range.end },
-                .value = entry.value,
-            };
-            buffer[i].range.end = range.start;
-            std.mem.copyBackwards(Entry, buffer[i + 2 .. count.* + 1], buffer[i + 1 .. count.*]);
-            buffer[i + 1] = tail;
-            count.* += 1;
-            i += 2;
+        switch (classify(Range, entry.range, range)) {
+            .disjoint => i += 1,
+            .covers => {
+                std.mem.copyForwards(Entry, buffer[i .. count.* - 1], buffer[i + 1 .. count.*]);
+                count.* -= 1;
+            },
+            .trim_left => {
+                buffer[i].range.start = range.end;
+                i += 1;
+            },
+            .trim_right => {
+                buffer[i].range.end = range.start;
+                i += 1;
+            },
+            .split => {
+                const tail = Entry{
+                    .range = Range{ .start = range.end, .end = entry.range.end },
+                    .value = entry.value,
+                };
+                buffer[i].range.end = range.start;
+                std.mem.copyBackwards(Entry, buffer[i + 2 .. count.* + 1], buffer[i + 1 .. count.*]);
+                buffer[i + 1] = tail;
+                count.* += 1;
+                i += 2;
+            },
         }
     }
 }
 
-fn coalesceEntry(comptime Range: type, comptime Entry: type, comptime V: type, buffer: []Entry, count: *usize, context: anytype, comptime eql: core.Eql(@TypeOf(context), V)) void {
+fn coalesceEntry(
+    comptime Range: type,
+    comptime Entry: type,
+    comptime V: type,
+    buffer: []Entry,
+    count: *usize,
+    context: anytype,
+    comptime eql: core.Eql(@TypeOf(context), V),
+) void {
     _ = Range;
     var i: usize = 0;
     while (i + 1 < count.*) {
@@ -290,7 +330,12 @@ fn coalesceEntry(comptime Range: type, comptime Entry: type, comptime V: type, b
     }
 }
 
-fn findContainingEntry(comptime Range: type, comptime Entry: type, entries: []const Entry, value: anytype) ?*const Entry {
+fn findContainingEntry(
+    comptime Range: type,
+    comptime Entry: type,
+    entries: []const Entry,
+    value: anytype,
+) ?*const Entry {
     _ = Range;
     var low: usize = 0;
     var high: usize = entries.len;
@@ -323,7 +368,12 @@ fn containsMappedRange(comptime Range: type, comptime Entry: type, entries: []co
     return false;
 }
 
-fn containsEmptyBoundary(comptime Range: type, comptime Entry: type, entries: []const Entry, point: anytype) bool {
+fn containsEmptyBoundary(
+    comptime Range: type,
+    comptime Entry: type,
+    entries: []const Entry,
+    point: anytype,
+) bool {
     _ = Range;
     for (entries) |entry| {
         if (entry.range.start <= point and point <= entry.range.end) return true;
@@ -332,7 +382,12 @@ fn containsEmptyBoundary(comptime Range: type, comptime Entry: type, entries: []
     return false;
 }
 
-fn findIntersectingEntry(comptime Range: type, comptime Entry: type, entries: []const Entry, range: Range) ?*const Entry {
+fn findIntersectingEntry(
+    comptime Range: type,
+    comptime Entry: type,
+    entries: []const Entry,
+    range: Range,
+) ?*const Entry {
     std.debug.assert(range.isValid());
     if (range.isEmpty()) return null;
     var low: usize = 0;
@@ -359,4 +414,14 @@ fn assertEntries(comptime Range: type, comptime Entry: type, buffer: []const Ent
         if (previous) |prev| std.debug.assert(prev.range.end <= entry.range.start);
         previous = entry;
     }
+}
+
+const Topology = enum { disjoint, covers, trim_left, trim_right, split };
+
+fn classify(comptime Range: type, stored: Range, range: Range) Topology {
+    if (!stored.overlaps(range)) return .disjoint;
+    if (range.start <= stored.start and range.end >= stored.end) return .covers;
+    if (range.start <= stored.start) return .trim_left;
+    if (range.end >= stored.end) return .trim_right;
+    return .split;
 }

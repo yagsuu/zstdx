@@ -78,7 +78,7 @@ pub const RangeSet = struct {
             }
 
             pub fn assertValid(self: *const Self) void {
-                assertCanonical(Range, self.buffer[0..], self.count, true);
+                assertCanonical(Range, self.buffer[0..], self.count);
             }
         };
     }
@@ -154,7 +154,7 @@ pub const RangeSet = struct {
             }
 
             pub fn assertValid(self: *const Self) void {
-                assertCanonical(Range, self.buffer, self.count, true);
+                assertCanonical(Range, self.buffer, self.count);
             }
         };
     }
@@ -202,24 +202,28 @@ fn removeRange(comptime Range: type, buffer: []Range, count: *usize, range: Rang
     var i: usize = 0;
     while (i < count.*) {
         const stored = buffer[i];
-        if (!stored.overlaps(range)) {
-            i += 1;
-        } else if (range.start <= stored.start and range.end >= stored.end) {
-            std.mem.copyForwards(Range, buffer[i .. count.* - 1], buffer[i + 1 .. count.*]);
-            count.* -= 1;
-        } else if (range.start <= stored.start) {
-            buffer[i].start = range.end;
-            i += 1;
-        } else if (range.end >= stored.end) {
-            buffer[i].end = range.start;
-            i += 1;
-        } else {
-            const tail = Range{ .start = range.end, .end = stored.end };
-            buffer[i].end = range.start;
-            std.mem.copyBackwards(Range, buffer[i + 2 .. count.* + 1], buffer[i + 1 .. count.*]);
-            buffer[i + 1] = tail;
-            count.* += 1;
-            i += 2;
+        switch (classify(Range, stored, range)) {
+            .disjoint => i += 1,
+            .covers => {
+                std.mem.copyForwards(Range, buffer[i .. count.* - 1], buffer[i + 1 .. count.*]);
+                count.* -= 1;
+            },
+            .trim_left => {
+                buffer[i].start = range.end;
+                i += 1;
+            },
+            .trim_right => {
+                buffer[i].end = range.start;
+                i += 1;
+            },
+            .split => {
+                const tail = Range{ .start = range.end, .end = stored.end };
+                buffer[i].end = range.start;
+                std.mem.copyBackwards(Range, buffer[i + 2 .. count.* + 1], buffer[i + 1 .. count.*]);
+                buffer[i + 1] = tail;
+                count.* += 1;
+                i += 2;
+            },
         }
     }
 }
@@ -272,19 +276,23 @@ fn findIntersectingRange(comptime Range: type, ranges: []const Range, range: Ran
     return null;
 }
 
-fn assertCanonical(comptime Range: type, buffer: []const Range, count: usize, comptime reject_adjacent: bool) void {
+fn assertCanonical(comptime Range: type, buffer: []const Range, count: usize) void {
     std.debug.assert(count <= buffer.len);
     var previous: ?Range = null;
     for (buffer[0..count]) |range| {
         std.debug.assert(range.isValid());
         std.debug.assert(!range.isEmpty());
-        if (previous) |prev| {
-            if (reject_adjacent) {
-                std.debug.assert(prev.end < range.start);
-            } else {
-                std.debug.assert(prev.end <= range.start);
-            }
-        }
+        if (previous) |prev| std.debug.assert(prev.end < range.start);
         previous = range;
     }
+}
+
+const Topology = enum { disjoint, covers, trim_left, trim_right, split };
+
+fn classify(comptime Range: type, stored: Range, range: Range) Topology {
+    if (!stored.overlaps(range)) return .disjoint;
+    if (range.start <= stored.start and range.end >= stored.end) return .covers;
+    if (range.start <= stored.start) return .trim_left;
+    if (range.end >= stored.end) return .trim_right;
+    return .split;
 }

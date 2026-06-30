@@ -220,13 +220,22 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
 
                 if (self.isEmpty() or other.isEmpty()) return false;
 
-                return self.base.addressInt() < other.end().addressInt() and other.base.addressInt() < self.end().addressInt();
+                const self_start = self.base.addressInt();
+                const self_end = self.end().addressInt();
+                const other_start = other.base.addressInt();
+                const other_end = other.end().addressInt();
+                return self_start < other_end and other_start < self_end;
             }
 
             pub fn isAdjacent(self: This, other: This) bool {
                 self.assertValid();
                 other.assertValid();
-                return self.end().addressInt() == other.base.addressInt() or other.end().addressInt() == self.base.addressInt();
+
+                const self_start = self.base.addressInt();
+                const self_end = self.end().addressInt();
+                const other_start = other.base.addressInt();
+                const other_end = other.end().addressInt();
+                return self_end == other_start or other_end == self_start;
             }
 
             pub fn intersection(self: This, other: This) ?This {
