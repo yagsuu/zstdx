@@ -261,3 +261,16 @@ Each module lands in this order:
 5. model, stress, or integration tests where the spec requires them.
 
 A module without its owning spec does not land.
+
+
+## Shared impl across Static / Bounded variants
+
+Subsystems that expose both `Static` (compile-time-capacity) and `Bounded`
+(runtime-capacity) variants over a common operation set share the
+implementation via module-scope `comptime`-parameterized free functions in the
+subsystem's primary file. The variants are thin wrappers that pass their
+internal buffer and capacity into the free functions.
+
+This pattern is in effect in `src/ranges/` and `src/mem/bitmap.zig`. New
+subsystems with the same shape MUST follow it. A private `Core` struct that
+both variants delegate to is not used for this role.
