@@ -78,6 +78,8 @@ Proposals must not include:
 - `docs/specs/algo/allocation.md`
 - `docs/specs/arch/x86_64.md`
 - `docs/specs/tags/tag-allocator.md`
+- `docs/specs/diag/diagnostic.md`
+- `docs/specs/graph/forest.md`
 
 ## Queue
 
@@ -139,9 +141,6 @@ exist.
 - `docs/specs/graph/digraph.md` — family shape `Digraph.Static` and
   `Digraph.Bounded`; dense `NodeId`/`EdgeId` directed graph for AST/SSA/CFG-style
   consumers, with payloads stored in caller-owned side arrays or maps.
-- `docs/specs/graph/forest.md` — family shape `Forest.Static` and
-  `Forest.Bounded`; parent/first-child/next-sibling tree or forest for AST-like
-  ownership-neutral node graphs.
 - `docs/specs/graph/traversal.md` — DFS, BFS, preorder, postorder,
   reverse-postorder, topological traversal, and cycle detection over
   caller-provided scratch.
@@ -203,7 +202,6 @@ beyond `std` or Zig language facilities.
   belong before adding EFI-specific API.
 - `docs/specs/bytes/checksum8.md`
 - `docs/specs/hash/crc32.md`
-- `docs/specs/diag/diagnostic.md`
 - `docs/specs/diag/path-error-list.md`
 
 ### Architecture-specific follow-up

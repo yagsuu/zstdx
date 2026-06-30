@@ -310,8 +310,9 @@ stdx.zig
 facades
   -> implementation files in the same domain
 
-collections, intrusive, mem, rings, tags, sg, sync, concurrent, io, time, algo, diag
+primitive/domain implementations
   -> core, bits, addr, layout, bytes as needed
+  -> other approved primitive domains only when the owning spec names the dependency and the graph remains acyclic
 
 bytes
   -> layout, core
@@ -340,6 +341,8 @@ Hard rules:
 - Generic modules do not target-probe directly.
 - Facades contain no logic beyond re-exporting and aliasing.
 - Implementation modules import each other directly when the owning specs allow the dependency.
+- Cross-domain primitive imports are allowed only when the importing spec names
+  the dependency and the dependency graph remains acyclic.
 
 ## Architecture isolation
 

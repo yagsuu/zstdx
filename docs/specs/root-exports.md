@@ -45,6 +45,7 @@ pub const mem = @import("mem.zig");
 pub const collections = @import("collections.zig");
 pub const intrusive = @import("intrusive.zig");
 pub const ranges = @import("ranges.zig");
+pub const graph = @import("graph.zig");
 pub const heaps = @import("heaps.zig");
 pub const barrier = @import("barrier.zig");
 pub const arch = @import("arch.zig");
@@ -96,26 +97,33 @@ Root promotion rules:
 - do not promote a family until its owning domain facade and spec exist;
 - do not promote names that collide with intrusive or domain namespaces.
 
-## First-slice root exports
+## Current root exports
 
-Only these root exports are eligible in the first implementation slice:
+The current approved root surface is:
 
 ```zig
 pub const core = @import("core.zig");
 pub const bits = @import("bits.zig");
 pub const addr = @import("addr.zig");
 pub const ranges = @import("ranges.zig");
+pub const graph = @import("graph.zig");
 pub const layout = @import("layout.zig");
 pub const bytes = @import("bytes.zig");
 pub const mem = @import("mem.zig");
 pub const collections = @import("collections.zig");
 pub const intrusive = @import("intrusive.zig");
+pub const algo = @import("algo.zig");
+pub const tags = @import("tags.zig");
+pub const arch = @import("arch.zig");
+pub const diag = @import("diag.zig");
 
 pub const List = collections.List;
 pub const Ring = collections.Ring;
 ```
 
-`List` and `Ring` are eligible because they are first-slice flagship families. `intrusive` types are not root-promoted initially; callers use `stdx.intrusive.Queue`, `stdx.intrusive.Stack`, etc.
+`List` and `Ring` are root-promoted collection families. `diag` and `graph` are
+namespace exports only; `Diagnostics`, `ScopeOptions`, `Scope`, and `Forest`
+remain under their owning namespaces.
 
 ## Exports that stay namespaced
 
