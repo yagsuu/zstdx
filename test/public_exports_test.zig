@@ -16,6 +16,7 @@ const first_slice_root_exports = [_][]const u8{
     "mem",
     "collections",
     "intrusive",
+    "algo",
     "List",
     "Ring",
 };
