@@ -1,0 +1,366 @@
+//! Fixed-capacity tag allocators backed by a u64-word bitmap; both
+//! variants share an identical observable surface and differ only in
+//! storage ownership. Spec: docs/specs/tags/tag-allocator.md.
+
+const std = @import("std");
+const TagFactory = @import("tag.zig").Tag;
+
+/// Family of fixed-capacity tag allocators. Both variants share an
+/// identical observable surface and differ only in storage ownership:
+/// `Static` carries inline `[word_count]Word` storage, `Bounded` borrows
+/// a `[]Word` slice and a runtime `tag_capacity`.
+pub const TagAllocator = struct {
+    /// Inline-storage tag allocator. `capacity` is fixed at comptime and
+    /// must satisfy `capacity <= std.math.maxInt(Int) + 1`.
+    pub fn Static(
+        comptime DomainT: type,
+        comptime IntT: type,
+        comptime capacity_tags: comptime_int,
+    ) type {
+        comptime {
+            if (capacity_tags < 0) {
+                @compileError("TagAllocator.Static capacity must be non-negative");
+            }
+            const max_tags: comptime_int = @as(comptime_int, std.math.maxInt(IntT)) + 1;
+            if (capacity_tags > max_tags) {
+                @compileError("TagAllocator.Static capacity exceeds Int range");
+            }
+        }
+        const TagT = TagFactory(DomainT, IntT);
+        const cap_const: usize = capacity_tags;
+        const wc_const: usize = cap_const / BitmapWordBits +
+            @intFromBool(cap_const % BitmapWordBits != 0);
+        return struct {
+            words: [wc_const]Word = [_]Word{0} ** wc_const,
+            allocated_count: usize = 0,
+
+            const Self = @This();
+
+            pub const Domain = DomainT;
+            pub const Int = IntT;
+            pub const Tag = TagT;
+            pub const tag_capacity: usize = cap_const;
+
+            pub const Word = u64;
+            pub const word_bits = @bitSizeOf(Word);
+            pub const word_count: usize = wc_const;
+
+            pub const Error = error{
+                OutOfTags,
+                OutOfBounds,
+                AlreadyAllocated,
+                NotAllocated,
+            };
+
+            pub fn init() Self {
+                return .{};
+            }
+
+            pub fn capacity(self: *const Self) usize {
+                _ = self;
+                return tag_capacity;
+            }
+
+            pub fn allocated(self: *const Self) usize {
+                return self.allocated_count;
+            }
+
+            pub fn remaining(self: *const Self) usize {
+                return tag_capacity - self.allocated_count;
+            }
+
+            pub fn isEmpty(self: *const Self) bool {
+                return self.allocated_count == 0;
+            }
+
+            pub fn isFull(self: *const Self) bool {
+                return self.allocated_count == tag_capacity;
+            }
+
+            pub fn isAllocated(self: *const Self, tag: Tag) bool {
+                return queryBit(self.words[0..], tag_capacity, tag);
+            }
+
+            pub fn isFree(self: *const Self, tag: Tag) bool {
+                const idx = boundedIndex(Int, tag, tag_capacity) orelse return false;
+                return !testBit(self.words[0..], idx);
+            }
+
+            pub fn allocOne(self: *Self) Error!Tag {
+                const idx = findFirstFree(self.words[0..], tag_capacity) orelse
+                    return error.OutOfTags;
+                setBit(self.words[0..], idx);
+                self.allocated_count += 1;
+                return Tag.fromInt(@intCast(idx));
+            }
+
+            pub fn reserveOne(self: *Self, tag: Tag) Error!void {
+                const idx = boundedIndex(Int, tag, tag_capacity) orelse
+                    return error.OutOfBounds;
+                if (testBit(self.words[0..], idx)) return error.AlreadyAllocated;
+                setBit(self.words[0..], idx);
+                self.allocated_count += 1;
+            }
+
+            pub fn freeOne(self: *Self, tag: Tag) Error!void {
+                const idx = boundedIndex(Int, tag, tag_capacity) orelse
+                    return error.OutOfBounds;
+                if (!testBit(self.words[0..], idx)) return error.NotAllocated;
+                clearBit(self.words[0..], idx);
+                self.allocated_count -= 1;
+            }
+
+            pub fn clearRetainingCapacity(self: *Self) void {
+                for (&self.words) |*w| w.* = 0;
+                self.allocated_count = 0;
+            }
+
+            pub fn isValid(self: *const Self) bool {
+                return checkInvariants(
+                    self.words[0..],
+                    tag_capacity,
+                    self.allocated_count,
+                    null,
+                );
+            }
+
+            pub fn assertValid(self: *const Self) void {
+                std.debug.assert(self.isValid());
+            }
+        };
+    }
+
+    /// Borrowed-storage tag allocator. `wrap` validates and clears the
+    /// caller-provided word slice before returning an empty allocator.
+    pub fn Bounded(
+        comptime DomainT: type,
+        comptime IntT: type,
+    ) type {
+        const TagT = TagFactory(DomainT, IntT);
+        return struct {
+            words: []Word,
+            tag_capacity: usize,
+            allocated_count: usize,
+
+            const Self = @This();
+
+            pub const Domain = DomainT;
+            pub const Int = IntT;
+            pub const Tag = TagT;
+
+            pub const Word = u64;
+            pub const word_bits = @bitSizeOf(Word);
+
+            pub const Error = error{
+                OutOfTags,
+                OutOfBounds,
+                AlreadyAllocated,
+                NotAllocated,
+            };
+
+            /// Borrow `words` and present the first `tag_capacity` tags.
+            /// Rejects `tag_capacity > words.len * word_bits` and
+            /// `tag_capacity > std.math.maxInt(Int) + 1` with
+            /// `error.OutOfBounds`, leaving `words` unchanged.
+            pub fn wrap(words: []Word, tag_capacity: usize) Error!Self {
+                // No-mutation-on-error: validate fully before touching.
+                if (!fitsInIntCapacity(Int, tag_capacity)) return error.OutOfBounds;
+                if (!fitsInStorage(words.len, tag_capacity)) return error.OutOfBounds;
+                for (words) |*w| w.* = 0;
+                return .{
+                    .words = words,
+                    .tag_capacity = tag_capacity,
+                    .allocated_count = 0,
+                };
+            }
+
+            pub fn capacity(self: *const Self) usize {
+                return self.tag_capacity;
+            }
+
+            pub fn allocated(self: *const Self) usize {
+                return self.allocated_count;
+            }
+
+            pub fn remaining(self: *const Self) usize {
+                return self.tag_capacity - self.allocated_count;
+            }
+
+            pub fn isEmpty(self: *const Self) bool {
+                return self.allocated_count == 0;
+            }
+
+            pub fn isFull(self: *const Self) bool {
+                return self.allocated_count == self.tag_capacity;
+            }
+
+            pub fn isAllocated(self: *const Self, tag: Tag) bool {
+                return queryBit(self.words, self.tag_capacity, tag);
+            }
+
+            pub fn isFree(self: *const Self, tag: Tag) bool {
+                const idx = boundedIndex(Int, tag, self.tag_capacity) orelse return false;
+                return !testBit(self.words, idx);
+            }
+
+            pub fn allocOne(self: *Self) Error!Tag {
+                const idx = findFirstFree(self.words, self.tag_capacity) orelse
+                    return error.OutOfTags;
+                setBit(self.words, idx);
+                self.allocated_count += 1;
+                return Tag.fromInt(@intCast(idx));
+            }
+
+            pub fn reserveOne(self: *Self, tag: Tag) Error!void {
+                const idx = boundedIndex(Int, tag, self.tag_capacity) orelse
+                    return error.OutOfBounds;
+                if (testBit(self.words, idx)) return error.AlreadyAllocated;
+                setBit(self.words, idx);
+                self.allocated_count += 1;
+            }
+
+            pub fn freeOne(self: *Self, tag: Tag) Error!void {
+                const idx = boundedIndex(Int, tag, self.tag_capacity) orelse
+                    return error.OutOfBounds;
+                if (!testBit(self.words, idx)) return error.NotAllocated;
+                clearBit(self.words, idx);
+                self.allocated_count -= 1;
+            }
+
+            pub fn clearRetainingCapacity(self: *Self) void {
+                for (self.words) |*w| w.* = 0;
+                self.allocated_count = 0;
+            }
+
+            pub fn isValid(self: *const Self) bool {
+                if (!fitsInIntCapacity(Int, self.tag_capacity)) return false;
+                if (!fitsInStorage(self.words.len, self.tag_capacity)) return false;
+                return checkInvariants(
+                    self.words,
+                    self.tag_capacity,
+                    self.allocated_count,
+                    self.words.len,
+                );
+            }
+
+            pub fn assertValid(self: *const Self) void {
+                std.debug.assert(self.isValid());
+            }
+        };
+    }
+};
+
+const BitmapWord = u64;
+const BitmapWordBits: usize = @bitSizeOf(BitmapWord);
+
+fn wordCountFor(tag_capacity: usize) usize {
+    return tag_capacity / BitmapWordBits + @intFromBool(tag_capacity % BitmapWordBits != 0);
+}
+
+fn lastMaskFor(tag_capacity: usize) BitmapWord {
+    if (tag_capacity == 0) return 0;
+    const rem: usize = tag_capacity % BitmapWordBits;
+    if (rem == 0) return ~@as(BitmapWord, 0);
+    return (@as(BitmapWord, 1) << @as(std.math.Log2Int(BitmapWord), @intCast(rem))) - 1;
+}
+
+fn bitMask(index: usize) BitmapWord {
+    return @as(BitmapWord, 1) << @as(std.math.Log2Int(BitmapWord), @intCast(index % BitmapWordBits));
+}
+
+fn setBit(words: []BitmapWord, index: usize) void {
+    words[index / BitmapWordBits] |= bitMask(index);
+}
+
+fn clearBit(words: []BitmapWord, index: usize) void {
+    words[index / BitmapWordBits] &= ~bitMask(index);
+}
+
+fn testBit(words: []const BitmapWord, index: usize) bool {
+    return (words[index / BitmapWordBits] & bitMask(index)) != 0;
+}
+
+/// Map a `Tag` to its in-range word-bit index, or null when its raw value
+/// is at or past `tag_capacity` (or exceeds `usize`).
+fn boundedIndex(comptime IntT: type, tag: anytype, tag_capacity: usize) ?usize {
+    const raw_value: IntT = tag.raw();
+    const idx = std.math.cast(usize, raw_value) orelse return null;
+    if (idx >= tag_capacity) return null;
+    return idx;
+}
+
+fn queryBit(words: []const BitmapWord, tag_capacity: usize, tag: anytype) bool {
+    const idx = boundedIndex(@TypeOf(tag).Int, tag, tag_capacity) orelse return false;
+    return testBit(words, idx);
+}
+
+/// Lowest-free-index forward scan. Unused high bits in the final logical
+/// word are OR'd as occupied so they never produce a candidate.
+fn findFirstFree(words: []const BitmapWord, tag_capacity: usize) ?usize {
+    if (tag_capacity == 0) return null;
+    const wc = wordCountFor(tag_capacity);
+    const last_mask = lastMaskFor(tag_capacity);
+    var wi: usize = 0;
+    while (wi < wc) : (wi += 1) {
+        var w = words[wi];
+        if (wi == wc - 1 and last_mask != ~@as(BitmapWord, 0)) {
+            w |= ~last_mask;
+        }
+        if (w != ~@as(BitmapWord, 0)) {
+            const inverted = ~w;
+            const bit: usize = @ctz(inverted);
+            return wi * BitmapWordBits + bit;
+        }
+    }
+    return null;
+}
+
+fn fitsInIntCapacity(comptime IntT: type, tag_capacity: usize) bool {
+    const max_tags: comptime_int = @as(comptime_int, std.math.maxInt(IntT)) + 1;
+    if (max_tags >= @as(comptime_int, std.math.maxInt(usize)) + 1) return true;
+    return tag_capacity <= @as(usize, max_tags);
+}
+
+fn fitsInStorage(words_len: usize, tag_capacity: usize) bool {
+    const div = tag_capacity / BitmapWordBits;
+    const rem = tag_capacity % BitmapWordBits;
+    const required = div + @intFromBool(rem != 0);
+    return required <= words_len;
+}
+
+/// Shared invariant check:
+/// - allocated_count <= tag_capacity
+/// - popcount of the logical region equals allocated_count
+/// - unused high bits in the final logical word are zero
+/// - words beyond the logical region (Bounded only) are zero
+fn checkInvariants(
+    words: []const BitmapWord,
+    tag_capacity: usize,
+    allocated_count: usize,
+    bounded_words_len: ?usize,
+) bool {
+    if (allocated_count > tag_capacity) return false;
+    const wc = wordCountFor(tag_capacity);
+    const last_mask = lastMaskFor(tag_capacity);
+
+    var total: usize = 0;
+    var wi: usize = 0;
+    while (wi < wc) : (wi += 1) {
+        const w = words[wi];
+        if (wi == wc - 1 and last_mask != ~@as(BitmapWord, 0)) {
+            if ((w & ~last_mask) != 0) return false;
+            total += @popCount(w & last_mask);
+        } else {
+            total += @popCount(w);
+        }
+    }
+    if (total != allocated_count) return false;
+
+    if (bounded_words_len) |total_words| {
+        var ti: usize = wc;
+        while (ti < total_words) : (ti += 1) {
+            if (words[ti] != 0) return false;
+        }
+    }
+    return true;
+}

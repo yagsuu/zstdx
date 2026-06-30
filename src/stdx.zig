@@ -10,6 +10,7 @@ pub const mem = @import("mem.zig");
 pub const collections = @import("collections.zig");
 pub const intrusive = @import("intrusive.zig");
 pub const algo = @import("algo.zig");
+pub const tags = @import("tags.zig");
 
 pub const List = collections.List;
 pub const Ring = collections.Ring;

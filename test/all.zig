@@ -13,6 +13,8 @@ comptime {
     _ = @import("mem/pool_test.zig");
     _ = @import("mem/bitmap_test.zig");
     _ = @import("algo/allocation_test.zig");
+    _ = @import("tags/tag_test.zig");
+    _ = @import("tags/allocator_test.zig");
     _ = @import("addr/address_test.zig");
     _ = @import("addr/pages_test.zig");
     _ = @import("ranges/set_test.zig");
