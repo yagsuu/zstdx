@@ -76,8 +76,8 @@ test "compile: Port slice I/O instantiates for every width" {
 
 test "compile: Cpuid family instantiates" {
     if (!x86.supported) return;
-    expectFn(fn (u32) x86.Cpuid.Result, x86.Cpuid.leaf);
-    expectFn(fn (u32, u32) x86.Cpuid.Result, x86.Cpuid.subleaf);
+    expectFn(fn (x86.Cpuid.Leaf) x86.Cpuid.Result, x86.Cpuid.leaf);
+    expectFn(fn (x86.Cpuid.Leaf, u32) x86.Cpuid.Result, x86.Cpuid.subleaf);
     expectFn(fn () u32, x86.Cpuid.maxBasicLeaf);
     expectFn(fn () u32, x86.Cpuid.maxExtendedLeaf);
 }

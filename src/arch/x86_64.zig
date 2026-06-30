@@ -5,6 +5,7 @@
 //! are gated with `if (!supported) @compileError(...);` so non-x86_64 builds
 //! see compile errors only at use sites, never at import.
 
+const std = @import("std");
 const builtin = @import("builtin");
 
 /// True iff the build target is x86_64.
@@ -153,12 +154,23 @@ pub const Cpuid = struct {
         edx: u32,
     };
 
-    pub fn leaf(eax: u32) Result {
+    /// Named CPUID leaves used inside zstdx. Callers needing a vendor- or
+    /// model-specific leaf pass `@enumFromInt(value)`; the tag is open.
+    pub const Leaf = enum(u32) {
+        max_basic = 0x0,
+        feature_info = 0x1,
+        structured_extended_features = 0x7,
+        max_extended = 0x8000_0000,
+        extended_feature_bits = 0x8000_0001,
+        _,
+    };
+
+    pub fn leaf(which: Leaf) Result {
         if (!supported) @compileError(wrong_target);
-        return subleaf(eax, 0);
+        return subleaf(which, 0);
     }
 
-    pub fn subleaf(eax: u32, ecx: u32) Result {
+    pub fn subleaf(which: Leaf, sub: u32) Result {
         if (!supported) @compileError(wrong_target);
         var a: u32 = undefined;
         var b: u32 = undefined;
@@ -169,20 +181,20 @@ pub const Cpuid = struct {
               [b] "={ebx}" (b),
               [c] "={ecx}" (c),
               [d] "={edx}" (d),
-            : [a_in] "{eax}" (eax),
-              [c_in] "{ecx}" (ecx),
+            : [a_in] "{eax}" (@intFromEnum(which)),
+              [c_in] "{ecx}" (sub),
         );
         return .{ .eax = a, .ebx = b, .ecx = c, .edx = d };
     }
 
     pub fn maxBasicLeaf() u32 {
         if (!supported) @compileError(wrong_target);
-        return leaf(0).eax;
+        return leaf(.max_basic).eax;
     }
 
     pub fn maxExtendedLeaf() u32 {
         if (!supported) @compileError(wrong_target);
-        return leaf(0x80000000).eax;
+        return leaf(.max_extended).eax;
     }
 };
 
@@ -392,6 +404,12 @@ pub const Descriptor = struct {
     pub const Pointer = extern struct {
         limit: u16,
         base: u64 align(2),
+
+        comptime {
+            std.debug.assert(@sizeOf(Pointer) == 10);
+            std.debug.assert(@offsetOf(Pointer, "limit") == 0);
+            std.debug.assert(@offsetOf(Pointer, "base") == 2);
+        }
     };
 
     pub const Gdt = struct {
@@ -609,18 +627,22 @@ pub const Segment = struct {
     }
 };
 
-var fsgsbase_cache: ?bool = null;
+/// Process-lifetime probe cache for `CPUID.(EAX=7,ECX=0):EBX[bit 0]`
+/// (`FSGSBASE`). Values: `0` = unprobed, `1` = false, `2` = true.
+/// Loads and stores use `.monotonic` ordering; the publish race is benign
+/// because every probing thread computes the same answer from CPUID.
+var fsgsbase_cache = std.atomic.Value(u8).init(0);
 
-/// Probe whether CPUID advertises the `FSGSBASE` feature
-/// (`CPUID.(EAX=7,ECX=0):EBX[bit 0]`). Caches the probe; the result is
-/// monotonic across the process lifetime and identical on every CPU, so the
-/// benign cross-thread race on first publication is harmless.
 fn fsgsbaseSupported() bool {
     if (!supported) @compileError(wrong_target);
-    if (fsgsbase_cache) |v| return v;
-    const v = (Cpuid.maxBasicLeaf() >= 7) and ((Cpuid.subleaf(7, 0).ebx & 1) != 0);
-    fsgsbase_cache = v;
-    return v;
+
+    const cached = fsgsbase_cache.load(.monotonic);
+    if (cached != 0) return cached == 2;
+
+    const max_basic = Cpuid.maxBasicLeaf();
+    const supports = max_basic >= 7 and (Cpuid.subleaf(.structured_extended_features, 0).ebx & 1) != 0;
+    fsgsbase_cache.store(if (supports) 2 else 1, .monotonic);
+    return supports;
 }
 
 pub const Fence = struct {
@@ -645,7 +667,7 @@ pub const Cache = struct {
     /// Falls back to 64 when CPUID does not advertise a size.
     pub fn lineSize() usize {
         if (!supported) @compileError(wrong_target);
-        const ebx = Cpuid.leaf(1).ebx;
+        const ebx = Cpuid.leaf(.feature_info).ebx;
         const clflush_qwords: u32 = (ebx >> 8) & 0xff;
         if (clflush_qwords == 0) return 64;
         return @as(usize, clflush_qwords) * 8;
