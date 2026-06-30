@@ -348,10 +348,14 @@ Architecture-specific code lives only under `src/arch/` and is surfaced through 
 Approved architecture namespaces:
 
 ```zig
-stdx.arch.x86
+stdx.arch.x86_64
 stdx.arch.aarch64
 stdx.arch.riscv
 ```
+
+`stdx.arch.x86` is not an approved namespace; the x86_64 architecture spec
+owns the `stdx.arch.x86_64` namespace. Add 32-bit x86 only when an owning spec
+approves it.
 
 Architecture-specific code must:
 

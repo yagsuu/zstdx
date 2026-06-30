@@ -298,7 +298,14 @@ Planned primitives:
 - `HashMap.Static(K, V, N)`
 - `HashSet.Static(K, N)`
 - `SlotMap.Static(T, N)`
-- `Heap.StaticBinary(T, N)`
+- `Heap.Binary.Static(T, N)`
+- `Heap.Binary.Bounded(T)`
+- `Heap.Dary.Static(T, N, D)`
+- `Heap.Dary.Bounded(T, D)`
+- `Heap.Indexed.Static(K, V, N)`
+- `Heap.Indexed.Bounded(K, V)`
+- `PriorityBuckets.Static(T, level_count, N)`
+- `PriorityBuckets.Bounded(T, level_count)`
 
 ### Dynamic collections
 
@@ -317,9 +324,12 @@ Planned primitives:
 - `SparseSet`
 - `SlotMap`
 - `HandleMap`
-- `Heap.Binary(T)`
-- `Heap.Dary(T, D)`
-- `Heap.Indexed(K, V)`
+- `Heap.Binary.Managed(T)`
+- `Heap.Binary.Unmanaged(T)`
+- `Heap.Dary.Managed(T, D)`
+- `Heap.Dary.Unmanaged(T, D)`
+- `Heap.Indexed.Managed(K, V)`
+- `Heap.Indexed.Unmanaged(K, V)`
 
 ### Intrusive structures
 
@@ -351,6 +361,24 @@ Planned primitives:
 - `RadixTree`
 - `CritBitTree`
 
+### Graphs and compiler/runtime structures
+
+Planned primitives:
+
+- `graph.Digraph.Static(node_capacity, edge_capacity)`
+- `graph.Digraph.Bounded`
+- `graph.Forest.Static(node_capacity)`
+- `graph.Forest.Bounded`
+- `graph.UnionFind.Static(node_capacity)`
+- `graph.UnionFind.Bounded`
+- graph traversal algorithms: DFS, BFS, preorder, postorder,
+  reverse-postorder, topological traversal, and cycle detection
+- graph dominator algorithms for CFG/SSA consumers
+
+Graph primitives own storage, ID, traversal, and structural contracts. They do
+not own AST node kinds, SSA construction, IR layout, scheduler policy, or other
+compiler/runtime domain behavior.
+
 ### Barriers and architecture
 
 Planned categories:
@@ -360,7 +388,9 @@ Planned categories:
 - atomic fence helpers;
 - architecture-specific fence wrappers;
 - MMIO ordering hooks;
-- DMA visibility hooks.
+- DMA visibility hooks;
+- port-mapped IO primitives where the architecture exposes a distinct port
+  address space.
 
 Planned primitive names remain candidates until barrier specs approve them:
 
@@ -371,14 +401,16 @@ Planned primitive names remain candidates until barrier specs approve them:
 - `barrier.storeStore`
 - `barrier.storeLoad`
 - `barrier.full`
-- `arch.x86.lfence`
-- `arch.x86.sfence`
-- `arch.x86.mfence`
-- `arch.x86.pause`
 - `arch.aarch64.dmb`
 - `arch.aarch64.dsb`
 - `arch.aarch64.isb`
 - `arch.riscv.fence`
+
+`stdx.arch.x86_64` is owned by `docs/specs/arch/x86_64.md` (Approved) and
+covers port-mapped IO, CPUID, MSR, control-register, RFLAGS, interrupt
+enable/disable, CPU one-shots, descriptor-table load/store, segment access,
+raw fences (`lfence`/`sfence`/`mfence`), cache control, and current privilege
+level. `stdx.arch.x86` is not an approved namespace.
 
 Barriers and fences are deferred from the first implementation slice. IO and DMA barriers require backend/platform contract specs before implementation.
 
@@ -460,13 +492,15 @@ Planned primitives:
 - `algo.binarySearch`
 - `algo.partition`
 - `algo.dedupSorted`
-- `algo.UnionFind`
+- `algo.allocation.FirstFit`
+- `algo.allocation.BestFit`
+- `algo.allocation.WorstFit`
+- `algo.allocation.Buddy`
 
 Deferred:
 
-- graph algorithms;
+- graph algorithms outside the approved traversal and dominator set;
 - Dijkstra/A*;
-- dominators;
 - transitive closure.
 
 ### Diagnostics
