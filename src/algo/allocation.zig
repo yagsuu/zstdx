@@ -159,7 +159,6 @@ pub const Buddy = struct {
         const parent_order: u8 = block.order + 1;
         const parent_size = try blockSize(parent_order);
         const parent_start = block.start & ~(parent_size - 1);
-        // Parent end must be representable.
         _ = std.math.add(usize, parent_start, parent_size) catch return error.Overflow;
         return .{ .start = parent_start, .order = parent_order };
     }
@@ -196,12 +195,14 @@ fn validateRequest(request: Request) Error!void {
 
 fn candidateFor(source: Range, index: usize, request: Request) Error!?Selection {
     std.debug.assert(source.isValid());
-    // alignment is pre-validated; compute aligned start with checked add.
     const mask = request.alignment - 1;
     const sum = std.math.add(usize, source.start, mask) catch return error.Overflow;
     const candidate_start = sum & ~mask;
     const candidate_end = std.math.add(usize, candidate_start, request.len) catch return error.Overflow;
-    if (candidate_start > source.end or candidate_end > source.end) return null;
+    if (candidate_end > source.end) return null;
+    std.debug.assert(candidate_start >= source.start);
+    std.debug.assert(candidate_end <= source.end);
+    std.debug.assert(candidate_end - candidate_start == request.len);
     return .{
         .index = index,
         .range = .{ .start = candidate_start, .end = candidate_end },
