@@ -53,7 +53,7 @@ test "unit: Count converts pages and bytes with checked arithmetic" {
 test "unit: Frame validates alignment and indexes aligned addresses" {
     const frame = try Phys4K.Frame.fromAddressInt(0x1000);
     try testing.expectEqual(@as(u64, 0x1000), frame.addressInt());
-    try testing.expectEqual(@as(u64, 1), frame.index());
+    try testing.expectEqual(@as(u64, 1), frame.frameIndex());
     try testing.expectEqual(@as(u64, 0x1000), frame.address().raw());
     try testing.expectError(error.Misaligned, Phys4K.Frame.fromAddressInt(1));
     try testing.expect(Phys4K.Frame.isAlignedAddress(addr.PhysAddr.fromInt(0x2000)));
@@ -134,7 +134,7 @@ test "unit: Page comptime use works for small address family" {
         if (P.Size.mask != 3) @compileError("unexpected page mask");
         if (P.Size.shift != 2) @compileError("unexpected page shift");
         const frame = P.Frame.fromAddressInt(8) catch unreachable;
-        if (frame.index() != 2) @compileError("unexpected frame index");
+        if (frame.frameIndex() != 2) @compileError("unexpected frame index");
         const count = P.Count.fromBytesRoundUp(7) catch unreachable;
         if (count.pages() != 2) @compileError("unexpected page count");
     }

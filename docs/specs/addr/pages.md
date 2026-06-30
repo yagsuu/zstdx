@@ -138,7 +138,7 @@ pub const Self = struct {
 
         pub fn address(self: This) Addr;
         pub fn addressInt(self: This) AddressInt;
-        pub fn index(self: This) AddressInt;
+        pub fn frameIndex(self: This) AddressInt;
 
         pub fn isValid(self: This) bool;
         pub fn assertValid(self: This) void;
@@ -383,7 +383,7 @@ Methods other than `isValid` and `assertValid` require a valid receiver. Impleme
 | `Frame.fromAddressInt` | never | never | O(1) | none | value type | none |
 | `Frame.address` | never | never | O(1) | none | value type | none |
 | `Frame.addressInt` | never | never | O(1) | none | value type | none |
-| `Frame.index` | never | never | O(1) | none | value type | none |
+| `Frame.frameIndex` | never | never | O(1) | none | value type | none |
 | `Frame.isValid` | never | never | O(1) | none | value type | none |
 | `Frame.assertValid` | never | never | O(1) | none | value type | none |
 | `Frame.isAlignedAddress` | never | never | O(1) | none | value type | none |
@@ -604,7 +604,7 @@ comptime {
     std.debug.assert(A4.Size.shift == 2);
 
     const frame = try A4.Frame.fromAddressInt(8);
-    std.debug.assert(frame.index() == 2);
+    std.debug.assert(frame.frameIndex() == 2);
 
     const count = try A4.Count.fromBytesRoundUp(7);
     std.debug.assert(count.pages() == 2);

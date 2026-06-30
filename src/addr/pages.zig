@@ -100,7 +100,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return @intFromEnum(self);
             }
 
-            pub fn index(self: This) AddressInt {
+            pub fn frameIndex(self: This) AddressInt {
                 return self.addressInt() >> Size.shift;
             }
 
