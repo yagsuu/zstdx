@@ -89,8 +89,7 @@ pub const BitSet = struct {
             /// Sets `index`; returns the prior bit value (`true` when it was already set).
             pub fn set(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
-                if (bit_capacity == 0) unreachable;
-
+                if (bit_capacity == 0) unreachable; // DCE: checkIndex always errors when bit_capacity == 0
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 const prior = (word.* & bit) != 0;
@@ -101,8 +100,7 @@ pub const BitSet = struct {
             /// Clears `index`; returns the prior bit value (`true` when it was previously set).
             pub fn unset(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
-                if (bit_capacity == 0) unreachable;
-
+                if (bit_capacity == 0) unreachable; // DCE: checkIndex always errors when bit_capacity == 0
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 const prior = (word.* & bit) != 0;
@@ -120,8 +118,7 @@ pub const BitSet = struct {
             /// just `!new` and carries no extra information.
             pub fn toggle(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
-                if (bit_capacity == 0) unreachable;
-
+                if (bit_capacity == 0) unreachable; // DCE: checkIndex always errors when bit_capacity == 0
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 word.* ^= bit;
