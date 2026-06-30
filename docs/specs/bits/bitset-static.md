@@ -115,7 +115,7 @@ the unused-bit invariant.
 
 ## Capacity
 
-`bit_capacity` is a comptime bit count. `Static(0)` is valid.
+`bit_capacity` is a comptime bit count. `Static(0)` is rejected at compile time with `@compileError`; bit sets over an empty universe carry no useful behavior and every mutator path would be statically unreachable.
 
 Valid indexes are:
 
@@ -132,8 +132,6 @@ bits. Those bits must always be zero after every public operation.
 
 `assertValid()` asserts that every unused high bit is zero.
 
-For `Static(0)`, there are no words and the invariant is always true.
-
 ## Constructors
 
 `init()` returns an empty set.
@@ -146,8 +144,6 @@ var set: stdx.bits.BitSet.Static(64) = .{};
 
 `full()` returns a set with every valid bit set and every unused high bit clear.
 
-For `Static(0)`, both `init()` and `full()` produce the same value.
-
 ## Whole-set operations
 
 `clearRetainingCapacity()` clears every valid bit. The slot count `bit_capacity` is unchanged.
@@ -156,8 +152,7 @@ For `Static(0)`, both `init()` and `full()` produce the same value.
 
 `isEmpty()` returns true when no valid bits are set.
 
-`isFull()` returns true when every valid bit is set. `Static(0).isFull()` returns
-true because every bit in the empty universe is set.
+`isFull()` returns true when every valid bit is set.
 
 `count()` returns the population (number of valid set bits). It ignores unused high bits;
 valid receivers have no unused high bits set.
@@ -237,7 +232,7 @@ barriers.
 Implementation must:
 
 - use `u64` words;
-- support `Static(0)`;
+- reject `Static(0)` at compile time with `@compileError`;
 - compute `word_count` without integer overflow;
 - keep unused high bits clear after every public mutation;
 - avoid public bit-scan wrappers around Zig builtins;
@@ -248,7 +243,6 @@ Implementation must:
 
 Required capacities:
 
-- `Static(0)`;
 - `Static(1)`;
 - `Static(64)`;
 - `Static(65)`;
@@ -259,7 +253,6 @@ Required capacities:
 - default struct literal is empty;
 - `init()` is empty;
 - `full()` sets only valid bits;
-- `Static(0)` is both empty and full;
 - `setAll()` fills an empty set;
 - `isEmpty()` and `isFull()` cover empty, partial, and full sets.
 

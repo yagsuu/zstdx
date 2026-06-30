@@ -7,10 +7,12 @@ const std = @import("std");
 /// Family of fixed-capacity bit sets. The single approved variant `Static(N)`
 /// owns inline word storage; never allocates and never waits.
 pub const BitSet = struct {
-    /// Bit set with comptime-fixed capacity `capacity_bits`. `Static(0)` is
-    /// valid and is both empty and full. Unused high bits in the final word
-    /// stay zero after every public operation.
+    /// Bit set with comptime-fixed capacity `capacity_bits`. `capacity_bits`
+    /// must be at least 1; `Static(0)` is rejected at compile time. Unused
+    /// high bits in the final word stay zero after every public operation.
     pub fn Static(comptime capacity_bits: usize) type {
+        comptime if (capacity_bits == 0) @compileError("BitSet.Static requires capacity_bits >= 1");
+
         return struct {
             words: [word_count]Word = [_]Word{0} ** word_count,
 
@@ -60,12 +62,8 @@ pub const BitSet = struct {
                 return true;
             }
 
-            /// `Static(0).isFull()` is true because every bit in the empty
-            /// universe is set.
             pub fn isFull(self: *const Self) bool {
                 self.assertValid();
-                if (word_count == 0) return true;
-
                 for (self.words[0 .. word_count - 1]) |word| if (word != ~@as(Word, 0)) return false;
                 return self.words[word_count - 1] == lastMask();
             }
@@ -89,7 +87,6 @@ pub const BitSet = struct {
             /// Sets `index`; returns the prior bit value (`true` when it was already set).
             pub fn set(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
-                if (bit_capacity == 0) unreachable; // DCE: checkIndex always errors when bit_capacity == 0
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 const prior = (word.* & bit) != 0;
@@ -100,7 +97,6 @@ pub const BitSet = struct {
             /// Clears `index`; returns the prior bit value (`true` when it was previously set).
             pub fn unset(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
-                if (bit_capacity == 0) unreachable; // DCE: checkIndex always errors when bit_capacity == 0
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 const prior = (word.* & bit) != 0;
@@ -118,7 +114,6 @@ pub const BitSet = struct {
             /// just `!new` and carries no extra information.
             pub fn toggle(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
-                if (bit_capacity == 0) unreachable; // DCE: checkIndex always errors when bit_capacity == 0
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 word.* ^= bit;
@@ -185,11 +180,10 @@ pub const BitSet = struct {
             /// Asserts the unused-bit invariant: every bit past `bit_capacity` in
             /// the last word is zero.
             pub fn assertValid(self: *const Self) void {
-                if (word_count > 0) std.debug.assert((self.words[word_count - 1] & ~lastMask()) == 0);
+                std.debug.assert((self.words[word_count - 1] & ~lastMask()) == 0);
             }
 
             fn lastMask() Word {
-                if (bit_capacity == 0) return 0;
                 const rem = bit_capacity % word_bits;
                 if (rem == 0) return ~@as(Word, 0);
 
@@ -206,7 +200,7 @@ pub const BitSet = struct {
             }
 
             fn clearUnused(self: *Self) void {
-                if (word_count > 0) self.words[word_count - 1] &= lastMask();
+                self.words[word_count - 1] &= lastMask();
             }
         };
     }

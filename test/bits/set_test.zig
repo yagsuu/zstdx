@@ -8,14 +8,6 @@ const BitSet = stdx.bits.BitSet;
 
 const testing = std.testing;
 
-test "unit: BitSet.Static(0) is both empty and full" {
-    const Zero = BitSet.Static(0);
-    var zero = Zero.init();
-    try testing.expect(zero.isEmpty());
-    try testing.expect(zero.isFull());
-    try testing.expectEqual(@as(?usize, null), zero.popFirstSet());
-}
-
 test "unit: BitSet.Static index ops cover first/middle/last and reject OOB" {
     const Set = BitSet.Static(129);
     var set: Set = .{};
