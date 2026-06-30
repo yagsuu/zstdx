@@ -88,10 +88,10 @@ pub const Self = struct {
     pub fn count(self: *const Self) usize;
 
     pub fn isSet(self: *const Self, index: usize) bool;
-    pub fn set(self: *Self, index: usize) Error!void;
-    pub fn unset(self: *Self, index: usize) Error!void;
-    pub fn assign(self: *Self, index: usize, value: bool) Error!void;
-    pub fn toggle(self: *Self, index: usize) Error!void;
+    pub fn set(self: *Self, index: usize) Error!bool;
+    pub fn unset(self: *Self, index: usize) Error!bool;
+    pub fn assign(self: *Self, index: usize, value: bool) Error!bool;
+    pub fn toggle(self: *Self, index: usize) Error!bool;
 
     pub fn firstSet(self: *const Self) ?usize;
     pub fn popFirstSet(self: *Self) ?usize;
@@ -166,13 +166,22 @@ valid receivers have no unused high bits set.
 
 `isSet(index)` returns whether `index` is set. Returns `false` for `index >= bit_capacity`.
 
-`set(index)` sets `index`.
+`set(index)` sets `index` and returns the prior bit value. The return is `true`
+when the bit was already set.
 
-`unset(index)` clears `index`.
+`unset(index)` clears `index` and returns the prior bit value. The return is
+`true` when the bit was previously set.
 
-`assign(index, value)` sets or clears `index` according to `value`.
+`assign(index, value)` writes `value` and returns the prior bit value. Callers
+that want a "did this change anything?" signal compute
+`(try bs.assign(i, v)) != v`.
 
-`toggle(index)` flips `index`.
+`toggle(index)` flips `index` and returns the **new** bit value. The asymmetry
+with `set`/`unset`/`assign` is deliberate: a toggle always changes state, so
+the prior value is just `!new` and would carry no extra information.
+
+Callers that do not need the return value write `_ = try bs.set(i);` (or the
+equivalent for the other mutators).
 
 ## Lowest-set-bit operations
 
@@ -260,6 +269,12 @@ Required capacities:
 - `unset` clears an existing bit;
 - `assign` sets and clears;
 - `toggle` flips both directions;
+- `set` returns false when the bit was previously clear;
+- `set` returns true when the bit was previously set, and the bit remains set;
+- `unset` returns true when the bit was previously set;
+- `unset` returns false when the bit was previously clear, and the bit remains clear;
+- `assign(i, true)` and `assign(i, false)` each return the prior value across every transition (false→false, false→true, true→false, true→true);
+- `toggle` returns the post-toggle (new) value;
 - mutators return `error.OutOfBounds` when `index == bit_capacity`;
 - `isSet` returns `false` for `index >= bit_capacity` without erroring.
 

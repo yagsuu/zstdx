@@ -168,7 +168,8 @@ Per-operation error sets may narrow the type-level union when a method can only 
 ## Predicate return convention
 
 - "is X?" / "has X?" / "contains X?" predicates return plain `bool`. Out-of-domain inputs return `false`; comptime-checkable programmer errors use `std.debug.assert`.
-- Mutators that take a runtime index return `Error!void` with `OutOfBounds`.
+- Mutators that take a runtime index return `Error!void` with `OutOfBounds`, unless the success path is idempotent: bit-flag mutators on a state-bearing slot (e.g. `BitSet.set`/`unset`/`assign`) may return `Error!bool` carrying the prior bit value so callers can detect a no-op transition without a second read. A `toggle`-style mutator that always changes state returns the **new** value instead.
+- Mutators that already encode change through their error set (e.g. `BitmapAllocator.reserveOne` → `error.AlreadyAllocated`, `RangeSet.insert` → `error.Overlap`) must not also return a prior-value bool: the error is the change signal.
 - Optional lookups return `?T` or `?*T`; do not wrap optional lookups in an error union.
 
 ## Capacity vocabulary

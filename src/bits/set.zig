@@ -104,26 +104,43 @@ pub const BitSet = struct {
                 return (self.words[index / word_bits] & mask(index)) != 0;
             }
 
-            pub fn set(self: *Self, index: usize) Error!void {
+            /// Sets `index`; returns the prior bit value (`true` when it was already set).
+            pub fn set(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
                 if (bit_capacity == 0) unreachable;
-                self.words[index / word_bits] |= mask(index);
+                const word = &self.words[index / word_bits];
+                const bit = mask(index);
+                const prior = (word.* & bit) != 0;
+                word.* |= bit;
+                return prior;
             }
 
-            pub fn unset(self: *Self, index: usize) Error!void {
+            /// Clears `index`; returns the prior bit value (`true` when it was previously set).
+            pub fn unset(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
                 if (bit_capacity == 0) unreachable;
-                self.words[index / word_bits] &= ~mask(index);
+                const word = &self.words[index / word_bits];
+                const bit = mask(index);
+                const prior = (word.* & bit) != 0;
+                word.* &= ~bit;
+                return prior;
             }
 
-            pub fn assign(self: *Self, index: usize, value: bool) Error!void {
-                if (value) try self.set(index) else try self.unset(index);
+            /// Writes `value`; returns the prior bit value.
+            pub fn assign(self: *Self, index: usize, value: bool) Error!bool {
+                return if (value) self.set(index) else self.unset(index);
             }
 
-            pub fn toggle(self: *Self, index: usize) Error!void {
+            /// Flips `index`; returns the new (post-toggle) bit value. Asymmetric
+            /// with `set`/`unset`/`assign` by design: the prior value of a toggle is
+            /// just `!new` and carries no extra information.
+            pub fn toggle(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
                 if (bit_capacity == 0) unreachable;
-                self.words[index / word_bits] ^= mask(index);
+                const word = &self.words[index / word_bits];
+                const bit = mask(index);
+                word.* ^= bit;
+                return (word.* & bit) != 0;
             }
 
             /// Lowest set index, or `null` when empty.
@@ -138,7 +155,7 @@ pub const BitSet = struct {
             /// Removes and returns the lowest set index, or `null` when empty.
             pub fn popFirstSet(self: *Self) ?usize {
                 const index = self.firstSet() orelse return null;
-                self.unset(index) catch unreachable;
+                _ = self.unset(index) catch unreachable;
                 return index;
             }
 

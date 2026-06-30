@@ -20,21 +20,76 @@ test "unit: BitSet.Static index ops cover first/middle/last and reject OOB" {
     const Set = BitSet.Static(129);
     var set: Set = .{};
     try testing.expect(set.isEmpty());
-    try set.set(0);
-    try set.set(64);
-    try set.set(128);
+    _ = try set.set(0);
+    _ = try set.set(64);
+    _ = try set.set(128);
     try testing.expect(set.isSet(128));
     try testing.expectEqual(@as(usize, 3), set.count());
     try testing.expectEqual(@as(?usize, 0), set.firstSet());
     try testing.expectEqual(@as(?usize, 0), set.popFirstSet());
-    try set.assign(1, true);
-    try set.toggle(1);
+    _ = try set.assign(1, true);
+    _ = try set.toggle(1);
     try testing.expect(!set.isSet(1));
-    try set.unset(64);
+    _ = try set.unset(64);
     try testing.expect(!set.isSet(64));
     try testing.expect(!set.isSet(Set.bit_capacity));
     try testing.expectError(error.OutOfBounds, set.set(Set.bit_capacity));
     set.assertValid();
+}
+
+test "unit: BitSet.Static set/unset return the prior bit value" {
+    const Set = BitSet.Static(64);
+    var set = Set.init();
+
+    // First set: bit was clear -> prior = false; bit is now set.
+    try testing.expectEqual(false, try set.set(7));
+    try testing.expect(set.isSet(7));
+
+    // Second set on the same bit: prior = true; bit remains set.
+    try testing.expectEqual(true, try set.set(7));
+    try testing.expect(set.isSet(7));
+
+    // Unset a set bit: prior = true; bit is now clear.
+    try testing.expectEqual(true, try set.unset(7));
+    try testing.expect(!set.isSet(7));
+
+    // Unset an already-clear bit: prior = false; bit remains clear.
+    try testing.expectEqual(false, try set.unset(7));
+    try testing.expect(!set.isSet(7));
+}
+
+test "unit: BitSet.Static assign returns prior value across every transition" {
+    const Set = BitSet.Static(64);
+    var set = Set.init();
+
+    // false -> false
+    try testing.expectEqual(false, try set.assign(3, false));
+    try testing.expect(!set.isSet(3));
+
+    // false -> true
+    try testing.expectEqual(false, try set.assign(3, true));
+    try testing.expect(set.isSet(3));
+
+    // true -> true
+    try testing.expectEqual(true, try set.assign(3, true));
+    try testing.expect(set.isSet(3));
+
+    // true -> false
+    try testing.expectEqual(true, try set.assign(3, false));
+    try testing.expect(!set.isSet(3));
+}
+
+test "unit: BitSet.Static toggle returns the new value" {
+    const Set = BitSet.Static(64);
+    var set = Set.init();
+
+    // clear -> set: new = true.
+    try testing.expectEqual(true, try set.toggle(12));
+    try testing.expect(set.isSet(12));
+
+    // set -> clear: new = false.
+    try testing.expectEqual(false, try set.toggle(12));
+    try testing.expect(!set.isSet(12));
 }
 
 test "unit: BitSet.Static set algebra preserves unused high bits" {
@@ -46,7 +101,7 @@ test "unit: BitSet.Static set algebra preserves unused high bits" {
     full.setAll();
 
     var other = Set.init();
-    try other.set(128);
+    _ = try other.set(128);
     try testing.expect(full.containsAll(&other));
     try testing.expect(full.containsAny(&other));
 
