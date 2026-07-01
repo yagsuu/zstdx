@@ -11,7 +11,7 @@ same integer representation but have different meanings.
 This spec owns:
 
 - `addr.Address(Tag, Int)`;
-- built-in `addr.PhysAddr` and `addr.VirtAddr` aliases;
+- built-in `addr.PhysAddr`, `addr.VirtAddr`, and `addr.DmaAddr` aliases;
 - tag-based type identity;
 - unsigned integer type restrictions;
 - raw integer conversion;
@@ -21,7 +21,6 @@ This spec owns:
 
 This spec does not own:
 
-- `DmaAddr`;
 - page-aligned address types;
 - page sizes, page counts, frames, or page ranges;
 - address ranges;
@@ -40,6 +39,7 @@ Address primitives live under `stdx.addr`:
 stdx.addr.Address
 stdx.addr.PhysAddr
 stdx.addr.VirtAddr
+stdx.addr.DmaAddr
 ```
 
 They are not root-promoted:
@@ -65,6 +65,7 @@ pub const address = @import("addr/address.zig");
 pub const Address = address.Address;
 pub const PhysAddr = address.PhysAddr;
 pub const VirtAddr = address.VirtAddr;
+pub const DmaAddr = address.DmaAddr;
 ```
 
 ## Approved API
@@ -109,14 +110,29 @@ Built-in aliases:
 ```zig
 pub const PhysTag = opaque {};
 pub const VirtTag = opaque {};
+pub const DmaTag = opaque {};
 
 pub const PhysAddr = Address(PhysTag, u64);
 pub const VirtAddr = Address(VirtTag, usize);
+pub const DmaAddr = Address(DmaTag, u64);
 ```
 
 `VirtAddr` is pointer-width because it models host virtual address values. Guest
 virtual addresses, firmware virtual addresses, and other address domains should
 use their own tag and integer width.
+
+`DmaAddr` is the address value a device receives in a descriptor. On systems
+without an IOMMU it equals the physical address of the mapped host memory. On
+systems with an IOMMU it is the I/O virtual address returned by the caller's
+mapping backend. This spec does not own how a `DmaAddr` value is produced;
+IOMMU mapping, bounce buffering, page pinning, and cache maintenance are
+downstream policy. `DmaAddr` is the value type that both sides of that policy
+boundary speak.
+
+`PhysAddr`, `VirtAddr`, and `DmaAddr` are distinct Zig types even though
+`PhysAddr` and `DmaAddr` share `u64`. Converting between them is an explicit
+`DmaAddr.fromInt(phys.raw())` (or the reverse) at the call site; there is no
+implicit conversion helper because the direction is caller policy.
 
 ## Tag identity
 
@@ -282,9 +298,11 @@ Built-in aliases:
 ```zig
 const pa = stdx.addr.PhysAddr.fromInt(0x1000);
 const va = stdx.addr.VirtAddr.fromInt(@intFromPtr(ptr));
+const dma = stdx.addr.DmaAddr.fromInt(pa.raw()); // identity map; IOMMU users call their backend.
 
 _ = pa;
 _ = va;
+_ = dma;
 ```
 
 Alignment:
@@ -299,7 +317,7 @@ if (try aligned.isAligned(4096)) {
 ## Required tests
 
 Required for a custom `u64` address type, a custom `u16` address type,
-`PhysAddr`, and `VirtAddr`.
+`PhysAddr`, `VirtAddr`, and `DmaAddr`.
 
 ### Type identity
 

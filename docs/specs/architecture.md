@@ -74,8 +74,8 @@ zstdx/
     tags.zig
     tags/
 
-    sg.zig
-    sg/
+    dma.zig
+    dma/
 
     time.zig
     time/
@@ -273,12 +273,14 @@ bits/power_of_two.zig    isPowerOfTwo, nextPowerOfTwo
 bits/bit_flags.zig       BitFlags
 mem/alignment.zig        alignUp, alignDown, isAligned
 bits/set.zig             BitSet family
-addr/address.zig         Address, PhysAddr, VirtAddr
+addr/address.zig         Address, PhysAddr, VirtAddr, DmaAddr
 collections/list.zig     List family: Static, Bounded, later Managed/Unmanaged
 collections/ring.zig     Ring family
 intrusive/list.zig       intrusive.List.SinglyLinked, intrusive.List.DoublyLinked, node mechanics
 intrusive/queue.zig      intrusive.Queue
 intrusive/stack.zig      intrusive.Stack
+dma/buffer.zig           Buffer(T)
+dma/scatter_gather.zig   ScatterGather.Segment, ScatterGather.List.{Static,Bounded}, ScatterGather.Builder.{Static,Bounded}
 ```
 
 Avoid premature splits:
@@ -322,6 +324,9 @@ layout
 
 addr
   -> core, bits
+
+dma
+  -> core, addr
 
 bits
   -> core

@@ -163,8 +163,7 @@ test "unit: Arena.Bounded.allocSlice returns contiguous len elements" {
     try testing.expectEqual(@as(usize, 4), items.len);
     items[0] = 0xaa;
     items[3] = 0xbb;
-    try testing.expectEqual(@as(usize, @sizeOf(u32) * 3),
-        @intFromPtr(&items[3]) - @intFromPtr(&items[0]));
+    try testing.expectEqual(@as(usize, @sizeOf(u32) * 3), @intFromPtr(&items[3]) - @intFromPtr(&items[0]));
 }
 
 test "unit: Arena.Bounded.alloc satisfies @alignOf(T) over an unaligned subslice" {
@@ -221,8 +220,7 @@ test "unit: Arena.Static.allocSlice returns contiguous len elements" {
     try testing.expectEqual(@as(usize, 4), items.len);
     items[0] = 1;
     items[3] = 4;
-    try testing.expectEqual(@as(usize, @sizeOf(u32) * 3),
-        @intFromPtr(&items[3]) - @intFromPtr(&items[0]));
+    try testing.expectEqual(@as(usize, @sizeOf(u32) * 3), @intFromPtr(&items[3]) - @intFromPtr(&items[0]));
 }
 
 test "unit: Arena.Static.assertValid catches a corrupted index" {

@@ -19,6 +19,7 @@ pub const concurrent = @import("concurrent.zig");
 pub const io = @import("io.zig");
 pub const barrier = @import("barrier.zig");
 pub const time = @import("time.zig");
+pub const dma = @import("dma.zig");
 
 pub const List = collections.List;
 pub const Ring = collections.Ring;

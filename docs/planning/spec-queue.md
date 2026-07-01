@@ -86,6 +86,8 @@ Proposals must not include:
 - `docs/specs/concurrent/mpsc-ring.md`
 - `docs/specs/sync/signal.md`
 - `docs/specs/time/monotonic.md`
+- `docs/specs/dma/buffer.md`
+- `docs/specs/dma/scatter-gather.md`
 
 ## Queue
 
@@ -101,12 +103,10 @@ exist.
 
 ### High-value follow-up — distinct primitive contracts
 
-- `docs/specs/sg/scatter-gather-list.md` — generic segment list or builder; no
-  DMA mapping, IOMMU, cache-maintenance, or protocol descriptor policy.
 - `docs/specs/io/volatile-cell.md` — only if the proposal defines access and
   ordering guarantees beyond bare volatile loads and stores.
-- `docs/specs/rings/descriptor-ring.md` — after tags, scatter/gather, barrier,
-  and IO contracts define the lower-level behavior.
+- `docs/specs/rings/descriptor-ring.md` — after tags, DMA, barrier, and IO
+  contracts define the lower-level behavior.
 - `docs/specs/bits/bitflags.md` — only if the proposal adds enum-domain masks,
   unknown-bit handling, or invariant checks beyond raw integer or packed-struct
   bit operations.

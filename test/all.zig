@@ -37,4 +37,6 @@ comptime {
     _ = @import("barrier/dma_test.zig");
     _ = @import("io/mmio_test.zig");
     _ = @import("time/monotonic_test.zig");
+    _ = @import("dma/buffer_test.zig");
+    _ = @import("dma/scatter_gather_test.zig");
 }

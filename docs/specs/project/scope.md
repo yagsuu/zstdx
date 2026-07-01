@@ -224,15 +224,18 @@ Planned primitives:
 - `Address(tag, Int)`
 - `PhysAddr`
 - `VirtAddr`
+- `DmaAddr`
 - `ByteSize`
 - `PageSize`
 - `PageCount`
 - `PageFrame`
 - `PageRange`
 
-`PhysAddr` and `VirtAddr` are approved built-in aliases once `docs/specs/addr/address.md` approves the generic address tag model.
-
-`DmaAddr` is not approved by this scope spec. It remains a candidate for the address spec because DMA address semantics may need platform/backend wording.
+`PhysAddr`, `VirtAddr`, and `DmaAddr` are approved built-in aliases through
+`docs/specs/addr/address.md`. `DmaAddr` is the address value a device receives
+in a descriptor; how it is produced — physical-address identity mapping,
+IOMMU IOVA allocation, bounce buffering — remains caller policy and out of
+scope for this library.
 
 ### Layout and bytes
 
@@ -455,7 +458,7 @@ Planned primitives:
 
 `io.MmioRegister.modify` is not approved at scope level because generic read-modify-write is unsafe for many device registers. It requires an owning IO spec.
 
-### Rings, tags, and scatter/gather
+### Rings and tags
 
 Planned primitives:
 
@@ -466,12 +469,27 @@ Planned primitives:
 - `tags.TagAllocator`
 - `tags.DynamicTagAllocator`
 - `tags.CommandTracker`
-- `sg.Segment`
-- `sg.ScatterGatherList`
-- `sg.DynamicScatterGatherList`
-- `sg.Builder`
 
-These structures do not perform DMA mapping, IOMMU mapping, cache-maintenance policy, device notification policy, or protocol-specific descriptor construction.
+These structures do not perform DMA mapping, IOMMU mapping,
+cache-maintenance policy, device notification policy, or protocol-specific
+descriptor construction.
+
+### DMA
+
+Planned primitives:
+
+- `dma.Buffer(T)`
+- `dma.ScatterGather.Segment`
+- `dma.ScatterGather.List.Static(N)`
+- `dma.ScatterGather.List.Bounded`
+- `dma.ScatterGather.Builder.Static(N, alignment)`
+- `dma.ScatterGather.Builder.Bounded(alignment)`
+
+`dma.*` types pair caller-owned host memory with the device-visible address
+the caller supplies. They do not allocate host memory, map IOMMU pages,
+manage bounce buffers, perform cache maintenance, emit barriers, or emit
+protocol descriptors. IOMMU/IOVA policy stays with the caller; `stdx.addr.DmaAddr`
+is the value type both sides of that policy speak.
 
 ### Time and polling
 
