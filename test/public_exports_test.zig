@@ -22,6 +22,7 @@ const approved_root_exports = [_][]const u8{
     "arch",
     "diag",
     "sync",
+    "concurrent",
     "List",
     "Ring",
 };
@@ -78,6 +79,10 @@ test "contract: root facade does not flatten domain-owned symbols" {
         "Forest",
         "Signal",
         "Doorbell",
+        "MpscRing",
+        "Event",
+        "ConcurrentRing",
+        "MPSC",
     }) |name| {
         try testing.expect(!@hasDecl(stdx, name));
     }
