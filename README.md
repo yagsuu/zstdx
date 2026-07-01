@@ -65,7 +65,7 @@ The host-side test suite is aggregated by `test/all.zig`.
 | `stdx.arch` | Target-gated instruction primitives |
 | `stdx.diag` | Scoped diagnostics |
 | `stdx.sync` | `Signal` |
-| `stdx.concurrent` | `MpscRing` |
+| `stdx.concurrent` | `mpsc.Ring` |
 | `stdx.time` | `Instant`, `Duration`, `Clock.Monotonic` |
 | `stdx.barrier` | `compiler`, `mmio` fences, `dma` fences |
 | `stdx.io` | `Mmio.Register`, `Mmio.Window` |
@@ -414,12 +414,12 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 
 ### Concurrent
 
-#### `concurrent.MpscRing`
+#### `concurrent.mpsc.Ring`
 
 | Variant | Storage | Constructor | Capacity |
 | --- | --- | --- | --- |
-| `MpscRing.Static(T, N)` | Inline `[N]Slot` | `init(self)` | Comptime `N` items; non-zero power of two |
-| `MpscRing.Bounded(T)` | Caller-owned `[]Slot` | `init(self, slots)` | `slots.len` items; non-zero power of two |
+| `mpsc.Ring.Static(T, N)` | Inline `[N]Slot` | `init(self)` | Comptime `N` items; non-zero power of two |
+| `mpsc.Ring.Bounded(T)` | Caller-owned `[]Slot` | `init(self, slots)` | `slots.len` items; non-zero power of two |
 
 | Contract | Value |
 | --- | --- |

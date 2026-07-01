@@ -2,7 +2,7 @@
 
 comptime {
     _ = @import("sync/signal_test.zig");
-    _ = @import("concurrent/mpsc_ring_test.zig");
+    _ = @import("concurrent/mpsc/ring_test.zig");
     _ = @import("core/options_test.zig");
     _ = @import("core/debug_test.zig");
     _ = @import("core/range_test.zig");

@@ -69,9 +69,10 @@ stdx.Ring     // reserved by stdx.collections.Ring; not this ring
 Source ownership:
 
 ```text
-src/concurrent.zig
-src/concurrent/mpsc.zig
-test/concurrent/mpsc_ring_test.zig
+src/concurrent.zig            -- domain facade
+src/concurrent/mpsc.zig       -- sub-namespace facade
+src/concurrent/mpsc/ring.zig  -- Ring implementation
+test/concurrent/mpsc/ring_test.zig
 ```
 
 `src/concurrent.zig` re-exports:

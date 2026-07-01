@@ -4,11 +4,11 @@ const std = @import("std");
 
 const stdx = @import("stdx");
 
-const MpscRing = stdx.concurrent.MpscRing;
+const mpsc = stdx.concurrent.mpsc;
 const testing = std.testing;
 
-test "unit: MpscRing.Static initializes in place, enforces capacity, and drains FIFO" {
-    const Ring = MpscRing.Static(u8, 2);
+test "unit: mpsc.Ring.Static initializes in place, enforces capacity, and drains FIFO" {
+    const Ring = mpsc.Ring.Static(u8, 2);
 
     var ring: Ring = undefined;
     ring.init();
@@ -26,8 +26,8 @@ test "unit: MpscRing.Static initializes in place, enforces capacity, and drains 
     try testing.expect(ring.isEmpty());
 }
 
-test "unit: MpscRing.Static preserves FIFO across wraparound" {
-    const Ring = MpscRing.Static(u8, 2);
+test "unit: mpsc.Ring.Static preserves FIFO across wraparound" {
+    const Ring = mpsc.Ring.Static(u8, 2);
 
     var ring: Ring = undefined;
     ring.init();
@@ -42,8 +42,8 @@ test "unit: MpscRing.Static preserves FIFO across wraparound" {
     try testing.expectEqual(@as(?u8, null), ring.popFront());
 }
 
-test "unit: MpscRing.Bounded enforces capacity and preserves FIFO across wraparound" {
-    const Ring = MpscRing.Bounded(u8);
+test "unit: mpsc.Ring.Bounded enforces capacity and preserves FIFO across wraparound" {
+    const Ring = mpsc.Ring.Bounded(u8);
 
     var slots: [2]Ring.Slot = undefined;
     var ring: Ring = undefined;
@@ -76,7 +76,7 @@ const Stress = struct {
         seq: u16,
     };
 
-    const Ring = MpscRing.Static(Item, capacity);
+    const Ring = mpsc.Ring.Static(Item, capacity);
 
     const ProducerContext = struct {
         ring: *Ring,
@@ -115,7 +115,7 @@ const Stress = struct {
     }
 };
 
-test "threaded: MpscRing.Static delivers all producer items exactly once in per-producer order" {
+test "threaded: mpsc.Ring.Static delivers all producer items exactly once in per-producer order" {
     var ring: Stress.Ring = undefined;
     ring.init();
 
