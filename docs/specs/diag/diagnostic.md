@@ -287,7 +287,7 @@ Example:
 
 ```text
   at prepare host resources (src/host/resources.zig:73) -> FileNotFound
-    at firmware code: ./zfw.fd (relative to /home/me/example) (src/host/resources.zig:198) -> FileNotFound
+    at firmware code: ./boot.fd (relative to /home/me/example) (src/host/resources.zig:198) -> FileNotFound
 ```
 
 `SourceLocation.fn_name` is stored but not rendered by this spec.

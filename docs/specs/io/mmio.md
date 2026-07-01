@@ -340,15 +340,15 @@ Implementation must:
 - provide the same checks in `registerUnchecked` only under
   `core.debug.checksEnabled`.
 
-## Planned consumers
+## Planned use
 
-`znvme` uses `Register(u64)` and `Register(u32)` for the fixed portion of the
-NVMe controller register block (CAP, VS, INTMS, INTMC, CC, CSTS, AQA, ASQ,
-ACQ) and `Window.register(u32, offset)` for the doorbell array at
+NVMe-class controller register blocks — CAP, VS, INTMS, INTMC, CC, CSTS, AQA,
+ASQ, ACQ — use `Register(u64)` and `Register(u32)` as an overlay `extern
+struct`, and `Window.register(u32, offset)` for the doorbell array at
 `0x1000 + (2*queue + kind) * (4 << CAP.DSTRD)`.
 
-Other candidate consumers: `zacpi` for FADT and MADT fixed register blocks,
-`zpci` for MSI-X table access, `zfw` for UEFI runtime services fixed offsets.
+Similar shapes appear in fixed-register blocks such as ACPI FADT/MADT,
+PCI MSI-X tables, and UEFI runtime services offsets.
 
 ## Required tests
 

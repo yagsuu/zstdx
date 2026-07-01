@@ -301,20 +301,19 @@ Implementation must:
 - avoid hidden globals, atomics, fences, volatile operations, target probes,
   and I/O.
 
-## Planned consumers
+## Planned use
 
-`zvm` has 16550A UART RX and TX FIFOs of fixed depth 16. The RX FIFO must
-surface overrun in `LSR.OE` rather than silently overwrite; it uses `pushBack`
-and observes `error.Full`. The TX FIFO is drained by `popFront`.
+16550A UART RX and TX FIFOs of fixed depth 16 fit this shape. The RX FIFO
+surfaces overrun in a status register rather than silently overwriting; it
+uses `pushBack` and observes `error.Full`. The TX FIFO is drained by
+`popFront`.
 
-`zfw` has a fixed-capacity pending-notification queue on
-`HandleDatabase.NotifyEntry` whose current behavior overwrites the oldest entry
-when full. It uses `pushBackOverwriteOldest` and releases the evicted
-`NotifyEntry` through the returned optional.
+Fixed-capacity pending-notification queues that overwrite the oldest entry
+when full use `pushBackOverwriteOldest` and release the evicted entry
+through the returned optional.
 
-`zacpi` does not currently have a FIFO consumer. A future diagnostic trace
-buffer (see `docs/specs/diag/trace-ring.md`) is a candidate when that spec
-lands.
+Diagnostic trace buffers with fixed depth are a candidate when
+`docs/specs/diag/trace-ring.md` lands.
 
 ## Examples
 

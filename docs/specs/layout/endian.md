@@ -271,17 +271,18 @@ Implementation must:
 - compile for all supported Zig targets;
 - produce compile errors for invalid `T` categories where practical.
 
-## Planned consumers
+## Planned use
 
-`zvm` uses little-endian canonical digest and TLV fields currently written with
-`std.mem.writeInt`, `std.mem.readInt`, and `std.mem.nativeToLittle`.
+Little-endian canonical digest and TLV fields, currently written with
+`std.mem.writeInt`, `std.mem.readInt`, and `std.mem.nativeToLittle`, compose
+cleanly through `Le(T)`.
 
-`zfw` uses little-endian UEFI NV variable record headers and GUID fields. Its
-TPM command codec needs big-endian integer lanes.
+Little-endian record headers and GUID fields use `Le(T)`; big-endian
+command codecs use `Be(T)`.
 
-`zacpi` uses little-endian ACPI integer fields. XSDT entries are 64-bit physical
-addresses after a 36-byte SDT header, so endian wrappers compose with unaligned
-loads and stores.
+Little-endian on-disk table fields at non-natural alignment — for example,
+64-bit entries after a 36-byte header — compose with unaligned loads and
+stores.
 
 ## Required tests
 

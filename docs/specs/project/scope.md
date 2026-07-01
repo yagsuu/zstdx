@@ -61,7 +61,7 @@ Explicitly out of scope:
 - scheduler policy;
 - OS physical memory map ownership.
 
-Downstream packages may consume `zstdx` primitives to implement those systems. Examples: `zpci`, `znvme`, `zacpi`, `zfw`, `zvm`, `zfat`, `ziommu`, `zhv`, and `zvirtio`.
+Downstream packages may consume `zstdx` primitives to implement those systems.
 
 ## Public namespace policy
 

@@ -292,16 +292,12 @@ Implementation must:
 - set vacated spare slots to `undefined` where practical;
 - avoid hidden globals, atomics, fences, volatile operations, target probes, and I/O.
 
-## Planned consumers
+## Planned use
 
-`zfw` has fixed-capacity handle, protocol, event, relocation, and variable tables
-that currently use a hand-rolled bounded list helper.
-
-`zvm` has `MemoryMap` storage shaped as `[max_entries]Entry` plus a length and
-bounded byte buffers that can reuse the same initialized-prefix model.
-
-`zacpi` can use this shape for small fixed diagnostic buffers or parser scratch
-when text-specific behavior is not required.
+Fixed-capacity handle, protocol, event, relocation, memory-map, and variable
+tables shaped as `[max_entries]Entry` plus an initialized-item count. Small
+fixed diagnostic buffers and parser scratch reuse the same
+initialized-prefix model when text-specific behavior is not required.
 
 ## Examples
 

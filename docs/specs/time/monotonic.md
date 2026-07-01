@@ -339,18 +339,14 @@ Implementation must:
   single-owner, not lock-free;
 - lower `Clock.Monotonic.now` to a direct backend call in release builds.
 
-## Planned consumers
+## Planned use
 
-`znvme` composes a `Clock.Monotonic(HpetBackend)` into its controller. It uses
-the clock for:
+A driver composes `Clock.Monotonic(HpetBackend)` — where `HpetBackend`
+reads an HPET main counter — into its controller for handshake timeouts,
+status-polling backoff, and admin/completion command timeouts.
 
-- CC.EN → CSTS.RDY handshake timeouts;
-- CSTS.CFS polling backoff;
-- admin command completion timeouts;
-- I/O command completion timeouts (per-queue policy).
-
-Additional candidate consumers: `zacpi` for GPE polling and PM timer waits,
-`zpci` for MSI-X programming timeouts, `zfw` for runtime services deadlines.
+Similar deadlines arise in ACPI GPE polling and PM timer waits, PCI MSI-X
+programming, and firmware runtime-services windows.
 
 Test consumers construct a `TestBackend` that increments a counter on each
 `now()` call. Test backends are per-test scaffolding, not part of this spec.

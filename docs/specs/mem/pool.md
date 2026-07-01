@@ -389,13 +389,13 @@ _ = b;
 _ = c;
 ```
 
-## Consumer requirements
+## Planned use
 
-- `zvm`: vCPU control blocks, event entries, identity records can sit in
-  static or bounded pools without hot-path heap allocation.
-- `zfw`: protocol-handle tables, request structures, packet descriptors that
-  need pointer stability across firmware phases.
-- `zacpi`: namespace nodes, table descriptors, parser scratch entries.
+- control blocks, event entries, and record structures that fit in a static
+  or bounded pool without hot-path heap allocation;
+- handle tables, request structures, and packet descriptors that need
+  pointer stability across long-lived phases;
+- namespace nodes, table descriptors, and parser scratch entries.
 
 ## Required tests
 

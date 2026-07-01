@@ -328,18 +328,13 @@ Implementation must:
 - avoid hidden globals, atomics, fences, volatile operations, target probes,
   and I/O.
 
-## Planned consumers
+## Planned use
 
-`zacpi` future diagnostic ring buffers whose depth is a runtime configuration
-knob can back the ring with arena-allocated storage and pass the slice through
-`wrap(buffer)`.
-
-`zfw` cases where the queue lives in arena-allocated storage rather than an
-inline `[N]T` field map to `Ring.Bounded`. Inline fixed-depth queues continue
-to use `Ring.Static`.
-
-`zvm` does not currently have a `Ring.Bounded` consumer. UART and NVMe FIFO
-depths are fixed at comptime and use `Ring.Static`.
+Diagnostic ring buffers whose depth is a runtime configuration knob back
+the ring with arena-allocated storage and pass the slice through
+`wrap(buffer)`. Queues that live in arena-allocated storage rather than an
+inline `[N]T` field map to `Ring.Bounded`; inline fixed-depth queues use
+`Ring.Static`.
 
 ## Examples
 

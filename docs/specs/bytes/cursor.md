@@ -282,14 +282,13 @@ parsePackage(&branch) catch {
 cursor = branch;
 ```
 
-## Consumer requirements
+## Planned use
 
-- `zvm`: support sequential identity TLV reads and fixed byte-buffer assembly
-  checks over manual byte offsets.
-- `zfw`: support UEFI variable record name loops and device-path node walking,
-  including unaligned little-endian node lengths through `layout.Le(u16)`.
-- `zacpi`: support XSDT entry iteration, MADT/DBG2/MCFG variable-entry streams,
-  and AML package parsing with value-copy rollback.
+- sequential TLV reads and fixed byte-buffer assembly checks over manual
+  byte offsets;
+- variable-length record loops and device-path node walking, including
+  unaligned integer lanes through `layout.Le(u16)`;
+- table-entry iteration and package parsing with value-copy rollback.
 
 ## Required tests
 

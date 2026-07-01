@@ -317,15 +317,14 @@ var list = std.ArrayListUnmanaged(u32){};
 try list.append(arena.allocator(), 42);
 ```
 
-## Consumer requirements
+## Planned use
 
-- `zvm`: support parse/build scratch for profile lowering, identity digest
-  staging, and bounded host-test fixtures without introducing hot-path heap
-  allocation.
-- `zfw`: support PEI and early firmware scratch construction over fixed byte
-  buffers before DXE heap policy is available.
-- `zacpi`: support caller-owned scratch for root table indexing and diagnostics
-  buffers that return borrowed views into caller storage.
+- parse/build scratch for lowering pipelines, digest staging, and bounded
+  host-test fixtures without hot-path heap allocation;
+- early-phase scratch construction over fixed byte buffers before a heap
+  policy is available;
+- caller-owned scratch for table indexing and diagnostic buffers that return
+  borrowed views into caller storage.
 
 ## Required tests
 

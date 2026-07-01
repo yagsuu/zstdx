@@ -391,19 +391,17 @@ const tail_offset = @sizeOf(Header);
 const payload = try stdx.bytes.loadSlice(table, tail_offset, length - tail_offset);
 ```
 
-## Consumer requirements
+## Planned use
 
-- `zvm`: support random-access field decode within PCI configuration windows
-  and identity descriptor payloads where offset is computed from an external
-  field rather than a sequential walk.
-- `zfw`: support UEFI variable record decode where header field offsets and
-  payload offsets are read from the record before slicing the payload;
-  support NV slot header field reads and writes through `load(T)` and
-  `store(T)`.
-- `zacpi`: support ACPI table body field reads at fixed `@offsetOf` positions
-  inside a validated `Sdt.Table`, including FADT revision-gated field reads
-  and MADT subtable header peeks; support payload extraction via
-  `loadSlice` and `loadTail`.
+- random-access field decode within fixed-layout register or descriptor
+  windows where an offset is computed from an external field rather than a
+  sequential walk;
+- record decode where header fields carry payload offsets that must be read
+  before the payload is sliced;
+- table body field reads at fixed `@offsetOf` positions inside a validated
+  overlay, including revision-gated field reads and header peeks over
+  variable-entry subtables;
+- payload extraction via `loadSlice` and `loadTail`.
 
 ## Required tests
 

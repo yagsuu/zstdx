@@ -246,14 +246,13 @@ var arena = stdx.mem.Arena.Static(0).init();
 try std.testing.expectError(error.OutOfMemory, arena.allocBytes(1));
 ```
 
-## Consumer requirements
+## Planned use
 
-- `zvm`: support inline scratch arenas for parse pipelines that prefer no
-  caller-side `[N]u8` declaration.
-- `zfw`: support compile-time-sized arenas for boot-phase scratch where the
-  total budget is known statically.
-- `zacpi`: support compile-time-sized arenas for parser fixtures and unit
-  tests.
+- inline scratch arenas for parse pipelines that prefer no caller-side
+  `[N]u8` declaration;
+- compile-time-sized arenas for boot-phase or early-firmware scratch where
+  the total budget is known statically;
+- compile-time-sized arenas for parser fixtures and unit tests.
 
 ## Required tests
 

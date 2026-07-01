@@ -319,18 +319,15 @@ Implementation must:
 - avoid self-referential owner layouts that would stale the backing slice;
 - avoid hidden globals, atomics, fences, volatile operations, target probes, and I/O.
 
-## Planned consumers
+## Planned use
 
-`zacpi` root table validation can materialize `Sdt.Table` references into a
-caller-owned scratch slice and return the initialized prefix as a borrowed view.
+Caller-owned scratch slices that materialize validated references and
+return the initialized prefix as a borrowed view.
 
-`zfw` has GCD and memory-manager tables with the same initialized-prefix
-operations. Inline compile-time-capacity cases map to `List.Static`; any
-caller-provided scratch variant maps to `List.Bounded`.
-
-`zvm` has memory maps and temporary duplicate-detection lists with the same
-capacity-first mutation pattern. Inline fixed arrays map to `List.Static`; caller
-scratch lists can use `List.Bounded` when capacity is supplied by the caller.
+Memory maps, handle/protocol/event/relocation tables, and duplicate-detection
+lists share the same capacity-first mutation pattern. Inline compile-time
+capacity cases use `List.Static`; caller-provided scratch variants use
+`List.Bounded`.
 
 ## Examples
 

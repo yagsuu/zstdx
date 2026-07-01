@@ -218,19 +218,18 @@ const le = stdx.bytes.loadUnaligned(stdx.layout.Le(u64), bytes[pos..][0..8]);
 const phys = le.native();
 ```
 
-## Planned consumers
+## Planned use
 
-`zvm` uses this shape for KVM MMIO/PIO byte payload marshaling and identity
-digest byte encoders. Endian-aware TLV helpers compose through
-`layout.Le(T)` and `layout.Be(T)`.
+MMIO/PIO byte payload marshaling, digest byte encoders, and endian-aware
+TLV helpers compose through `layout.Le(T)` and `layout.Be(T)`.
 
-`zfw` uses this shape for UEFI NV variable record headers, GUID byte fields, and
-device-path node lengths. Packed flag words load an integer lane first, then
-`@bitCast` to the packed flag type.
+Fixed-layout record headers, GUID byte fields, and device-path node lengths
+use this shape. Packed flag words load an integer lane first, then `@bitCast`
+to the packed flag type.
 
-`zacpi` uses this shape under ACPI little-endian helpers. XSDT entries are the
-load-bearing case: `u64` entries begin after a 36-byte SDT header, so they are
-not naturally 8-byte aligned.
+Little-endian on-disk or on-wire integer fields at non-natural alignment —
+for example, 64-bit entries following a header whose size is not a multiple
+of 8 bytes — are a load-bearing case.
 
 ## Required tests
 

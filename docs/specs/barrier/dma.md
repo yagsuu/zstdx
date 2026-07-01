@@ -358,20 +358,21 @@ Implementation must:
 - never allocate;
 - never touch device memory itself.
 
-## Planned consumers
+## Planned use
 
-`znvme` uses:
+NVMe-class driver paths use:
 
-- `mmio.release()` before every SQ tail doorbell store;
-- `mmio.acquire()` in the CC.EN → CSTS.RDY handshake and CSTS.CFS polling;
-- `dma.acquire()` after every CQE phase-tag read;
-- `dma.release()` before publishing linked SGL segments;
-- `mmio.releaseAcquire()` and `dma.releaseAcquire()` are available for mixed
-  direction sequences the driver may add later.
+- `mmio.release()` before every submission-queue tail doorbell store;
+- `mmio.acquire()` in controller-enable → controller-ready handshakes and
+  fatal-status polling;
+- `dma.acquire()` after every DMA-written completion-entry phase-tag read;
+- `dma.release()` before publishing linked scatter/gather segment chains;
+- `mmio.releaseAcquire()` and `dma.releaseAcquire()` for mixed-direction
+  sequences.
 
-Additional candidate consumers: `zacpi` (SCI vector programming, GPE block
-polling), `zpci` (MSI-X unmask races), `zfw` (runtime services enter/exit
-sequences).
+Similar patterns arise wherever a driver programs MMIO registers paired with
+DMA-visible payloads, polls status bits, or races MSI-X mask/unmask against
+interrupt delivery.
 
 ## Required tests
 

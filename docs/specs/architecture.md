@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`zstdx` follows the sibling package layout used by `zfw` and `zvm`: one public package facade, thin domain facade files, implementation directories per domain, and a mirrored `test/` tree aggregated by `test/all.zig`.
+`zstdx` follows a sibling-package layout: one public package facade, thin domain facade files, implementation directories per domain, and a mirrored `test/` tree aggregated by `test/all.zig`.
 
 ## Repository shape
 
