@@ -80,6 +80,9 @@ Proposals must not include:
 - `docs/specs/tags/tag-allocator.md`
 - `docs/specs/diag/diagnostic.md`
 - `docs/specs/graph/forest.md`
+- `docs/specs/barrier/overview.md`
+- `docs/specs/concurrent/mpsc-ring.md`
+- `docs/specs/sync/signal.md`
 
 ## Queue
 
@@ -97,8 +100,6 @@ exist.
 
 - `docs/specs/sg/scatter-gather-list.md` — generic segment list or builder; no
   DMA mapping, IOMMU, cache-maintenance, or protocol descriptor policy.
-- `docs/specs/barrier/overview.md` — ordering vocabulary required before IO,
-  DMA, descriptor-ring, or concurrent primitives.
 - `docs/specs/barrier/io-dma.md` — MMIO and DMA visibility contracts, not a
   thin wrapper around one target instruction.
 - `docs/specs/io/volatile-cell.md` — only if the proposal defines access and

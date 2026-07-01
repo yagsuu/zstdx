@@ -418,6 +418,7 @@ Barriers and fences are deferred from the first implementation slice. IO and DMA
 
 Planned primitives:
 
+- `sync.Signal`
 - `sync.AtomicCell(T)`
 - `sync.Once`
 - `sync.RawSpinLock`
@@ -425,6 +426,7 @@ Planned primitives:
 - `sync.TicketLock`
 - `sync.SeqLock`
 - `concurrent.SpscRing`
+- `concurrent.MpscRing`
 - `concurrent.MpscQueue`
 - `concurrent.MpmcQueue`
 - `concurrent.ChaseLevDeque`
