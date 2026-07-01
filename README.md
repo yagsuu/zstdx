@@ -66,6 +66,9 @@ The host-side test suite is aggregated by `test/all.zig`.
 | `stdx.diag` | Scoped diagnostics |
 | `stdx.sync` | `Signal` |
 | `stdx.concurrent` | `MpscRing` |
+| `stdx.time` | `Instant`, `Duration`, `Clock.Monotonic` |
+| `stdx.barrier` | `compiler`, `mmio` fences, `dma` fences |
+| `stdx.io` | `Mmio.Register`, `Mmio.Window` |
 
 | Root export | Canonical home | Notes |
 | --- | --- | --- |
@@ -428,6 +431,67 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | Both `Full` and `Contended` leave the ring unchanged; the producer's `item` is never stored. |
 | Invalidation | `popFront` release-frees its slot; producers reuse freed slots only after the consumer's release-store. |
 | Ordering | FIFO across successful reservations. Producer payload write is release-published via the slot sequence; consumer reads are acquire-ordered. `tryPushBack` performs no internal retry — retry/backoff belong to the caller. |
+
+### Time
+
+| Family | APIs | Storage | External allocation | Contract highlights |
+| --- | --- | --- | --- | --- |
+| `Instant` | `fromNanos`, `nanos`, `zero`, `add`, `since`, `afterOrEq` | Value `enum(u64)` | Never | Monotonic nanoseconds over ~584 years; `add` returns `error.Overflow` on signed under/overflow of the `u64` domain; `since` is infallible within the primitive's `±292` year contract. |
+| `Duration` | `fromNanos`, `nanos`, `fromMicros`, `fromMillis`, `fromSeconds`, `isPositive`, `isNegative` | Value `enum(i64)` | Never | Signed nanoseconds over `±292` years; `from{Micros,Millis,Seconds}` multiplication returns `error.Overflow`. |
+
+#### `time.Clock.Monotonic`
+
+| Family | APIs | Storage | Constructor |
+| --- | --- | --- | --- |
+| Monotonic clock wrapper | `Clock.Monotonic(Backend)`, `init`, `now` | Backend value | `init(backend)` |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. |
+| Waiting | Never. `now` calls `Backend.now(*Backend) Instant` exactly once. |
+| Concurrency | Single-owner mutable value; shared mutable access requires external synchronization. |
+| Performance | `now` is one backend call plus a return in release; under `.build_mode` safety it also asserts monotonicity against a stored `Instant` witness. |
+| Errors | Infallible. A `Backend.now` returning an error union is a compile error. |
+| Mutation on error | Not applicable. |
+| Invalidation | None; the wrapper owns no external storage. |
+| Ordering | Backend-defined monotonicity, asserted under `core.debug.checksEnabled(.build_mode)`. Release builds hold `@sizeOf(Backend)` exactly. |
+
+### Barriers
+
+| Family | APIs | Storage | External allocation | Contract highlights |
+| --- | --- | --- | --- | --- |
+| Compiler barrier | `barrier.compiler` | None | Never | `pub inline fn () void`; empty inline asm with `memory` clobber; no ISA emission; compiles on every target. |
+| MMIO fences | `barrier.mmio.release`, `barrier.mmio.acquire`, `barrier.mmio.releaseAcquire` | None | Never | `pub inline fn () void`; lowers to `sfence`/`lfence`/`mfence` on x86_64; non-x86_64 `@compileError`; not a cross-CPU synchronization primitive; does not flush caches. |
+| DMA fences | `barrier.dma.release`, `barrier.dma.acquire`, `barrier.dma.releaseAcquire` | None | Never | `pub inline fn () void`; lowers to `sfence`/`lfence`/`mfence` on x86_64; non-x86_64 `@compileError`; not a cache-maintenance primitive. |
+
+### IO
+
+#### `io.Mmio.Register`
+
+| Family | APIs | Storage | External allocation | Contract highlights |
+| --- | --- | --- | --- | --- |
+| Register lane factory | `Mmio.Register(T)`, `load`, `store`, `Native`, `width_bytes` | `extern struct { value: T align(@alignOf(T)) }` | Never | Accepts `u8`/`u16`/`u32`/`u64` or `layout.Le`/`Be` over those widths; every other `T` is a compile error. `@sizeOf == @sizeOf(T)`; `@alignOf == @alignOf(T)`. Composes losslessly inside overlay `extern struct`s that model fixed device register blocks. |
+
+`Register(T)` provides compiler ordering only via Zig's `*volatile T`
+lowering. Hardware ordering against DMA payloads or other MMIO accesses is
+the caller's job via `stdx.barrier.mmio` and `stdx.barrier.dma`.
+
+#### `io.Mmio.Window`
+
+| Family | APIs | Storage | Constructor |
+| --- | --- | --- | --- |
+| MMIO byte window | `Mmio.Window`, `wrap`, `register`, `registerUnchecked` | Caller-owned aligned byte range | `wrap(bytes)` |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. Borrows the caller's MMIO mapping. |
+| Waiting | Never. |
+| Concurrency | Value type; the caller manages shared access to the underlying mapping. |
+| Performance | `wrap`, `register`, and `registerUnchecked` are O(1) pointer arithmetic. |
+| Errors | `register` returns `error.OutOfBounds` (including on `usize`-overflowing `offset`) or `error.Misaligned`. `registerUnchecked` skips runtime checks. |
+| Mutation on error | Errors leave the window unchanged. |
+| Invalidation | Returned register pointers are valid for the lifetime of the underlying MMIO mapping. |
+| Ordering | Not applicable at the type level. Hardware ordering is caller-driven via `stdx.barrier.mmio` and `stdx.barrier.dma`. |
 
 ## Documentation
 
