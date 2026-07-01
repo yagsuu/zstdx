@@ -166,7 +166,7 @@ exist.
 - `docs/specs/concurrent/spsc-ring.md` — after barrier ordering vocabulary
   exists.
 - `docs/specs/concurrent/chase-lev-deque.md` — family shape
-  `ChaseLevDeque.Bounded` first; dynamic resizing waits for memory reclamation
+  `chase_lev.Deque.Bounded` first; dynamic resizing waits for memory reclamation
   policy.
 - `docs/specs/diag/invariant.md`
 - `docs/specs/diag/trace-ring.md`

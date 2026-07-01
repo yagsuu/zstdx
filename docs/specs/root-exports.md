@@ -124,7 +124,7 @@ pub const Ring = collections.Ring;
 ```
 
 `List` and `Ring` are root-promoted collection families. `sync`, `concurrent`,
-`diag`, and `graph` are namespace exports only; `Signal`, `MpscRing`,
+`diag`, and `graph` are namespace exports only; `Signal`, `mpsc.Ring`,
 `Diagnostics`, `ScopeOptions`, `Scope`, and `Forest` remain under their owning
 namespaces.
 

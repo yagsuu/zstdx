@@ -425,18 +425,18 @@ Planned primitives:
 - `sync.SpinLock`
 - `sync.TicketLock`
 - `sync.SeqLock`
-- `concurrent.SpscRing`
-- `concurrent.MpscRing`
-- `concurrent.MpscQueue`
-- `concurrent.MpmcQueue`
-- `concurrent.ChaseLevDeque`
+- `concurrent.spsc.Ring`
+- `concurrent.mpsc.Ring`
+- `concurrent.mpsc.Queue`
+- `concurrent.mpmc.Queue`
+- `concurrent.chase_lev.Deque`
 
 Deferred until reclamation specs:
 
-- `concurrent.EpochReclamation`
-- `concurrent.HazardPointers`
-- `concurrent.QSBR`
-- `concurrent.RcuPtr`
+- `concurrent.epoch.Reclamation`
+- `concurrent.hazard.Pointers`
+- `concurrent.qsbr.State`
+- `concurrent.rcu.Ptr`
 
 Kernel wait queues, interrupt save/restore policy, scheduler blocking, thread parking, preemption control, and priority inheritance require explicit backend specs or downstream packages.
 

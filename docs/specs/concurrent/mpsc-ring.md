@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`stdx.concurrent.MpscRing` is a bounded multi-producer/single-consumer FIFO ring.
+`stdx.concurrent.mpsc.Ring` is a bounded multi-producer/single-consumer FIFO ring.
 It is for fixed-capacity work, event, completion, and doorbell queues where many
 producer contexts publish items to one owner/consumer without allocation.
 
@@ -14,8 +14,8 @@ notification primitive when a consumer needs to park.
 
 This spec owns:
 
-- `concurrent.MpscRing.Static(T, N)`;
-- `concurrent.MpscRing.Bounded(T)`;
+- `concurrent.mpsc.Ring.Static(T, N)`;
+- `concurrent.mpsc.Ring.Bounded(T)`;
 - caller-provided `Bounded(T).Slot` storage;
 - one-attempt producer enqueue with explicit contention reporting;
 - single-consumer dequeue of published front items;
@@ -29,6 +29,7 @@ This spec owns:
 This spec does not own:
 
 - SPSC, MPMC, work-stealing, or intrusive queues;
+- other primitives under `concurrent.mpsc.*` such as `mpsc.Queue`;
 - linked MPSC queues;
 - heap allocation, dynamic growth, shrinking, or reserve operations;
 - blocking push, blocking pop, spin-until-success push, or wait integration;
@@ -44,18 +45,25 @@ If a consumer wants retry or backoff, it loops around `tryPushBack` and owns tha
 policy. If a consumer wants notification, it calls a signal after successful
 publication.
 
+Future MPSC primitives (`mpsc.Queue`, linked variants, etc.) live under the same
+`concurrent.mpsc` namespace when they are approved by their own specs.
+
 ## Public namespace
 
-`MpscRing` lives under `stdx.concurrent`:
+The MPSC family lives under `stdx.concurrent.mpsc`:
 
 ```zig
-stdx.concurrent.MpscRing
+stdx.concurrent.mpsc
+stdx.concurrent.mpsc.Ring
+stdx.concurrent.mpsc.Ring.Static
+stdx.concurrent.mpsc.Ring.Bounded
 ```
 
 It is not root-promoted:
 
 ```zig
-stdx.MpscRing // not exported
+stdx.mpsc     // not exported
+stdx.Ring     // reserved by stdx.collections.Ring; not this ring
 ```
 
 Source ownership:
@@ -70,17 +78,22 @@ test/concurrent/mpsc_ring_test.zig
 
 ```zig
 pub const mpsc = @import("concurrent/mpsc.zig");
-
-pub const MpscRing = mpsc.MpscRing;
 ```
 
-`src/concurrent.zig` is a thin facade. It contains no logic beyond re-exporting
-and aliasing.
+Only the sub-namespace is exported. There is no `pub const Ring = mpsc.Ring;`
+alias; callers reach `Ring` through `stdx.concurrent.mpsc.Ring` and alias
+locally when call sites are dense:
+
+```zig
+const mpsc = stdx.concurrent.mpsc;
+```
+
+`src/concurrent.zig` is a thin facade. It contains no logic beyond re-exporting.
 
 ## Approved API
 
 ```zig
-pub const MpscRing = struct {
+pub const Ring = struct {
     pub fn Static(comptime T: type, comptime capacity_items: usize) type;
     pub fn Bounded(comptime T: type) type;
 };
@@ -351,11 +364,11 @@ Implementation must:
 - leave ring state unchanged on `error.Full` and `error.Contended`;
 - avoid copying `T` more than required to store and return items.
 
-## Planned consumers
+## Planned use
 
-`zvm` requires a bounded MPSC work/event ring to let multiple producer contexts
-submit work to a single owner without allocating. The owner can pair the ring
-with `stdx.sync.Signal`:
+A bounded MPSC work/event ring lets multiple producer contexts submit work to
+a single owner without allocating. The owner pairs the ring with
+`stdx.sync.Signal`:
 
 ```zig
 try work.tryPushBack(item);
@@ -409,7 +422,8 @@ is the normative proof obligation.
 Static ring:
 
 ```zig
-const WorkRing = stdx.concurrent.MpscRing.Static(WorkItem, 64);
+const mpsc = stdx.concurrent.mpsc;
+const WorkRing = mpsc.Ring.Static(WorkItem, 64);
 
 var ring: WorkRing = undefined;
 ring.init();
@@ -422,7 +436,8 @@ _ = item;
 Bounded ring:
 
 ```zig
-const WorkRing = stdx.concurrent.MpscRing.Bounded(WorkItem);
+const mpsc = stdx.concurrent.mpsc;
+const WorkRing = mpsc.Ring.Bounded(WorkItem);
 
 var slots: [64]WorkRing.Slot = undefined;
 var ring: WorkRing = undefined;

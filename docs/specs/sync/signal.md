@@ -370,9 +370,9 @@ Implementation must:
 - never allocate in the signal layer;
 - avoid hidden globals and target-specific waits in the signal layer.
 
-## Planned consumers
+## Planned use
 
-`zvm` can use a signal as the doorbell for a `stdx.concurrent.MpscRing`:
+A signal serves as a doorbell for a `stdx.concurrent.mpsc.Ring`:
 
 ```zig
 try ring.tryPushBack(item);
@@ -396,8 +396,8 @@ if (ring.popFront()) |item| {
 try ready.wait();
 ```
 
-`zvm` supplies the backend that maps `wait` and `wakeAll` to its scheduler or wait
-queue.
+The backend supplied by the caller maps `wait` and `wakeAll` to its scheduler
+or wait queue.
 
 ## Required tests
 
@@ -441,13 +441,13 @@ spec is the normative proof obligation.
 Backend shape:
 
 ```zig
-const ZvmSignalBackend = struct {
-    queue: *zvm.WaitQueue,
+const WaitQueueBackend = struct {
+    queue: *WaitQueue,
 
     pub const WaitError = error{ Canceled };
 
     pub fn wait(
-        self: *ZvmSignalBackend,
+        self: *WaitQueueBackend,
         state: *const stdx.sync.Signal.State,
         observed: stdx.sync.Signal.Token,
     ) WaitError!void {
@@ -459,7 +459,7 @@ const ZvmSignalBackend = struct {
         try self.queue.parkCurrent();
     }
 
-    pub fn wakeAll(self: *ZvmSignalBackend) void {
+    pub fn wakeAll(self: *WaitQueueBackend) void {
         self.queue.wakeAll();
     }
 };
@@ -468,7 +468,7 @@ const ZvmSignalBackend = struct {
 Signal usage:
 
 ```zig
-const Ready = stdx.sync.Signal.Manual(ZvmSignalBackend);
+const Ready = stdx.sync.Signal.Manual(WaitQueueBackend);
 
 var ready: Ready = undefined;
 ready.init(.unset, .{ .queue = &queue });
