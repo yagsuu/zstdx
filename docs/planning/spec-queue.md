@@ -83,6 +83,7 @@ Proposals must not include:
 - `docs/specs/barrier/overview.md`
 - `docs/specs/concurrent/mpsc-ring.md`
 - `docs/specs/sync/signal.md`
+- `docs/specs/time/monotonic.md`
 
 ## Queue
 
@@ -185,8 +186,6 @@ exist.
   a contract beyond exposing Zig/compiler fence syntax.
 - `docs/specs/barrier/cpu-fence.md` — write only if the barrier overview
   approves cross-target semantics beyond naming target fence instructions.
-- `docs/specs/time/deadline.md` — defer unless a polling or concurrency
-  primitive needs deadline semantics beyond caller-supplied time arithmetic.
 - `docs/specs/algo/sort.md` — defer unless the proposal adds comparator,
   stability, bounded-memory, or test-model value beyond `std.sort`.
 
