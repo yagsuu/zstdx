@@ -81,6 +81,7 @@ Proposals must not include:
 - `docs/specs/diag/diagnostic.md`
 - `docs/specs/graph/forest.md`
 - `docs/specs/barrier/overview.md`
+- `docs/specs/io/mmio.md`
 - `docs/specs/barrier/dma.md`
 - `docs/specs/concurrent/mpsc-ring.md`
 - `docs/specs/sync/signal.md`
@@ -104,9 +105,6 @@ exist.
   DMA mapping, IOMMU, cache-maintenance, or protocol descriptor policy.
 - `docs/specs/io/volatile-cell.md` — only if the proposal defines access and
   ordering guarantees beyond bare volatile loads and stores.
-- `docs/specs/io/mmio-register.md` — after volatile and barrier contracts; do
-  not approve generic read-modify-write unless the register-kind contract makes
-  side effects safe.
 - `docs/specs/rings/descriptor-ring.md` — after tags, scatter/gather, barrier,
   and IO contracts define the lower-level behavior.
 - `docs/specs/bits/bitflags.md` — only if the proposal adds enum-domain masks,
