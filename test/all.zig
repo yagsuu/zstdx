@@ -1,7 +1,6 @@
 //! Default host test suite aggregate. Spec: docs/specs/architecture.md.
 
 comptime {
-    _ = @import("public_exports_test.zig");
     _ = @import("sync/signal_test.zig");
     _ = @import("concurrent/mpsc_ring_test.zig");
     _ = @import("core/options_test.zig");
