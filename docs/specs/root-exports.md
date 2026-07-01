@@ -116,14 +116,15 @@ pub const algo = @import("algo.zig");
 pub const tags = @import("tags.zig");
 pub const arch = @import("arch.zig");
 pub const diag = @import("diag.zig");
+pub const sync = @import("sync.zig");
 
 pub const List = collections.List;
 pub const Ring = collections.Ring;
 ```
 
-`List` and `Ring` are root-promoted collection families. `diag` and `graph` are
-namespace exports only; `Diagnostics`, `ScopeOptions`, `Scope`, and `Forest`
-remain under their owning namespaces.
+`List` and `Ring` are root-promoted collection families. `sync`, `diag`, and
+`graph` are namespace exports only; `Signal`, `Diagnostics`, `ScopeOptions`,
+`Scope`, and `Forest` remain under their owning namespaces.
 
 ## Exports that stay namespaced
 

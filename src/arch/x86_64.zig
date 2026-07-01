@@ -3,7 +3,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// True iff the build target is x86_64. The module is `@import`-able on any
+/// True if the build target is x86_64. The module is `@import`-able on any
 /// target; bodies that emit inline assembly gate on `if (!supported)
 /// @compileError(wrong_target);` so non-x86_64 builds see compile errors only
 /// at use sites, never at import.
