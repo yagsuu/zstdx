@@ -16,6 +16,7 @@ pub const arch = @import("arch.zig");
 pub const diag = @import("diag.zig");
 pub const sync = @import("sync.zig");
 pub const concurrent = @import("concurrent.zig");
+pub const barrier = @import("barrier.zig");
 pub const time = @import("time.zig");
 
 pub const List = collections.List;

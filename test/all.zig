@@ -32,5 +32,8 @@ comptime {
     _ = @import("intrusive/list_test.zig");
     _ = @import("intrusive/queue_test.zig");
     _ = @import("intrusive/stack_test.zig");
+    _ = @import("barrier/compiler_test.zig");
+    _ = @import("barrier/mmio_test.zig");
+    _ = @import("barrier/dma_test.zig");
     _ = @import("time/monotonic_test.zig");
 }

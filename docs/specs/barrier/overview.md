@@ -32,7 +32,7 @@ This spec does not own:
 - proving hardware ordering through ordinary unit tests;
 - replacing Zig's atomic ordering names.
 
-Future specs such as `docs/specs/barrier/io-dma.md` may approve concrete APIs.
+Future specs such as `docs/specs/barrier/dma.md` may approve concrete APIs.
 Until then, specs that need ordering name Zig atomic orderings directly.
 
 ## Public namespace

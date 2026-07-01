@@ -81,6 +81,7 @@ Proposals must not include:
 - `docs/specs/diag/diagnostic.md`
 - `docs/specs/graph/forest.md`
 - `docs/specs/barrier/overview.md`
+- `docs/specs/barrier/dma.md`
 - `docs/specs/concurrent/mpsc-ring.md`
 - `docs/specs/sync/signal.md`
 - `docs/specs/time/monotonic.md`
@@ -101,8 +102,6 @@ exist.
 
 - `docs/specs/sg/scatter-gather-list.md` — generic segment list or builder; no
   DMA mapping, IOMMU, cache-maintenance, or protocol descriptor policy.
-- `docs/specs/barrier/io-dma.md` — MMIO and DMA visibility contracts, not a
-  thin wrapper around one target instruction.
 - `docs/specs/io/volatile-cell.md` — only if the proposal defines access and
   ordering guarantees beyond bare volatile loads and stores.
 - `docs/specs/io/mmio-register.md` — after volatile and barrier contracts; do
