@@ -64,6 +64,8 @@ The host-side test suite is aggregated by `test/all.zig`.
 | `stdx.tags` | `Tag`, `TagAllocator` |
 | `stdx.arch` | Target-gated instruction primitives |
 | `stdx.diag` | Scoped diagnostics |
+| `stdx.sync` | `Signal` |
+| `stdx.concurrent` | `MpscRing` |
 
 | Root export | Canonical home | Notes |
 | --- | --- | --- |
@@ -387,6 +389,45 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | Diagnostics never masks the original failure with diagnostic allocation failure. |
 | Invalidation | `deinit()` invalidates retained frames, labels, details, and lazy captures. |
 | Ordering | Retained frames render in deterministic DFS pre-order. |
+
+### Synchronization
+
+#### `sync.Signal`
+
+| Family | APIs | Storage | Constructor |
+| --- | --- | --- | --- |
+| Manual-reset signal | `Signal.State`, `Signal.Token`, `Signal.Manual(Backend)` | One atomic `usize` word plus backend value | `Signal.State.init(initial)`; `Signal.Manual(Backend).init(self, initial, backend)` |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. State is one atomic word; the backend value is stored inline. |
+| Waiting | `set` and `clear` never wait; `wait` delegates to the compile-time backend's `wait(&state, token)`. |
+| Concurrency | Multi-producer `set`/`clear`; any number of `wait`ers via the backend. `Signal.State` observation is lock-free. |
+| Performance | `set`, `clear`, `isSet`, and `stateRef` are O(1) CAS or acquire loads; `wait` loops until observing the set flag. |
+| Errors | Backend-defined `WaitError`; propagated unchanged. `set` and `clear` are infallible. |
+| Mutation on error | Redundant `set`/`clear` leave the state word unchanged; backend `wait` failure does not mutate state. |
+| Invalidation | None; the primitive owns no external storage. Copying/moving after initialization is outside the contract. |
+| Ordering | Sticky (manual reset). `set` release-publishes the unset->set transition and calls `backend.wakeAll()` exactly once on the winning CAS; `clear` release-publishes the set->unset transition and never wakes. Lost-wakeup protection is via `Token.changedSince(observed)` from the backend. |
+
+### Concurrent
+
+#### `concurrent.MpscRing`
+
+| Variant | Storage | Constructor | Capacity |
+| --- | --- | --- | --- |
+| `MpscRing.Static(T, N)` | Inline `[N]Slot` | `init(self)` | Comptime `N` items; non-zero power of two |
+| `MpscRing.Bounded(T)` | Caller-owned `[]Slot` | `init(self, slots)` | `slots.len` items; non-zero power of two |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. Slots come from inline or caller-owned storage. |
+| Waiting | Never. `tryPushBack` is one bounded attempt; `popFront` returns `null` when no front item is published. Pair with `sync.Signal` when a consumer needs to park. |
+| Concurrency | Any number of producers via `tryPushBack`; exactly one consumer via `popFront`. |
+| Performance | `tryPushBack` is one acquire load, one CAS, one release store on success; `popFront` and `isEmpty` are one monotonic load plus one acquire load. |
+| Errors | `error.Full` when `tail - head >= capacity`; `error.Contended` when the tail-reservation CAS is lost. Zero-sized `T` and non-power-of-two `Static` capacity are compile errors. |
+| Mutation on error | Both `Full` and `Contended` leave the ring unchanged; the producer's `item` is never stored. |
+| Invalidation | `popFront` release-frees its slot; producers reuse freed slots only after the consumer's release-store. |
+| Ordering | FIFO across successful reservations. Producer payload write is release-published via the slot sequence; consumer reads are acquire-ordered. `tryPushBack` performs no internal retry — retry/backoff belong to the caller. |
 
 ## Documentation
 
