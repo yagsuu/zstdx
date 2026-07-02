@@ -380,17 +380,17 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 
 | Family | APIs | Storage | Constructor |
 | --- | --- | --- | --- |
-| Scoped diagnostics | `Diagnostics`, `ScopeOptions`, `Scope`, `LazyDetail`, `lazy` | Private arena plus retained frame forest | `Diagnostics.init(gpa)` |
+| Scoped diagnostics | `Diagnostics.Static`, `Scope`, `FormattedDetail`, `fmt`, `scope` | Inline frame slots plus inline detail arena bytes | `Diagnostics.Static(.{ ... }).init()` |
 
 | Contract | Value |
 | --- | --- |
-| External allocation | Yes. Uses the allocator passed to `Diagnostics.init(gpa)` for retained frames, labels, details, and lazy captures. Allocation failure degrades to no-op diagnostics. |
-| Waiting | Follows supplied allocator behavior; diagnostics itself performs no blocking operation beyond allocator calls. |
+| External allocation | Never. Frames and formatted-detail bytes come from inline storage; arena exhaustion omits formatted detail without replacing the originating error. |
+| Waiting | Never. Diagnostics uses no heap, syscalls, locks, or blocking operations. |
 | Concurrency | Single-owner mutable diagnostics value; shared mutable access requires external synchronization. |
-| Performance | Scope open/detail may allocate; successful scopes discard; formatting walks retained frames in DFS order. |
-| Errors | Diagnostic operations are infallible; diagnostic allocation failure does not replace the originating error. |
-| Mutation on error | Diagnostics never masks the original failure with diagnostic allocation failure. |
-| Invalidation | `deinit()` invalidates retained frames, labels, details, and lazy captures. |
+| Performance | Scope open is an inline frame-slot push; `fmt` details registered through `scope()` are formatted only by `Scope.unwind()` on the error path. |
+| Errors | Diagnostic operations are infallible; diagnostic capacity exhaustion does not replace the originating error. |
+| Mutation on error | Diagnostics never masks the original failure with diagnostic capacity exhaustion. |
+| Invalidation | `clear()`/`deinit()` invalidate retained frames and formatted details and reset the inline arena. |
 | Ordering | Retained frames render in deterministic DFS pre-order. |
 
 ### Synchronization

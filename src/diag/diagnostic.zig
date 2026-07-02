@@ -1,250 +1,368 @@
 //! Spec: docs/specs/diag/diagnostic.md.
 
 const std = @import("std");
-const graph = @import("../graph.zig");
+const mem = @import("../mem.zig");
 
 const Allocator = std.mem.Allocator;
 const SourceLocation = std.builtin.SourceLocation;
 const Writer = std.Io.Writer;
 
-const PendingDetail = struct {
-    context: *const anyopaque,
-    materialize: *const fn (context: *const anyopaque, allocator: Allocator) ?[]const u8,
-};
+const FrameIndex = usize;
 
-pub fn LazyDetail(comptime Args: type, comptime fmt: []const u8) type {
+pub fn FormattedDetail(comptime Args: type, comptime format: []const u8) type {
     return struct {
         args: Args,
 
         const Self = @This();
 
-        pub const is_diagnostic_lazy_detail = true;
-
-        fn capture(self: Self, allocator: Allocator) ?PendingDetail {
-            const stored = allocator.create(Self) catch return null;
-            stored.* = self;
-            return .{
-                .context = stored,
-                .materialize = materialize,
-            };
-        }
-
-        fn materialize(context: *const anyopaque, allocator: Allocator) ?[]const u8 {
-            const self: *const Self = @ptrCast(@alignCast(context));
-            return std.fmt.allocPrint(allocator, fmt, self.args) catch null;
+        fn materialize(self: Self, allocator: Allocator) ?[]const u8 {
+            return std.fmt.allocPrint(allocator, format, self.args) catch null;
         }
     };
 }
 
-pub fn lazy(comptime fmt: []const u8, args: anytype) LazyDetail(@TypeOf(args), fmt) {
+pub fn fmt(comptime format: []const u8, args: anytype) FormattedDetail(@TypeOf(args), format) {
     return .{ .args = args };
 }
 
-/// Scoped failure-context carrier. Pass `?*Diagnostics` through fallible call
-/// chains; each function opens a frame describing what it is doing.
+pub fn scope(diag: anytype, options: anytype) Scope(ScopeDiag(@TypeOf(diag)), @TypeOf(options)) {
+    return makeScope(scopeDiagValue(diag), options);
+}
+
 pub const Diagnostics = struct {
-    const FrameForest = graph.Forest.Linked(Frame, "node");
+    pub const StaticConfig = struct {
+        frames: usize,
+        arena_bytes: usize = 0,
+    };
 
-    arena: std.heap.ArenaAllocator,
-    frames: FrameForest = .init(),
-    current: ?*Frame = null,
-
-    pub fn init(gpa: Allocator) Diagnostics {
-        return .{ .arena = .init(gpa) };
-    }
-
-    pub fn deinit(self: *Diagnostics) void {
-        self.arena.deinit();
-        self.* = undefined;
-    }
-
-    pub fn isEmpty(self: *const Diagnostics) bool {
-        return self.frames.isEmpty();
-    }
-
-    /// Push a scope. Caller must pair the returned scope with `defer s.pop()`.
-    /// To retain it on an error path, add `errdefer |err| s.fail(err)`.
-    pub fn scoped(self: *Diagnostics, options: anytype) Scope {
-        const label: []const u8 = options.label;
-        const source: ?SourceLocation = if (@hasField(@TypeOf(options), "source")) options.source else null;
-
-        std.debug.assert(label.len != 0);
-
-        const arena_allocator = self.arena.allocator();
-        const frame = arena_allocator.create(Frame) catch return .noop;
-        const label_copy = arena_allocator.dupe(u8, label) catch return .noop;
-
-        frame.* = .{
-            .node = .{},
-            .label = label_copy,
-            .detail = null,
-            .pending_detail = null,
-            .source = source,
-            .err = null,
+    pub fn Static(comptime config: StaticConfig) type {
+        comptime if (config.frames == 0) {
+            @compileError("Diagnostics.Static requires at least one frame");
         };
+        const Arena = mem.Arena.Static(config.arena_bytes);
 
-        if (@hasField(@TypeOf(options), "detail")) {
-            if (!self.setInitialDetail(frame, options.detail)) return .noop;
-        }
+        return struct {
+            frames: [config.frames]Frame = undefined,
+            arena: Arena = Arena.init(),
+            frame_len: usize = 0,
+            first_root: ?FrameIndex = null,
+            last_root: ?FrameIndex = null,
+            current: ?FrameIndex = null,
 
-        if (self.current) |parent| {
-            FrameForest.appendChild(parent, frame);
-        } else {
-            self.frames.appendRoot(frame);
-        }
-        self.current = frame;
+            const Self = @This();
 
-        return .{ .inner = .{ .diag = self, .frame = frame } };
+            pub fn init() Self {
+                return .{
+                    .arena = Arena.init(),
+                };
+            }
+
+            pub fn deinit(self: *Self) void {
+                self.clear();
+                self.* = undefined;
+            }
+
+            pub fn clear(self: *Self) void {
+                std.debug.assert(self.current == null);
+                self.frame_len = 0;
+                self.first_root = null;
+                self.last_root = null;
+                self.current = null;
+                self.arena.reset();
+            }
+
+            pub fn isEmpty(self: *const Self) bool {
+                return self.first_root == null;
+            }
+
+            pub fn scope(self: *Self, options: anytype) Scope(*Self, @TypeOf(options)) {
+                return makeScope(self, options);
+            }
+
+            /// Render retained frames to `w`. Empty diagnostics render nothing.
+            pub fn format(self: *const Self, w: *Writer) Writer.Error!void {
+                var first = true;
+                var frame = self.first_root;
+                while (frame) |index| : (frame = self.frames[index].next_sibling) {
+                    try self.renderFrame(index, w, 1, &first);
+                }
+            }
+
+            fn pushFrame(self: *Self, options: anytype) ?FrameIndex {
+                const Options = @TypeOf(options);
+                const label: []const u8 = options.label;
+                const source: ?SourceLocation = if (@hasField(Options, "source")) options.source else null;
+
+                std.debug.assert(label.len != 0);
+
+                if (self.frame_len == self.frames.len) return null;
+                const index = self.frame_len;
+                self.frame_len += 1;
+                self.frames[index] = .{
+                    .parent = self.current,
+                    .first_child = null,
+                    .last_child = null,
+                    .next_sibling = null,
+                    .label = label,
+                    .detail = null,
+                    .source = source,
+                    .err = null,
+                };
+
+                self.appendFrame(index, self.current);
+                self.current = index;
+                return index;
+            }
+
+            fn appendFrame(self: *Self, frame: FrameIndex, parent: ?FrameIndex) void {
+                if (parent) |p| {
+                    if (self.frames[p].last_child) |last| {
+                        self.frames[last].next_sibling = frame;
+                    } else {
+                        self.frames[p].first_child = frame;
+                    }
+                    self.frames[p].last_child = frame;
+                } else {
+                    if (self.last_root) |last| {
+                        self.frames[last].next_sibling = frame;
+                    } else {
+                        self.first_root = frame;
+                    }
+                    self.last_root = frame;
+                }
+            }
+
+            fn popFrame(self: *Self, frame: FrameIndex) void {
+                std.debug.assert(self.current == frame);
+                self.current = self.frames[frame].parent;
+
+                if (self.frames[frame].err == null) {
+                    self.discardFrame(frame);
+                }
+            }
+
+            fn unwindFrame(self: *Self, frame: FrameIndex, err: anyerror) void {
+                self.frames[frame].err = err;
+            }
+
+            fn clearFrameDetail(self: *Self, frame: FrameIndex) void {
+                self.frames[frame].detail = null;
+            }
+
+            fn setBorrowedFrameDetail(self: *Self, frame: FrameIndex, value: ?[]const u8) void {
+                self.frames[frame].detail = value;
+            }
+
+            fn setFormattedFrameDetail(self: *Self, frame: FrameIndex, value: anytype) void {
+                comptime {
+                    if (!@hasDecl(@TypeOf(value), "materialize")) {
+                        @compileError("formatted diagnostic details must be produced by stdx.diag.fmt(...)");
+                    }
+                }
+
+                const alloc = self.allocator() orelse return;
+                const text = value.materialize(alloc) orelse return;
+                self.frames[frame].detail = text;
+            }
+
+            fn allocator(self: *Self) ?Allocator {
+                if (config.arena_bytes == 0) return null;
+                return self.arena.allocator();
+            }
+
+            fn discardFrame(self: *Self, frame: FrameIndex) void {
+                self.unlinkFrame(frame);
+                self.frame_len = frame;
+            }
+
+            fn unlinkFrame(self: *Self, frame: FrameIndex) void {
+                const parent = self.frames[frame].parent;
+                var previous: ?FrameIndex = null;
+                var link: *?FrameIndex = if (parent) |p| &self.frames[p].first_child else &self.first_root;
+
+                while (link.*) |cursor| {
+                    if (cursor == frame) {
+                        link.* = self.frames[frame].next_sibling;
+                        if (parent) |p| {
+                            if (self.frames[p].last_child == frame) self.frames[p].last_child = previous;
+                        } else {
+                            if (self.last_root == frame) self.last_root = previous;
+                        }
+                        return;
+                    }
+                    previous = cursor;
+                    link = &self.frames[cursor].next_sibling;
+                }
+            }
+
+            fn renderFrame(
+                self: *const Self,
+                frame: FrameIndex,
+                w: *Writer,
+                depth: usize,
+                first: *bool,
+            ) Writer.Error!void {
+                const item = self.frames[frame];
+
+                if (first.*) {
+                    first.* = false;
+                } else {
+                    try w.writeByte('\n');
+                }
+
+                try writeIndent(w, depth);
+                try w.print("at {f}", .{std.zig.fmtString(item.label)});
+                if (item.detail) |detail| {
+                    try w.print(": {f}", .{std.zig.fmtString(detail)});
+                }
+                if (item.source) |source| {
+                    try w.print(" ({s}:{d})", .{ source.file, source.line });
+                }
+                if (item.err) |err| {
+                    try w.print(" -> {t}", .{err});
+                }
+
+                var child = item.first_child;
+                while (child) |c| : (child = self.frames[c].next_sibling) {
+                    try self.renderFrame(c, w, depth + 1, first);
+                }
+            }
+        };
     }
-
-    /// Null-adapter for branch-free call sites.
-    pub fn open(diag: ?*Diagnostics, options: anytype) Scope {
-        if (diag) |d| return d.scoped(options);
-        return .noop;
-    }
-
-    /// Render retained frames to `w`. Empty diagnostics render nothing.
-    pub fn format(self: Diagnostics, w: *Writer) Writer.Error!void {
-        var first = true;
-        var frame = self.frames.constFirstRoot();
-        while (frame) |f| : (frame = FrameForest.constNextSibling(f)) {
-            try renderFrame(f, w, 1, &first);
-        }
-    }
-
-    fn setInitialDetail(self: *Diagnostics, frame: *Frame, detail: anytype) bool {
-        if (comptime isLazyDetail(@TypeOf(detail))) {
-            frame.pending_detail = detail.capture(self.arena.allocator()) orelse return false;
-            return true;
-        }
-
-        const maybe_text: ?[]const u8 = detail;
-        if (maybe_text) |text| {
-            frame.detail = self.arena.allocator().dupe(u8, text) catch return false;
-        }
-        return true;
-    }
-
-    fn setLazyDetail(self: *Diagnostics, frame: *Frame, detail: anytype) void {
-        if (detail.capture(self.arena.allocator())) |pending| {
-            frame.pending_detail = pending;
-        }
-    }
-
-    fn materializePendingDetail(self: *Diagnostics, frame: *Frame) void {
-        const pending = frame.pending_detail orelse return;
-        frame.pending_detail = null;
-        if (pending.materialize(pending.context, self.arena.allocator())) |detail| {
-            frame.detail = detail;
-        }
-    }
-
-    fn renderFrame(frame: *const Frame, w: *Writer, depth: usize, first: *bool) Writer.Error!void {
-        if (first.*) {
-            first.* = false;
-        } else {
-            try w.writeByte('\n');
-        }
-
-        try writeIndent(w, depth);
-        try w.print("at {f}", .{std.zig.fmtString(frame.label)});
-        if (frame.detail) |detail| {
-            try w.print(": {f}", .{std.zig.fmtString(detail)});
-        }
-        if (frame.source) |source| {
-            try w.print(" ({s}:{d})", .{ source.file, source.line });
-        }
-        if (frame.err) |err| {
-            try w.print(" -> {t}", .{err});
-        }
-
-        var child = FrameForest.constFirstChild(frame);
-        while (child) |c| : (child = FrameForest.constNextSibling(c)) {
-            try renderFrame(c, w, depth + 1, first);
-        }
-    }
-
-    fn writeIndent(w: *Writer, depth: usize) Writer.Error!void {
-        var i: usize = 0;
-        while (i < depth * 2) : (i += 1) {
-            try w.writeByte(' ');
-        }
-    }
-
-    pub const Frame = struct {
-        node: graph.Forest.LinkedNode = .{},
-        label: []const u8,
-        detail: ?[]const u8,
-        pending_detail: ?PendingDetail,
-        source: ?SourceLocation,
-        err: ?anyerror,
-    };
 };
 
-pub const ScopeOptions = struct {
-    /// Short noun phrase describing the operation. Copied into the diagnostics
-    /// arena on push.
-    label: []const u8,
-    /// Optional secondary line of context. Copied into the diagnostics arena on
-    /// push, and replaced by `Scope.detail*` calls.
-    detail: ?[]const u8 = null,
-    /// Call-site source location. Pass `@src()` to render `(file:line)`.
-    source: ?SourceLocation = null,
-};
+pub fn Scope(comptime Diag: type, comptime Options: type) type {
+    return struct {
+        diag: Diag,
+        frame: ?FrameIndex = null,
+        options: Options,
+        detail_overridden: bool = false,
 
-pub const Scope = struct {
-    inner: ?Inner = null,
+        const Self = @This();
 
-    pub const noop: Scope = .{};
-
-    const Inner = struct {
-        diag: *Diagnostics,
-        frame: *Diagnostics.Frame,
-    };
-
-    /// Replace the frame detail. No-op for `Scope.noop` or arena OOM.
-    pub fn detail(self: Scope, text: []const u8) void {
-        const inner = self.inner orelse return;
-        const detail_copy = inner.diag.arena.allocator().dupe(u8, text) catch return;
-        inner.frame.detail = detail_copy;
-        inner.frame.pending_detail = null;
-    }
-
-    /// Lazily format and replace the frame detail if the frame is retained.
-    pub fn detailf(self: Scope, comptime fmt: []const u8, args: anytype) void {
-        const inner = self.inner orelse return;
-        inner.diag.setLazyDetail(inner.frame, lazy(fmt, args));
-    }
-
-    /// Mark this frame failed. Retained by the following `pop`.
-    pub fn fail(self: Scope, err: anyerror) void {
-        const inner = self.inner orelse return;
-        inner.frame.err = err;
-    }
-
-    /// Pop this frame. Successful leaf frames are unlinked; failed frames and
-    /// ancestors of retained children remain in the diagnostics tree.
-    pub fn pop(self: Scope) void {
-        const inner = self.inner orelse return;
-        const diag = inner.diag;
-        const frame = inner.frame;
-
-        std.debug.assert(diag.current == frame);
-        diag.current = Diagnostics.FrameForest.parent(frame);
-
-        if (frame.err == null and Diagnostics.FrameForest.firstChild(frame) == null) {
-            diag.frames.remove(frame);
-            return;
+        pub fn pop(self: *Self) void {
+            if (comptime DiagnosticChild(Diag) == NoopDiagnostics) return;
+            const frame = self.frame orelse return;
+            const diag = diagnosticPointer(self.diag) orelse return;
+            diag.popFrame(frame);
+            self.frame = null;
         }
 
-        diag.materializePendingDetail(frame);
-    }
-};
+        pub fn unwind(self: *Self, err: anyerror) void {
+            if (comptime DiagnosticChild(Diag) == NoopDiagnostics) return;
+            const frame = self.frame orelse return;
+            const diag = diagnosticPointer(self.diag) orelse return;
+            if (!self.detail_overridden and comptime @hasField(Options, "detail")) {
+                Detail.apply(diag, frame, self.options.detail);
+            }
+            diag.unwindFrame(frame, err);
+        }
 
-fn isLazyDetail(comptime T: type) bool {
-    return switch (@typeInfo(T)) {
-        .@"struct", .@"enum", .@"union", .@"opaque" => @hasDecl(T, "is_diagnostic_lazy_detail") and
-            T.is_diagnostic_lazy_detail,
-        else => false,
+        pub fn detail(self: *Self, value: anytype) void {
+            if (comptime DiagnosticChild(Diag) == NoopDiagnostics) return;
+            const frame = self.frame orelse return;
+            const diag = diagnosticPointer(self.diag) orelse return;
+            Detail.apply(diag, frame, value);
+            self.detail_overridden = true;
+        }
     };
 }
+
+fn makeScope(diag: anytype, options: anytype) Scope(@TypeOf(diag), @TypeOf(options)) {
+    var out: Scope(@TypeOf(diag), @TypeOf(options)) = .{
+        .diag = diag,
+        .options = options,
+    };
+    if (comptime DiagnosticChild(@TypeOf(diag)) == NoopDiagnostics) return out;
+
+    const d = diagnosticPointer(diag) orelse return out;
+    out.frame = d.pushFrame(options);
+    return out;
+}
+
+fn ScopeDiag(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .null => ?*NoopDiagnostics,
+        else => T,
+    };
+}
+
+fn scopeDiagValue(value: anytype) ScopeDiag(@TypeOf(value)) {
+    return switch (@typeInfo(@TypeOf(value))) {
+        .null => null,
+        else => value,
+    };
+}
+
+fn DiagnosticChild(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .null => NoopDiagnostics,
+        .pointer => |pointer| pointer.child,
+        .optional => |optional| DiagnosticChild(optional.child),
+        else => @compileError("diagnostics value must be null, a diagnostics pointer, or an optional diagnostics pointer"),
+    };
+}
+
+fn DiagnosticPointer(comptime T: type) type {
+    return *DiagnosticChild(T);
+}
+
+fn diagnosticPointer(value: anytype) ?DiagnosticPointer(@TypeOf(value)) {
+    const T = @TypeOf(value);
+    return switch (@typeInfo(T)) {
+        .null => null,
+        .pointer => value,
+        .optional => if (value) |child| diagnosticPointer(child) else null,
+        else => @compileError("diagnostics value must be null, a diagnostics pointer, or an optional diagnostics pointer"),
+    };
+}
+
+const Detail = struct {
+    const Kind = enum {
+        none,
+        borrowed,
+        formatted,
+    };
+
+    fn apply(diag: anytype, frame: FrameIndex, value: anytype) void {
+        switch (comptime kind(@TypeOf(value))) {
+            .none => diag.clearFrameDetail(frame),
+            .borrowed => diag.setBorrowedFrameDetail(frame, borrowed(value)),
+            .formatted => diag.setFormattedFrameDetail(frame, value),
+        }
+    }
+
+    fn kind(comptime T: type) Kind {
+        return switch (@typeInfo(T)) {
+            .null => .none,
+            .optional, .pointer => .borrowed,
+            .@"struct" => .formatted,
+            else => @compileError("diagnostic detail must be null, bytes, optional bytes, or stdx.diag.fmt(...)"),
+        };
+    }
+
+    fn borrowed(value: anytype) ?[]const u8 {
+        const text: ?[]const u8 = value;
+        return text;
+    }
+};
+
+fn writeIndent(w: *Writer, depth: usize) Writer.Error!void {
+    var i: usize = 0;
+    while (i < depth * 2) : (i += 1) {
+        try w.writeByte(' ');
+    }
+}
+
+const Frame = struct {
+    parent: ?FrameIndex,
+    first_child: ?FrameIndex,
+    last_child: ?FrameIndex,
+    next_sibling: ?FrameIndex,
+    label: []const u8,
+    detail: ?[]const u8,
+    source: ?SourceLocation,
+    err: ?anyerror,
+};
+
+const NoopDiagnostics = struct {};

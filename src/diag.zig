@@ -3,7 +3,7 @@
 pub const diagnostic = @import("diag/diagnostic.zig");
 
 pub const Diagnostics = diagnostic.Diagnostics;
-pub const ScopeOptions = diagnostic.ScopeOptions;
 pub const Scope = diagnostic.Scope;
-pub const LazyDetail = diagnostic.LazyDetail;
-pub const lazy = diagnostic.lazy;
+pub const FormattedDetail = diagnostic.FormattedDetail;
+pub const fmt = diagnostic.fmt;
+pub const scope = diagnostic.scope;
