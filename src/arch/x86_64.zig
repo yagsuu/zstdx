@@ -1,4 +1,4 @@
-//! x86_64 architecture primitives. Spec: docs/specs/arch/x86_64.md.
+//! x86_64 architecture primitives. Spec: docs/specs/arch/x86_64/base.md.
 
 const std = @import("std");
 const builtin = @import("builtin");

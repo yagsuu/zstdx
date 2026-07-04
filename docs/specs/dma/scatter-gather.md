@@ -79,15 +79,15 @@ pub const ScatterGather = struct {
 ```zig
 pub const Segment = struct {
     addr: stdx.addr.DmaAddr,
-    len_bytes: usize,
+    len_bytes: stdx.addr.DmaAddr.Raw,
 
     pub const Address = stdx.addr.DmaAddr;
     pub const Error = error{ Misaligned, Overflow };
 
-    pub fn init(addr: Address, len_bytes: usize) Error!Segment;
+    pub fn init(addr: Address, len_bytes: Address.Raw) Error!Segment;
     pub fn fromBuffer(comptime T: type, buffer: stdx.dma.Buffer(T)) Segment;
 
-    pub fn byteLen(self: Segment) usize;
+    pub fn byteLen(self: Segment) Address.Raw;
     pub fn isEmpty(self: Segment) bool;
 
     pub fn endAddr(self: Segment) Error!Address;
@@ -127,16 +127,13 @@ is aliased or borrowed.
 ```zig
 Segment{
     .addr = buffer.dmaAddr(),
-    .len_bytes = @intCast(buffer.byteLen()),
+    .len_bytes = buffer.byteLen(),
 }
 ```
 
-Because `buffer.byteLen()` is bounded by `Address.Raw` (guaranteed by
-`Buffer(T).assertValid`), the `usize` cast is safe on every 64-bit target and
-on every 32-bit target where `buffer.byteLen()` fits in `usize`.
-Implementations perform a `std.math.cast` check before the `usize` conversion.
-The check cannot fail for a valid `Buffer(T)` on 64-bit targets; 32-bit targets
-must only call this helper when the buffer byte length fits in `usize`.
+`buffer.byteLen()` already returns `Address.Raw`, so descriptor-facing scatter
+segments carry the same byte-length width as `stdx.addr.DmaAddr`. No `usize`
+conversion is performed on the scatter-gather path.
 
 `byteLen()` returns `self.len_bytes`.
 
@@ -194,7 +191,7 @@ pub const Self = struct {
     pub fn at(self: *Self, index: usize) error{OutOfBounds}!*Segment;
     pub fn constAt(self: *const Self, index: usize) error{OutOfBounds}!*const Segment;
 
-    pub fn totalByteLen(self: *const Self) error{Overflow}!usize;
+    pub fn totalByteLen(self: *const Self) error{Overflow}!Segment.Address.Raw;
 
     pub fn assertValid(self: *const Self) void;
 };
@@ -219,7 +216,7 @@ condition as `append`.
 `at(index)` returns `error.OutOfBounds` when `index >= count`.
 
 `totalByteLen()` sums `segment.len_bytes` across `asConstSlice()`. It returns
-`error.Overflow` when the sum overflows `usize`.
+`error.Overflow` when the sum overflows `Segment.Address.Raw`.
 
 `clearRetainingCapacity()` sets `count` to zero and does not zero segment
 memory.
@@ -265,7 +262,7 @@ pub const Bounded = struct {
     pub fn at(self: *Bounded, index: usize) error{OutOfBounds}!*Segment;
     pub fn constAt(self: *const Bounded, index: usize) error{OutOfBounds}!*const Segment;
 
-    pub fn totalByteLen(self: *const Bounded) error{Overflow}!usize;
+    pub fn totalByteLen(self: *const Bounded) error{Overflow}!Segment.Address.Raw;
 
     pub fn assertValid(self: *const Bounded) void;
 };
@@ -423,7 +420,8 @@ atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
   approved List family error rules: `error.Full` on capacity exhaustion;
 - `List.at` and `List.constAt` return `error.OutOfBounds` when
   `index >= count`;
-- `List.totalByteLen` returns `error.Overflow` when the sum exceeds `usize`;
+- `List.totalByteLen` returns `error.Overflow` when the sum exceeds
+  `Segment.Address.Raw`;
 - `Builder.append` returns `error.Misaligned` before `error.Full`;
 - invalid `alignment` in `Builder` factories is a compile error;
 - corrupted `count` is a programmer error caught by `assertValid` where
@@ -475,7 +473,7 @@ try list.appendBuffer(u8, body);
 try list.appendBuffer(u8, trailer);
 
 for (list.asConstSlice()) |seg| {
-    descriptor.emit(seg.addr.raw(), @intCast(seg.byteLen()));
+    descriptor.emit(seg.addr.raw(), seg.byteLen());
 }
 ```
 
@@ -528,8 +526,9 @@ alignment such as `4096`).
 - `appendAssumeCapacity` mutates without checking;
 - `appendBuffer` combines `Segment.fromBuffer` and `append`;
 - `at` and `constAt` return `error.OutOfBounds` for `index >= count`;
-- `totalByteLen` returns the sum for valid lists;
-- `totalByteLen` returns `error.Overflow` when the sum exceeds `usize`;
+- `totalByteLen` returns the sum as `Segment.Address.Raw` for valid lists;
+- `totalByteLen` returns `error.Overflow` when the sum exceeds
+  `Segment.Address.Raw`;
 - `clearRetainingCapacity` resets `count` without touching capacity;
 - `Static(0)` and `Bounded.wrap(&[_]Segment{})` are both empty and full.
 

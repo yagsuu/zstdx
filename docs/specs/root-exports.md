@@ -118,6 +118,7 @@ pub const arch = @import("arch.zig");
 pub const diag = @import("diag.zig");
 pub const sync = @import("sync.zig");
 pub const concurrent = @import("concurrent.zig");
+pub const cpu = @import("cpu.zig");
 
 pub const List = collections.List;
 pub const Ring = collections.Ring;

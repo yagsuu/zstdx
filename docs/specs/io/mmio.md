@@ -86,29 +86,64 @@ aliasing.
 pub const Mmio = struct {
     pub fn Register(comptime T: type) type;
 
-    pub const Window = struct {
-        base: [*]align(min_align) volatile u8,
-        len: usize,
+    pub fn Window(comptime min_align_bytes: usize) type;
 
-        pub const min_align: usize = @alignOf(u64);
-        pub const Error = error{ OutOfBounds, Misaligned };
+    pub const default_window_align: usize = @alignOf(u64);
 
-        pub fn wrap(bytes: []align(min_align) volatile u8) Window;
-
-        pub fn register(
-            self: Window,
-            comptime T: type,
-            offset: usize,
-        ) Error!*volatile Register(T);
-
-        pub fn registerUnchecked(
-            self: Window,
-            comptime T: type,
-            offset: usize,
-        ) *volatile Register(T);
-    };
+    pub const Window64 = Window(@alignOf(u64));
+    pub const Window32 = Window(@alignOf(u32));
 };
 ```
+
+`Mmio.Window` is the type factory. `Mmio.Window64` is the recommended alias for
+MMIO regions guaranteed 8-byte-aligned (page-aligned BARs, canonical NVMe
+register blocks, etc.). `Mmio.Window32` is the alias for regions advertised
+with only 4-byte alignment (some legacy PCI BARs).
+
+Returned type from `Window(min_align_bytes)`:
+
+```zig
+pub const Self = struct {
+    base: [*]align(min_align) volatile u8,
+    len: usize,
+
+    pub const min_align: usize = min_align_bytes;
+    pub const Error = error{ OutOfBounds, Misaligned };
+
+    pub fn wrap(bytes: []align(min_align) volatile u8) Self;
+
+    pub fn byteLen(self: Self) usize;
+
+    pub fn register(
+        self: Self,
+        comptime T: type,
+        offset: usize,
+    ) Error!*volatile Register(T);
+
+    pub fn field(
+        self: Self,
+        comptime Layout: type,
+        comptime field_name: []const u8,
+    ) Error!*volatile Register(@FieldType(Layout, field_name));
+
+    pub fn registerUnchecked(
+        self: Self,
+        comptime T: type,
+        offset: usize,
+    ) *volatile Register(T);
+};
+```
+
+`min_align_bytes` must be a power of two and at least `@alignOf(u8)`. Compile
+errors reject invalid values with a legible message. Instantiating
+`Window(@alignOf(u64))`, `Window(@alignOf(u32))`, `Window(@alignOf(u16))`, or
+`Window(1)` is valid; every other value is a compile error.
+
+`Register(T)` requires `@alignOf(T) <= min_align` for `Window(min_align)` in
+addition to the runtime address check. Attempting `Window(@alignOf(u32))`'s
+`register(u64, offset)` returns `error.Misaligned` for any base whose 8-byte
+alignment is not guaranteed by the wrap parameter; the runtime check still
+catches it, but the intended shape for `u64` registers is `Window64`.
 
 Returned type from `Register(T)`:
 
@@ -218,15 +253,21 @@ Callers pair `load`/`store` with `stdx.barrier.mmio.*` and
 
 ## `Window.wrap` semantics
 
-`Window.wrap(bytes)` constructs a `Window` over the caller-owned byte range.
+`Window.wrap(bytes)` constructs a `Window(min_align)` over the caller-owned
+byte range.
 
-The parameter is `[]align(min_align) volatile u8`. `min_align` is
-`@alignOf(u64)`. Callers whose backing pages are not `min_align`-aligned must
-narrow the type before calling `wrap` — passing a lesser-aligned slice is a
-compile error, not a runtime error.
+The parameter is `[]align(min_align) volatile u8`. Callers whose backing pages
+are not `min_align`-aligned must narrow the type before calling `wrap` —
+passing a lesser-aligned slice is a compile error, not a runtime error. Use
+`Window32.wrap` when the backing region is only 4-byte-aligned.
 
 `wrap` performs no allocation, no copy, no validation of the underlying
 memory, and no device access.
+
+## `Window.byteLen` semantics
+
+`Window.byteLen()` returns `self.len` — the caller-supplied byte extent.
+`Window` performs no other length arithmetic on this field.
 
 ## `Window.register` semantics
 
@@ -235,7 +276,11 @@ pointer into the window at `offset`.
 
 Required behavior:
 
-- return `error.OutOfBounds` when `offset + @sizeOf(T) > self.len`;
+- return `error.OutOfBounds` when `@sizeOf(T) > self.len`;
+- return `error.OutOfBounds` when `offset > self.len - @sizeOf(T)`;
+- reject any `offset` whose `offset + @sizeOf(T)` would overflow `usize` by
+  performing the check as `offset > self.len - @sizeOf(T)` after the first
+  guard, so the addition never runs;
 - return `error.Misaligned` when
   `(@intFromPtr(self.base) + offset) % @alignOf(T) != 0`;
 - return a `*volatile Register(T)` on success.
@@ -243,6 +288,27 @@ Required behavior:
 The returned pointer aliases `self.base + offset`. It is valid for the lifetime
 of the underlying MMIO mapping. `Window` values are cheap to copy and do not
 own the mapping.
+
+## `Window.field` semantics
+
+`Window.field(Layout, field_name)` returns a typed pointer to the field
+`field_name` of an `extern struct` overlay `Layout` located at the start of the
+window. `Layout` must be an `extern struct`; the field type must satisfy the
+`Register(T)` type contract.
+
+Required behavior:
+
+- comptime-reject `Layout` types whose field `field_name` is missing;
+- comptime-reject when
+  `@offsetOf(Layout, field_name) + @sizeOf(@FieldType(Layout, field_name)) >
+  @sizeOf(Layout)` — a defence against packed/manually-authored layouts;
+- delegate the remaining runtime checks to `Window.register`, using
+  `offset = @offsetOf(Layout, field_name)` and
+  `T = @FieldType(Layout, field_name)`.
+
+`Window.field` is the recommended shape when the register block is fully
+described by an `extern struct` overlay; it removes hand-computed offsets from
+call sites.
 
 ## `Window.registerUnchecked` semantics
 
@@ -302,7 +368,8 @@ is a byte-order documentation tool rather than a runtime cost.
 | `Register.load` | never | never | O(1) | none | caller-serialized per register | volatile load; compiler-ordered against other volatile ops |
 | `Register.store` | never | never | O(1) | none | caller-serialized per register | volatile store; compiler-ordered against other volatile ops |
 | `Window.wrap` | never | never | O(1) | none | value type | none |
-| `Window.register` | never | never | O(1) | none | value type | none |
+| `Window.byteLen` | never | never | O(1) | none | value type | none |
+| `Window.register` / `Window.field` | never | never | O(1) | none | value type | none |
 | `Window.registerUnchecked` | never | never | O(1) | none | value type | none |
 
 MMIO primitives perform no heap allocation, sleeping, blocking, hidden
@@ -314,10 +381,13 @@ hidden global access.
 - `Register.load` and `Register.store` are infallible.
 - `Window.wrap` is infallible; alignment is enforced by the parameter type.
 - `Window.register` returns `error.OutOfBounds` when the range exceeds the
-  window and `error.Misaligned` when the offset breaks `@alignOf(T)`.
+  window and `error.Misaligned` when the offset breaks `@alignOf(T)`. The
+  runtime alignment check runs regardless of `min_align`.
 - `Window.registerUnchecked` is infallible in release builds; debug builds
   gated by `core.debug.checksEnabled` assert the same conditions.
 - `Register(T)` with a disallowed `T` is a compile error.
+- `Window.field` propagates the same runtime errors as `Window.register` and
+  additionally rejects layout mismatches at compile time.
 
 ## Implementation constraints
 
@@ -328,6 +398,8 @@ Implementation must:
   of type `T align(@alignOf(T))`;
 - lower `load` and `store` through `*volatile T` load and store, not through
   inline assembly;
+- accept every power-of-two `min_align_bytes` at least `1` and reject the rest
+  with `@compileError`;
 - avoid emitting any ISA-level fence in `load` or `store`;
 - avoid read-modify-write helpers;
 - keep `Window` free of heap allocation and hidden state beyond `base` and
@@ -339,6 +411,10 @@ Implementation must:
 - provide alignment and bounds checks in `register` in every optimize mode;
 - provide the same checks in `registerUnchecked` only under
   `core.debug.checksEnabled`.
+
+`Window.field` must validate its arguments entirely at compile time; only the
+delegated `Window.register` call incurs runtime checks. The compile-time
+diagnostic must name the offending layout and field.
 
 ## Planned use
 
@@ -403,6 +479,23 @@ run-time contracts.
 - `wrap` returns a window with `len == bytes.len`;
 - `wrap` accepts a properly aligned slice on every optimize mode.
 
+### `Window(min_align)` factory
+
+- `Window(@alignOf(u64))`, `Window(@alignOf(u32))`, `Window(@alignOf(u16))`,
+  and `Window(1)` all compile; `Window(3)` is a compile error; `Window(0)` is
+  a compile error;
+- `Window(@alignOf(u32)).wrap(bytes)` accepts a 4-byte-aligned slice on every
+  optimize mode;
+- `Window(@alignOf(u32)).wrap(bytes)` rejects an 8-byte-declared slice only
+  when its runtime alignment is lower than `@alignOf(u32)` — the parameter
+  type enforces this at compile time;
+- `Window(@alignOf(u32)).register(u64, 0)` returns `error.Misaligned` on a
+  scratch buffer whose runtime alignment is exactly 4 bytes;
+- `Window(@alignOf(u32)).register(u32, 0)` succeeds on a 4-byte-aligned
+  scratch buffer;
+- `Mmio.Window32` and `Mmio.Window64` resolve to
+  `Window(@alignOf(u32))` and `Window(@alignOf(u64))` respectively.
+
 ### `Window.register`
 
 - `register(u32, 0)` succeeds and returns a pointer aliasing `base`;
@@ -410,6 +503,8 @@ run-time contracts.
 - `register(u32, len - 3)` returns `error.OutOfBounds`;
 - `register(u64, len - 8)` succeeds;
 - `register(u64, len - 7)` returns `error.OutOfBounds`;
+- `register(u32, std.math.maxInt(usize) - 1)` returns `error.OutOfBounds`
+  without overflowing the pointer arithmetic;
 - `register(u32, 3)` returns `error.Misaligned` when `base` is 8-aligned;
 - `register(u32, 4)` succeeds when `base` is 8-aligned;
 - storing and loading through a pointer returned by `register` observes the
@@ -422,6 +517,22 @@ run-time contracts.
   `core.debug.checksEnabled`;
 - debug-mode assertion fires for a misaligned offset under
   `core.debug.checksEnabled`.
+
+### `Window.field`
+
+- `field(Layout, "cap")` for an `extern struct Layout { cap: Register(u64), vs:
+  Register(u32), ... }` returns a pointer equal to `register(u64, 0)`;
+- `field(Layout, "vs")` returns a pointer equal to
+  `register(u32, @offsetOf(Layout, "vs"))`;
+- `field(Layout, "missing")` is a compile error;
+- an `extern struct` whose declared field escapes `@sizeOf(Layout)` (should not
+  arise under `extern struct` layout rules but is checked defensively) is
+  rejected at compile time;
+- a `Layout` whose field type is a disallowed `Register(T)` argument (e.g.
+  `u24`) is rejected at compile time via `Register(T)`'s own compile-error
+  surface;
+- runtime `error.OutOfBounds` and `error.Misaligned` propagate identically to
+  `Window.register`.
 
 ### Overlay composition (compile-only)
 

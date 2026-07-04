@@ -208,6 +208,7 @@ pub const ControlRegister = struct {
     };
     pub const Cr2 = struct {
         pub fn read() u64;
+        pub fn write(value: u64) void;
     };
     pub const Cr3 = struct {
         pub fn read() u64;
@@ -392,9 +393,9 @@ callers needing a vendor- or model-specific leaf pass
 - `maxBasicLeaf()` returns `leaf(.max_basic).eax`.
 - `maxExtendedLeaf()` returns `leaf(.max_extended).eax`.
 
-This spec does not decode feature flags, vendor strings, brand strings, or
-topology. Feature decoding is a candidate for a later spec when a generic
-consumer needs it.
+See `docs/specs/arch/x86_64/cpuid.md` for vendor identification, version
+decoding, feature-flag decoding, cache topology, brand string, and
+address-size extraction built on top of these raw accessors.
 
 `cpuid` is unprivileged and available at any CPL.
 
@@ -414,9 +415,11 @@ hypervisor) or from CPU documentation.
 
 ### Control registers
 
-Each control register exposes a `read` method, and a `write` method where the
-register is writable. `Cr2` is read-only in this spec because the only defined
-writes occur during exception handling, which is out of scope.
+Each control register exposes a `read` method and a `write` method. `Cr2`
+writes are architecturally legal — `mov cr2, r64` — and used by hypervisors,
+VM-exit handlers, and page-fault injection paths in emulators. The bitfield
+meaning of the value (linear address of the last page fault) remains caller
+policy; this spec owns only the raw access.
 
 - `Cr0`, `Cr3`, `Cr4`, `Cr8` use `mov rNN, crX` / `mov crX, rNN`.
 - `Xcr0` uses `xgetbv`/`xsetbv` with `ecx = 0`.
@@ -452,6 +455,9 @@ hint.
 `Cpu.breakpoint` executes `int3`. Unprivileged; raises `#BP` so behavior
 depends on the installed exception handler.
 
+See also `Cpu.Tsc` and `Cpu.Tlb` in
+`docs/specs/arch/x86_64/extensions.md`.
+
 ### Descriptor tables
 
 `Descriptor.Pointer` is the architectural pseudo-descriptor used by `lgdt`,
@@ -476,6 +482,9 @@ Descriptor table loads are privileged. Stores are unprivileged on architectures
 where `sgdt`/`sidt` are accessible at CPL > 0, but that is a CPU/OS policy
 decision the caller owns. This spec does not own GDT or IDT entry layouts;
 those belong to the consuming kernel or firmware project.
+
+See also `Descriptor.Ldtr` in
+`docs/specs/arch/x86_64/extensions.md`.
 
 ### Segments
 
@@ -608,7 +617,8 @@ exceptions:
 
 - `Port.in*`/`out*`/`inSlice*`/`outSlice*` and `ioWait`: `#GP` when the
   effective IOPL or TSS I/O permission bitmap denies access.
-- `Msr.read`/`write`, `ControlRegister.*` writes, `ControlRegister.Cr8`,
+- `Msr.read`/`write`, `ControlRegister.*` writes (including `Cr2.write`),
+  `ControlRegister.Cr8`,
   `Interrupts.enable`/`disable`, `Cpu.halt`, `Descriptor.Gdt.load`,
   `Descriptor.Idt.load`, `Descriptor.TaskRegister.load`,
   `Segment.swapGs`, `Cache.writeBackInvalidate`, `Cache.invalidate`,
@@ -618,8 +628,9 @@ exceptions:
 - `Msr.read`/`write`: `#GP` when the MSR address is unimplemented.
 - `Xcr0.write`: `#GP` when bits violate CPU support.
 - `ControlRegister.Cr3.write`: may invalidate TLB entries per architectural
-  rules. This spec does not own TLB invalidation policy (`invlpg`, broadcast
-  invalidation, or PCID-aware flushing); callers handle those separately.
+  rules. Per-address invalidation (`invlpg`, `invpcid`) is provided by
+  `docs/specs/arch/x86_64/extensions.md`; broadcast invalidation remains
+  caller policy.
 
 Trap recovery is owned by the host OS, firmware, or hypervisor. `zstdx` does
 not install handlers and does not recover from these exceptions.

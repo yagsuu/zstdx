@@ -111,7 +111,7 @@ pub const Self = struct {
 
     pub const WaitError = Backend.WaitError;
 
-    pub fn init(self: *Self, initial: Signal.InitialState, backend: Backend) void;
+    pub fn init(initial: Signal.InitialState, backend: Backend) Self;
 
     pub fn isSet(self: *const Self) bool;
     pub fn set(self: *Self) void;
@@ -130,7 +130,9 @@ There is no `reset` alias, no `notify` alias, no `pulse`, no `waitTimeout`, no
 
 ## Backend interface
 
-`Signal.Manual(Backend)` requires `Backend` to provide:
+`Signal.Manual(Backend)` requires `Backend` to satisfy the shared wait/wake
+backend contract defined in `docs/specs/sync/spin.md`, specialized to
+`Signal.State` and `Signal.Token`:
 
 ```zig
 pub const WaitError = error{Canceled};
@@ -141,25 +143,28 @@ pub fn wait(
     observed: stdx.sync.Signal.Token,
 ) WaitError!void;
 
-pub fn wakeAll(self: *Backend) void;
+pub fn wakeAll(self: *Backend, state: *const stdx.sync.Signal.State) void;
 ```
 
 The concrete `WaitError` members are backend-specific; `error{Canceled}` above
 is illustrative. `WaitError` must be an explicit error set. `anyerror` is not
-approved.
+approved. `stdx.sync.spin.Backend` uses `error{}` and is the reference
+spin-only backend.
 
 `Backend` is stored by value in the signal. If backend state is large, mutable,
 or shared elsewhere, callers should make `Backend` a pointer or small handle
 type.
 
-`Backend.wait` may block, sleep, park, yield, spin, or return spuriously according
-to the backend's own contract. `Signal.wait` loops on spurious success returns
-until the signal is observed set or a backend error is returned.
+`Backend.wait` may block, sleep, park, yield, spin, or return spuriously
+according to the backend's own contract. `Signal.wait` loops on spurious
+success returns until the signal is observed set or a backend error is
+returned.
 
-`Backend.wakeAll` is called by `set` when the signal transitions from unset to
-set. It must wake every waiter that could be blocked in `Backend.wait` for this
-signal, or otherwise make those waiters return according to the backend's
-contract.
+`Backend.wakeAll` is called by `set` when the signal transitions from unset
+to set. The signal passes `&self.state` so shared wait-queue, futex, or
+scheduler backends can wake waiters for this signal instance. `wakeAll` must
+wake every waiter that could be blocked in `Backend.wait` for this signal, or
+otherwise make those waiters return according to the backend's contract.
 
 The allocation, waiting, locking, interrupt, and scheduler behavior of backend
 functions is backend-owned behavior. The signal layer adds no heap allocation and
@@ -200,8 +205,9 @@ space except the set bit to make wrap unreachable in ordinary operation.
 `Signal.State.init(.unset)` returns unset state. `Signal.State.init(.set)` returns
 set state.
 
-`Signal.Manual(Backend).init(initial, backend)` initializes the state and stores
-the backend value. It must be called before any concurrent use.
+`Signal.Manual(Backend).init(initial, backend)` returns a signal with the state
+initialized and the backend value stored. It must complete before any concurrent
+use.
 
 After initialization, copying a wait-capable signal is outside the primitive's
 contract. Once any pointer to a signal is shared with another execution context,
@@ -215,7 +221,7 @@ Required behavior:
 
 - if the previous state was unset, atomically set the flag, bump the generation,
   and release-publish the transition;
-- after a successful unset-to-set transition, call `backend.wakeAll()`;
+- after a successful unset-to-set transition, call `backend.wakeAll(&self.state)`;
 - if the previous state was already set, leave the word unchanged and do not need
   to call `wakeAll`;
 - never clear the signal;
@@ -288,7 +294,7 @@ Correct backend shape:
 This rule prevents the classic lost wake:
 
 1. waiter observes unset;
-2. producer calls `set` and `wakeAll`;
+2. producer calls `set` and `wakeAll(&state)`;
 3. waiter parks after the wake.
 
 A backend that cannot perform the post-registration recheck is not valid for
@@ -318,7 +324,7 @@ signal contract.
 State observation uses acquire ordering. State transitions use release ordering.
 Read-modify-write loops that both observe and publish state may use `.acq_rel`.
 
-`set` release-publishes the signal transition before calling `wakeAll`.
+`set` release-publishes the signal transition before calling `wakeAll(&state)`.
 
 `wait` acquire-observes the set state before returning success.
 
@@ -364,7 +370,7 @@ Implementation must:
 - use a strong `Token` type rather than exposing raw `usize` tokens;
 - keep `Signal.Manual(Backend)` free of runtime vtables;
 - validate backend declarations at compile time where practical;
-- call `wakeAll` only after the signal is release-published set;
+- call `wakeAll(&state)` only after the signal is release-published set;
 - loop in `wait` to tolerate spurious backend success returns;
 - never call backend code from `clear`;
 - never allocate in the signal layer;
@@ -396,8 +402,8 @@ if (ring.popFront()) |item| {
 try ready.wait();
 ```
 
-The backend supplied by the caller maps `wait` and `wakeAll` to its scheduler
-or wait queue.
+The backend supplied by the caller maps `wait(state, observed)` and
+`wakeAll(state)` to its scheduler or wait queue.
 
 ## Required tests
 
@@ -415,7 +421,7 @@ Required unit tests:
 10. `wait` calls backend wait with an unset token;
 11. `wait` loops after a spurious backend success return while still unset;
 12. `wait` propagates backend errors unchanged;
-13. `set` calls `wakeAll` on unset-to-set transition;
+13. `set` calls `wakeAll` with the signal state on unset-to-set transition;
 14. redundant `set` does not require `wakeAll`.
 
 Required model tests:
@@ -423,7 +429,7 @@ Required model tests:
 1. simulate waiter observe/enqueue/recheck races;
 2. prove a set between observe and backend registration is found by
    `changedSince`;
-3. prove a set after backend registration wakes through `wakeAll`;
+3. prove a set after backend registration wakes through `wakeAll(&state)`;
 4. prove clear-then-recheck doorbell protocol does not lose a ring wake.
 
 Required stress tests:
@@ -459,8 +465,8 @@ const WaitQueueBackend = struct {
         try self.queue.parkCurrent();
     }
 
-    pub fn wakeAll(self: *WaitQueueBackend) void {
-        self.queue.wakeAll();
+    pub fn wakeAll(self: *WaitQueueBackend, state: *const stdx.sync.Signal.State) void {
+        self.queue.wakeAll(state);
     }
 };
 ```
@@ -470,8 +476,7 @@ Signal usage:
 ```zig
 const Ready = stdx.sync.Signal.Manual(WaitQueueBackend);
 
-var ready: Ready = undefined;
-ready.init(.unset, .{ .queue = &queue });
+var ready = Ready.init(.unset, .{ .queue = &queue });
 
 try ring.tryPushBack(item);
 ready.set();

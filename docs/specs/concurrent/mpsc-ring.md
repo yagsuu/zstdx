@@ -105,8 +105,10 @@ pub const Ring = struct {
 ```zig
 pub const Self = struct {
     slots: [item_capacity]Slot = undefined,
-    head: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-    tail: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+    head: stdx.mem.CachePad(std.atomic.Value(usize)) =
+        .{ .value = std.atomic.Value(usize).init(0) },
+    tail: stdx.mem.CachePad(std.atomic.Value(usize)) =
+        .{ .value = std.atomic.Value(usize).init(0) },
 
     pub const Slot = struct {
         sequence: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
@@ -132,8 +134,10 @@ pub const Self = struct {
 ```zig
 pub const Self = struct {
     slots: []Slot,
-    head: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-    tail: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+    head: stdx.mem.CachePad(std.atomic.Value(usize)) =
+        .{ .value = std.atomic.Value(usize).init(0) },
+    tail: stdx.mem.CachePad(std.atomic.Value(usize)) =
+        .{ .value = std.atomic.Value(usize).init(0) },
 
     pub const Slot = struct {
         sequence: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
@@ -222,14 +226,43 @@ publication. Abandoning a reserved slot by panic, trap, cancellation, or forced
 termination can prevent the single consumer from making progress. Implementations
 must not call user callbacks or yield between reservation and publication.
 
+### Execution context and NMI
+
+`tryPushBack` requires reservation-to-publication atomicity with respect to
+other producers on the same CPU. Any execution context that can preempt an
+in-flight producer on the same CPU and then call `tryPushBack` on the same
+ring — non-maskable interrupt (NMI), machine-check exception (MCE), a nested
+interrupt handler that shares the ring with the outer producer — is outside
+the primitive's contract. A preempted producer may leave a slot reserved-
+but-unpublished, permanently stalling the consumer at that FIFO position.
+
+The consumer path (`popFront`) is safe from any execution context including
+NMI: `popFront` is a single owner, does not participate in the producer CAS,
+and does not require reservation atomicity.
+
+Callers that need single-atomic-publication producer semantics use the
+future `docs/specs/concurrent/mpsc-atomic-ring.md` variant
+(`concurrent.mpsc.AtomicRing`), whose publication is one atomic step and
+whose contract has no reserved-but-unpublished window; that mechanism is
+what makes it safe from NMI and other preempting producer contexts.
+
 `tryPushBack` performs one bounded enqueue attempt. It does not loop until
-success. It may return:
+success. Its only two error variants are:
 
-- `error.Full` when no capacity is available;
-- `error.Contended` when another producer wins the reservation race;
-- success after writing and release-publishing `item`.
+- `error.Full` — the producer observed that the head/tail gap has reached
+  `capacity()` at the reservation CAS attempt, i.e. every slot is either
+  published or already reserved by another producer. `Full` is not a snapshot
+  from before the CAS; the CAS must observe the full state to return `Full`.
+- `error.Contended` — the producer's reservation CAS observed a moving head,
+  a moving tail, or a slot in transition. `Contended` implies at least one
+  other producer is racing this ring; another attempt may succeed as soon as
+  that race resolves.
 
-Both error returns leave the ring unchanged.
+Both error returns leave the ring unchanged: no head or tail advance, no slot
+payload write, no publication.
+
+On success the producer has advanced the reservation counter, written `item`
+into the reserved slot, and release-published the slot for the consumer.
 
 Producer retry, backoff, dropping, accounting, logging, and signaling policies
 belong to the caller.
@@ -263,6 +296,31 @@ and popped.
 
 `popFront` removes at most one item. After removal, the consumer release-publishes
 the slot as free for future producers.
+
+## Progress and liveness contract
+
+The ring guarantees two liveness properties:
+
+1. **Consumer progress unblocks producers.** After the consumer's `popFront`
+   removes at least one item, some future `tryPushBack` on the same ring must
+   succeed with a bounded number of attempts by any producer, provided the
+   ring is not simultaneously receiving publications from other producers that
+   consume the freed slot first.
+2. **Contention is transient.** `error.Contended` reflects an in-flight
+   producer race, not a stable ring state. When the number of concurrent
+   producers is finite and none abandon a reservation, every producer's
+   `tryPushBack` succeeds in a bounded number of retries.
+
+There is no starvation-freedom guarantee for a specific producer under
+adversarial scheduling: a slow producer may repeatedly lose the reservation
+CAS while faster producers publish. Fairness across producers is caller
+policy — the ring exposes contention through `error.Contended` so callers can
+choose backoff, yielding, or priority handling.
+
+There is no liveness guarantee under the abandoned-reservation rule: if a
+producer reserves a slot and never publishes it (panic, forced termination),
+the consumer may permanently stall at that FIFO position. Recovery is caller
+policy.
 
 ## Capacity and query operations
 
@@ -319,6 +377,10 @@ not make the item visible by itself.
 | `popFront` null | never | never | O(1) | none | single consumer | acquire front publication |
 | `assertValid` | never | never | O(1) | none | exclusive or quiescent access | none |
 
+`tryPushBack` is not safe from NMI or nested-producer contexts on the same
+CPU; see the execution-context section under Producer access contract.
+`popFront` is safe from any execution context including NMI.
+
 The ring performs no heap allocation, sleeping, blocking, hidden scheduler calls,
 I/O, volatile access, MMIO access, target probing, or hidden global access.
 
@@ -362,6 +424,13 @@ Implementation must:
   ring;
 - avoid modulo in hot paths by requiring power-of-two capacity;
 - use release/acquire ordering for slot publication and slot free;
+- place the consumer-owned head counter and the producer-shared tail counter
+  on distinct cache lines via `stdx.mem.CachePad`, so that a producer's write
+  to the tail counter does not invalidate the consumer's head cache line and
+  vice versa;
+- keep per-slot sequence counters unpadded — per-slot cache-line padding would
+  bloat the ring beyond its intended footprint and slot contention is
+  addressed by the reservation stripe, not by padding;
 - leave ring state unchanged on `error.Full` and `error.Contended`;
 - avoid copying `T` more than required to store and return items.
 
@@ -386,6 +455,9 @@ Required compile-time checks:
 2. rejects `Static(T, 0)`;
 3. rejects non-power-of-two `Static` capacity;
 4. exposes `Bounded(T).Slot` for caller storage.
+5. compile-only: `@offsetOf(Self, "tail") - @offsetOf(Self, "head")` is at
+   least the cache-line size of `stdx.mem.CachePad`, so `head` and `tail` do
+   not share a cache line.
 
 Required unit tests:
 

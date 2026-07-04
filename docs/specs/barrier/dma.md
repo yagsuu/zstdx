@@ -3,7 +3,7 @@
 Status: Approved.
 
 `stdx.barrier` exposes ordering primitives for host-observable interactions
-with device MMIO and DMA-visible memory. This spec approves five operations
+with device MMIO and DMA-visible memory. This spec approves seven operations
 across three sub-namespaces:
 
 - `stdx.barrier.compiler` — a compiler reorder barrier with no ISA emission;
@@ -14,7 +14,7 @@ across three sub-namespaces:
   `stdx.barrier.dma.releaseAcquire` — fences paired with DMA-visible writes
   and reads.
 
-The five operations compose with `stdx.io.Mmio.Register` and with any DMA
+The seven operations compose with `stdx.io.Mmio.Register` and with any DMA
 staging buffer owned by the caller. This spec does not own SMP thread-to-thread
 memory barriers, cache-maintenance sequences, or arch-specific fence spelling
 beyond the x86_64 mapping approved here.

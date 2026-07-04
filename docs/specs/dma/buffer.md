@@ -202,6 +202,8 @@ use them on element types without a defined byte layout own that decision.
 
 `byteLen()` returns `virt.len * @sizeOf(T)` as `Address.Raw`. `assertValid`
 guarantees this multiplication does not overflow, so `byteLen()` cannot fail.
+`Address.Raw` is the descriptor-facing length width for DMA primitives.
+Scatter-gather segments preserve this value without converting through `usize`.
 
 `isEmpty()` returns `virt.len == 0`.
 

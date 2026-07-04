@@ -11,6 +11,7 @@ const testing = std.testing;
 const TestBackend = struct {
     wait_calls: usize = 0,
     wake_calls: usize = 0,
+    last_wake_state: ?*const Signal.State = null,
     spurious_successes_before_error: usize = 0,
     fail_next_wait: bool = false,
 
@@ -30,8 +31,9 @@ const TestBackend = struct {
         return error.Canceled;
     }
 
-    pub fn wakeAll(self: *TestBackend) void {
+    pub fn wakeAll(self: *TestBackend, state: *const Signal.State) void {
         self.wake_calls += 1;
+        self.last_wake_state = state;
     }
 };
 
@@ -53,8 +55,7 @@ test "unit: Signal.State initializes tokens for unset and set levels" {
 }
 
 test "unit: Signal.Manual set and clear publish level changes without redundant wakes" {
-    var signal: ReadySignal = undefined;
-    signal.init(.unset, .{});
+    var signal = ReadySignal.init(.unset, .{});
 
     const initial = signal.stateRef().observe();
     try testing.expect(!initial.isSet());
@@ -66,6 +67,7 @@ test "unit: Signal.Manual set and clear publish level changes without redundant 
     try testing.expect(after_set.isSet());
     try testing.expect(signal.stateRef().changedSince(initial));
     try testing.expectEqual(@as(usize, 1), signal.backend.wake_calls);
+    try testing.expectEqual(signal.stateRef(), signal.backend.last_wake_state.?);
 
     signal.set();
     try testing.expect(signal.isSet());
@@ -86,8 +88,7 @@ test "unit: Signal.Manual set and clear publish level changes without redundant 
 }
 
 test "unit: Signal.wait returns immediately for an already set signal" {
-    var signal: ReadySignal = undefined;
-    signal.init(.set, .{
+    var signal = ReadySignal.init(.set, .{
         .fail_next_wait = true,
         .spurious_successes_before_error = 2,
     });
@@ -99,8 +100,7 @@ test "unit: Signal.wait returns immediately for an already set signal" {
 }
 
 test "unit: Signal.wait propagates backend errors unchanged while unset" {
-    var signal: ReadySignal = undefined;
-    signal.init(.unset, .{ .fail_next_wait = true });
+    var signal = ReadySignal.init(.unset, .{ .fail_next_wait = true });
 
     try testing.expectError(error.Canceled, signal.wait());
     try testing.expect(!signal.isSet());
@@ -109,8 +109,7 @@ test "unit: Signal.wait propagates backend errors unchanged while unset" {
 }
 
 test "unit: Signal.wait retries spurious backend successes while still unset" {
-    var signal: ReadySignal = undefined;
-    signal.init(.unset, .{ .spurious_successes_before_error = 2 });
+    var signal = ReadySignal.init(.unset, .{ .spurious_successes_before_error = 2 });
 
     try testing.expectError(error.Canceled, signal.wait());
     try testing.expect(!signal.isSet());
@@ -119,8 +118,7 @@ test "unit: Signal.wait retries spurious backend successes while still unset" {
 }
 
 test "unit: Signal backend recheck observes set between token capture and registration" {
-    var signal: ReadySignal = undefined;
-    signal.init(.unset, .{});
+    var signal = ReadySignal.init(.unset, .{});
 
     const observed = signal.stateRef().observe();
     try testing.expect(!observed.isSet());

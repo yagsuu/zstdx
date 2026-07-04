@@ -409,13 +409,29 @@ Planned primitive names remain candidates until barrier specs approve them:
 - `arch.aarch64.isb`
 - `arch.riscv.fence`
 
-`stdx.arch.x86_64` is owned by `docs/specs/arch/x86_64.md` (Approved) and
+`stdx.arch.x86_64` is owned by `docs/specs/arch/x86_64/base.md` (Approved) and
 covers port-mapped IO, CPUID, MSR, control-register, RFLAGS, interrupt
 enable/disable, CPU one-shots, descriptor-table load/store, segment access,
 raw fences (`lfence`/`sfence`/`mfence`), cache control, and current privilege
 level. `stdx.arch.x86` is not an approved namespace.
 
 Barriers and fences are deferred from the first implementation slice. IO and DMA barriers require backend/platform contract specs before implementation.
+
+### CPU-adjacent primitives
+
+`stdx.cpu` owns arch-neutral primitives whose intent is per-CPU or CPU-facing
+substrate, distinct from `stdx.arch.<arch>` which owns per-architecture ISA
+wrappers. `stdx.cpu` does not perform CPU discovery, does not read the
+current CPU, and does not enforce affinity; every CPU-index argument is
+caller-supplied.
+
+Planned primitives:
+
+- `cpu.PerCpu.Static(T, N)`
+- `cpu.PerCpu.Bounded(T)`
+
+Additional `cpu.*` primitives (strong `CpuIndex` types, arch-neutral topology
+views over CPUID-produced data) require their own approved specs.
 
 ### Synchronization and concurrency
 

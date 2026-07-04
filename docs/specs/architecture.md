@@ -65,6 +65,9 @@ zstdx/
     concurrent.zig
     concurrent/
 
+    cpu.zig
+    cpu/
+
     io.zig
     io/
 

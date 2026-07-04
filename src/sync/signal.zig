@@ -61,7 +61,7 @@ pub const Signal = struct {
 
     /// Wait-capable manual-reset signal parameterized on `Backend`. `Backend`
     /// must expose `WaitError`, `fn wait(*Backend, *const State, Token) WaitError!void`,
-    /// and `fn wakeAll(*Backend) void`. `Backend` is stored by value.
+    /// and `fn wakeAll(*Backend, *const State) void`. `Backend` is stored by value.
     pub fn Manual(comptime Backend: type) type {
         return struct {
             state: Signal.State,
@@ -72,12 +72,11 @@ pub const Signal = struct {
             /// Backend-provided error set for `wait`.
             pub const WaitError = Backend.WaitError;
 
-            /// In-place initialize state and backend. Must be called before
-            /// any concurrent use; copying or moving the signal after
-            /// initialization is outside the primitive's contract.
-            pub fn init(self: *Self, initial: Signal.InitialState, backend: Backend) void {
-                self.state = Signal.State.init(initial);
-                self.backend = backend;
+            /// Return a signal with initialized state and backend. Must complete before
+            /// any concurrent use; copying or moving the signal after initialization is
+            /// outside the primitive's contract.
+            pub fn init(initial: Signal.InitialState, backend: Backend) Self {
+                return .{ .state = Signal.State.init(initial), .backend = backend };
             }
 
             /// Acquire-load the state and report the set flag.
@@ -87,7 +86,7 @@ pub const Signal = struct {
 
             /// Transition to set. Idempotent: only the winning unset-to-set
             /// CAS bumps the generation, release-publishes the transition,
-            /// and calls `backend.wakeAll()`.
+            /// and calls `backend.wakeAll(&state)`.
             pub fn set(self: *Self) void {
                 var current = self.state.word.load(.acquire);
                 while (true) {
@@ -99,7 +98,7 @@ pub const Signal = struct {
                         continue;
                     }
 
-                    self.backend.wakeAll();
+                    self.backend.wakeAll(&self.state);
                     return;
                 }
             }
