@@ -49,4 +49,5 @@ comptime {
     _ = @import("arch/x86_64_cpuid_test.zig");
     _ = @import("mem/buddy_test.zig");
     _ = @import("io/poll_test.zig");
+    _ = @import("sync/once_test.zig");
 }
