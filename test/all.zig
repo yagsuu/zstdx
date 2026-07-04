@@ -42,4 +42,5 @@ comptime {
     _ = @import("mem/cache_test.zig");
     _ = @import("time/deadline_test.zig");
     _ = @import("time/backoff_test.zig");
+    _ = @import("sync/spin_test.zig");
 }

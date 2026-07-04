@@ -58,14 +58,14 @@ Source ownership:
 
 ```text
 src/sync.zig
-src/sync/spin.zig
+src/sync/backend/spin.zig
 test/sync/spin_test.zig
 ```
 
 `src/sync.zig` re-exports:
 
 ```zig
-pub const spin = @import("sync/spin.zig");
+pub const spin = @import("sync/backend/spin.zig");
 ```
 
 `src/sync.zig` is a thin facade. It contains no logic beyond re-exporting.
