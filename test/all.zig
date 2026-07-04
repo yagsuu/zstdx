@@ -47,4 +47,5 @@ comptime {
     _ = @import("sync/raw_spin_lock_test.zig");
     _ = @import("arch/x86_64_extensions_test.zig");
     _ = @import("arch/x86_64_cpuid_test.zig");
+    _ = @import("mem/buddy_test.zig");
 }
