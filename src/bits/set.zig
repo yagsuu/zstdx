@@ -16,6 +16,8 @@ pub const BitSet = struct {
         return struct {
             words: [word_count]Word = [_]Word{0} ** word_count,
 
+            const Self = @This();
+
             /// `OutOfBounds`: mutator received an index at or past `bit_capacity`.
             pub const Error = error{OutOfBounds};
 
@@ -30,8 +32,6 @@ pub const BitSet = struct {
 
             /// Number of backing words; rounded up from `bit_capacity / word_bits`.
             pub const word_count = @divFloor(capacity_bits, word_bits) + @intFromBool(capacity_bits % word_bits != 0);
-
-            const Self = @This();
 
             /// Empty set.
             pub fn init() Self {
@@ -71,6 +71,7 @@ pub const BitSet = struct {
             /// Population (number of set bits).
             pub fn count(self: *const Self) usize {
                 self.assertValid();
+
                 var total: usize = 0;
                 for (self.words) |word| total += @popCount(word);
                 return total;
@@ -87,6 +88,7 @@ pub const BitSet = struct {
             /// Sets `index`; returns the prior bit value (`true` when it was already set).
             pub fn set(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
+
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 const prior = (word.* & bit) != 0;
@@ -97,6 +99,7 @@ pub const BitSet = struct {
             /// Clears `index`; returns the prior bit value (`true` when it was previously set).
             pub fn unset(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
+
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 const prior = (word.* & bit) != 0;
@@ -114,6 +117,7 @@ pub const BitSet = struct {
             /// just `!new` and carries no extra information.
             pub fn toggle(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
+
                 const word = &self.words[@divFloor(index, word_bits)];
                 const bit = mask(index);
                 word.* ^= bit;
@@ -145,6 +149,7 @@ pub const BitSet = struct {
             pub fn containsAll(self: *const Self, other: *const Self) bool {
                 self.assertValid();
                 other.assertValid();
+
                 for (self.words, other.words) |a, b| if ((a & b) != b) return false;
                 return true;
             }
@@ -152,6 +157,7 @@ pub const BitSet = struct {
             pub fn containsAny(self: *const Self, other: *const Self) bool {
                 self.assertValid();
                 other.assertValid();
+
                 for (self.words, other.words) |a, b| if ((a & b) != 0) return true;
                 return false;
             }

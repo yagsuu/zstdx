@@ -20,12 +20,12 @@ pub fn Range(comptime T: type) type {
         start: T,
         end: T,
 
+        const Self = @This();
+
         /// `InvalidRange`: caller passed `end < start`.
         /// `Overflow`: arithmetic on `start`, `end`, or `len` exceeded `T`.
         /// `OutOfBounds`: point lies outside `[start, end]`.
         pub const Error = error{ InvalidRange, Overflow, OutOfBounds };
-
-        const Self = @This();
 
         /// Construct `[start, end)`. Returns `error.InvalidRange` when
         /// `end < start`.
@@ -157,7 +157,6 @@ pub fn Range(comptime T: type) type {
         /// subtraction would underflow `T`.
         pub fn shiftBackward(self: Self, amount: T) Error!Self {
             self.assertValid();
-
             if (amount > self.start) return error.Overflow;
             return .{ .start = self.start - amount, .end = self.end - amount };
         }

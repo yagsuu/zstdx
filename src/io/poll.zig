@@ -44,6 +44,7 @@ pub fn until(
                 if (debug.checksEnabled(.build_mode)) {
                     std.debug.assert(bo.policy.yield != null);
                 }
+
                 bo.policy.yield.?();
             },
             .sleep => |d| clock.sleep(d),

@@ -238,6 +238,7 @@ fn assignEntry(
     std.debug.assert(range.isValid());
     std.debug.assert(!range.isEmpty());
     std.debug.assert(final_count <= buffer.len);
+
     removeEntry(Range, Entry, buffer, count, range) catch unreachable;
     insertEntry(Range, Entry, buffer, count, range, value) catch unreachable;
 }
@@ -412,6 +413,7 @@ fn assertEntries(comptime Range: type, comptime Entry: type, buffer: []const Ent
         std.debug.assert(entry.range.isValid());
         std.debug.assert(!entry.range.isEmpty());
         if (previous) |prev| std.debug.assert(prev.range.end <= entry.range.start);
+
         previous = entry;
     }
 }

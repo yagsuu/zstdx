@@ -22,6 +22,7 @@ pub const PanicLog = struct {
         if (capacity_bytes < 2 * 8) {
             @compileError("PanicLog.Static: capacity_bytes must be >= 2 * header_bytes (16)");
         }
+
         if (capacity_bytes > std.math.maxInt(u32)) {
             @compileError("PanicLog.Static: capacity_bytes exceeds the u32 offset-format limit (maxInt(u32))");
         }
@@ -88,9 +89,9 @@ pub const PanicLog = struct {
                 if (payload.len == 0) return error.EmptyPayload;
                 if (payload.len > max_payload_bytes) return error.PayloadTooLarge;
 
-                // acquire: pairs with the seat release-store on line 125 of a prior seat-holder.
+                // acquire: pairs with the seat release-store at the end of `write`.
                 if (self.seat.cmpxchgStrong(0, 1, .acquire, .monotonic) != null) {
-                    // release: publishes drop count to drain's dropped_seq acquire on line 142.
+                    // release: publishes drop count to drain's dropped_seq acquire.
                     _ = self.dropped_seq.fetchAdd(1, .release);
                     return error.WriterBusy;
                 }
@@ -104,7 +105,7 @@ pub const PanicLog = struct {
                     const flen: usize = readU32Wrap(&self.bytes, tail_off, capacity_bytes);
                     tail_val += header_bytes + flen;
                     self.tail.store(tail_val, .release);
-                    // release: publishes drop count to drain's dropped_seq acquire on line 142.
+                    // release: publishes drop count to drain's dropped_seq acquire.
                     _ = self.dropped_seq.fetchAdd(1, .release);
                 }
 
@@ -117,11 +118,11 @@ pub const PanicLog = struct {
                 copyInWrap(&self.bytes, (head_off + header_bytes) % capacity_bytes, payload, capacity_bytes);
 
                 head_val += needed;
-                // release: publishes header + payload bytes to drain's head acquire on line 155.
+                // release: publishes header + payload bytes to drain's head acquire.
                 self.head.value.store(head_val, .release);
-                // release: publishes new seq value to drain's seq acquire on line 141.
+                // release: publishes new seq value to drain's seq acquire.
                 self.seq.store(new_seq, .release);
-                // release: publishes header + payload writes to the next seat CAS on line 92.
+                // release: publishes header + payload writes to the next seat CAS.
                 self.seat.store(0, .release);
             }
 
@@ -138,9 +139,9 @@ pub const PanicLog = struct {
                 var cursor_ready = false;
 
                 while (true) {
-                    // acquire: pairs with write's seq release-store on line 123.
+                    // acquire: pairs with write's seq release-store.
                     const seq_now = self.seq.load(.acquire);
-                    // acquire: pairs with write's dropped_seq fetchAdd release on lines 94, 108.
+                    // acquire: pairs with write's dropped_seq fetchAdd release (seat-busy and eviction paths).
                     const dropped_now = self.dropped_seq.load(.acquire);
 
                     if (dropped_now != reader_state.dropped_snapshot) {
@@ -154,7 +155,7 @@ pub const PanicLog = struct {
 
                     if (reader_state.next_seq > seq_now) return;
 
-                    // acquire: pairs with write's head release-store on line 121.
+                    // acquire: pairs with write's head release-store.
                     const head_now = self.head.value.load(.acquire);
                     const tail_now = self.tail.load(.acquire);
 
@@ -172,6 +173,7 @@ pub const PanicLog = struct {
                             cursor = walk_cursor;
                             cursor_ready = true;
                         }
+
                         if (!cursor_ready) continue;
                     }
 
@@ -186,10 +188,12 @@ pub const PanicLog = struct {
                         cursor_ready = false;
                         continue;
                     }
+
                     if (cursor + header_bytes + frame_len_val > head_now) {
                         cursor_ready = false;
                         continue;
                     }
+
                     const payload_off = (cursor_off + header_bytes) % capacity_bytes;
                     try emitWrap(sink, &self.bytes, payload_off, frame_len_val, capacity_bytes);
 
@@ -272,6 +276,7 @@ pub const PanicLog = struct {
                 if (candidate > seq_now) {
                     candidate -%= @as(u64, 1) << 32;
                 }
+
                 return candidate;
             }
 
@@ -321,11 +326,13 @@ fn readU32Wrap(bytes_ptr: []const u8, offset: usize, comptime capacity_bytes: us
         const wrapper: Le(u32) = .{ .bytes = buf };
         return wrapper.native();
     }
+
     var buf: [4]u8 = undefined;
     var i: usize = 0;
     while (i < 4) : (i += 1) {
         buf[i] = bytes_ptr[(offset + i) % capacity_bytes];
     }
+
     const wrapper: Le(u32) = .{ .bytes = buf };
     return wrapper.native();
 }
@@ -344,10 +351,12 @@ fn writeHeader(
         @memcpy(bytes_ptr[head_off + 4 ..][0..4], &seq_bytes);
         return;
     }
+
     var i: usize = 0;
     while (i < 4) : (i += 1) {
         bytes_ptr[(head_off + i) % capacity_bytes] = len_bytes[i];
     }
+
     i = 0;
     while (i < 4) : (i += 1) {
         bytes_ptr[(head_off + 4 + i) % capacity_bytes] = seq_bytes[i];
@@ -361,8 +370,10 @@ fn copyInWrap(
     comptime capacity_bytes: usize,
 ) void {
     if (payload.len == 0) return;
+
     const first_span = @min(payload.len, capacity_bytes - start_off);
     @memcpy(bytes_ptr[start_off..][0..first_span], payload[0..first_span]);
+
     if (first_span < payload.len) {
         const remainder = payload.len - first_span;
         @memcpy(bytes_ptr[0..remainder], payload[first_span..]);
@@ -377,8 +388,10 @@ fn emitWrap(
     comptime capacity_bytes: usize,
 ) std.Io.Writer.Error!void {
     if (length == 0) return;
+
     const first_span = @min(length, capacity_bytes - start_off);
     try sink.writeAll(bytes_ptr[start_off..][0..first_span]);
+
     if (first_span < length) {
         const remainder = length - first_span;
         try sink.writeAll(bytes_ptr[0..remainder]);

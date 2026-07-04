@@ -8,10 +8,12 @@ fn requireEndianInt(comptime T: type) void {
     if (T == usize or T == isize) {
         @compileError("EndianInt rejects target-sized integer types");
     }
+
     const info = @typeInfo(T);
     if (info != .int or info.int.signedness != .unsigned) {
         @compileError("EndianInt requires an unsigned integer type");
     }
+
     const bits = @bitSizeOf(T);
     const too_small = bits < 8;
     const too_large = bits > 128;
@@ -59,6 +61,7 @@ pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) ty
                 const byte_value: T = (value >> shift) & 0xff;
                 self.bytes[i] = @intCast(byte_value);
             }
+
             return self;
         }
 
@@ -74,6 +77,7 @@ pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) ty
                 const shift: std.math.Log2Int(T) = @intCast(dest_index * 8);
                 value |= @as(T, self.bytes[i]) << shift;
             }
+
             return value;
         }
     };

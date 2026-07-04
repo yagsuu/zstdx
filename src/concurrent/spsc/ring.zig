@@ -185,16 +185,20 @@ fn tryPushBackImpl(
 ) error{Full}!void {
     std.debug.assert(slots.len != 0);
     std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+
     const capacity = slots.len;
     const mask = capacity - 1;
     const observed_tail = tail.value.load(.monotonic);
+
     // acquire: pairs with the consumer's release-store of head in popFrontImpl;
     // ensures the slot at observed_tail & mask is free for reuse before we write it.
     const observed_head = head.value.load(.acquire);
+
     if (observed_tail -% observed_head >= capacity) return error.Full;
 
     const slot = &slots[observed_tail & mask];
     slot.item = item;
+
     // release: publishes slot.item to the consumer's acquire-load of tail in popFrontImpl.
     tail.value.store(observed_tail +% 1, .release);
 }
@@ -208,14 +212,18 @@ fn popFrontImpl(
 ) ?T {
     std.debug.assert(slots.len != 0);
     std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+
     const observed_head = head.value.load(.monotonic);
+
     // acquire: pairs with the producer's release-store of tail in tryPushBackImpl;
     // ensures the slot's item write is visible before we read it.
     const observed_tail = tail.value.load(.acquire);
+
     if (observed_tail == observed_head) return null;
 
     const slot = &slots[observed_head & (slots.len - 1)];
     const out = slot.item;
+
     // release: publishes slot consumption to the producer's acquire-load of head in tryPushBackImpl.
     head.value.store(observed_head +% 1, .release);
     return out;
@@ -226,6 +234,7 @@ fn isEmptyImpl(
     tail: *const CachePad(std.atomic.Value(usize)),
 ) bool {
     const observed_head = head.value.load(.monotonic);
+
     // acquire: pairs with the producer's release-store of tail in tryPushBackImpl.
     const observed_tail = tail.value.load(.acquire);
     return observed_head == observed_tail;

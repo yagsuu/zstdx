@@ -25,6 +25,7 @@ pub fn isPowerOfTwo(comptime T: type, value: T) bool {
 /// `error.Overflow` without lossy wrap.
 pub fn nextPowerOfTwo(comptime T: type, value: T) Error!T {
     comptime requireUnsignedInt(T);
+
     if (value <= 1) return 1;
     if (isPowerOfTwo(T, value)) return value;
 

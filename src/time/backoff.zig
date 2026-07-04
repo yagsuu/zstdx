@@ -138,12 +138,14 @@ fn requireClock(comptime C: type) void {
         .pointer => |p| p.child,
         else => C,
     };
+
     if (!@hasDecl(T, "now")) {
         @compileError(
             "Backoff: clock type " ++ @typeName(C) ++
                 " is missing pub fn now(*Self) Instant",
         );
     }
+
     const NowFn = @TypeOf(@field(T, "now"));
     const info = switch (@typeInfo(NowFn)) {
         .@"fn" => |f| f,
@@ -151,12 +153,14 @@ fn requireClock(comptime C: type) void {
             "Backoff: " ++ @typeName(T) ++ ".now must be a function",
         ),
     };
+
     if (info.params.len != 1) {
         @compileError(
             "Backoff: " ++ @typeName(T) ++
                 ".now must take exactly one argument (*Self)",
         );
     }
+
     const P0 = info.params[0].type orelse @compileError(
         "Backoff: " ++ @typeName(T) ++ ".now must take (*Self), not anytype",
     );
@@ -167,6 +171,7 @@ fn requireClock(comptime C: type) void {
                 ", got " ++ @typeName(P0),
         );
     }
+
     const Ret = info.return_type orelse @compileError(
         "Backoff: " ++ @typeName(T) ++ ".now must return Instant",
     );

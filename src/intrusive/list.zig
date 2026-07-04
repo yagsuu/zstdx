@@ -151,6 +151,7 @@ pub const List = struct {
                     last = item;
                     current = constNext(item);
                 }
+
                 std.debug.assert(last == self.tail);
                 std.debug.assert(constNode(self.tail.?).next == null);
             }

@@ -1,7 +1,5 @@
 //! Spec: docs/specs/tags/tag-allocator.md.
 
-const std = @import("std");
-
 fn requireUnsignedInt(comptime Int: type) void {
     const info = @typeInfo(Int);
     if (info != .int or info.int.signedness != .unsigned) {

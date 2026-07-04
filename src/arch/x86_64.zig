@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+
 const debug = @import("../core/debug.zig");
 
 /// True if the build target is x86_64. The module is `@import`-able on any
@@ -1623,6 +1624,7 @@ fn rangeWalk(ptr: [*]const u8, len: usize, comptime op: fn (usize) void) void {
     if (!supported) @compileError(wrong_target);
 
     const line = Cache.lineSize();
+
     std.debug.assert(line > 0);
     std.debug.assert(std.math.isPowerOfTwo(line));
 

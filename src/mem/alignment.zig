@@ -40,7 +40,8 @@ pub fn alignDown(comptime T: type, value: T, alignment: T) Error!T {
 /// non-zero power of two; the precondition is asserted, not error-checked.
 pub fn isAligned(comptime T: type, value: T, alignment: T) bool {
     comptime requireUnsignedInt(T);
-    std.debug.assert(alignment != 0 and bits.isPowerOfTwo(T, alignment));
+    std.debug.assert(alignment != 0);
+    std.debug.assert(bits.isPowerOfTwo(T, alignment));
     return (value & (alignment - 1)) == 0;
 }
 

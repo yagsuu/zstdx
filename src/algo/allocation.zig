@@ -195,14 +195,18 @@ fn validateRequest(request: Request) Error!void {
 
 fn candidateFor(source: Range, index: usize, request: Request) Error!?Selection {
     std.debug.assert(source.isValid());
+
     const mask = request.alignment - 1;
     const sum = std.math.add(usize, source.start, mask) catch return error.Overflow;
     const candidate_start = sum & ~mask;
     const candidate_end = std.math.add(usize, candidate_start, request.len) catch return error.Overflow;
+
     if (candidate_end > source.end) return null;
+
     std.debug.assert(candidate_start >= source.start);
     std.debug.assert(candidate_end <= source.end);
     std.debug.assert(candidate_end - candidate_start == request.len);
+
     return .{
         .index = index,
         .range = .{ .start = candidate_start, .end = candidate_end },

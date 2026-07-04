@@ -283,6 +283,7 @@ fn assertCanonical(comptime Range: type, buffer: []const Range, count: usize) vo
         std.debug.assert(range.isValid());
         std.debug.assert(!range.isEmpty());
         if (previous) |prev| std.debug.assert(prev.end < range.start);
+
         previous = range;
     }
 }

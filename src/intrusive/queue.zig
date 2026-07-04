@@ -92,6 +92,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
                 last = item;
                 current = constNext(item);
             }
+
             std.debug.assert(last == self.tail);
             std.debug.assert(constNode(self.tail.?).next == null);
         }

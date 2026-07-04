@@ -117,6 +117,7 @@ pub const Clock = struct {
         if (!@hasDecl(Backend, "now")) {
             @compileError("Clock.Monotonic backend: missing pub fn now(*Backend) Instant");
         }
+
         const info = @typeInfo(@TypeOf(Backend.now));
         if (info.@"fn".return_type.? != Instant) {
             @compileError(
@@ -124,8 +125,8 @@ pub const Clock = struct {
                     "not an error union or another type",
             );
         }
-        const check_monotonic = debug.checksEnabled(.build_mode);
 
+        const check_monotonic = debug.checksEnabled(.build_mode);
         return struct {
             backend: Backend,
             last: if (check_monotonic) Instant else void,

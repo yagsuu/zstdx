@@ -1,13 +1,13 @@
 //! Spec: docs/specs/diag/diagnostic.md.
 
 const std = @import("std");
+
 const mem = @import("../mem.zig");
 
 const Allocator = std.mem.Allocator;
+const FrameIndex = usize;
 const SourceLocation = std.builtin.SourceLocation;
 const Writer = std.Io.Writer;
-
-const FrameIndex = usize;
 
 pub fn FormattedDetail(comptime Args: type, comptime format: []const u8) type {
     return struct {

@@ -1,6 +1,7 @@
 //! Bounded multi-producer/single-consumer ring. See docs/specs/concurrent/mpsc-ring.md.
 
 const std = @import("std");
+
 const bits = @import("../../bits.zig");
 
 fn requireRuntimeValue(comptime T: type) void {
@@ -186,10 +187,12 @@ fn tryPushBackImpl(
 ) error{ Full, Contended }!void {
     std.debug.assert(slots.len != 0);
     std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+
     const capacity = slots.len;
     const mask = capacity - 1;
     const observed_tail = tail.load(.monotonic);
     const observed_head = head.load(.acquire);
+
     if (observed_tail -% observed_head >= capacity) return error.Full;
     if (tail.cmpxchgStrong(observed_tail, observed_tail +% 1, .monotonic, .monotonic) != null) return error.Contended;
 
@@ -201,8 +204,10 @@ fn tryPushBackImpl(
 fn popFrontImpl(comptime Slot: type, comptime T: type, slots: []Slot, head: *std.atomic.Value(usize)) ?T {
     std.debug.assert(slots.len != 0);
     std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+
     const observed_head = head.load(.monotonic);
     const slot = &slots[observed_head & (slots.len - 1)];
+
     if (slot.sequence.load(.acquire) != observed_head +% 1) return null;
 
     const out = slot.item;
@@ -214,6 +219,7 @@ fn isEmptyImpl(comptime Slot: type, comptime T: type, slots: []const Slot, head:
     _ = T;
     std.debug.assert(slots.len != 0);
     std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+
     const observed_head = head.load(.monotonic);
     const slot = &slots[observed_head & (slots.len - 1)];
     return slot.sequence.load(.acquire) != observed_head +% 1;

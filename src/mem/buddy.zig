@@ -6,11 +6,11 @@ const debug = @import("../core/debug.zig");
 const allocation = @import("../algo/allocation.zig");
 
 const Buddy = allocation.Buddy;
-const RangeUsize = @import("../core/range.zig").Range(usize);
-
 const BuddyWord = u64;
-const buddy_word_bits = @bitSizeOf(BuddyWord);
+const RangeUsize = @import("../core/range.zig").Range(usize);
 const Shift = std.math.Log2Int(BuddyWord);
+
+const buddy_word_bits = @bitSizeOf(BuddyWord);
 
 /// Power-of-two unit allocator over caller-provided bitmap words. Both
 /// variants share a per-order bit-per-slot layout, deterministic lowest-index
@@ -321,9 +321,12 @@ fn installInitialDecomposition(words: []BuddyWord, unit_capacity: usize, order_c
         while (k > 0 and cursor + (@as(usize, 1) << @as(Shift, @intCast(k))) > unit_capacity) {
             k -= 1;
         }
+
         const size = @as(usize, 1) << @as(Shift, @intCast(k));
+
         std.debug.assert(cursor + size <= unit_capacity);
         std.debug.assert(cursor % size == 0);
+
         setBit(words, unit_capacity, k, cursor >> @as(Shift, @intCast(k)));
         cursor += size;
     }

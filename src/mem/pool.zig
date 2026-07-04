@@ -198,6 +198,7 @@ fn releaseSlot(
     item: *T,
 ) void {
     const slot: *Slot = @alignCast(@fieldParentPtr("occupied", item));
+
     std.debug.assert(slot.* == .occupied);
     std.debug.assert(live_count.* > 0);
 

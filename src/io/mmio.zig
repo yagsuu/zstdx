@@ -193,12 +193,14 @@ pub const Mmio = struct {
             ) *volatile Register(T) {
                 comptime requireRegisterType(T);
                 comptime std.debug.assert(@alignOf(T) <= min_align_bytes);
+
                 if (debug.checksEnabled(.build_mode)) {
                     const width = @sizeOf(T);
                     std.debug.assert(width <= self.len);
                     std.debug.assert(offset <= self.len - width);
                     std.debug.assert((@intFromPtr(self.base) + offset) % @alignOf(T) == 0);
                 }
+
                 const addr = @intFromPtr(self.base) + offset;
                 return @ptrFromInt(addr);
             }

@@ -22,7 +22,6 @@ pub fn Buffer(comptime T: type) type {
         const Self = @This();
 
         pub const Item = T;
-
         pub const Address = DmaAddr;
 
         /// `Misaligned`: invalid address or requested alignment.

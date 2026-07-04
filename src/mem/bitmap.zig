@@ -264,6 +264,7 @@ fn bitIsSet(words: []const BitmapWord, unit_capacity: usize, index: usize) bool 
 fn countAllocated(words: []const BitmapWord, unit_capacity: usize) usize {
     const lwc = logicalWordCount(unit_capacity);
     if (lwc == 0) return 0;
+
     var total: usize = 0;
     for (words[0..lwc]) |word| total += @popCount(word);
     return total;
@@ -300,6 +301,7 @@ fn findFirstFreeRun(words: []const BitmapWord, unit_capacity: usize, count: usiz
             run_len = 0;
         }
     }
+
     return null;
 }
 
@@ -406,5 +408,6 @@ fn checkValid(words: []const BitmapWord, unit_capacity: usize) bool {
     while (i < words.len) : (i += 1) {
         if (words[i] != 0) return false;
     }
+
     return true;
 }

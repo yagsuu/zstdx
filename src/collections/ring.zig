@@ -62,6 +62,7 @@ pub const Ring = struct {
 
             fn advance(index: usize) usize {
                 if (item_capacity == 0) return 0;
+
                 var next = index + 1;
                 if (next == item_capacity) next = 0;
                 return next;
@@ -199,6 +200,7 @@ pub const Ring = struct {
 
             fn advance(self: *const Self, index: usize) usize {
                 if (self.buffer.len == 0) return 0;
+
                 var next = index + 1;
                 if (next == self.buffer.len) next = 0;
                 return next;

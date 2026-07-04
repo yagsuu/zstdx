@@ -262,10 +262,13 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
             pub fn splitAt(self: This, at: Frame) Error!struct { left: This, right: This } {
                 self.assertValid();
                 at.assertValid();
+
                 const start = self.base.addressInt();
                 const finish = self.end().addressInt();
                 const point = at.addressInt();
+
                 if (point < start or point > finish) return error.OutOfBounds;
+
                 const left_count = try Count.fromBytesExact(point - start);
                 const right_count = try Count.fromBytesExact(finish - point);
                 return .{

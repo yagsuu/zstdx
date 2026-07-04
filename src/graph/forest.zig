@@ -11,6 +11,8 @@ pub const Forest = struct {
             roots: SiblingList = .{},
             links: [capacity_nodes]Links = [_]Links{.{}} ** capacity_nodes,
 
+            const Self = @This();
+
             pub const node_capacity = capacity_nodes;
 
             pub const NodeId = enum(usize) {
@@ -29,7 +31,6 @@ pub const Forest = struct {
             };
 
             pub const Error = error{ OutOfBounds, AlreadyLinked, NotLinked };
-            const Self = @This();
 
             pub fn init() Self {
                 return .{};
@@ -70,6 +71,7 @@ pub const Forest = struct {
                 } else {
                     self.roots.head = item;
                 }
+
                 self.roots.tail = item;
             }
 
@@ -84,6 +86,7 @@ pub const Forest = struct {
                 } else {
                     parent_links.children.head = child_item;
                 }
+
                 parent_links.children.tail = child_item;
                 child_links.parent = parent_item;
             }
@@ -228,6 +231,8 @@ pub const Forest = struct {
             roots: SiblingList = .{},
             links: []Links,
 
+            const Self = @This();
+
             pub const NodeId = enum(usize) {
                 _,
             };
@@ -244,7 +249,6 @@ pub const Forest = struct {
             };
 
             pub const Error = error{ OutOfBounds, AlreadyLinked, NotLinked };
-            const Self = @This();
 
             pub fn wrap(links: []Links) Self {
                 for (links) |*item_links| item_links.* = .{};
@@ -285,6 +289,7 @@ pub const Forest = struct {
                 } else {
                     self.roots.head = item;
                 }
+
                 self.roots.tail = item;
             }
 
@@ -299,6 +304,7 @@ pub const Forest = struct {
                 } else {
                     parent_links.children.head = child_item;
                 }
+
                 parent_links.children.tail = child_item;
                 child_links.parent = parent_item;
             }
@@ -451,13 +457,14 @@ pub const Forest = struct {
         return struct {
             roots: RootList = .{},
 
+            const Self = @This();
+
             pub const Node = LinkedNode;
 
             pub const RootList = struct {
                 head: ?*T = null,
                 tail: ?*T = null,
             };
-            const Self = @This();
 
             pub fn init() Self {
                 return .{};
@@ -492,6 +499,7 @@ pub const Forest = struct {
                 } else {
                     self.roots.head = item;
                 }
+
                 self.roots.tail = item;
             }
 
@@ -507,6 +515,7 @@ pub const Forest = struct {
                 } else {
                     parent_node.children.head = child_node;
                 }
+
                 parent_node.children.tail = child_node;
                 child_node.parent = parent_node;
             }

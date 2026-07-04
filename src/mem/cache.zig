@@ -30,9 +30,11 @@ fn validatePayload(comptime T: type, comptime factory: []const u8) void {
     if (T == void) {
         @compileError(factory ++ ": payload type must not be void");
     }
+
     if (@sizeOf(T) == 0) {
         @compileError(factory ++ ": payload type must have @sizeOf(T) > 0");
     }
+
     if (@alignOf(T) > cache_line) {
         @compileError(factory ++ ": payload natural @alignOf(T) exceeds std.atomic.cache_line");
     }
