@@ -44,4 +44,5 @@ comptime {
     _ = @import("time/backoff_test.zig");
     _ = @import("sync/spin_test.zig");
     _ = @import("sync/atomic_cell_test.zig");
+    _ = @import("sync/raw_spin_lock_test.zig");
 }
