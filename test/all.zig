@@ -39,4 +39,5 @@ comptime {
     _ = @import("time/monotonic_test.zig");
     _ = @import("dma/buffer_test.zig");
     _ = @import("dma/scatter_gather_test.zig");
+    _ = @import("mem/cache_test.zig");
 }
