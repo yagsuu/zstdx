@@ -94,20 +94,21 @@ concrete axis on which it differs.
 | `stdx.addr` | `Address`, `PhysAddr`, `VirtAddr`, `DmaAddr`, `Page`, page constants |
 | `stdx.layout` | `EndianInt`, `Le`, `Be` |
 | `stdx.bytes` | Unaligned access, checked offset access, `Cursor` |
-| `stdx.mem` | Alignment helpers, `Arena`, `Pool`, `BitmapAllocator` |
+| `stdx.mem` | Alignment helpers, `Arena`, `Pool`, `BitmapAllocator`, `BuddyAllocator`, `CachePad`, `CacheAlign` |
 | `stdx.collections` | `List`, `Ring` |
 | `stdx.intrusive` | Intrusive `List`, `Queue`, `Stack` |
 | `stdx.ranges` | `RangeSet`, `RangeMap` |
 | `stdx.graph` | `Forest` |
 | `stdx.algo` | Allocation placement algorithms, buddy arithmetic |
 | `stdx.tags` | `Tag`, `TagAllocator` |
-| `stdx.arch` | Target-gated instruction primitives |
-| `stdx.diag` | Scoped diagnostics |
-| `stdx.sync` | `Signal` |
-| `stdx.concurrent` | `mpsc.Ring` |
-| `stdx.time` | `Instant`, `Duration`, `Clock.Monotonic` |
+| `stdx.arch` | Target-gated instruction primitives, typed CPUID decoders |
+| `stdx.diag` | Scoped diagnostics, `PanicLog` |
+| `stdx.sync` | `Signal`, `AtomicCell`, `RawSpinLock`, `Once`, `spin.Backend` |
+| `stdx.concurrent` | `mpsc.Ring`, `spsc.Ring` |
+| `stdx.cpu` | `PerCpu` |
+| `stdx.time` | `Instant`, `Duration`, `Clock.Monotonic`, `Deadline`, `Backoff` |
 | `stdx.barrier` | `compiler`, `mmio` fences, `dma` fences |
-| `stdx.io` | `Mmio.Register`, `Mmio.Window` |
+| `stdx.io` | `Mmio.Register`, `Mmio.Window`, `Mmio.Window32`, `Mmio.Window64`, `poll.until` |
 | `stdx.dma` | `Buffer`, `ScatterGather.Segment`/`List`/`Builder` |
 
 | Root export | Canonical home | Notes |
@@ -216,6 +217,31 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Invalidation | Mutates allocation state for selected units only. |
 | Ordering | Lowest-index first-fit allocation. |
 | Why not std.*? | `std` has no fixed-capacity bitmap allocator. It is the substrate for page-tier and tag-tier allocation where an `Allocator`-based scheme cannot serve the size class. |
+
+#### `mem.BuddyAllocator`
+
+| Variant | Storage | Constructor | Capacity |
+| --- | --- | --- | --- |
+| `BuddyAllocator.Static(unit_capacity, order_count)` | Inline bitmap words | `init()` | Comptime unit capacity |
+| `BuddyAllocator.Bounded` | Caller-owned `[]u64` words | `wrap(words, unit_capacity, order_count)` | Runtime unit capacity |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. Backing bitmap words are inline or caller-owned. |
+| Waiting | Never. |
+| Concurrency | Single-owner mutable value; shared mutable access requires external synchronization. |
+| Performance | `alloc(order)` scans the per-order bitmap for the lowest free block and, on miss, splits down from the smallest higher order; `free` performs eager buddy coalescing; `reserve(range)` splits down per unit; queries are O(order_count · word_count). |
+| Errors | `error.OutOfMemory`, `error.OutOfBounds`, `error.InvalidOrder`, `error.InvalidRequest`, `error.AlreadyAllocated`, `error.NotAllocated`, `error.Overflow`. |
+| Mutation on error | Every fallible operation validates before mutating; errors leave state unchanged. |
+| Invalidation | Mutates allocation state for units in the affected block only. |
+| Ordering | Lowest-index first-fit split-and-place. |
+| Why not std.*? | `std` has no power-of-two buddy allocator over abstract units. `BuddyAllocator` composes with `stdx.algo.allocation.Buddy` for split/buddy arithmetic and returns `stdx.algo.allocation.Buddy.Block` values callers translate to their own domain (page frames, DMA regions, descriptor groups). |
+
+#### `mem.CachePad` and `mem.CacheAlign`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Cache-line padding | `CachePad(T)`, `CacheAlign(T)` | Value structs with `align(std.atomic.cache_line)` payload; `CachePad` adds trailing `_pad` bytes rounded to a whole cache line | Never | `CachePad` guarantees adjacent instances occupy disjoint cache lines (false-sharing isolation); `CacheAlign` only guarantees a cache-line-aligned start; `void`, zero-sized, or over-aligned `T` are compile errors. | Zig has no cache-line padding helper. `CachePad`/`CacheAlign` centralize the alignment + trailing-pad discipline as one-argument type factories so downstream primitives (`PerCpu`, `mpsc.Ring`, `spsc.Ring`, `PanicLog`) do not hand-write the pair. |
 
 #### Memory alignment helpers
 
@@ -424,7 +450,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | --- | --- | --- | --- | --- | --- |
 | Target gate | `arch.x86_64.supported` | Value constant | Never | Import is portable; instruction-emitting operations are gated to the matching target. | `std.builtin.cpu.arch` gives the raw target; `arch.x86_64.supported` is the boolean predicate an operation-emitting wrapper checks before `@compileError`ing on wrong targets. |
 | Port I/O | `arch.x86_64.Port`, `ioWait` | Value enum plus instruction effects | Never | Strong `u16` port values; scalar and slice `in*`/`out*` operations. | `std` has no port I/O wrappers. `Port` is a strong `u16` newtype and the `in*`/`out*` calls emit `in`/`out` instructions directly. |
-| CPU/query/control wrappers | `Cpuid`, `Msr`, `ControlRegister`, `Rflags`, `Interrupts`, `Cpu`, `Descriptor`, `Segment`, `Fence`, `Cache`, `Privilege` | Value wrappers or instruction effects | Never | Thin target-gated instruction primitives; no generic policy, field decoding, or descriptor layout ownership. | `std` has no CPUID, MSR, CR, RFLAGS, or descriptor-table wrappers. These are inline-asm-only wrappers matching Intel SDM instruction semantics with documented clobbers. |
+| CPU / query / control wrappers | `Cpuid` (raw + `Vendor`/`Version`/`BasicFeatureEdx`/`Ecx`/`StructuredEbx`/`Ecx`/`Edx`/`ExtendedFeatureEdx`/`Ecx` masks, `Cache.Descriptor`/`Iterator`, `AddressSizes`, `brandString`), `Msr`, `ControlRegister`, `Rflags`, `Interrupts`, `Cpu` (`halt`, `pause`, `breakpoint`, `Tsc.read`/`readSerializing`, `Tlb.invalidatePage`/`invalidatePcid`), `Descriptor` (`Gdt`, `Idt`, `TaskRegister`, `Ldtr`), `DebugRegister.Dr0..Dr7`, `Segment`, `Fence`, `Cache`, `Privilege` | Value wrappers or instruction effects | Never | Thin target-gated instruction primitives; typed CPUID decoders `@bitCast` the raw register words into `packed struct(u32)` masks with `hasReserved()` reporting on unknown bits; no generic policy, field decoding beyond bit layouts, or descriptor layout ownership. | `std` has no CPUID, MSR, CR, RFLAGS, TSC, TLB-invalidate, debug-register, or LDT wrapper. `arch.x86_64` gives the ISA layer with inline-asm-only wrappers matching Intel SDM instruction semantics and documented clobbers; the typed CPUID decoders replace the ~50-line `cpuid` + hand-`@bitCast` snippet every downstream project would otherwise write. |
 
 ### Diagnostics
 
@@ -446,6 +472,45 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Ordering | Retained frames render in deterministic DFS pre-order. |
 | Why not std.*? | `std.log` is per-message logging with no scope-tree structure and no zero-alloc path. `Diagnostics` is scoped context for one propagated error path, formatted lazily, with strict "never replace the originating error" behavior. |
 
+#### `diag.PanicLog`
+
+| Family | APIs | Storage | Constructor |
+| --- | --- | --- | --- |
+| Panic-safe ring log | `PanicLog.Static(capacity_bytes)`, `PanicLog.DrainState`, `init`, `clear`, `write`, `drain`, `dropped`, `published`, `isSeated`, `isValid`, `assertValid` | Inline `[capacity_bytes]u8` plus cache-padded `head`, `tail`, `seat`, `seq`, `dropped_seq` atomics | `Static(N).init()` |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. Byte storage is inline. |
+| Waiting | Never. `write` is one bounded seat-CAS attempt (drop on contention); `drain` never blocks writers. |
+| Concurrency | Multi-writer via seat CAS (NMI/IRQ/MCE safe); exactly one reader via `drain`. |
+| Performance | `write` is one CAS + O(payload + overwrite frames); `drain` is O(bytes drained + sink cost); counter queries are O(1). |
+| Errors | `write` returns `error.WriterBusy` (seat contention), `error.PayloadTooLarge`, `error.EmptyPayload`. `drain` propagates `std.Io.Writer.Error` unchanged. |
+| Mutation on error | Empty/too-large payloads are rejected before any state change; `WriterBusy` still increments `dropped_seq`. |
+| Invalidation | Byte-overflow eviction overwrites whole frames from `tail`; `dropped_seq` accounts for both seat-contention drops and overwrite drops. |
+| Ordering | Monotonic 64-bit `seq` counter; header (`Le(u32)` length + `Le(u32)` seq_low) is written under seat exclusion; `head` release-store publishes the frame; `drain` uses acquire loads on `seq`, `head`, `dropped_seq`, resyncs mid-drain on overwrite races. |
+| Why not std.*? | `std.log`/`std.debug` are per-message logging with no panic-safe fixed-capacity ring, no NMI-safe writer path, and no overwrite-oldest policy. `PanicLog` is the sink that survives kernel panic, hypervisor VM-exit faults, firmware pre-runtime failures, and NMI/MCE handlers. |
+
+### CPU
+
+#### `cpu.PerCpu`
+
+| Variant | Storage | Constructor | Capacity |
+| --- | --- | --- | --- |
+| `PerCpu.Static(T, N)` | Inline `[N]CachePad(T)` | `init(default)`, `initFn(make)`, `initEach(fill)`, `initUndefined()` | Comptime `N` slots |
+| `PerCpu.Bounded(T)` | Caller-owned `[]CachePad(T)` | `wrap(slots, default)`, `wrapFn`, `wrapEach`, `wrapUndefined` | `slots.len` slots |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. Storage is inline or caller-owned. |
+| Waiting | Never. |
+| Concurrency | Slots are cache-line padded; each slot is single-owner unless the payload type carries its own concurrency contract (e.g. `AtomicCell(T)`). |
+| Performance | `get`, `getPtr`, `at`, `atPtr`, `slots`, `slotsConst` are O(1) with a `checksEnabled(.build_mode)`-gated bounds assert on the unchecked accessors. |
+| Errors | `at`/`atPtr` return `error.OutOfBounds`; `get`/`getPtr` are unchecked in release with a debug-mode assert. |
+| Mutation on error | Bounds errors leave the accessor's caller state unchanged. |
+| Invalidation | Slot pointers are valid for the lifetime of the container. |
+| Ordering | Slot index maps directly to CPU / partition identity chosen by the caller. |
+| Why not std.*? | `std` has no per-CPU storage abstraction. `PerCpu` is the false-sharing-safe slot vector that scheduler code, per-CPU counters, and per-CPU state can plug into without hand-writing the cache-line padding. |
+
 ### Synchronization
 
 #### `sync.Signal`
@@ -465,6 +530,30 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Invalidation | None; the primitive owns no external storage. Copying/moving after initialization is outside the contract. |
 | Ordering | Sticky (manual reset). `set` release-publishes the unset->set transition and calls `backend.wakeAll()` exactly once on the winning CAS; `clear` release-publishes the set->unset transition and never wakes. Lost-wakeup protection is via `Token.changedSince(observed)` from the backend. |
 | Why not std.*? | `std.Thread.ResetEvent` bundles OS parking and requires a hosted thread runtime. `Signal.Manual(Backend)` exposes the sticky notification without picking a wait implementation: spin, futex, kernel wait queue, and cooperative parkers all plug in as compile-time backends. |
+
+#### `sync.spin.Backend`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Spin-only wait/wake backend | `sync.spin.Backend`, `wait`, `wakeAll`, `WaitError = error{}` | Zero-sized value (`@sizeOf == 0`) | Never | Canonical minimal wait/wake backend for every wait-capable primitive in `stdx.sync` and `stdx.concurrent`. `wait` emits one `std.atomic.spinLoopHint()` and returns without observing state; `wakeAll` is a no-op. `state` and `observed` are ignored by design. Safe from any execution context including NMI. | `std` has no plug-in backend seam for wait/wake primitives; `std.Thread.ResetEvent` bundles the OS parker. `sync.spin.Backend` is a compile-time compose-in-place substitute for scheduler-parking, futex, or IO backends. |
+
+#### `sync.AtomicCell`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Typed atomic value | `AtomicCell(T)`, `init`, ordering-suffixed `load*`, `store*`, `swap*`, `cmpxchg{Weak,Strong}*` (8 variants), integer arithmetic `fetchAdd*/Sub*/And*/Or*/Xor*` (× 4 orderings), `fromStd`, `fromStdConst` | Layout-compatible with `std.atomic.Value(T)`; single field `raw: std.atomic.Value(T)` | Never | Ordering encoded per method suffix (`AcqRel`/`Acquire`/`Release`/`Monotonic`); success/failure ordering fixed at each method site; arithmetic ops instantiate only for integer `T`; supported `T`: signed/unsigned 8/16/32/64/usize/isize integers, `bool`, `enum`, pointer, `packed struct` with a supported backing integer. In-body comptime asserts pin `@sizeOf`/`@alignOf` against `std.atomic.Value(T)`. | `std.atomic.Value(T)` takes ordering as a runtime parameter; readers must audit every callsite to know the ordering. `AtomicCell(T)` moves ordering into the method name, so a review reads the ordering off the identifier and cannot pick the wrong ordering under refactoring. |
+
+#### `sync.RawSpinLock`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Raw atomic-word spinlock | `RawSpinLock`, `State`, `init`, `acquire`, `tryAcquire`, `release`, `isHeld`, `assertHeld` | One `AtomicCell(u32)` word (state 0/1) | Never | Test-and-test-and-set acquisition: monotonic-load spin loop until `unlocked`, then `cmpxchgWeakAcquire`; `release` is `storeRelease(.unlocked)`. `assertHeld` traps under `debug.checksEnabled(.build_mode)`. No fairness, no priority-inheritance, no wait queue. | `std.Thread.Mutex` couples OS parking, priority inheritance, and pthread APIs. `RawSpinLock` is the freestanding-safe atomic-word substrate — usable from firmware, kernel init, and interrupt-disabled contexts where OS APIs are unavailable. |
+
+#### `sync.Once`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| One-shot init primitive | `sync.once.State`, `sync.once.Token`, `Once(Backend)`, `Once.init`, `isDone`, `stateRef`, `call`, `callChecked` | One atomic `u32` word (2-bit state + 30-bit generation) plus backend value | Never | Runs `work(ctx)` at most once against a `State` word; losers wait on the backend and re-check via `Token.changedSince(observed)` for lost-wakeup safety. `callChecked` supports error-returning initializers via a rollback + retry cycle; rollback bumps generation and wakes waiters so they re-race the claim. Under `debug.checksEnabled(.build_mode)` a thread-local recursion tripwire catches direct self-recursion. Backend must satisfy the shared `sync.spin.Backend`-shaped `wait`/`wakeAll` contract. | `std.once.Once` is a hosted primitive that couples the OS parker and does not support fallible initialization or a plug-in wait backend. `Once(Backend)` is compose-first: pair with `sync.spin.Backend` for freestanding contexts or a scheduler-parking backend for hosted runtime. |
 
 ### Concurrent
 
@@ -486,6 +575,25 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Invalidation | `popFront` release-frees its slot; producers reuse freed slots only after the consumer's release-store. |
 | Ordering | FIFO across successful reservations. Producer payload write is release-published via the slot sequence; consumer reads are acquire-ordered. `tryPushBack` performs no internal retry — retry/backoff belong to the caller. |
 | Why not std.*? | `std.Io.Queue(T)` requires the `Io` vtable and blocks producers on full. `mpsc.Ring` is bounded, allocation-free, non-blocking, and works without an `Io` implementation; producers report `error.Full`/`error.Contended` explicitly for caller-owned retry policy. |
+
+#### `concurrent.spsc.Ring`
+
+| Variant | Storage | Constructor | Capacity |
+| --- | --- | --- | --- |
+| `spsc.Ring.Static(T, N)` | Inline `[N]Slot` | `init(self)` | Comptime `N` items; non-zero power of two |
+| `spsc.Ring.Bounded(T)` | Caller-owned `[]Slot` | `init(self, slots)` | `slots.len` items; non-zero power of two |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. Slots come from inline or caller-owned storage. |
+| Waiting | Never. `tryPushBack` returns `error.Full` when full; `popFront` returns `null` when empty. Pair with `sync.Signal` when a consumer needs to park. |
+| Concurrency | Exactly one producer, exactly one consumer. `head` and `tail` are `CachePad(std.atomic.Value(usize))` so producer/consumer writes hit disjoint cache lines. |
+| Performance | `tryPushBack` and `popFront` each perform one monotonic load, one acquire load, and one release store on success. No CAS. |
+| Errors | `error.Full` when the ring is full; zero-sized `T` and non-power-of-two `Static` capacity are compile errors. No `Contended` variant (single producer). |
+| Mutation on error | `error.Full` leaves the ring unchanged. |
+| Invalidation | Producer publishes via release-store of `tail`; consumer frees via release-store of `head`. |
+| Ordering | FIFO. Producer's item write is release-published; consumer's read is acquire-ordered. |
+| Why not std.*? | `std.Io.Queue(T)` requires the `Io` vtable and blocks producers on full. `spsc.Ring` is bounded, allocation-free, non-blocking, false-sharing-isolated, and works without an `Io` implementation. |
 
 ### Time
 
@@ -512,6 +620,18 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Ordering | Backend-defined monotonicity, asserted under `core.debug.checksEnabled(.build_mode)`. Release builds hold `@sizeOf(Backend)` exactly. |
 | Why not std.*? | `std.time.Timer` calls the host monotonic clock directly. `Clock.Monotonic(Backend)` composes any monotonic source (kernel TSC, HPET, PMU counter, virtual clock, test fake) behind one API and asserts monotonicity in debug builds. |
 
+#### `time.Deadline`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Monotonic deadline | `Deadline`, `Deadline.at`, `Deadline.now`, `Deadline.never`, `Deadline.instant`, `Deadline.isNever`, `Deadline.expired`, `Deadline.remaining`, `Deadline.expireBy` | Value `enum(u64)` | Never | Strong monotonic-instant anchor; `expired` uses `afterOrEq` (boundary is expired); `remaining` returns signed `Duration` with `Deadline.never` saturating at `Duration.fromNanos(maxInt(i64))`; `expireBy` returns `error.Timeout` on past-deadline. Clock parameter is duck-typed at compile time; error-union `now` is a compile error. | `std.time.Timer` measures elapsed on a host clock; there is no strong deadline type. `Deadline` is a `u64`-word deadline anchor composable with any monotonic backend. |
+
+#### `time.Backoff`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Retry-delay generator | `Backoff`, `Backoff.Policy`, `Backoff.Step`, `Backoff.init`, `Backoff.reset`, `Backoff.next`, `Backoff.attempts`, `Backoff.assertValid` | Value struct with `Policy`, `attempt`, `next_wait` | Never | Structured spin → yield → sleep phase machine with geometric growth capped at `max_wait` and per-step deadline clipping; `next` returns `.spin` / `.yield` / `.sleep(Duration)` / `.timeout`; the caller executes the wait, never the primitive. `Policy.yield == null` skips the yield phase entirely. | `std.time.sleep` is a bare host sleep with no phase progression, deadline, or yield hook. `Backoff` is deterministic-first, freestanding-safe, and composes with `Deadline` and any monotonic clock. |
+
 ### Barriers
 
 | Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
@@ -526,7 +646,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 
 | Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
 | --- | --- | --- | --- | --- | --- |
-| Register lane factory | `Mmio.Register(T)`, `load`, `store`, `Native`, `width_bytes` | `extern struct { value: T align(@alignOf(T)) }` | Never | Accepts `u8`/`u16`/`u32`/`u64` or `layout.Le`/`Be` over those widths; every other `T` is a compile error. `@sizeOf == @sizeOf(T)`; `@alignOf == @alignOf(T)`. Composes losslessly inside overlay `extern struct`s that model fixed device register blocks. | `*volatile T` gives volatile access at the pointer type but no field-composition contract. `Mmio.Register(T)` is a factory that produces `extern struct` register lanes that compose into device register blocks and reject invalid `T`. |
+| Register lane factory | `Mmio.Register(T)`, `load`, `store`, `Native`, `width_bytes` | `extern struct { value: T align(@alignOf(T)) }` | Never | Accepts `u8`/`u16`/`u32`/`u64`, `layout.Le`/`Be` over those widths, or `packed struct(uN)` where `N ∈ {8, 16, 32, 64}` and the backing integer is explicit; every other `T` is a compile error. `@sizeOf == @sizeOf(T)`; `@alignOf == @alignOf(T)`. Composes losslessly inside overlay `extern struct`s that model fixed device register blocks; a `packed struct(u32)` field type gives named-bit access with reserved-bit preservation across piecemeal updates. | `*volatile T` gives volatile access at the pointer type but no field-composition contract. `Mmio.Register(T)` is a factory that produces `extern struct` register lanes that compose into device register blocks and reject invalid `T`. |
 
 `Register(T)` provides compiler ordering only via Zig's `*volatile T`
 lowering. Hardware ordering against DMA payloads or other MMIO accesses is
@@ -536,19 +656,25 @@ the caller's job via `stdx.barrier.mmio` and `stdx.barrier.dma`.
 
 | Family | APIs | Storage | Constructor |
 | --- | --- | --- | --- |
-| MMIO byte window | `Mmio.Window`, `wrap`, `register`, `registerUnchecked` | Caller-owned aligned byte range | `wrap(bytes)` |
+| MMIO byte window factory | `Mmio.Window(min_align)`, `Mmio.Window32`, `Mmio.Window64`, `default_window_align`, `wrap`, `byteLen`, `register`, `field`, `registerUnchecked` | Caller-owned aligned byte range | `Window(N).wrap(bytes)` |
 
 | Contract | Value |
 | --- | --- |
 | External allocation | Never. Borrows the caller's MMIO mapping. |
 | Waiting | Never. |
 | Concurrency | Value type; the caller manages shared access to the underlying mapping. |
-| Performance | `wrap`, `register`, and `registerUnchecked` are O(1) pointer arithmetic. |
-| Errors | `register` returns `error.OutOfBounds` (including on `usize`-overflowing `offset`) or `error.Misaligned`. `registerUnchecked` skips runtime checks. |
+| Performance | `wrap`, `register`, `field`, and `registerUnchecked` are O(1) pointer arithmetic. |
+| Errors | `register` returns `error.OutOfBounds` (including on `usize`-overflowing `offset`) or `error.Misaligned`. `field` propagates the same errors after comptime-checking that the named field exists in the overlay `Layout` and fits inside `@sizeOf(Layout)`. `registerUnchecked` skips runtime checks and asserts under `debug.checksEnabled(.build_mode)`. |
 | Mutation on error | Errors leave the window unchanged. |
 | Invalidation | Returned register pointers are valid for the lifetime of the underlying MMIO mapping. |
 | Ordering | Not applicable at the type level. Hardware ordering is caller-driven via `stdx.barrier.mmio` and `stdx.barrier.dma`. |
-| Why not std.*? | `std` has no MMIO byte-window abstraction. `Mmio.Window` is a bounds- and alignment-checked view over a caller-owned aligned byte range, producing typed `Register(T)` pointers by offset. |
+| Why not std.*? | `std` has no MMIO byte-window abstraction. `Mmio.Window(min_align)` is a factory parameterized on the required alignment: `Window64` for canonical 8-byte-aligned BARs, `Window32` for 4-byte-aligned legacy BARs, `Window(1)` for byte-granular MMIO. `Window.field(Layout, "cap")` produces a typed pointer to a named overlay field without hand-computing offsets. |
+
+#### `io.poll.until`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Wait-for-value poll loop | `poll.until(clock, deadline, backoff, predicate)`, `poll.PollReturnType(Predicate)` | No storage; composes caller-supplied `Deadline`, `*Backoff`, and clock | Never | Composes `time.Deadline` + `time.Backoff` + a caller predicate returning `E!?T`. Runs predicate first each iteration; on `null` calls `Backoff.next` and dispatches `.spin` (`spinLoopHint`), `.yield` (`policy.yield.?()`), `.sleep` (`clock.sleep(d)`), or `.timeout` (returns `error.Timeout`). Predicate accepts a bare function type OR a struct/pointer exposing `call`. Return type is `(Deadline.TimeoutError \|\| PredicateError)!T`. Debug-mode assert catches null-yield hook. | `std` has no composable poll-with-deadline loop; `std.time.sleep`, `std.Thread.yield`, and `std.Io` are unrelated. `poll.until` is the algorithm shape for every device-init handshake, controller-ready check, and capability negotiation. |
 
 ### DMA
 
