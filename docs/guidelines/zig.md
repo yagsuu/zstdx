@@ -30,25 +30,22 @@ Readable code is required, but readability serves correctness. Prefer explicit, 
 
 ## Imports and declarations
 
-Top-level imports and aliases must be grouped in this order, with one blank line between non-empty groups:
+Top-level declarations at the head of a file must be partitioned into the following groups. Non-empty groups are separated by exactly one blank line; empty groups collapse. No group is split by a blank line internally.
 
-1. `std` and `builtin`;
-2. external packages;
-3. local modules;
-4. type aliases;
-5. value constants;
-6. function aliases.
+1. **Module imports.** Bare `@import("...")` bindings. Split into three subgroups, in order, one blank line between non-empty subgroups: `std`/`builtin`, then external packages, then local modules. A subgroup of one entry still stands alone; do not fold `std` into local imports.
+2. **Type aliases.** Bindings whose *name* is `TitleCase` and whose RHS resolves to a type. This covers renaming a foreign type (`const Node = foreign.Node;`), naming an instantiated generic (`const IndexMap = HashMap(usize, Entry);`), naming a primitive under a domain identity (`const Word = u64;`), and pulling a type through an import expression (`const Range = @import("core/range.zig").Range(usize);`).
+3. **Value aliases.** Bindings whose *name* is `camelCase` or `snake_case` and whose RHS is a runtime value or comptime data — not a function. This covers computed constants (`const word_bits = @bitSizeOf(Word);`), string and integer literals (`const default_prompt = "?> ";`, `const max_depth = 32;`), and re-exports of enum tags or comptime constants (`const default_mode = foreign.Mode.strict;`).
+4. **Function aliases.** Bindings whose *name* is `camelCase` or `snake_case` and whose RHS is a function — an identifier resolving to a function declaration, a member access producing one (`const alignUp = alignment.alignUp;`), or a comptime-invoked type factory used at the value level.
 
-Within a group, keep dependency order only when reordering would obscure a top-to-bottom dependency. Otherwise sort
-by alias name. Do not add comments that merely label obvious groups.
+The type/value split is decided by naming: `TitleCase` names a type, anything else names a value. A binding whose case violates that is a naming defect, not a grouping exception. The value/function split is decided by the RHS: a function alias re-exports something callable, a value alias re-exports data or a comptime constant. When the split is ambiguous (a comptime function that returns a value in every practical use), pick the group that matches how the alias is read at call sites and keep it consistent.
 
-Module imports must use the module's natural name. Do not add `_mod` or `_module` suffixes to avoid a
-collision; rename the local declaration instead.
+Within a group, keep dependency order only when reordering would obscure a top-to-bottom dependency. Otherwise sort by alias name. Do not add comments that merely label obvious groups.
 
-Prefer a top-level type alias when a file repeatedly uses one type from a module. Keep the module namespace when
-several declarations are used through the same namespace.
+Module imports must use the module's natural name. Do not add `_mod` or `_module` suffixes to avoid a collision; rename the local declaration instead.
 
-Facade and aggregate files must apply the same grouping rules to public re-exports.
+Prefer a top-level type alias when a file repeatedly uses one type from a module. Keep the module namespace when several declarations are used through the same namespace.
+
+Facade and aggregate files must apply the same grouping rules to public re-exports. A facade that re-exports both types and functions from the same submodule places the types above the functions with one blank line between.
 
 ## Formatting
 
@@ -62,19 +59,57 @@ Facade and aggregate files must apply the same grouping rules to public re-expor
 
 ## Vertical rhythm
 
-Spacing inside function bodies follows fixed rules. The goal is dense code with consistent break points, not whitespace for its own sake.
+Spacing follows fixed rules from the file down to the statement. The goal is dense code with consistent break points, not whitespace for its own sake.
 
-**Block flanks.** A multi-line `if` / `else` / `while` / `for` / `switch` / `comptime` / anonymous block inside a function is separated from adjacent non-block statements by one blank line above and one blank line below. Two adjacent multi-line blocks take one blank line between them. The flank is omitted when the block is the first or last statement of its enclosing scope.
+**One blank line is the only separator.** Every rule below defines where exactly one blank line is required and where exactly zero blank lines are permitted. Two or more consecutive blank lines anywhere in source are prohibited. End of file is exactly one trailing newline.
+
+### File level
+
+**Header separation.** The module `//!` header sits at the top of the file. One blank line follows the header before the first declaration. Do not indent, banner, or box the header.
+
+**Import and alias grouping.** Follow the group order in `Imports and declarations`. One blank line between non-empty groups; no blank lines inside a group. A group of one entry still stands alone.
+
+**Between top-level declarations.** Exactly one blank line separates two adjacent top-level declarations (functions, types, tests, `comptime {}` blocks, module-private helpers). This applies whether or not the declaration carries a doc comment.
+
+**Doc-comment adherence.** A `///` doc-comment block touches the declaration it documents; no blank line between the last `///` line and the declaration. The single blank line that separates one declaration from the previous one goes above the doc comment, not between the doc comment and its declaration.
+
+### Type body
+
+**Fields then members.** Struct/union/enum fields form a contiguous block with no internal blank lines. One blank line separates the field block from the first ordinary member declaration.
+
+**`const Self = @This();`** — when present, it is the *first* member. One blank line above (following the standard field-to-members separator) and one blank line below (before the first `pub const` or method). Treat it as a bridge declaration that isolates the type identity from the payload it points at.
+
+**Constant families.** Two or more `pub const` declarations that share a role on the same type (error sets, capacity constants, associated types) pack with no internal blank lines when undecorated, and with the standard one-blank-line separation when each carries its own `///` block. Do not mix decorated and undecorated entries inside one family; either every member has a doc comment, or none does.
+
+**Members.** One blank line separates any two adjacent methods, nested types, or member `const`s that are not part of a packed constant family.
+
+### Function body
+
+**Phases, not statements.** A function body reads as an ordered sequence of *phases*, each one a small group of statements that pursues a single sub-goal. Adjacent phases are separated by exactly one blank line; statements inside a phase pack with no blank lines. The recognizable phases, in order when present:
+
+1. **Precondition assertions** — argument checks (`assert`, `debug.assert`), tag/shape validations, comptime contracts asserted at runtime. Two or more form an assertion cluster.
+2. **Argument-driven guards** — early-exit checks that reject invalid or empty inputs (`if (cond) return ...;`). Form one guard cluster.
+3. **Preparation** — locals derived from the arguments: masks, capacities, cached loads, decoded fields.
+4. **Core work** — the load-bearing computation. Long cores split into further phases at each sub-goal transition (e.g. "search" → "commit", "read" → "verify" → "write").
+5. **Postcondition assertions and return** — invariant checks on the result, then the return statement. A single postcondition assert sits touching the return; two or more form a cluster with one blank line above.
+
+A phase of one statement is still a phase — it takes its own blank-line boundary. A phase absent in this function is skipped entirely; do not insert an empty separator.
+
+**Assertion clusters.** Two or more consecutive `assert(...)` / `debug.assert(...)` calls form a cluster with no internal blank lines. One blank line separates the cluster from the code above and below, even when that code is a single expression. A lone assertion is not a cluster: place it on the boundary of the phase it defends.
 
 **Guard clusters.** Single-line early-exit guards (`if (cond) return ...;`, `if (cond) continue;`, `if (cond) break;`) form one contiguous cluster with no internal blank lines. One blank line follows the cluster before the main work.
 
-**Phase separation.** Functions longer than three statements are split into phases — validation, preparation, work, return — by one blank line between phases. Within a phase, no blank lines. Trivial functions (three or fewer statements) take no internal blank lines.
+**Block flanks.** A multi-line `if` / `else` / `while` / `for` / `switch` / `comptime` / anonymous block inside a function is separated from adjacent non-block statements by one blank line above and one blank line below. Two adjacent multi-line blocks take one blank line between them. The flank is omitted when the block is the first or last statement of its enclosing scope.
 
 **Resource grouping.** A resource acquisition and its matching `defer` or `errdefer` form a pair. Put one blank line above the acquisition and one blank line below the deferral. The pair then reads as a visual block and a missing `defer` is easier to spot.
 
 **Local-binding placement.** A `const` or `var` whose first use is inside a block sits immediately above that block, with no blank line between binding and block. Multiple bindings that prepare one block group together with no internal blank lines.
 
-**Single blank line maximum.** At most one consecutive blank line anywhere in source. End of file is exactly one trailing newline.
+**In-function comments.** A comment touches the statement or block it describes: no blank line between the comment and its target. The one blank line that separates the annotated statement from the previous statement goes above the comment.
+
+**Trivial functions.** Bodies of three or fewer statements take no internal blank lines; a lone precondition assert also stays touching the work.
+
+**No decorative blank lines.** A blank line inside a function body must satisfy one of the rules above. Blank lines added only to "let the code breathe" are prohibited.
 
 ## Horizontal density
 
@@ -147,9 +182,7 @@ stages, chats, reviews, or informal agreements.
 **Prose style.**
 
 - Comments are complete sentences: capital letter, terminal period. End-of-line comments may be phrases without punctuation.
-- A `///` doc-comment block touches the declaration it documents; no blank line between them.
-- One blank line separates a doc-commented declaration from the previous declaration, unless both members belong to a closed constant family on the same type (e.g., several `pub const` slot-count constants), in which case they pack with no blank lines.
-- In-function comments touch the statement or block they describe. The blank line goes above the comment, not below.
+- Spacing around comments follows `Vertical rhythm`: a `///` block touches its declaration, an in-function comment touches the statement or block it describes, and the blank line goes above the annotation.
 
 **Always motivate.**
 
@@ -198,6 +231,7 @@ Assertions are part of the design. Assertions detect programmer errors; operatin
 - Add compile-time assertions for type sizes, alignments, field offsets, enum values, bit masks, and constant relationships. Type-owned `comptime` checks live inside the type body.
 - An assertion encodes a programmer error. User, input, environment, and resource failures must still be handled as explicit errors.
 - A blatantly true assertion is allowed when it documents a critical and surprising invariant more loudly than a comment would.
+- Spacing of assertion clusters, guard clusters, and post-condition asserts follows `Vertical rhythm`.
 
 ## Types, ABI, and layout
 
