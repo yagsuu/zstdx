@@ -46,59 +46,75 @@ Proposals must not include:
 
 ## Approved
 
-- `docs/specs/project/scope.md`
-- `docs/specs/architecture.md`
-- `docs/specs/root-exports.md`
-- `docs/specs/core/options.md`
-- `docs/specs/core/traits.md`
-- `docs/specs/core/range.md`
-- `docs/specs/core/debug.md`
-- `docs/specs/bits/power-of-two.md`
-- `docs/specs/mem/alignment.md`
-- `docs/specs/bits/bitset-static.md`
-- `docs/specs/addr/address.md`
-- `docs/specs/addr/pages.md`
-- `docs/specs/ranges/range-set.md`
-- `docs/specs/ranges/range-map.md`
-- `docs/specs/bytes/unaligned.md`
-- `docs/specs/layout/endian.md`
-- `docs/specs/bytes/cursor.md`
-- `docs/specs/mem/arena-bounded.md`
-- `docs/specs/mem/arena-static.md`
-- `docs/specs/mem/pool.md`
-- `docs/specs/mem/bitmap-allocator.md`
-- `docs/specs/collections/list-static.md`
-- `docs/specs/collections/list-bounded.md`
-- `docs/specs/collections/ring-static.md`
-- `docs/specs/collections/ring-bounded.md`
-- `docs/specs/intrusive/list.md`
-- `docs/specs/intrusive/queue.md`
-- `docs/specs/intrusive/stack.md`
-- `docs/specs/bytes/access.md`
-- `docs/specs/algo/allocation.md`
-- `docs/specs/arch/x86_64/base.md`
-- `docs/specs/tags/tag-allocator.md`
-- `docs/specs/diag/diagnostic.md`
-- `docs/specs/graph/forest.md`
-- `docs/specs/barrier/overview.md`
-- `docs/specs/io/mmio.md`
-- `docs/specs/barrier/dma.md`
-- `docs/specs/concurrent/mpsc-ring.md`
-- `docs/specs/sync/signal.md`
-- `docs/specs/time/monotonic.md`
-- `docs/specs/dma/buffer.md`
-- `docs/specs/dma/scatter-gather.md`
-- `docs/specs/mem/cache.md`
-- `docs/specs/concurrent/spsc-ring.md`
-- `docs/specs/sync/spin.md`
-- `docs/specs/sync/once.md`
-- `docs/specs/sync/atomic-cell.md`
-- `docs/specs/time/deadline.md`
-- `docs/specs/time/backoff.md`
-- `docs/specs/arch/x86_64/extensions.md`
-- `docs/specs/arch/x86_64/cpuid.md`
-- `docs/specs/cpu/per-cpu.md`
-- `docs/specs/sync/raw-spin-lock.md`
+Every entry here is Approved. The two subsections track implementation
+status against the source tree. A spec moves from "Implementation
+pending" to "Implemented" only when a matching source file exists under
+`src/`, its module doc cites the spec (per `docs/project-decisions.md`),
+and the required tests from the spec land in `test/`.
+
+### Approved and implemented
+
+- `docs/specs/project/scope.md` (doc-only)
+- `docs/specs/architecture.md` (doc-only)
+- `docs/specs/root-exports.md` (`src/stdx.zig`)
+- `docs/specs/core/options.md` (`src/core/options.zig`)
+- `docs/specs/core/traits.md` (`src/core/traits.zig`)
+- `docs/specs/core/range.md` (`src/core/range.zig`)
+- `docs/specs/core/debug.md` (`src/core/debug.zig`)
+- `docs/specs/bits/power-of-two.md` (`src/bits/power_of_two.zig`)
+- `docs/specs/mem/alignment.md` (`src/mem/alignment.zig`)
+- `docs/specs/bits/bitset-static.md` (`src/bits/set.zig`)
+- `docs/specs/addr/address.md` (`src/addr/address.zig`)
+- `docs/specs/addr/pages.md` (`src/addr/pages.zig`)
+- `docs/specs/ranges/range-set.md` (`src/ranges/set.zig`)
+- `docs/specs/ranges/range-map.md` (`src/ranges/map.zig`)
+- `docs/specs/bytes/unaligned.md` (`src/bytes/unaligned.zig`)
+- `docs/specs/layout/endian.md` (`src/layout/endian.zig`)
+- `docs/specs/bytes/cursor.md` (`src/bytes/cursor.zig`)
+- `docs/specs/mem/arena-bounded.md` (`src/mem/arena.zig`)
+- `docs/specs/mem/arena-static.md` (`src/mem/arena.zig`)
+- `docs/specs/mem/pool.md` (`src/mem/pool.zig`)
+- `docs/specs/mem/bitmap-allocator.md` (`src/mem/bitmap.zig`)
+- `docs/specs/collections/list-static.md` (`src/collections/list.zig`)
+- `docs/specs/collections/list-bounded.md` (`src/collections/list.zig`)
+- `docs/specs/collections/ring-static.md` (`src/collections/ring.zig`)
+- `docs/specs/collections/ring-bounded.md` (`src/collections/ring.zig`)
+- `docs/specs/intrusive/list.md` (`src/intrusive/list.zig`)
+- `docs/specs/intrusive/queue.md` (`src/intrusive/queue.zig`)
+- `docs/specs/intrusive/stack.md` (`src/intrusive/stack.zig`)
+- `docs/specs/bytes/access.md` (`src/bytes/access.zig`)
+- `docs/specs/algo/allocation.md` (`src/algo/allocation.zig`)
+- `docs/specs/arch/x86_64/base.md` (`src/arch/x86_64.zig`)
+- `docs/specs/tags/tag-allocator.md` (`src/tags/allocator.zig`, `src/tags/tag.zig`)
+- `docs/specs/diag/diagnostic.md` (`src/diag/diagnostic.zig`)
+- `docs/specs/graph/forest.md` (`src/graph/forest.zig`)
+- `docs/specs/barrier/overview.md` (`src/barrier.zig`)
+- `docs/specs/io/mmio.md` (`src/io/mmio.zig`)
+- `docs/specs/barrier/dma.md` (`src/barrier/compiler.zig`, `src/barrier/mmio.zig`, `src/barrier/dma.zig`)
+- `docs/specs/concurrent/mpsc-ring.md` (`src/concurrent/mpsc/ring.zig`)
+- `docs/specs/sync/signal.md` (`src/sync/signal.zig`)
+- `docs/specs/time/monotonic.md` (`src/time/monotonic.zig`)
+- `docs/specs/dma/buffer.md` (`src/dma/buffer.zig`)
+- `docs/specs/dma/scatter-gather.md` (`src/dma/scatter_gather.zig`)
+- `docs/specs/mem/cache.md` (`src/mem/cache.zig`)
+- `docs/specs/mem/buddy-allocator.md` (`src/mem/buddy.zig`)
+- `docs/specs/time/deadline.md` (`src/time/deadline.zig`)
+- `docs/specs/time/backoff.md` (`src/time/backoff.zig`)
+- `docs/specs/sync/spin.md` (`src/sync/spin.zig`)
+- `docs/specs/sync/atomic-cell.md` (`src/sync/atomic_cell.zig`)
+- `docs/specs/sync/raw-spin-lock.md` (`src/sync/raw_spin_lock.zig`)
+- `docs/specs/sync/once.md` (`src/sync/once.zig`)
+- `docs/specs/arch/x86_64/extensions.md` (`src/arch/x86_64.zig`)
+- `docs/specs/arch/x86_64/cpuid.md` (`src/arch/x86_64.zig`)
+- `docs/specs/io/poll-until.md` (`src/io/poll.zig`)
+- `docs/specs/concurrent/spsc-ring.md` (`src/concurrent/spsc.zig`, `src/concurrent/spsc/ring.zig`)
+- `docs/specs/cpu/per-cpu.md` (`src/cpu.zig`, `src/cpu/per_cpu.zig`)
+- `docs/specs/diag/panic-log.md` (`src/diag/panic_log.zig`)
+
+### Approved, implementation pending
+
+No entries. All approved specs are implemented; the next batch moves
+through the workflow at the head of the `Queue` section below.
 
 ## Queue
 
@@ -165,121 +181,9 @@ Wave 1 — CPU-facing baseline:
     arrival protocol, and wait composition; does not own reset, scheduler
     parking, or per-arrival policy.
 
-Wave 2 — device + memory primitives:
+Wave 2 — hv-specific:
 
-2. `docs/specs/io/register-field.md` — typed bitfield extract/insert over
-    `io.Mmio.Register` for LAPIC, HPET, VMCS shadow, IOMMU register banks.
-    Proposal must decide:
-    - factory shape:
-      `Mmio.Register(T).Field(comptime bit_offset: comptime_int, comptime bit_width: comptime_int, comptime FieldT: type)`
-      returning a typed extract/insert view;
-    - `read` performs a single volatile MMIO load of the underlying
-      `Register(T)` and returns a `FieldT` shifted+masked value; `write`
-      performs a single volatile MMIO store using a caller-supplied full
-      `T` value that already carries the field, or a read-modify-write
-      convenience that is explicitly documented as **not atomic**
-      (caller-serialized per register);
-    - `modify(mutator: fn (T) T) void` exists as the convenience RMW
-      shape and is likewise not atomic; the spec must state this at each
-      operation site;
-    - composition with `layout.Le(T)` / `layout.Be(T)`;
-    - compile-time bounds check `bit_offset + bit_width <= @sizeOf(T) * 8`;
-    - compile-time rejection of field types whose bit width does not match
-      `bit_width` (e.g. `FieldT = u3` requires `bit_width == 3`);
-    - explicit non-goal: cross-CPU RMW atomicity. Consumers who need atomic
-      bit-set/clear on shared registers (rare on x86_64 MMIO) hand-roll the
-      correct instruction sequence outside this primitive.
-    Distinct from `std.PackedIntArray`: MMIO-load/store-aware, composes with
-    existing `io.Mmio.Register` load/store discipline.
-3. `docs/specs/io/poll-until.md` — wait-for-bit / wait-for-value poll loop
-    composed with `time.Deadline` and `time.Backoff`. Proposal must decide:
-    - core signature:
-
-      ```zig
-      pub fn until(
-          clock: anytype,
-          deadline: Deadline,
-          backoff: *time.Backoff,
-          predicate: anytype, // fn () PredicateError!?T
-      ) PollError!T;
-      ```
-
-    - error-union shape: `PollError = error{Timeout} || PredicateError`;
-    - success returns the payload `T` produced by the predicate;
-    - predicate errors propagate unchanged (not wrapped);
-    - deadline expiry returns `error.Timeout` from `Deadline.expireBy`;
-    - progress rule: exactly one predicate poll runs before the first
-      deadline check, so a `Deadline.at(clock.now())` still gets one chance
-      to observe a completed device state;
-    - `backoff.pause(clock)` is called between polls, not before the first
-      poll;
-    - explicit non-goal: no built-in `error.Aborted` — cancellation is
-      caller policy via a predicate that returns its own error variant.
-    Distinct value: no freestanding equivalent in `std`.
-4. `docs/specs/mem/buddy-allocator.md` — multi-order (4 KiB / 2 MiB / 1 GiB or
-    caller-defined) buddy allocator over a caller-supplied backing region.
-    Zero-hidden-allocation, deterministic, freestanding-safe. Proposal must
-    decide:
-    - API shape:
-
-      ```zig
-      pub fn Buddy(
-          comptime BackingT: type,
-          comptime order_count: usize,
-      ) type;
-      ```
-
-      returning an allocator over a caller-supplied backing region of
-      `BackingT` blocks (typically page-sized), with `order_count` distinct
-      power-of-two orders;
-    - allocation unit is `Order` = log2(2^k * base_block), not raw bytes;
-    - `alloc(order)` returns `error.OutOfMemory` when no free block of that
-      order exists and no larger block can be split to satisfy it;
-    - `alloc(order)` returns a distinct `error.Fragmented` when a larger
-      block exists but no coalesce would satisfy the request — that is, the
-      caller could retry after freeing a peer;
-    - coalescing runs eagerly on `free` — no deferred merge queue, no
-      background sweep;
-    - free-order invariant: caller must `free(ptr, order)` at the same
-      `order` used at `alloc`. Violation is a programmer error asserted
-      under `stdx.core.debug.checksEnabled(.build_mode)`;
-    - reserved regions are supported via `reserve(range: Range) !void` at
-      init only; post-init reserves are outside the primitive's contract;
-    - explicit non-goals: NUMA locality, per-CPU caches, dynamic backing
-      growth, coalesce policies other than eager, and defragmentation.
-    Distinct from `std.heap`: byte-granular std allocators cannot serve
-    page-tier allocation.
-5. `docs/specs/diag/panic-log.md` — panic-safe ring log sink usable from
-    panic and NMI contexts. Owned separately from `diag/trace-ring.md`
-    because the panic contract is stricter (single-writer at any instant,
-    IRQ/NMI-safe, never blocks). Proposal must decide:
-    - shape `PanicLog.Static(capacity_bytes: usize)` returning a byte-ring
-      backing plus a monotonic `seq` counter;
-    - writer discipline: strictly single-writer at any instant. Writers
-      acquire an atomic `writer_slot` seat with a bounded try-CAS. On
-      contention `write` returns `error.WriterBusy` and drops the message —
-      panic paths never block waiting for the seat;
-    - message format: length-prefixed `[u32 len][u32 seq][bytes]`. `len`
-      excludes the header; `seq` is the monotonic sequence at write time;
-    - IRQ writers and NMI writers use the same seat CAS. The CAS itself is
-      NMI-safe by construction: a single-word atomic with no reservation
-      window and no reserved-but-unpublished state;
-    - reader drain: `drain(reader_state: *DrainState, sink: *std.Io.Writer)
-      !void`, single reader, does not block writers. Reader is exempt from
-      the seat CAS; it walks the ring under a snapshot of `seq` and stops
-      when it catches up;
-    - drop counter: dropped writes (both `WriterBusy` and byte-overflow
-      overwrites) increment a monotonic `dropped_seq` counter visible to
-      the reader;
-    - no allocation, no locks that can be held during panic, no formatting
-      inside the sink;
-    - explicit non-goals: multi-CPU flush ordering, log persistence,
-      formatted logging — the ring stores raw bytes only; formatting and
-      any structured layout are caller policy.
-
-Wave 3 — hv-specific:
-
-6. `docs/specs/arch/x86_64/vmx.md` — VMX ISA wrappers: `vmxon`/`vmxoff`/
+3. `docs/specs/arch/x86_64/vmx.md` — VMX ISA wrappers: `vmxon`/`vmxoff`/
     `vmlaunch`/`vmresume`/`vmread`/`vmwrite`/`vmclear`/`vmptrld`/`vmptrst`/
     `invept`/`invvpid` as inline-asm helpers. Same "just the ISA" boundary
     as base. No VMCS field catalog, no VMCS layout policy. Proposal must
@@ -309,7 +213,7 @@ Wave 3 — hv-specific:
       have the declared size/alignment, descriptors have the declared
       size/alignment, `vmlaunch`/`vmresume` are `Error!noreturn`, module
       compiles on x86_64, non-x86_64 build either omits or `@compileError`s).
-7. `docs/specs/arch/x86_64/svm.md` — SVM ISA wrappers: `vmrun`/`vmload`/
+4. `docs/specs/arch/x86_64/svm.md` — SVM ISA wrappers: `vmrun`/`vmload`/
     `vmsave`/`stgi`/`clgi`/`invlpga`/`skinit` as inline-asm helpers. Same
     "just the ISA" boundary as VMX. No VMCB field catalog, no VMCB layout
     policy. Proposal must decide:
@@ -336,7 +240,7 @@ Wave 3 — hv-specific:
       `skinit` are `noreturn`, `vmload`/`vmsave`/`stgi`/`clgi`/`invlpga`
       are `void`, module compiles on x86_64, non-x86_64 build either omits
       or `@compileError`s).
-8. `docs/specs/concurrent/mpsc-atomic-ring.md` — single-atomic-publication
+5. `docs/specs/concurrent/mpsc-atomic-ring.md` — single-atomic-publication
     MPSC ring, sibling to `docs/specs/concurrent/mpsc-ring.md` under the
     same `mpsc` namespace. Not a mode flag on `Ring`. Publishes an item
     in one atomic step (packed sequence tag + payload in a single CAS on
@@ -365,7 +269,7 @@ Wave 3 — hv-specific:
       16's NMI-safe sibling pointer) is repointed at
       `docs/specs/concurrent/mpsc-atomic-ring.md`;
     - zero-allocation, bounded, no policy on wake or scheduler.
-9. `docs/specs/concurrent/qsbr.md` — quiescent-state-based reclamation
+6. `docs/specs/concurrent/qsbr.md` — quiescent-state-based reclamation
     substrate. Answers the "rcu-lite" need for exit-handler tables and mapping
     updates. Simplest of the four reclamation candidates (`epoch`, `hazard`,
     `qsbr`, `rcu`) and enough for the stated bounded-quiescent-state use case.
@@ -526,9 +430,10 @@ demonstrates a gap.
 
 ### Synchronization, concurrency, and diagnostics
 
-`sync/raw-spin-lock.md`, `sync/rendezvous.md`, `sync/latch.md`,
-`concurrent/per-cpu.md`, `concurrent/mpsc-atomic-ring.md`, and
-`diag/panic-log.md` are promoted to the head-of-queue waves above.
+`sync/rendezvous.md`, `sync/latch.md`, and `concurrent/mpsc-atomic-ring.md`
+are still in the head-of-queue waves above. `sync/raw-spin-lock.md`,
+`cpu/per-cpu.md`, and `diag/panic-log.md` have moved into the Approved
+section (implementation pending).
 
 - `docs/specs/concurrent/work-stealing.md` +
   `docs/specs/concurrent/work-stealing/chase-lev.md` — work-stealing deque
@@ -612,6 +517,18 @@ demonstrates a gap.
   unknown-bit / typed-mask friction the callsite pattern cannot answer;
   narrower framing at that point is `bits.EnumIndexSet(Enum)` owning
   unknown-bit reporting over `std.bit_set.IntegerBitSet` and nothing else.
+- `docs/specs/io/register-field.md` — deferred after 2026-07 audit.
+  `docs/specs/io/mmio.md` was amended to accept
+  `T = packed struct(uN)` where `N ∈ { 8, 16, 32, 64 }`, so typed
+  named-field access, reserved-bit preservation, and enum-typed
+  bitfields are already available via `Register(packed struct(uN))`.
+  Distinct value of a separate `Field(bit_offset, bit_width, FieldT)`
+  wrapper shrinks to call-site sugar over `@bitCast(reg.load())`.
+  Revisit only if a downstream consumer (LAPIC, HPET, VMCS shadow,
+  IOMMU register bank) demonstrates a concrete friction the packed
+  struct path cannot answer — e.g. field-set batching across multiple
+  registers, or a Zig limitation on `packed struct` bit-layout that
+  matters at the register level.
 
 ### Candidate scope additions from sibling review
 
