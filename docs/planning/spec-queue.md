@@ -111,6 +111,7 @@ and the required tests from the spec land in `test/`.
 - `docs/specs/cpu/per-cpu.md` (`src/cpu.zig`, `src/cpu/per_cpu.zig`)
 - `docs/specs/diag/panic-log.md` (`src/diag/panic_log.zig`)
 - `docs/specs/mem/pool-cache.md` (`src/mem/pool_cache.zig`)
+- `docs/specs/mem/frame-allocator.md` (`src/mem/frame.zig`)
 
 ### Approved, implementation pending
 
@@ -159,6 +160,14 @@ MUST follow this convention:
    `wait(state, observed)` arms a wait and `wakeAll(state)` wakes waiters for
    that same primitive instance. Backends that ignore state may accept
    `*const anyopaque`, but specs must not omit the state argument from wake.
+
+Wave 0 — memory-allocator readiness — complete. `docs/specs/mem/pool-cache.md`
+and `docs/specs/mem/frame-allocator.md` shipped; hv/firmware/kernel consumers
+can compose a typed-object cache over any conforming `RegionSource` (including
+`FrameAllocator.FrameSource(order)` for page-backed growth) on top of the
+existing `mem.BuddyAllocator`, `mem.BitmapAllocator`, and `mem.Pool` substrate.
+`docs/specs/mem/pool.md` also gained a debug-fill contract inherited by
+`PoolCache` and every downstream typed pool.
 
 Wave 1 — CPU-facing baseline:
 

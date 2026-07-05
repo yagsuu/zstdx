@@ -279,9 +279,10 @@ Planned primitives:
 - `mem.BitmapAllocator`
 - `mem.DeferredFreeList`
 - `mem.PoolCache(T)`
+- `mem.FrameAllocator`
 - `mem.BuddyAllocator`
 
-`mem.FrameAllocator` and `mem.VirtualRegionAllocator` are candidates only as generic mechanisms. OS physical-memory-map policy is out of scope.
+`mem.VirtualRegionAllocator` remains a candidate only as a generic mechanism. OS physical-memory-map policy is out of scope.
 
 ### Static and bounded collections
 
