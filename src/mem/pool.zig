@@ -3,6 +3,8 @@
 
 const std = @import("std");
 
+const debug = @import("../core/debug.zig");
+
 fn requireRuntimeValue(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("pool element type must have nonzero size");
 }
@@ -178,7 +180,9 @@ fn acquireSlot(
         free_head.* = slot.free;
         slot.* = .{ .occupied = undefined };
         live_count.* += 1;
-        return &slot.occupied;
+        const payload = &slot.occupied;
+        fillPayload(T, payload, alloc_fill);
+        return payload;
     }
 
     if (bump_index.* >= buffer.len) return error.OutOfMemory;
@@ -187,7 +191,9 @@ fn acquireSlot(
     bump_index.* += 1;
     slot.* = .{ .occupied = undefined };
     live_count.* += 1;
-    return &slot.occupied;
+    const payload = &slot.occupied;
+    fillPayload(T, payload, alloc_fill);
+    return payload;
 }
 
 fn releaseSlot(
@@ -202,9 +208,23 @@ fn releaseSlot(
     std.debug.assert(slot.* == .occupied);
     std.debug.assert(live_count.* > 0);
 
+    fillPayload(T, item, free_fill);
+
     slot.* = .{ .free = free_head.* };
     free_head.* = slot;
     live_count.* -= 1;
+}
+
+const alloc_fill: u8 = 0xCD;
+const free_fill: u8 = 0xFD;
+
+// Overwrite `@sizeOf(T)` payload bytes at `payload` with `pattern` when
+// stdx safety checks are enabled. Compiled out in ReleaseFast and
+// ReleaseSmall. Payload-only diagnostic per docs/specs/mem/pool.md.
+inline fn fillPayload(comptime T: type, payload: *T, pattern: u8) void {
+    if (!debug.checksEnabled(.build_mode)) return;
+    const bytes: [*]u8 = @ptrCast(payload);
+    @memset(bytes[0..@sizeOf(T)], pattern);
 }
 
 fn checkValid(

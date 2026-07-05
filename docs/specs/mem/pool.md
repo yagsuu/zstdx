@@ -327,17 +327,49 @@ All error returns leave the pool unchanged.
 `assertValid()` is called explicitly. Operations do not call it
 unconditionally on hot paths.
 
+## Debug fill
+
+When `stdx.core.debug.checksEnabled(.build_mode)` is `true`, `acquire` and
+`release` overwrite the payload byte window with fixed patterns so that
+use-after-free and use-before-init errors are visible in Debug and
+ReleaseSafe:
+
+- `acquire`, after switching the slot tag to `.occupied` and before
+  returning `&slot.occupied`, writes `0xCD` to every byte of the payload
+  window `[&slot.occupied, &slot.occupied + @sizeOf(T))`;
+- `release`, after asserting the slot is currently `.occupied` and
+  before switching the tag back to `.free`, writes `0xFD` to every byte
+  of the same payload window. Immediately after the release the free-
+  list link overwrites the first `@sizeOf(?*Slot)` bytes of that
+  window; only bytes at offsets `[@sizeOf(?*Slot), @sizeOf(T))` remain
+  observable as `0xFD` for use-after-free diagnostics.
+
+When `checksEnabled(.build_mode)` is `false` (ReleaseFast and
+ReleaseSmall), neither fill runs and the payload window is left in
+whatever state the last public operation left it. Callers that need
+deterministic zeroing must do it themselves.
+
+Debug fill does not touch the `Slot` tag bytes, the free-list link stored
+in the `.free` variant, or any bytes outside `[0, @sizeOf(T))` at the
+payload location. Padding bytes inside the union are unspecified.
+
+Debug fill is a payload-only diagnostic. It is not a poisoning policy, not
+a leak detector, and does not affect the observable free-list order,
+`live_count`, `bump_index`, or `free_head`.
+
 ## Implementation constraints
 
 Implementation must:
 
 - store the free list inside `Slot` itself (no external metadata);
 - use `@fieldParentPtr("occupied", item)` to recover the slot from a `*T`;
-- never destruct, zero, or otherwise touch the payload of an occupied slot;
+- never destruct or touch the payload of an occupied slot outside the
+  debug-fill contract defined above;
 - not loop in `acquire` or `release`;
 - not walk the free list in capacity helpers;
 - not perform unconditional invariant scans on hot paths;
-- avoid hidden globals, atomics, fences, syscalls, target probes, allocation;
+- avoid hidden globals, atomics, fences, syscalls, target probes,
+  allocation, and unconditional payload writes on release builds;
 - compile for freestanding targets.
 
 ## Usage
@@ -452,6 +484,25 @@ _ = c;
   `T`;
 - `Pool.Static(T, M)` and `Pool.Static(T, N)` are distinct types for
   `M != N`.
+
+### Debug fill
+
+Required with a payload type large enough that the last byte lies beyond
+`@sizeOf(?*Slot)`, e.g. `[64]u8` or `struct { bytes: [64]u8 }`:
+
+- under `stdx.core.debug.checksEnabled(.build_mode) == true`, every byte
+  of the payload window returned by `acquire` equals `0xCD`;
+- under `checksEnabled(.build_mode) == true`, immediately after
+  `release` every byte of the payload window at offsets
+  `[@sizeOf(?*Slot), @sizeOf(T))` equals `0xFD` when read through a raw
+  pointer that outlives the release. Bytes at offsets
+  `[0, @sizeOf(?*Slot))` are overwritten by the free-list link and MUST
+  NOT be asserted;
+- under `checksEnabled(.build_mode) == false`, the fill patterns MUST
+  NOT appear. The test asserts that neither `0xCD` nor `0xFD` is
+  observed in the payload window after `acquire` or after `release`;
+- fills do not affect `len`, `remaining`, `bump_index`, `free_head`,
+  LIFO reuse order, or `assertValid` results.
 
 ## Open questions
 

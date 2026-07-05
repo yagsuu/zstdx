@@ -6,12 +6,19 @@ const stdx = @import("stdx");
 
 const Pool = stdx.mem.Pool;
 
+const debug = stdx.core.debug;
 const testing = std.testing;
 
 const Frame = struct {
     id: u32,
     payload: u32,
 };
+
+// A payload large enough to expose the fill contract past the free-list
+// link overwrite region. `?*Slot` occupies the first bytes of the union
+// payload after `release`; bytes at offsets `[link_size, @sizeOf(T))`
+// remain observable as `0xFD` for use-after-free diagnostics.
+const FillPayload = struct { bytes: [64]u8 };
 
 test "unit: Pool.Static reports capacity and starts empty" {
     var pool = Pool.Static(Frame, 4).init();
@@ -200,5 +207,91 @@ test "unit: Pool.Static(T, 1) cycles its only slot without losing it" {
         item.* = .{ .id = @intCast(i), .payload = 0 };
         pool.release(item);
     }
+    pool.assertValid();
+}
+
+test "unit: Pool.Static debug fill patterns match spec" {
+    var pool = Pool.Static(FillPayload, 2).init();
+    const item = try pool.acquire();
+
+    if (debug.checksEnabled(.build_mode)) {
+        for (item.bytes) |b| try testing.expectEqual(@as(u8, 0xCD), b);
+    } else {
+        var saw_cd = false;
+        for (item.bytes) |b| if (b == 0xCD) {
+            saw_cd = true;
+            break;
+        };
+        try testing.expect(!saw_cd);
+    }
+
+    for (&item.bytes) |*b| b.* = 0x42;
+    pool.release(item);
+
+    const PoolT = Pool.Static(FillPayload, 2);
+    const link_size = @sizeOf(?*PoolT.Slot);
+    const raw: [*]const u8 = @ptrCast(item);
+    if (debug.checksEnabled(.build_mode)) {
+        var i: usize = link_size;
+        while (i < @sizeOf(FillPayload)) : (i += 1) {
+            try testing.expectEqual(@as(u8, 0xFD), raw[i]);
+        }
+    } else {
+        var saw_fd = false;
+        var i: usize = link_size;
+        while (i < @sizeOf(FillPayload)) : (i += 1) {
+            if (raw[i] == 0xFD) {
+                saw_fd = true;
+                break;
+            }
+        }
+        try testing.expect(!saw_fd);
+    }
+
+    pool.assertValid();
+}
+
+test "unit: Pool.Bounded debug fill honors payload window" {
+    const PoolT = Pool.Bounded(FillPayload);
+    var storage: [4]PoolT.Slot = undefined;
+    var pool = PoolT.wrap(&storage);
+
+    const item = try pool.acquire();
+
+    if (debug.checksEnabled(.build_mode)) {
+        for (item.bytes) |b| try testing.expectEqual(@as(u8, 0xCD), b);
+    }
+
+    pool.release(item);
+
+    if (debug.checksEnabled(.build_mode)) {
+        const link_size = @sizeOf(?*PoolT.Slot);
+        const raw: [*]const u8 = @ptrCast(item);
+        var i: usize = link_size;
+        while (i < @sizeOf(FillPayload)) : (i += 1) {
+            try testing.expectEqual(@as(u8, 0xFD), raw[i]);
+        }
+    }
+
+    pool.assertValid();
+}
+
+test "unit: Pool debug fill leaves len/remaining unchanged" {
+    var pool = Pool.Static(FillPayload, 3).init();
+    try testing.expectEqual(@as(usize, 3), pool.remaining());
+
+    const a = try pool.acquire();
+    try testing.expectEqual(@as(usize, 1), pool.len());
+    try testing.expectEqual(@as(usize, 2), pool.remaining());
+
+    pool.release(a);
+    try testing.expectEqual(@as(usize, 0), pool.len());
+    try testing.expectEqual(@as(usize, 3), pool.remaining());
+
+    // LIFO reuse survives the fill: releasing then acquiring returns the
+    // same slot even though the payload has been overwritten with 0xFD.
+    const reuse = try pool.acquire();
+    try testing.expectEqual(a, reuse);
+    pool.release(reuse);
     pool.assertValid();
 }
