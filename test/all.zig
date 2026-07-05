@@ -9,6 +9,7 @@ comptime {
     _ = @import("core/traits_test.zig");
     _ = @import("bits/power_of_two_test.zig");
     _ = @import("bits/set_test.zig");
+    _ = @import("bits/word_test.zig");
     _ = @import("mem/alignment_test.zig");
     _ = @import("mem/arena_test.zig");
     _ = @import("mem/pool_test.zig");

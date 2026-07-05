@@ -63,6 +63,7 @@ and the required tests from the spec land in `test/`.
 - `docs/specs/core/debug.md` (`src/core/debug.zig`)
 - `docs/specs/bits/power-of-two.md` (`src/bits/power_of_two.zig`)
 - `docs/specs/mem/alignment.md` (`src/mem/alignment.zig`)
+- `docs/specs/bits/word.md` (`src/bits/word.zig`)
 - `docs/specs/bits/bitset-static.md` (`src/bits/set.zig`)
 - `docs/specs/addr/address.md` (`src/addr/address.zig`)
 - `docs/specs/addr/pages.md` (`src/addr/pages.zig`)
