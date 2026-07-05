@@ -4,6 +4,7 @@ const std = @import("std");
 
 const debug = @import("../core/debug.zig");
 const allocation = @import("../algo/allocation.zig");
+const word = @import("../bits/word.zig");
 
 const Buddy = allocation.Buddy;
 const BuddyWord = u64;
@@ -256,7 +257,7 @@ fn validSlotsFor(unit_capacity: usize, order: u8) usize {
 }
 
 fn wordsForOrder(unit_capacity: usize, order: u8) usize {
-    return ceilDivUsize(slotsForOrder(unit_capacity, order), buddy_word_bits);
+    return word.count(BuddyWord, slotsForOrder(unit_capacity, order));
 }
 
 fn orderWordOffset(unit_capacity: usize, order: u8) usize {
@@ -273,26 +274,19 @@ fn requiredWordCount(unit_capacity: usize, order_count: u8) usize {
     return orderWordOffset(unit_capacity, order_count);
 }
 
-fn bitMask(slot: usize) BuddyWord {
-    return @as(BuddyWord, 1) << @as(Shift, @intCast(slot % buddy_word_bits));
-}
-
 fn bitIsSet(words: []const BuddyWord, unit_capacity: usize, order: u8, slot: usize) bool {
     const off = orderWordOffset(unit_capacity, order);
-    const w = off + slot / buddy_word_bits;
-    return (words[w] & bitMask(slot)) != 0;
+    return word.isSet(BuddyWord, words[off..], slot);
 }
 
 fn setBit(words: []BuddyWord, unit_capacity: usize, order: u8, slot: usize) void {
     const off = orderWordOffset(unit_capacity, order);
-    const w = off + slot / buddy_word_bits;
-    words[w] |= bitMask(slot);
+    word.set(BuddyWord, words[off..], slot);
 }
 
 fn clearBit(words: []BuddyWord, unit_capacity: usize, order: u8, slot: usize) void {
     const off = orderWordOffset(unit_capacity, order);
-    const w = off + slot / buddy_word_bits;
-    words[w] &= ~bitMask(slot);
+    word.clear(BuddyWord, words[off..], slot);
 }
 
 fn findFirstFreeAtOrder(words: []const BuddyWord, unit_capacity: usize, order: u8) ?usize {
@@ -560,15 +554,15 @@ fn hasUnusedHighBits(words: []const BuddyWord, unit_capacity: usize, order_count
         var wi: usize = 0;
         while (wi < wc) : (wi += 1) {
             const base = wi * buddy_word_bits;
-            const word = words[off + wi];
+            const w = words[off + wi];
             if (base >= valid) {
-                if (word != 0) return true;
+                if (w != 0) return true;
                 continue;
             }
             const in_word = valid - base;
             if (in_word >= buddy_word_bits) continue;
             const high_mask = ~((@as(BuddyWord, 1) << @as(Shift, @intCast(in_word))) - 1);
-            if ((word & high_mask) != 0) return true;
+            if ((w & high_mask) != 0) return true;
         }
     }
     return false;

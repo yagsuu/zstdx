@@ -4,6 +4,8 @@
 
 const std = @import("std");
 
+const word = @import("../bits/word.zig");
+
 const RangeUsize = @import("../core/range.zig").Range(usize);
 
 /// Family of fixed-unit bitmap allocators. Both variants share `u64`-word
@@ -31,8 +33,7 @@ pub const BitmapAllocator = struct {
 
             /// Number of backing words; rounded up from
             /// `unit_capacity / word_bits`.
-            pub const word_count = capacity_units / word_bits +
-                @intFromBool(capacity_units % word_bits != 0);
+            pub const word_count = word.count(Word, capacity_units);
 
             /// Half-open range of unit indexes.
             pub const Range = RangeUsize;
@@ -48,7 +49,7 @@ pub const BitmapAllocator = struct {
             /// Mark every unit free. Capacity and backing storage identity
             /// do not change.
             pub fn clearRetainingCapacity(self: *Self) void {
-                for (&self.words) |*word| word.* = 0;
+                for (&self.words) |*w| w.* = 0;
             }
 
             pub fn capacity(self: Self) usize {
@@ -159,13 +160,13 @@ pub const BitmapAllocator = struct {
         /// `unit_capacity > words.len * word_bits` and in that case
         /// leaves the borrowed storage unchanged.
         pub fn wrap(words: []Word, unit_capacity: usize) Error!Bounded {
-            if (logicalWordCount(unit_capacity) > words.len) return error.OutOfBounds;
-            for (words) |*word| word.* = 0;
+            if (word.count(Word, unit_capacity) > words.len) return error.OutOfBounds;
+            for (words) |*w| w.* = 0;
             return .{ .words = words, .unit_capacity = unit_capacity };
         }
 
         pub fn clearRetainingCapacity(self: *Bounded) void {
-            for (self.words) |*word| word.* = 0;
+            for (self.words) |*w| w.* = 0;
         }
 
         pub fn capacity(self: Bounded) usize {
@@ -242,23 +243,12 @@ const BitmapError = BitmapAllocator.Bounded.Error;
 const Shift = std.math.Log2Int(BitmapWord);
 
 fn logicalWordCount(unit_capacity: usize) usize {
-    return unit_capacity / bitmap_word_bits + @intFromBool(unit_capacity % bitmap_word_bits != 0);
-}
-
-fn lastMask(unit_capacity: usize) BitmapWord {
-    if (unit_capacity == 0) return 0;
-    const rem = unit_capacity % bitmap_word_bits;
-    if (rem == 0) return ~@as(BitmapWord, 0);
-    return (@as(BitmapWord, 1) << @as(Shift, @intCast(rem))) - 1;
-}
-
-fn bitMask(index: usize) BitmapWord {
-    return @as(BitmapWord, 1) << @as(Shift, @intCast(index % bitmap_word_bits));
+    return word.count(BitmapWord, unit_capacity);
 }
 
 fn bitIsSet(words: []const BitmapWord, unit_capacity: usize, index: usize) bool {
     if (index >= unit_capacity) return false;
-    return (words[index / bitmap_word_bits] & bitMask(index)) != 0;
+    return word.isSet(BitmapWord, words, index);
 }
 
 fn countAllocated(words: []const BitmapWord, unit_capacity: usize) usize {
@@ -266,7 +256,7 @@ fn countAllocated(words: []const BitmapWord, unit_capacity: usize) usize {
     if (lwc == 0) return 0;
 
     var total: usize = 0;
-    for (words[0..lwc]) |word| total += @popCount(word);
+    for (words[0..lwc]) |w| total += @popCount(w);
     return total;
 }
 
@@ -275,14 +265,14 @@ fn findFirstFree(words: []const BitmapWord, unit_capacity: usize) ?usize {
     if (lwc == 0) return null;
 
     if (lwc > 1) {
-        for (words[0 .. lwc - 1], 0..) |word, word_index| {
-            const inv = ~word;
+        for (words[0 .. lwc - 1], 0..) |w, word_index| {
+            const inv = ~w;
             if (inv != 0) return word_index * bitmap_word_bits + @ctz(inv);
         }
     }
 
     const last = words[lwc - 1];
-    const inv = (~last) & lastMask(unit_capacity);
+    const inv = (~last) & word.lastMask(BitmapWord, unit_capacity);
     if (inv != 0) return (lwc - 1) * bitmap_word_bits + @ctz(inv);
     return null;
 }
@@ -292,8 +282,7 @@ fn findFirstFreeRun(words: []const BitmapWord, unit_capacity: usize, count: usiz
     var run_len: usize = 0;
     var i: usize = 0;
     while (i < unit_capacity) : (i += 1) {
-        const bit = (words[i / bitmap_word_bits] >> @as(Shift, @intCast(i % bitmap_word_bits))) & 1;
-        if (bit == 0) {
+        if (!word.isSet(BitmapWord, words, i)) {
             if (run_len == 0) run_start = i;
             run_len += 1;
             if (run_len == count) return run_start;
@@ -307,22 +296,18 @@ fn findFirstFreeRun(words: []const BitmapWord, unit_capacity: usize, count: usiz
 
 fn setBits(words: []BitmapWord, start: usize, end: usize) void {
     var i: usize = start;
-    while (i < end) : (i += 1) {
-        words[i / bitmap_word_bits] |= bitMask(i);
-    }
+    while (i < end) : (i += 1) word.set(BitmapWord, words, i);
 }
 
 fn clearBits(words: []BitmapWord, start: usize, end: usize) void {
     var i: usize = start;
-    while (i < end) : (i += 1) {
-        words[i / bitmap_word_bits] &= ~bitMask(i);
-    }
+    while (i < end) : (i += 1) word.clear(BitmapWord, words, i);
 }
 
 fn anyBitSet(words: []const BitmapWord, start: usize, end: usize) bool {
     var i: usize = start;
     while (i < end) : (i += 1) {
-        if ((words[i / bitmap_word_bits] & bitMask(i)) != 0) return true;
+        if (word.isSet(BitmapWord, words, i)) return true;
     }
     return false;
 }
@@ -330,14 +315,14 @@ fn anyBitSet(words: []const BitmapWord, start: usize, end: usize) bool {
 fn anyBitClear(words: []const BitmapWord, start: usize, end: usize) bool {
     var i: usize = start;
     while (i < end) : (i += 1) {
-        if ((words[i / bitmap_word_bits] & bitMask(i)) == 0) return true;
+        if (!word.isSet(BitmapWord, words, i)) return true;
     }
     return false;
 }
 
 fn allocOneImpl(words: []BitmapWord, unit_capacity: usize) BitmapError!usize {
     const index = findFirstFree(words, unit_capacity) orelse return error.OutOfMemory;
-    words[index / bitmap_word_bits] |= bitMask(index);
+    word.set(BitmapWord, words, index);
     return index;
 }
 
@@ -353,10 +338,8 @@ fn allocRangeImpl(words: []BitmapWord, unit_capacity: usize, count: usize) Bitma
 fn reserveOneImpl(words: []BitmapWord, unit_capacity: usize, index: usize) BitmapError!void {
     if (index >= unit_capacity) return error.OutOfBounds;
 
-    const mask = bitMask(index);
-    const word_index = index / bitmap_word_bits;
-    if ((words[word_index] & mask) != 0) return error.AlreadyAllocated;
-    words[word_index] |= mask;
+    if (word.isSet(BitmapWord, words, index)) return error.AlreadyAllocated;
+    word.set(BitmapWord, words, index);
 }
 
 fn reserveRangeImpl(words: []BitmapWord, unit_capacity: usize, range: RangeUsize) BitmapError!void {
@@ -376,10 +359,8 @@ fn reserveRangeImpl(words: []BitmapWord, unit_capacity: usize, range: RangeUsize
 fn freeOneImpl(words: []BitmapWord, unit_capacity: usize, index: usize) BitmapError!void {
     if (index >= unit_capacity) return error.OutOfBounds;
 
-    const mask = bitMask(index);
-    const word_index = index / bitmap_word_bits;
-    if ((words[word_index] & mask) == 0) return error.NotAllocated;
-    words[word_index] &= ~mask;
+    if (!word.isSet(BitmapWord, words, index)) return error.NotAllocated;
+    word.clear(BitmapWord, words, index);
 }
 
 fn freeRangeImpl(words: []BitmapWord, unit_capacity: usize, range: RangeUsize) BitmapError!void {
@@ -401,7 +382,7 @@ fn checkValid(words: []const BitmapWord, unit_capacity: usize) bool {
     if (lwc > words.len) return false;
 
     if (lwc > 0) {
-        if ((words[lwc - 1] & ~lastMask(unit_capacity)) != 0) return false;
+        if ((words[lwc - 1] & ~word.lastMask(BitmapWord, unit_capacity)) != 0) return false;
     }
 
     var i: usize = lwc;

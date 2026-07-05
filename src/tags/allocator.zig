@@ -4,6 +4,7 @@
 
 const std = @import("std");
 
+const word = @import("../bits/word.zig");
 const TagFactory = @import("tag.zig").Tag;
 
 /// Family of fixed-capacity tag allocators. Both variants share an
@@ -286,30 +287,23 @@ const BitmapWord = u64;
 const BitmapWordBits: usize = @bitSizeOf(BitmapWord);
 
 fn wordCountFor(tag_capacity: usize) usize {
-    return @divFloor(tag_capacity, BitmapWordBits) + @intFromBool(tag_capacity % BitmapWordBits != 0);
+    return word.count(BitmapWord, tag_capacity);
 }
 
 fn lastMaskFor(tag_capacity: usize) BitmapWord {
-    if (tag_capacity == 0) return 0;
-    const rem: usize = tag_capacity % BitmapWordBits;
-    if (rem == 0) return ~@as(BitmapWord, 0);
-    return (@as(BitmapWord, 1) << @as(std.math.Log2Int(BitmapWord), @intCast(rem))) - 1;
-}
-
-fn bitMask(index: usize) BitmapWord {
-    return @as(BitmapWord, 1) << @as(std.math.Log2Int(BitmapWord), @intCast(index % BitmapWordBits));
+    return word.lastMask(BitmapWord, tag_capacity);
 }
 
 fn setBit(words: []BitmapWord, index: usize) void {
-    words[index / BitmapWordBits] |= bitMask(index);
+    word.set(BitmapWord, words, index);
 }
 
 fn clearBit(words: []BitmapWord, index: usize) void {
-    words[index / BitmapWordBits] &= ~bitMask(index);
+    word.clear(BitmapWord, words, index);
 }
 
 fn testBit(words: []const BitmapWord, index: usize) bool {
-    return (words[index / BitmapWordBits] & bitMask(index)) != 0;
+    return word.isSet(BitmapWord, words, index);
 }
 
 /// Map a `Tag` to its in-range word-bit index, or null when its raw value

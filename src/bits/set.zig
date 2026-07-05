@@ -4,6 +4,8 @@
 
 const std = @import("std");
 
+const word = @import("word.zig");
+
 /// Family of fixed-capacity bit sets. The single approved variant `Static(N)`
 /// owns inline word storage; never allocates and never waits.
 pub const BitSet = struct {
@@ -31,7 +33,7 @@ pub const BitSet = struct {
             pub const bit_capacity = capacity_bits;
 
             /// Number of backing words; rounded up from `bit_capacity / word_bits`.
-            pub const word_count = @divFloor(capacity_bits, word_bits) + @intFromBool(capacity_bits % word_bits != 0);
+            pub const word_count = word.count(Word, capacity_bits);
 
             /// Empty set.
             pub fn init() Self {
@@ -47,25 +49,25 @@ pub const BitSet = struct {
 
             /// Clear every valid bit; slot count is unchanged.
             pub fn clearRetainingCapacity(self: *Self) void {
-                for (&self.words) |*word| word.* = 0;
+                for (&self.words) |*w| w.* = 0;
             }
 
             /// Set every valid bit; unused high bits stay clear.
             pub fn setAll(self: *Self) void {
-                for (&self.words) |*word| word.* = ~@as(Word, 0);
+                for (&self.words) |*w| w.* = ~@as(Word, 0);
                 self.clearUnused();
             }
 
             pub fn isEmpty(self: *const Self) bool {
                 self.assertValid();
-                for (self.words) |word| if (word != 0) return false;
+                for (self.words) |w| if (w != 0) return false;
                 return true;
             }
 
             pub fn isFull(self: *const Self) bool {
                 self.assertValid();
-                for (self.words[0 .. word_count - 1]) |word| if (word != ~@as(Word, 0)) return false;
-                return self.words[word_count - 1] == lastMask();
+                for (self.words[0 .. word_count - 1]) |w| if (w != ~@as(Word, 0)) return false;
+                return self.words[word_count - 1] == word.lastMask(Word, bit_capacity);
             }
 
             /// Population (number of set bits).
@@ -73,7 +75,7 @@ pub const BitSet = struct {
                 self.assertValid();
 
                 var total: usize = 0;
-                for (self.words) |word| total += @popCount(word);
+                for (self.words) |w| total += @popCount(w);
                 return total;
             }
 
@@ -82,17 +84,15 @@ pub const BitSet = struct {
             pub fn isSet(self: *const Self, index: usize) bool {
                 self.assertValid();
                 if (index >= bit_capacity) return false;
-                return (self.words[@divFloor(index, word_bits)] & mask(index)) != 0;
+                return word.isSet(Word, self.words[0..], index);
             }
 
             /// Sets `index`; returns the prior bit value (`true` when it was already set).
             pub fn set(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
 
-                const word = &self.words[@divFloor(index, word_bits)];
-                const bit = mask(index);
-                const prior = (word.* & bit) != 0;
-                word.* |= bit;
+                const prior = word.isSet(Word, self.words[0..], index);
+                word.set(Word, self.words[0..], index);
                 return prior;
             }
 
@@ -100,10 +100,8 @@ pub const BitSet = struct {
             pub fn unset(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
 
-                const word = &self.words[@divFloor(index, word_bits)];
-                const bit = mask(index);
-                const prior = (word.* & bit) != 0;
-                word.* &= ~bit;
+                const prior = word.isSet(Word, self.words[0..], index);
+                word.clear(Word, self.words[0..], index);
                 return prior;
             }
 
@@ -118,17 +116,17 @@ pub const BitSet = struct {
             pub fn toggle(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
 
-                const word = &self.words[@divFloor(index, word_bits)];
-                const bit = mask(index);
-                word.* ^= bit;
-                return (word.* & bit) != 0;
+                const w = &self.words[word.indexOf(Word, index)];
+                const bit = word.maskOf(Word, index);
+                w.* ^= bit;
+                return (w.* & bit) != 0;
             }
 
             /// Lowest set index, or `null` when empty.
             pub fn firstSet(self: *const Self) ?usize {
                 self.assertValid();
-                for (self.words, 0..) |word, word_index| {
-                    if (word != 0) return word_index * word_bits + @ctz(word);
+                for (self.words, 0..) |w, word_index| {
+                    if (w != 0) return word_index * word_bits + @ctz(w);
                 }
                 return null;
             }
@@ -186,19 +184,7 @@ pub const BitSet = struct {
             /// Asserts the unused-bit invariant: every bit past `bit_capacity` in
             /// the last word is zero.
             pub fn assertValid(self: *const Self) void {
-                std.debug.assert((self.words[word_count - 1] & ~lastMask()) == 0);
-            }
-
-            fn lastMask() Word {
-                const rem = bit_capacity % word_bits;
-                if (rem == 0) return ~@as(Word, 0);
-
-                const shift_amount: std.math.Log2Int(Word) = @intCast(rem);
-                return (@as(Word, 1) << shift_amount) - 1;
-            }
-
-            fn mask(index: usize) Word {
-                return @as(Word, 1) << @as(std.math.Log2Int(Word), @intCast(index % word_bits));
+                std.debug.assert((self.words[word_count - 1] & ~word.lastMask(Word, bit_capacity)) == 0);
             }
 
             fn checkIndex(index: usize) Error!void {
@@ -206,7 +192,7 @@ pub const BitSet = struct {
             }
 
             fn clearUnused(self: *Self) void {
-                self.words[word_count - 1] &= lastMask();
+                self.words[word_count - 1] &= word.lastMask(Word, bit_capacity);
             }
         };
     }
