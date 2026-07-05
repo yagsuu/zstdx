@@ -12,6 +12,7 @@ comptime {
     _ = @import("mem/alignment_test.zig");
     _ = @import("mem/arena_test.zig");
     _ = @import("mem/pool_test.zig");
+    _ = @import("mem/pool_cache_test.zig");
     _ = @import("mem/bitmap_test.zig");
     _ = @import("algo/allocation_test.zig");
     _ = @import("tags/tag_test.zig");

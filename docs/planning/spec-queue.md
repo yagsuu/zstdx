@@ -110,6 +110,7 @@ and the required tests from the spec land in `test/`.
 - `docs/specs/concurrent/spsc-ring.md` (`src/concurrent/spsc.zig`, `src/concurrent/spsc/ring.zig`)
 - `docs/specs/cpu/per-cpu.md` (`src/cpu.zig`, `src/cpu/per_cpu.zig`)
 - `docs/specs/diag/panic-log.md` (`src/diag/panic_log.zig`)
+- `docs/specs/mem/pool-cache.md` (`src/mem/pool_cache.zig`)
 
 ### Approved, implementation pending
 

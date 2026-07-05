@@ -278,8 +278,7 @@ Planned primitives:
 - `mem.PoolAllocator(T)`
 - `mem.BitmapAllocator`
 - `mem.DeferredFreeList`
-- `mem.SlabAllocator(T)`
-- `mem.SlabCache(T)`
+- `mem.PoolCache(T)`
 - `mem.BuddyAllocator`
 
 `mem.FrameAllocator` and `mem.VirtualRegionAllocator` are candidates only as generic mechanisms. OS physical-memory-map policy is out of scope.
