@@ -90,11 +90,11 @@ concrete axis on which it differs.
 | Namespace | Families |
 | --- | --- |
 | `stdx.core` | `SafetyMode`, debug checks, callback traits, `Range(T)` |
-| `stdx.bits` | Power-of-two helpers, `BitSet` |
+| `stdx.bits` | Power-of-two helpers, `BitSet`, `word` arithmetic |
 | `stdx.addr` | `Address`, `PhysAddr`, `VirtAddr`, `DmaAddr`, `Page`, page constants |
 | `stdx.layout` | `EndianInt`, `Le`, `Be` |
 | `stdx.bytes` | Unaligned access, checked offset access, `Cursor` |
-| `stdx.mem` | Alignment helpers, `Arena`, `Pool`, `BitmapAllocator`, `BuddyAllocator`, `CachePad`, `CacheAlign` |
+| `stdx.mem` | Alignment helpers, `Arena`, `Pool`, `PoolCache`, `BitmapAllocator`, `BuddyAllocator`, `FrameAllocator`, `CachePad`, `CacheAlign` |
 | `stdx.collections` | `List`, `Ring` |
 | `stdx.intrusive` | Intrusive `List`, `Queue`, `Stack` |
 | `stdx.ranges` | `RangeSet`, `RangeMap` |
@@ -136,6 +136,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | --- | --- | --- | --- | --- | --- |
 | Power-of-two helpers | `isPowerOfTwo`, `nextPowerOfTwo` | None | Never | Pure O(1) unsigned helpers; `isPowerOfTwo(0) == false`; `nextPowerOfTwo(0) == 1`; overflow is explicit. | `std.math.isPowerOfTwo` exists but does not fix `0`'s answer; `std.math.ceilPowerOfTwo*` families are split across signed/unsigned/assert variants. `stdx.bits` gives one contract per name. |
 | `BitSet` | `BitSet.Static(N)` | Inline `u64` words | Never | Fixed index set over `0..N`; index ops O(1); scans/algebra O(word_count); mutator bounds errors leave state unchanged; mutators return the prior bit. | `std.bit_set.StaticBitSet` panics on out-of-bounds and its mutators return `void`; `BitSet.Static` returns `error.OutOfBounds` and the prior bit value so callers can branch on the transition. |
+| `bits.word` | `word.count`, `word.lastMask`, `word.indexOf`, `word.maskOf`, `word.isSet`, `word.set`, `word.clear` | Caller-owned `[]Word` | Never | Unchecked bit/word arithmetic factored out of every bitmap consumer (`BitSet.Static`, `BitmapAllocator`, `BuddyAllocator`, `TagAllocator`); `Word` is any unsigned integer type; bounds are caller-enforced with an optional `checksEnabled(.build_mode)` assert. | `std` has no shared word-of-bits arithmetic surface — each bitmap consumer reinvents `ceilDiv`, `lastMask`, `indexOf`, and `maskOf` locally. `bits.word` is one comptime-generic implementation used across bitmap consumers. |
 
 ### Addresses and pages
 
@@ -196,8 +197,27 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Errors | `acquire` returns `error.OutOfMemory`; `release` misuse is a programmer error. |
 | Mutation on error | Failed `acquire` leaves the pool unchanged. |
 | Invalidation | `release(item)` invalidates that pointer; `clearRetainingCapacity()` invalidates all live pointers. |
+| Debug fill | `checksEnabled(.build_mode)` overwrites the payload window with `0xCD` on `acquire` and `0xFD` on `release`; ReleaseFast/ReleaseSmall skip both writes. |
 | Ordering | Released slots are reused LIFO. |
 | Why not std.*? | `std.heap.MemoryPool` is an allocator wrapper that grows. `Pool.Static/Bounded` is fixed-capacity, freestanding, and returns `error.OutOfMemory` deterministically at the caller-declared limit. |
+
+#### `mem.PoolCache`
+
+| Variant | Storage | Constructor | Capacity |
+| --- | --- | --- | --- |
+| `PoolCache(T, RegionSource)` | Caller-supplied `RegionSource` handing fixed-size aligned regions; each region hosts an intrusive `RegionHeader` plus a contiguous `[slots_per_region]Slot` array of the inner `Pool.Bounded(T)` | `init(source)` | `region_count * slots_per_region`, grown by explicit `refill` |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never on `acquire` / `release` / `drain`. `refill` calls `RegionSource.acquire` exactly once and propagates its error unchanged. |
+| Waiting | Never inside the cache; `RegionSource.acquire` is out of scope for the cache contract. |
+| Concurrency | Single-owner mutable value; shared mutable access requires external synchronization. Slots inherit the inner `Pool.Bounded(T)`'s single-owner discipline. |
+| Performance | `acquire` / `release` are O(1) amortized (empty/partial/full three-list membership avoids full-list scans); `contains` is O(region_count); `drain` walks only the empty list; `refill` is O(1) plus one `RegionSource.acquire` call. |
+| Errors | `acquire` returns `error.OutOfMemory` when every region is full; `refill` returns `RefillError`, the union of `RegionSource.Error` and `error{OutOfMemory}` (collapses when the source's set already contains `OutOfMemory`); zero-sized `T`, a `RegionSource` missing required declarations, or a region layout that cannot fit `RegionHeader + Slot` are compile errors. |
+| Mutation on error | Failed `acquire` and failed `refill` leave the cache unchanged; the source pointer is never retained on error. |
+| Invalidation | `release(item)` invalidates that pointer; `drain` invalidates every pointer that used to live in a fully-empty region (already released by contract). |
+| Ordering | LIFO slot reuse inside each region; deterministic empty/partial/full list order. |
+| Why not std.*? | `std` has no multi-region typed object cache. `PoolCache` is the `kmem_cache_alloc`-shaped substrate: many `Pool.Bounded(T)` instances behind one class, growing only on explicit `refill`, with the region source (page allocator, boot heap, IOMMU-mapped region, `FrameAllocator.FrameSource`) chosen by the caller. |
 
 #### `mem.BitmapAllocator`
 
@@ -236,6 +256,25 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Invalidation | Mutates allocation state for units in the affected block only. |
 | Ordering | Lowest-index first-fit split-and-place. |
 | Why not std.*? | `std` has no power-of-two buddy allocator over abstract units. `BuddyAllocator` composes with `stdx.algo.allocation.Buddy` for split/buddy arithmetic and returns `stdx.algo.allocation.Buddy.Block` values callers translate to their own domain (page frames, DMA regions, descriptor groups). |
+
+#### `mem.FrameAllocator`
+
+| Variant | Storage | Constructor | Capacity |
+| --- | --- | --- | --- |
+| `FrameAllocator.Static(Backend, Page, base_frame)` | Inline `Backend` (typically `BuddyAllocator.Static`); comptime `base_frame` anchor | `init()` | Comptime `Backend.capacity()` frames |
+| `FrameAllocator.Bounded(Backend, Page)` | Runtime `Backend` value; runtime `base: Page.Frame` | `wrap(backend, base)` | `backend.capacity()` frames |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. Delegates to the inline / caller-owned `Backend`; the frame allocator adds no storage of its own. |
+| Waiting | Never. |
+| Concurrency | Single-owner mutable value; shared mutable access requires external synchronization. |
+| Performance | `alloc` / `free` / `reserve` cost matches `Backend`; unit-to-frame conversion is O(1) checked arithmetic; `largestFreeOrder` walks the backend per call. |
+| Errors | `error.OutOfMemory`, `error.OutOfBounds`, `error.InvalidRequest`, `error.InvalidOrder`, `error.AlreadyAllocated`, `error.NotAllocated`, `error.Overflow`. `Backend.Error` MUST be a subset of the frame-allocator error set — a broader backend fails to instantiate. |
+| Mutation on error | Every fallible operation validates before delegating to the backend; error paths leave both wrappers and backend state unchanged. |
+| Invalidation | Mutates only the affected `FrameRange`; other outstanding ranges are unaffected. |
+| Ordering | Inherits the backend's placement (`BuddyAllocator` gives lowest-index first-fit); `FrameRange` values carry the caller's `Page` domain identity. |
+| Why not std.*? | `std` has no page-typed frame allocator over an abstract unit-index backend. `FrameAllocator` lifts a `usize`-unit allocator into `Page.Frame` / `Page.FrameRange` vocabulary, owns the base-frame anchor and `reserve` translation once, and exposes `frameSource(order)` — a `RegionSource` view — that composes directly with `mem.PoolCache`. |
 
 #### `mem.CachePad` and `mem.CacheAlign`
 
