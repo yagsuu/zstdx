@@ -113,6 +113,7 @@ and the required tests from the spec land in `test/`.
 - `docs/specs/diag/panic-log.md` (`src/diag/panic_log.zig`)
 - `docs/specs/mem/pool-cache.md` (`src/mem/pool_cache.zig`)
 - `docs/specs/mem/frame-allocator.md` (`src/mem/frame.zig`)
+- `docs/specs/sync/rendezvous.md` (`src/sync/rendezvous.zig`)
 
 ### Approved, implementation pending
 
@@ -172,17 +173,7 @@ existing `mem.BuddyAllocator`, `mem.BitmapAllocator`, and `mem.Pool` substrate.
 
 Wave 1 — CPU-facing baseline:
 
-1. `docs/specs/sync/rendezvous.md` — reusable N-way rendezvous (cyclic
-    barrier). `Static(N)` and `Bounded` variants. `arrive` blocks until N
-    callers have arrived at the current generation; upon release, the
-    generation counter advances and the primitive is reusable for the next
-    round. Uses the same caller-composed `Backend` seam as
-    `docs/specs/sync/signal.md` for the wait step. Distinct value: no `std`
-    rendezvous primitive, no scheduler assumption, usable in freestanding SMP
-    bring-up rounds and multi-worker fan-in contexts. Owns only the counter,
-    arrival protocol, generation rollover, and wait composition; does not own
-    SMP bring-up, INIT/SIPI, per-AP stack allocation, or scheduler parking.
-2. `docs/specs/sync/latch.md` — one-shot countdown latch. `Static(N)` and
+1. `docs/specs/sync/latch.md` — one-shot countdown latch. `Static(N)` and
     `Bounded` variants. `arrive` decrements the remaining counter; `wait`
     blocks until the counter reaches zero; once released, the latch stays
     released and is not reusable. Uses the same caller-composed `Backend`
@@ -194,7 +185,7 @@ Wave 1 — CPU-facing baseline:
 
 Wave 2 — hv-specific:
 
-3. `docs/specs/arch/x86_64/vmx.md` — VMX ISA wrappers: `vmxon`/`vmxoff`/
+2. `docs/specs/arch/x86_64/vmx.md` — VMX ISA wrappers: `vmxon`/`vmxoff`/
     `vmlaunch`/`vmresume`/`vmread`/`vmwrite`/`vmclear`/`vmptrld`/`vmptrst`/
     `invept`/`invvpid` as inline-asm helpers. Same "just the ISA" boundary
     as base. No VMCS field catalog, no VMCS layout policy. Proposal must
@@ -224,7 +215,7 @@ Wave 2 — hv-specific:
       have the declared size/alignment, descriptors have the declared
       size/alignment, `vmlaunch`/`vmresume` are `Error!noreturn`, module
       compiles on x86_64, non-x86_64 build either omits or `@compileError`s).
-4. `docs/specs/arch/x86_64/svm.md` — SVM ISA wrappers: `vmrun`/`vmload`/
+3. `docs/specs/arch/x86_64/svm.md` — SVM ISA wrappers: `vmrun`/`vmload`/
     `vmsave`/`stgi`/`clgi`/`invlpga`/`skinit` as inline-asm helpers. Same
     "just the ISA" boundary as VMX. No VMCB field catalog, no VMCB layout
     policy. Proposal must decide:
@@ -251,7 +242,7 @@ Wave 2 — hv-specific:
       `skinit` are `noreturn`, `vmload`/`vmsave`/`stgi`/`clgi`/`invlpga`
       are `void`, module compiles on x86_64, non-x86_64 build either omits
       or `@compileError`s).
-5. `docs/specs/concurrent/mpsc-atomic-ring.md` — single-atomic-publication
+4. `docs/specs/concurrent/mpsc-atomic-ring.md` — single-atomic-publication
     MPSC ring, sibling to `docs/specs/concurrent/mpsc-ring.md` under the
     same `mpsc` namespace. Not a mode flag on `Ring`. Publishes an item
     in one atomic step (packed sequence tag + payload in a single CAS on
@@ -280,7 +271,7 @@ Wave 2 — hv-specific:
       16's NMI-safe sibling pointer) is repointed at
       `docs/specs/concurrent/mpsc-atomic-ring.md`;
     - zero-allocation, bounded, no policy on wake or scheduler.
-6. `docs/specs/concurrent/qsbr.md` — quiescent-state-based reclamation
+5. `docs/specs/concurrent/qsbr.md` — quiescent-state-based reclamation
     substrate. Answers the "rcu-lite" need for exit-handler tables and mapping
     updates. Simplest of the four reclamation candidates (`epoch`, `hazard`,
     `qsbr`, `rcu`) and enough for the stated bounded-quiescent-state use case.

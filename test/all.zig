@@ -53,6 +53,7 @@ comptime {
     _ = @import("mem/buddy_test.zig");
     _ = @import("io/poll_test.zig");
     _ = @import("sync/once_test.zig");
+    _ = @import("sync/rendezvous_test.zig");
     _ = @import("concurrent/spsc/ring_test.zig");
     _ = @import("cpu/per_cpu_test.zig");
     _ = @import("diag/panic_log_test.zig");
