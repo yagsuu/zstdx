@@ -103,7 +103,7 @@ concrete axis on which it differs.
 | `stdx.tags` | `Tag`, `TagAllocator` |
 | `stdx.arch` | Target-gated instruction primitives, typed CPUID decoders |
 | `stdx.diag` | Scoped diagnostics, `PanicLog` |
-| `stdx.sync` | `Signal`, `AtomicCell`, `RawSpinLock`, `Once`, `spin.Backend` |
+| `stdx.sync` | `Signal`, `AtomicCell`, `RawSpinLock`, `Once`, `Rendezvous`, `spin.Backend` |
 | `stdx.concurrent` | `mpsc.Ring`, `spsc.Ring` |
 | `stdx.cpu` | `PerCpu` |
 | `stdx.time` | `Instant`, `Duration`, `Clock.Monotonic`, `Deadline`, `Backoff` |
@@ -594,6 +594,25 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | --- | --- | --- | --- | --- | --- |
 | One-shot init primitive | `sync.once.State`, `sync.once.Token`, `Once(Backend)`, `Once.init`, `isDone`, `stateRef`, `call`, `callChecked` | One atomic `u32` word (2-bit state + 30-bit generation) plus backend value | Never | Runs `work(ctx)` at most once against a `State` word; losers wait on the backend and re-check via `Token.changedSince(observed)` for lost-wakeup safety. `callChecked` supports error-returning initializers via a rollback + retry cycle; rollback bumps generation and wakes waiters so they re-race the claim. Under `debug.checksEnabled(.build_mode)` a thread-local recursion tripwire catches direct self-recursion. Backend must satisfy the shared `sync.spin.Backend`-shaped `wait`/`wakeAll` contract. | `std.once.Once` is a hosted primitive that couples the OS parker and does not support fallible initialization or a plug-in wait backend. `Once(Backend)` is compose-first: pair with `sync.spin.Backend` for freestanding contexts or a scheduler-parking backend for hosted runtime. |
 
+#### `sync.Rendezvous`
+
+| Variant | Storage | Constructor | Capacity |
+| --- | --- | --- | --- |
+| `Rendezvous(Backend).Static(N)` | One atomic `u64` word plus backend value | `init(backend)` | Comptime `N` parties; `Static(0)` and `Static(N > maxInt(u32))` are compile errors |
+| `Rendezvous(Backend).Bounded` | One `u32` capacity plus one atomic `u64` word plus backend value | `init(capacity_parties, backend)` | Runtime `capacity_parties`; `0` traps under `debug.checksEnabled(.build_mode)` |
+
+| Contract | Value |
+| --- | --- |
+| External allocation | Never. State is one atomic `u64` word; the backend value is stored inline. |
+| Waiting | `arrive` blocks on the compile-time backend's `wait(&state, token)` for every party except the last; the last arriver never waits. |
+| Concurrency | Any number of arrivers per generation; exactly one wins the last-arriver CAS. `State` observation is lock-free. Not safe from NMI or nested-interrupt context. |
+| Performance | `arrive` performs one bounded CAS per contention retry and one backend `wait` per non-last arriver; the last arriver calls `backend.wakeAll(&state)` exactly once. `pending`, `capacity`, `generation`, and `stateRef` are O(1) acquire loads. |
+| Errors | Backend-defined `WaitError`; propagated unchanged. `arrive` itself is otherwise infallible. |
+| Mutation on error | The caller's arrival CAS has already committed when `backend.wait` fails; no rollback. |
+| Invalidation | None; the primitive owns no external storage. Copying/moving after any pointer is shared is outside the contract. |
+| Ordering | Reusable N-way barrier. The last arriver installs `remaining = capacity_parties` and `generation +% 1` in a single `.acq_rel` CAS, then calls `backend.wakeAll(&state)`. Non-last arrivers `.acquire`-observe the generation advance to synchronize-with the last arriver's release publication. Lost-wakeup protection is via `State.changedSince(token)` from the backend. |
+| Why not std.*? | `std.Thread.WaitGroup` and `std.Thread.ResetEvent` bundle OS parking and require a hosted thread runtime; neither is reusable across generations. `Rendezvous(Backend)` exposes the sticky cyclic-barrier contract without picking a wait implementation: spin, futex, kernel wait queue, and cooperative parkers all plug in as compile-time backends. |
+
 ### Concurrent
 
 #### `concurrent.mpsc.Ring`
@@ -645,19 +664,19 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 
 | Family | APIs | Storage | Constructor |
 | --- | --- | --- | --- |
-| Monotonic clock wrapper | `Clock.Monotonic(Backend)`, `init`, `now` | Backend value | `init(backend)` |
+| Monotonic clock wrapper | `Clock.Monotonic(Backend)`, `init`, `now`, optional `sleep` | Backend value | `init(backend)` |
 
 | Contract | Value |
 | --- | --- |
 | External allocation | Never. |
-| Waiting | Never. `now` calls `Backend.now(*Backend) Instant` exactly once. |
+| Waiting | `now` never waits. `sleep` is present iff `Backend` declares `sleep(*Backend, Duration) void`, and delegates to it verbatim; the wrapper adds no scheduler, cancellation, or wakeup-accuracy policy. |
 | Concurrency | Single-owner mutable value; shared mutable access requires external synchronization. |
-| Performance | `now` is one backend call plus a return in release; under `.build_mode` safety it also asserts monotonicity against a stored `Instant` witness. |
-| Errors | Infallible. A `Backend.now` returning an error union is a compile error. |
+| Performance | `now` is one backend call plus a return in release; under `.build_mode` safety it also asserts monotonicity against a stored `Instant` witness. `sleep`, when present, is one backend call plus a return in release; under `.build_mode` safety it also asserts `delta.nanos() >= 0`. |
+| Errors | Infallible. A `Backend.now` returning an error union, or a declared `Backend.sleep` with a mismatched signature, is a compile error. |
 | Mutation on error | Not applicable. |
 | Invalidation | None; the wrapper owns no external storage. |
 | Ordering | Backend-defined monotonicity, asserted under `core.debug.checksEnabled(.build_mode)`. Release builds hold `@sizeOf(Backend)` exactly. |
-| Why not std.*? | `std.time.Timer` calls the host monotonic clock directly. `Clock.Monotonic(Backend)` composes any monotonic source (kernel TSC, HPET, PMU counter, virtual clock, test fake) behind one API and asserts monotonicity in debug builds. |
+| Why not std.*? | `std.time.Timer` calls the host monotonic clock directly and offers no sleep composition. `Clock.Monotonic(Backend)` composes any monotonic source (kernel TSC, HPET, PMU counter, virtual clock, test fake) behind one API, forwards a backend-provided `sleep` verbatim, and asserts monotonicity + non-negative delta in debug builds. |
 
 #### `time.Deadline`
 
