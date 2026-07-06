@@ -114,6 +114,7 @@ and the required tests from the spec land in `test/`.
 - `docs/specs/mem/pool-cache.md` (`src/mem/pool_cache.zig`)
 - `docs/specs/mem/frame-allocator.md` (`src/mem/frame.zig`)
 - `docs/specs/sync/rendezvous.md` (`src/sync/rendezvous.zig`)
+- `docs/specs/time/rate-counter.md` (`src/time/rate_counter.zig`)
 
 ### Approved, implementation pending
 
