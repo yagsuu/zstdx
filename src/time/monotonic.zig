@@ -105,28 +105,55 @@ pub const Duration = enum(i64) {
 
 /// Clock family namespace. Owns the monotonic-clock wrapper factory.
 pub const Clock = struct {
-    /// Wrap a caller-supplied `Backend` with the monotonic-reader contract.
-    /// `Backend` must expose `pub fn now(*Backend) Instant`; the signature is
-    /// validated at compile time and error unions are rejected. `Backend` is
-    /// stored by value, so callers whose backend state is shared elsewhere
-    /// pass a pointer type. Not thread-safe; single-owner. Under
-    /// `core.debug.checksEnabled(.build_mode)` `now` asserts each backend
-    /// return is not less than the previous one; in release builds `now`
-    /// compiles to one backend call plus a return.
+    /// Wrap a caller-supplied `Backend` with the monotonic-reader
+    /// contract.
+    ///
+    /// `Backend` must expose `pub fn now(*Backend) Instant`. It may also
+    /// expose `pub fn sleep(*Backend, Duration) void`; when present, the
+    /// wrapper exposes a forwarding `sleep` method. Both signatures are
+    /// validated at compile time; error unions are rejected.
+    ///
+    /// `Backend` is stored by value. Not thread-safe; single-owner.
+    ///
+    /// Under `core.debug.checksEnabled(.build_mode)` `now` asserts
+    /// monotonicity against the previous return and `sleep` asserts
+    /// `delta.nanos() >= 0`. In release builds both methods compile to
+    /// one backend call plus a return.
     pub fn Monotonic(comptime Backend: type) type {
-        if (!@hasDecl(Backend, "now")) {
-            @compileError("Clock.Monotonic backend: missing pub fn now(*Backend) Instant");
-        }
-
-        const info = @typeInfo(@TypeOf(Backend.now));
-        if (info.@"fn".return_type.? != Instant) {
-            @compileError(
-                "Clock.Monotonic backend: now must return Instant, " ++
-                    "not an error union or another type",
-            );
-        }
+        requireBackendNow(Backend);
 
         const check_monotonic = debug.checksEnabled(.build_mode);
+
+        if (!@hasDecl(Backend, "sleep")) {
+            return struct {
+                backend: Backend,
+                last: if (check_monotonic) Instant else void,
+
+                const Self = @This();
+
+                pub fn init(backend: Backend) Self {
+                    return .{
+                        .backend = backend,
+                        .last = if (check_monotonic) Instant.zero() else {},
+                    };
+                }
+
+                /// Return the backend's current instant. Under
+                /// `.build_mode` safety, assert monotonicity against the
+                /// previous return.
+                pub fn now(self: *Self) Instant {
+                    const t = self.backend.now();
+                    if (check_monotonic) {
+                        std.debug.assert(t.nanos() >= self.last.nanos());
+                        self.last = t;
+                    }
+                    return t;
+                }
+            };
+        }
+
+        requireBackendSleep(Backend);
+
         return struct {
             backend: Backend,
             last: if (check_monotonic) Instant else void,
@@ -150,6 +177,46 @@ pub const Clock = struct {
                 }
                 return t;
             }
+
+            /// Forward `delta` to the backend. Under `.build_mode` safety,
+            /// assert `delta.nanos() >= 0`; non-positive deltas are legal
+            /// on the backend seam.
+            pub fn sleep(self: *Self, delta: Duration) void {
+                if (check_monotonic) std.debug.assert(delta.nanos() >= 0);
+                self.backend.sleep(delta);
+            }
         };
     }
 };
+
+fn requireBackendNow(comptime Backend: type) void {
+    if (!@hasDecl(Backend, "now")) {
+        @compileError("Clock.Monotonic backend: missing pub fn now(*Backend) Instant");
+    }
+    const info = @typeInfo(@TypeOf(Backend.now)).@"fn";
+    if (info.return_type.? != Instant) {
+        @compileError(
+            "Clock.Monotonic backend: now must return Instant, " ++
+                "not an error union or another type",
+        );
+    }
+}
+
+fn requireBackendSleep(comptime Backend: type) void {
+    const info = @typeInfo(@TypeOf(Backend.sleep)).@"fn";
+    if (info.params.len != 2) {
+        @compileError("Clock.Monotonic backend: sleep must be fn(*Backend, Duration) void");
+    }
+    if (info.params[0].type.? != *Backend) {
+        @compileError("Clock.Monotonic backend: sleep first parameter must be *Backend");
+    }
+    if (info.params[1].type.? != Duration) {
+        @compileError("Clock.Monotonic backend: sleep second parameter must be Duration");
+    }
+    if (info.return_type.? != void) {
+        @compileError(
+            "Clock.Monotonic backend: sleep must return void, " ++
+                "not an error union or another type",
+        );
+    }
+}

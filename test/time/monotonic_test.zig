@@ -152,3 +152,69 @@ test "unit: Clock.Monotonic release build has sizeof equal to backend" {
         @sizeOf(stdx.time.Clock.Monotonic(TestBackend)),
     );
 }
+
+const SleepingBackend = struct {
+    now_ticks: []const u64,
+    now_index: usize = 0,
+    sleeps_buf: [8]Duration = undefined,
+    sleeps_len: usize = 0,
+
+    pub fn now(self: *SleepingBackend) Instant {
+        const t = Instant.fromNanos(self.now_ticks[self.now_index]);
+        self.now_index += 1;
+        return t;
+    }
+
+    pub fn sleep(self: *SleepingBackend, delta: Duration) void {
+        self.sleeps_buf[self.sleeps_len] = delta;
+        self.sleeps_len += 1;
+    }
+
+    pub fn sleeps(self: *const SleepingBackend) []const Duration {
+        return self.sleeps_buf[0..self.sleeps_len];
+    }
+};
+
+test "unit: Clock.Monotonic without backend.sleep exposes no wrapper.sleep" {
+    const Wrapper = stdx.time.Clock.Monotonic(TestBackend);
+    try testing.expect(!@hasDecl(Wrapper, "sleep"));
+}
+
+test "unit: Clock.Monotonic with backend.sleep exposes wrapper.sleep" {
+    const Wrapper = stdx.time.Clock.Monotonic(SleepingBackend);
+    try testing.expect(@hasDecl(Wrapper, "sleep"));
+}
+
+test "unit: Clock.Monotonic.sleep forwards delta to backend verbatim" {
+    const Wrapper = stdx.time.Clock.Monotonic(SleepingBackend);
+    var clock = Wrapper.init(SleepingBackend{ .now_ticks = &.{0} });
+
+    clock.sleep(Duration.fromNanos(1_000));
+    clock.sleep(try Duration.fromMicros(5));
+    clock.sleep(Duration.zero);
+
+    const log = clock.backend.sleeps();
+    try testing.expectEqual(@as(usize, 3), log.len);
+    try testing.expectEqual(Duration.fromNanos(1_000), log[0]);
+    try testing.expectEqual(Duration.fromNanos(5_000), log[1]);
+    try testing.expectEqual(Duration.zero, log[2]);
+}
+
+test "unit: Clock.Monotonic.sleep(Duration.zero) forwards to backend and returns" {
+    const Wrapper = stdx.time.Clock.Monotonic(SleepingBackend);
+    var clock = Wrapper.init(SleepingBackend{ .now_ticks = &.{0} });
+
+    clock.sleep(Duration.zero);
+
+    try testing.expectEqual(@as(usize, 1), clock.backend.sleeps_len);
+    try testing.expectEqual(Duration.zero, clock.backend.sleeps_buf[0]);
+}
+
+test "unit: Clock.Monotonic sleeping wrapper preserves now monotonicity semantics" {
+    const Wrapper = stdx.time.Clock.Monotonic(SleepingBackend);
+    var clock = Wrapper.init(SleepingBackend{ .now_ticks = &.{ 10, 20, 30 } });
+
+    try testing.expectEqual(Instant.fromNanos(10), clock.now());
+    try testing.expectEqual(Instant.fromNanos(20), clock.now());
+    try testing.expectEqual(Instant.fromNanos(30), clock.now());
+}

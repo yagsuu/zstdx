@@ -7,9 +7,9 @@ types. `stdx.time.Clock.Monotonic(Backend)` is a caller-composed wrapper that
 enforces the monotonic-reader contract on top of a caller-supplied backend.
 
 Together they give polling protocols (device init handshakes, completion
-timeouts, retry loops) one vocabulary. The clock wrapper adds a debug-only
-monotonicity assertion; in release builds it compiles down to a direct backend
-call.
+timeouts, retry loops) one vocabulary. The wrapper enforces the monotonic
+contract on `now` and forwards a backend-supplied `sleep` verbatim when
+present. Both methods reduce to a direct backend call in release builds.
 
 ## Owned scope
 
@@ -18,8 +18,12 @@ This spec owns:
 - `stdx.time.Instant` (`enum(u64) { _ }`, monotonic nanoseconds);
 - `stdx.time.Duration` (`enum(i64) { _ }`, signed nanoseconds);
 - `stdx.time.Clock.Monotonic(Backend)` wrapper;
-- backend interface required by `Clock.Monotonic`;
+- backend interface required by `Clock.Monotonic`, including the optional
+  `sleep` capability method that `Clock.Monotonic` forwards verbatim when the
+  backend exposes it;
 - debug-only monotonicity assertion gated by `core.debug.checksEnabled`;
+- debug-only non-negative-delta assertion on the forwarded `sleep`, gated by
+  `core.debug.checksEnabled`;
 - required tests.
 
 ## Deferred scope and non-goals
@@ -30,8 +34,9 @@ This spec does not own:
 - `time.Backoff` or `time.RetryPolicy`;
 - wallclock or system-time variants (`Clock.System`, `Clock.Wall`,
   `Clock.CoarseMonotonic`);
-- sleeping, blocking, waiting, or scheduler interaction;
-- clock synchronization, drift correction, or leap-second policy;
+- scheduler policy, cancellation semantics, drift correction, or leap-second
+  policy — `Clock.Monotonic` forwards a backend-provided `sleep` verbatim and
+  adds no scheduler, cancellation, or dispatch behavior of its own;
 - duration formatting, parsing, or unit-string helpers;
 - picosecond, sub-nanosecond, or `u128` domains;
 - concrete backend implementations (HPET, TSC, APIC, PIT, `clock_gettime`,
@@ -134,6 +139,9 @@ pub const Self = struct {
 
     pub fn init(backend: Backend) Self;
     pub fn now(self: *Self) Instant;
+
+    // Generated iff `Backend` exposes `sleep`.
+    pub fn sleep(self: *Self, delta: Duration) void;
 };
 ```
 
@@ -141,6 +149,10 @@ Backend contract:
 
 ```zig
 pub fn now(self: *Backend) stdx.time.Instant;
+
+// Optional capability method; when present, `Clock.Monotonic(Backend)`
+// generates a forwarding `sleep` method with the same signature.
+pub fn sleep(self: *Backend, delta: stdx.time.Duration) void;
 ```
 
 `Backend` is stored by value inside `Clock.Monotonic(Backend)`. Callers whose
@@ -228,7 +240,9 @@ and convert back with `fromNanos`.
 ## `Clock.Monotonic(Backend)` semantics
 
 `Clock.Monotonic(Backend)` is a wrapper around a caller-supplied backend that
-adds a debug-only monotonicity assertion. The wrapper adds no other behavior.
+adds a debug-only monotonicity assertion on `now` and, when the backend
+exposes a `sleep` capability, forwards `sleep` verbatim with a debug-only
+non-negative-delta assertion. The wrapper adds no other behavior.
 
 Construction:
 
@@ -258,6 +272,26 @@ value; concurrent callers must serialize externally or hold their own
 per-thread wrapper. The monotonic contract is a caller invariant, not a
 lock.
 
+Sleeping:
+
+```zig
+pub fn sleep(self: *Self, delta: Duration) void;
+```
+
+`sleep` is generated on `Self` iff `Backend` exposes a matching
+`pub fn sleep(self: *Backend, delta: Duration) void` at instantiation. When
+present, `sleep` calls `self.backend.sleep(delta)` and returns.
+
+Under `core.debug.checksEnabled(.build_mode)`, `sleep` asserts
+`delta.nanos() >= 0` before forwarding. Non-positive deltas are legal on
+the backend seam.
+
+Under `core.debug.checksEnabled == false`, `sleep` is exactly one backend
+call plus a return.
+
+Sleep granularity, preemption, signal restart, partial completion, and
+`sleep(Duration.zero)` semantics are backend policy.
+
 ### Backend interface
 
 A backend type must expose:
@@ -266,13 +300,33 @@ A backend type must expose:
 pub fn now(self: *Backend) stdx.time.Instant;
 ```
 
-The signature is validated at compile time when `Clock.Monotonic(Backend)` is
-instantiated:
+A backend may additionally expose:
+
+```zig
+pub fn sleep(self: *Backend, delta: stdx.time.Duration) void;
+```
+
+`now` signature is validated at compile time when `Clock.Monotonic(Backend)`
+is instantiated:
 
 - the identifier `now` must resolve to a `pub` function;
 - the function must be callable with `*Backend` as its sole argument;
 - the return type must be `stdx.time.Instant`;
 - error unions and `anyerror` returns are rejected with `@compileError`.
+
+`sleep` signature, when the identifier `sleep` is declared on `Backend`, is
+also validated at compile time:
+
+- the identifier `sleep` must resolve to a `pub` function;
+- the function must be callable with `*Backend` and `stdx.time.Duration` as
+  its sole arguments in that order;
+- the return type must be `void`;
+- error unions and `anyerror` returns are rejected with `@compileError`.
+
+A backend that does not declare `sleep` produces a `Clock.Monotonic(Backend)`
+without a `sleep` method; any callsite invoking `Self.sleep` is rejected by
+the compiler. A backend that declares `sleep` with a mismatched signature
+is rejected with a `@compileError` naming the required signature.
 
 Backend `now` is required to return monotonically non-decreasing values on
 consecutive calls from the same wrapper. A backend that cannot honor this
@@ -282,6 +336,15 @@ assertion catches violations in test and debug builds.
 Backend `now` is infallible by contract. Backends whose underlying source can
 fail must resolve the failure at construction time and reject the backend
 before it reaches `Clock.Monotonic.init`.
+
+Backend `sleep`, when declared, is infallible by contract. A backend whose
+underlying sleep source can fail must resolve the failure internally: retry
+against remaining delta, return early on a shorter observed sleep, or
+otherwise reduce the operation to a `void` return. The wrapper does not
+signal cancellation through `sleep`.
+
+Backend `sleep(delta)` for `delta.nanos() <= 0` must return immediately
+without observable side effects.
 
 ## Behavior contract
 
@@ -303,11 +366,15 @@ before it reaches `Clock.Monotonic.init`.
 | `Clock.Monotonic` | never | never | comptime | type factory | validates backend | rejects bad backend |
 | `Clock.Monotonic.init` | never | never | O(1) | exclusive construction | none | infallible |
 | `Clock.Monotonic.now` | never | never | O(1) + backend | single-owner | backend-defined | infallible; debug assertion on non-monotonic backend |
+| `Clock.Monotonic.sleep` | never | delegates to backend | O(1) + backend | single-owner | none | infallible; debug assertion on negative delta |
 
-Time primitives perform no heap allocation, sleeping, blocking, hidden global
-access, or target probing. `Clock.Monotonic.now` delegates all work to the
-backend and adds one comparison plus one store under
-`core.debug.checksEnabled`.
+Time primitives perform no heap allocation, hidden global access, or target
+probing. `Clock.Monotonic.now` delegates all work to the backend and adds
+one comparison plus one store under `core.debug.checksEnabled`.
+`Clock.Monotonic.sleep`, when generated, delegates all work to the backend
+and adds one non-negative-delta assertion under
+`core.debug.checksEnabled`. Any actual sleeping, blocking, or scheduler
+interaction occurs inside the backend, not the wrapper.
 
 ## Error behavior
 
@@ -318,8 +385,17 @@ backend and adds one comparison plus one store under
 - All other operations are infallible.
 - `Clock.Monotonic(Backend)` with a backend missing `now`, or with an
   incorrect `now` signature, is a compile error.
+- `Clock.Monotonic(Backend)` with a backend declaring `sleep` at a
+  mismatched signature is a compile error.
+- A backend without a declared `sleep` is legal; the resulting
+  `Clock.Monotonic(Backend)` has no `sleep` method, and any callsite
+  invoking `sleep` fails to compile.
 - `Clock.Monotonic.now` never returns an error at the wrapper layer; debug
-  builds gated by `core.debug.checksEnabled` assert on non-monotonic returns.
+  builds gated by `core.debug.checksEnabled` assert on non-monotonic
+  returns.
+- `Clock.Monotonic.sleep`, when generated, never returns an error at the
+  wrapper layer; debug builds gated by `core.debug.checksEnabled` assert on
+  negative deltas.
 
 ## Implementation constraints
 
@@ -332,12 +408,19 @@ Implementation must:
   `core.debug.checksEnabled` is false, including the `last` field storage;
 - validate `Backend.now` signature at compile time and reject error-union
   returns with a `@compileError` naming the required signature;
+- generate `Clock.Monotonic(Backend).sleep` iff `Backend` declares `sleep`;
+- validate the declared `Backend.sleep` signature at compile time and
+  reject mismatched parameters, error-union returns, or `anyerror` returns
+  with a `@compileError` naming the required signature;
+- compile the debug-mode non-negative-delta assertion on `sleep` out
+  entirely when `core.debug.checksEnabled` is false;
 - avoid runtime target probing;
 - avoid hidden global state;
 - avoid allocation;
 - keep `Clock.Monotonic` free of atomics — the concurrency contract is
   single-owner, not lock-free;
-- lower `Clock.Monotonic.now` to a direct backend call in release builds.
+- lower `Clock.Monotonic.now` and `Clock.Monotonic.sleep` to direct backend
+  calls in release builds.
 
 ## Planned use
 
@@ -442,6 +525,14 @@ if (elapsed.isNegative()) {
 - a backend whose `now` returns `anyerror!Instant` produces a compile error;
 - a backend whose `now` takes no argument or a wrong-typed argument produces a
   compile error.
+- a backend with a matching `pub fn sleep(self: *Backend, delta: Duration) void`
+  produces a `Clock.Monotonic(Backend)` exposing `sleep`;
+- a backend without `sleep` produces a `Clock.Monotonic(Backend)` without
+  `sleep`; a callsite invoking `Self.sleep` fails to compile;
+- a backend whose `sleep` returns `!void` produces a compile error;
+- a backend whose `sleep` returns `anyerror!void` produces a compile error;
+- a backend whose `sleep` takes wrong-typed arguments produces a compile
+  error.
 
 ### `Clock.Monotonic(Backend)` runtime
 
@@ -459,6 +550,13 @@ A `TestBackend` returning a caller-controlled sequence drives the wrapper.
   not trip an assertion;
 - under `core.debug.checksEnabled == false`,
   `@sizeOf(Clock.Monotonic(TestBackend)) == @sizeOf(TestBackend)`.
+- against a backend recording every `sleep(delta)` call: `clock.sleep(d)`
+  forwards `d` unchanged to the backend;
+- under `core.debug.checksEnabled == true`,
+  `clock.sleep(Duration.fromNanos(-1))` trips the debug assertion;
+- under `core.debug.checksEnabled == false`, the same call forwards to the
+  backend without a trap;
+- `clock.sleep(Duration.zero)` forwards to the backend and returns.
 
 ## Open questions
 

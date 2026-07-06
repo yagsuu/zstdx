@@ -147,15 +147,17 @@ pub fn now(self: *Self) stdx.time.Instant;
 pub fn sleep(self: *Self, delta: stdx.time.Duration) void;
 ```
 
-matching the polling-clock superset of the backend contract in
-`docs/specs/time/monotonic.md`. Both methods are compile-time checked
-at each `poll.until` callsite. `anyerror` return types and error-union
-return types on either method are rejected.
+matching the backend contract in `docs/specs/time/monotonic.md`. Both
+methods are compile-time checked at each `poll.until` callsite.
+`anyerror` return types and error-union return types on either method are
+rejected.
 
-A backend whose `now` satisfies `time.Clock.Monotonic(Backend)` also
-satisfies the `now` half of this contract, so callers can pass either
-a `*time.Clock.Monotonic(Backend)` (after adding a `sleep` method) or a
-bare backend that exposes both methods.
+A `*time.Clock.Monotonic(Backend)` satisfies this contract when `Backend`
+exposes both `now` and `sleep` per `docs/specs/time/monotonic.md`; the
+wrapper's forwarded `sleep` method is then callable through the pointer.
+A bare backend that itself exposes both methods also satisfies the
+contract and forgoes the wrapper's monotonicity and non-negative-delta
+debug assertions.
 
 Passing two different clocks to a single `poll.until` call is a caller
 contract violation; `poll.until` is untagged and cannot detect it. This
