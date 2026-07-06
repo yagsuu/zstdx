@@ -58,4 +58,6 @@ comptime {
     _ = @import("concurrent/spsc/ring_test.zig");
     _ = @import("cpu/per_cpu_test.zig");
     _ = @import("diag/panic_log_test.zig");
+    _ = @import("func/callback_test.zig");
+    _ = @import("func/closure_test.zig");
 }

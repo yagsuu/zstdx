@@ -115,6 +115,7 @@ and the required tests from the spec land in `test/`.
 - `docs/specs/mem/frame-allocator.md` (`src/mem/frame.zig`)
 - `docs/specs/sync/rendezvous.md` (`src/sync/rendezvous.zig`)
 - `docs/specs/time/rate-counter.md` (`src/time/rate_counter.zig`)
+- `docs/specs/func/callback.md` (`src/func/callback.zig`, `src/func/closure.zig`)
 
 ### Approved, implementation pending
 
@@ -363,19 +364,6 @@ demonstrates a gap.
   ordering guarantees beyond bare volatile loads and stores.
 - `docs/specs/rings/descriptor-ring.md` — after tags, DMA, barrier, and IO
   contracts define the lower-level behavior.
-
-### Callable primitives
-
-- `docs/specs/func/callback.md` — `stdx.func.Callback(Signature)` as a
-  `{context, invoke}` pair specialized on a comptime function signature,
-  `stdx.func.Closure(Signature, inline_bytes)` with comptime-verified
-  inline captured state, and `stdx.func.BoundMethod(T, method_name)` as a
-  factory that lifts `*T`+method into a matching `Callback`. Zero
-  allocation, caller-owned context lifetime. Distinct value over `std`:
-  no general callback primitive exists there — every consumer hand-rolls
-  the vtable trick. `std.Io` is a fat interface, not a lightweight
-  signature-typed callback. Namespace is `stdx.func` because `fn` is a
-  Zig keyword.
 
 ### Allocation and collection follow-up
 
