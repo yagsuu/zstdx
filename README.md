@@ -106,10 +106,11 @@ concrete axis on which it differs.
 | `stdx.sync` | `Signal`, `AtomicCell`, `RawSpinLock`, `Once`, `Rendezvous`, `spin.Backend` |
 | `stdx.concurrent` | `mpsc.Ring`, `spsc.Ring` |
 | `stdx.cpu` | `PerCpu` |
-| `stdx.time` | `Instant`, `Duration`, `Clock.Monotonic`, `Deadline`, `Backoff` |
+| `stdx.time` | `Instant`, `Duration`, `Clock.Monotonic`, `Deadline`, `Backoff`, `RateCounter` |
 | `stdx.barrier` | `compiler`, `mmio` fences, `dma` fences |
 | `stdx.io` | `Mmio.Register`, `Mmio.Window`, `Mmio.Window32`, `Mmio.Window64`, `poll.until` |
 | `stdx.dma` | `Buffer`, `ScatterGather.Segment`/`List`/`Builder` |
+| `stdx.func` | `Callback`, `Closure` |
 
 | Root export | Canonical home | Notes |
 | --- | --- | --- |
@@ -690,6 +691,12 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | --- | --- | --- | --- | --- | --- |
 | Retry-delay generator | `Backoff`, `Backoff.Policy`, `Backoff.Step`, `Backoff.init`, `Backoff.reset`, `Backoff.next`, `Backoff.attempts`, `Backoff.assertValid` | Value struct with `Policy`, `attempt`, `next_wait` | Never | Structured spin → yield → sleep phase machine with geometric growth capped at `max_wait` and per-step deadline clipping; `next` returns `.spin` / `.yield` / `.sleep(Duration)` / `.timeout`; the caller executes the wait, never the primitive. `Policy.yield == null` skips the yield phase entirely. | `std.time.sleep` is a bare host sleep with no phase progression, deadline, or yield hook. `Backoff` is deterministic-first, freestanding-safe, and composes with `Deadline` and any monotonic clock. |
 
+#### `time.RateCounter`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Fixed-rate counter projection | `RateCounter`, `RateCounter.Config`, `RateCounter.Sample`, `init`, `reset`, `peek`, `sample`, `assertValid` | Value struct with `base: Instant`, `rate_hz: u64`, `width_bits: u7`, `last_wrap_count: u64` | Never | Projects an `Instant` reading into a fixed-rate integer counter of configurable bit width (`1..=64`), tracking wrap events across `sample` calls. `peek` is const and never touches the wrap-edge state; `sample` advances `last_wrap_count` and reports `wrapped = true` iff the unbounded tick count crossed a `1 << width_bits` boundary since the previous `sample`, `init`, or `reset`. Multi-wrap gaps coalesce to a single `wrapped = true`. Projection uses a `u128` intermediate for the full `Instant × rate_hz` domain; release builds clamp `now < base` to zero elapsed. Under `checksEnabled(.build_mode)` `init` runs `Config.assertValid` and `peek`/`sample` assert `now.afterOrEq(base)`. | `std` has no rate-projection primitive. `RateCounter` is the arithmetic shared by every emulated hardware counter driven by a monotonic reference (ACPI PM timer, HPET main counter): the caller owns any register storage, status bit, or interrupt delivery; the primitive owns only the projection formula and the wrap-edge detector. |
+
 ### Barriers
 
 | Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
@@ -749,6 +756,20 @@ the caller's job via `stdx.barrier.mmio` and `stdx.barrier.dma`.
 | Scatter-gather segment | `ScatterGather.Segment`, `init`, `fromBuffer`, `byteLen`, `isEmpty`, `endAddr`, `isAligned`, `assertValid` | Value `extern struct { addr, len_bytes }` | Never | Descriptor-facing 16-byte segment; `len_bytes` uses the DMA address raw width so descriptor emission never converts through `usize`. | `std` has no descriptor-facing segment type. `Segment` gives a strong descriptor value with alignment and end-address helpers. |
 | Scatter-gather list | `ScatterGather.List.Static(N)`, `ScatterGather.List.Bounded` | Inline or caller-owned `[]Segment` | Never | Bounded segment list with `append`/`appendBuffer`/`at`/`totalByteLen`; total length returns the DMA address raw width. | `std` has no bounded segment list. `List.Static/Bounded` is a fixed-capacity segment vector for descriptor construction. |
 | Scatter-gather builder | `ScatterGather.Builder.Static(N, alignment)`, `ScatterGather.Builder.Bounded(alignment)` | Wraps a `List` variant | Never | Enforces a comptime per-segment alignment for consumers whose protocol requires uniform segment alignment (e.g. 4 KiB pages). | `std` has no descriptor alignment enforcer. `Builder` is a thin wrapper that returns `error.Misaligned` before `error.Full` and hands back the underlying `List` on `finish`. |
+
+### Function primitives
+
+#### `func.Callback`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Signature-typed callback | `Callback(Fn)`, `Signature`, `Args`, `Return`, `Invoke`, `init`, `wrap`, `bind`, `bindMethod`, `call`, `eql` | `{ context: ?*anyopaque, invoke: *const Invoke }`; `@sizeOf == 2 * @sizeOf(usize)` | Never | Runtime-erased single-function callback specialized on a comptime `Fn` signature. `wrap(&free_fn)` produces a context-less callback; `bind(Ctx, &ctx, &fn_ptr)` and `bindMethod(Ctx, &ctx, "method")` carry the context pointer. Generic (`comptime` / `anytype`) parameters, variadics, and naked returns are compile errors at `Callback(Fn)` instantiation; signature-mismatched `bind`/`bindMethod` targets are compile errors at each factory call. `context` is a borrowed pointer with caller-owned lifetime. `call` performs one indirect call plus one context load; NOT a substitute for comptime-specialized dispatch on hot paths. | `std.io.AnyReader`/`AnyWriter` are hardcoded single-function erasures for two specific signatures. `std.mem.Allocator` and `std.Io` vtables cover multi-method dispatch. `Callback(Fn)` is the generic single-function erasure Zig itself lacks: one shape reusable across interrupt vector tables, completion hooks, timer callbacks, event listeners, and deferred cleanup queues. |
+
+#### `func.Closure`
+
+| Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
+| --- | --- | --- | --- | --- | --- |
+| Small-buffer closure | `Closure(Fn, capacity_bytes)`, `Signature`, `capacity`, `alignment`, `init`, `callback` | Inline `[capacity_bytes]u8 align(@alignOf(usize))` plus thunk pointer | Never | Constructs a `Callback(Fn)` that owns its captured state. `init(State, state, &fn_ptr)` bit-copies `state` into the inline storage; `@sizeOf(State) > capacity`, over-aligned `State`, or a signature-mismatched `fn_ptr` are compile errors. `callback()` returns a `Callback(Fn)` borrowing the closure's storage — the closure must sit at a stable address (heap slot, arena slot, static storage) for the returned callback to remain valid. Trivially copyable iff `State` is; moving or copying the closure invalidates any previously-returned `Callback`. | Zig has no small-buffer closure primitive. `std` covers "handler with borrowed state" via patterns like `Allocator`'s `{ptr, vtable}`, but nothing generalizes to "handler that owns its state inline". `Closure(Fn, N)` fills the gap for deferred actions, per-invocation timer state, and completion continuations without touching an allocator. |
 
 ## Documentation
 
