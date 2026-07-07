@@ -1,5 +1,6 @@
 //! x86_64 architecture primitives. See docs/specs/arch/x86_64/base.md,
-//! docs/specs/arch/x86_64/extensions.md, docs/specs/arch/x86_64/cpuid.md.
+//! docs/specs/arch/x86_64/extensions.md, docs/specs/arch/x86_64/cpuid.md,
+//! docs/specs/arch/x86_64/vmx.md, docs/specs/arch/x86_64/svm.md.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -1649,5 +1650,419 @@ pub const Privilege = struct {
     pub fn currentLevel() u2 {
         if (!supported) @compileError(wrong_target);
         return @truncate(Segment.Cs.read());
+    }
+};
+
+/// Intel VMX (Virtual Machine Extensions) ISA wrappers.
+pub const Vmx = struct {
+    /// RFLAGS-mapped error set common to every VMX wrapper per Intel SDM
+    /// Vol.3 §30.2.
+    pub const Error = error{ VMfailInvalid, VMfailValid };
+
+    /// Strong physical-address value type covering the full 64-bit
+    /// physical-address space. Distinct from `Svm.PhysAddr`.
+    pub const PhysAddr = enum(u64) {
+        _,
+
+        /// Wrap a raw `u64` as a strong `PhysAddr`. Compiles on any target.
+        pub fn fromInt(value: u64) PhysAddr {
+            return @enumFromInt(value);
+        }
+
+        /// Return the underlying `u64`. Compiles on any target.
+        pub fn raw(self: PhysAddr) u64 {
+            return @intFromEnum(self);
+        }
+    };
+
+    /// 4 KiB VMXON region per SDM Vol.3 §24.11. The `_reserved` byte array
+    /// is the VMXON body — CPU-implementation-defined and MUST NOT be
+    /// accessed through ordinary loads or stores.
+    pub const VmxonRegion = extern struct {
+        revision_id: u32 align(4096) = 0,
+        _reserved: [4092]u8 = @splat(0),
+
+        pub const alignment: usize = 4096;
+
+        comptime {
+            std.debug.assert(@sizeOf(VmxonRegion) == 4096);
+            std.debug.assert(@alignOf(VmxonRegion) == 4096);
+            std.debug.assert(@offsetOf(VmxonRegion, "revision_id") == 0);
+            std.debug.assert(@offsetOf(VmxonRegion, "_reserved") == 4);
+        }
+    };
+
+    /// 4 KiB VMCS region per SDM Vol.3 §24.2 / §24.11. The `_reserved` byte
+    /// array is the VMCS data area — accessible only via `vmread`/`vmwrite`.
+    pub const Vmcs = extern struct {
+        revision_id: u32 align(4096) = 0,
+        abort_indicator: u32 = 0,
+        _reserved: [4088]u8 = @splat(0),
+
+        pub const alignment: usize = 4096;
+
+        comptime {
+            std.debug.assert(@sizeOf(Vmcs) == 4096);
+            std.debug.assert(@alignOf(Vmcs) == 4096);
+            std.debug.assert(@offsetOf(Vmcs, "revision_id") == 0);
+            std.debug.assert(@offsetOf(Vmcs, "abort_indicator") == 4);
+            std.debug.assert(@offsetOf(Vmcs, "_reserved") == 8);
+        }
+    };
+
+    /// INVEPT invalidation kind per SDM Vol.3 §30.3. Open enum; reserved
+    /// values produce `VMfailInvalid`.
+    pub const InveptKind = enum(u64) {
+        single_context = 1,
+        global = 2,
+        _,
+    };
+
+    /// 16-byte INVEPT descriptor per SDM Vol.3 §30.3.
+    pub const InveptDescriptor = extern struct {
+        eptp: u64 align(16),
+        _reserved: u64 = 0,
+
+        pub const alignment: usize = 16;
+
+        comptime {
+            std.debug.assert(@sizeOf(InveptDescriptor) == 16);
+            std.debug.assert(@alignOf(InveptDescriptor) == 16);
+            std.debug.assert(@offsetOf(InveptDescriptor, "eptp") == 0);
+            std.debug.assert(@offsetOf(InveptDescriptor, "_reserved") == 8);
+        }
+    };
+
+    /// INVVPID invalidation kind per SDM Vol.3 §30.3. Open enum; reserved
+    /// values produce `VMfailInvalid`.
+    pub const InvvpidKind = enum(u64) {
+        individual_address = 0,
+        single_context = 1,
+        all_contexts = 2,
+        single_context_retaining_globals = 3,
+        _,
+    };
+
+    /// 16-byte INVVPID descriptor per SDM Vol.3 §30.3.
+    pub const InvvpidDescriptor = extern struct {
+        vpid: u16 align(16),
+        _reserved_low: u16 = 0,
+        _reserved_high: u32 = 0,
+        linear_address: u64 = 0,
+
+        pub const alignment: usize = 16;
+
+        comptime {
+            std.debug.assert(@sizeOf(InvvpidDescriptor) == 16);
+            std.debug.assert(@alignOf(InvvpidDescriptor) == 16);
+            std.debug.assert(@offsetOf(InvvpidDescriptor, "vpid") == 0);
+            std.debug.assert(@offsetOf(InvvpidDescriptor, "_reserved_low") == 2);
+            std.debug.assert(@offsetOf(InvvpidDescriptor, "_reserved_high") == 4);
+            std.debug.assert(@offsetOf(InvvpidDescriptor, "linear_address") == 8);
+        }
+    };
+
+    // Decode RFLAGS.CF/ZF per SDM Vol.3 §30.2. CF is bit 0, ZF is bit 6.
+    // `CF=1, ZF=1` is architecturally impossible but MUST be reported as
+    // `VMfailInvalid` per the wrapper contract.
+    inline fn mapRflags(rflags: u64) Error!void {
+        if (rflags & 0x1 != 0) return Error.VMfailInvalid;
+        if (rflags & 0x40 != 0) return Error.VMfailValid;
+    }
+
+    /// Execute `vmxon [region]`. `region` is a Zig pointer to a `PhysAddr`
+    /// value in host memory; the CPU dereferences it as m64 to obtain the
+    /// VMXON region's physical address. Privileged (CPL 0); may raise
+    /// `#GP`/`#UD`. Returns `Error!void` mapped from RFLAGS.
+    pub fn vmxon(region: *const PhysAddr) Error!void {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmxon %[region]
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            : [region] "*m" (region),
+            : .{ .memory = true, .cc = true });
+        return mapRflags(rflags);
+    }
+
+    /// Execute `vmxoff`. Privileged (CPL 0); requires VMX root operation.
+    /// Returns `Error!void` mapped from RFLAGS.
+    pub fn vmxoff() Error!void {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmxoff
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            :
+            : .{ .memory = true, .cc = true });
+        return mapRflags(rflags);
+    }
+
+    /// Execute `vmclear [vmcs]`. Marks the VMCS inactive and clear on the
+    /// logical processor. Privileged (CPL 0). Returns `Error!void` mapped
+    /// from RFLAGS.
+    pub fn vmclear(vmcs: *const PhysAddr) Error!void {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmclear %[vmcs]
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            : [vmcs] "*m" (vmcs),
+            : .{ .memory = true, .cc = true });
+        return mapRflags(rflags);
+    }
+
+    /// Execute `vmptrld [vmcs]`. Loads the VMCS pointer; the referenced
+    /// region becomes the current VMCS on the logical processor.
+    /// Privileged (CPL 0). Returns `Error!void` mapped from RFLAGS.
+    pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmptrld %[vmcs]
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            : [vmcs] "*m" (vmcs),
+            : .{ .memory = true, .cc = true });
+        return mapRflags(rflags);
+    }
+
+    /// Execute `vmptrst [out]`. Writes the current VMCS pointer into `*out`
+    /// (sentinel `0xFFFFFFFFFFFFFFFF` when no VMCS is current). Privileged
+    /// (CPL 0). Returns `Error!void` mapped from RFLAGS.
+    pub fn vmptrst(out: *PhysAddr) Error!void {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmptrst (%[out])
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            : [out] "r" (out),
+            : .{ .memory = true, .cc = true });
+        return mapRflags(rflags);
+    }
+
+    /// Execute `vmlaunch`. On success control transfers to the guest —
+    /// architecturally `noreturn` from the wrapper's caller's perspective.
+    /// Only the RFLAGS-visible failure paths return, as an `Error`.
+    pub fn vmlaunch() Error!noreturn {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmlaunch
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            :
+            : .{ .memory = true, .cc = true });
+        try mapRflags(rflags);
+        unreachable;
+    }
+
+    /// Execute `vmresume`. On success control transfers to the guest —
+    /// architecturally `noreturn`. Only RFLAGS-visible failure paths return.
+    pub fn vmresume() Error!noreturn {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmresume
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            :
+            : .{ .memory = true, .cc = true });
+        try mapRflags(rflags);
+        unreachable;
+    }
+
+    /// Execute `vmread encoding, value` (Intel operand order:
+    /// `VMREAD r/m64, r64`). `encoding` is the raw 32-bit VMCS field
+    /// encoding per SDM Vol.3 Appendix B, zero-extended to `u64` in a GPR.
+    /// Privileged (CPL 0). On failure the returned value is unspecified.
+    pub fn vmread(encoding: u32) Error!u64 {
+        if (!supported) @compileError(wrong_target);
+        var value: u64 = undefined;
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmread %[enc], %[val]
+            \\pushfq
+            \\popq %[rflags]
+            : [val] "=r" (value),
+              [rflags] "=r" (rflags),
+            : [enc] "r" (@as(u64, encoding)),
+            : .{ .memory = true, .cc = true });
+        try mapRflags(rflags);
+        return value;
+    }
+
+    /// Execute `vmwrite value, encoding` (Intel operand order:
+    /// `VMWRITE r64, r/m64`). Fields narrower than 64 bits are still
+    /// exchanged as `u64` per SDM. Privileged (CPL 0).
+    pub fn vmwrite(encoding: u32, value: u64) Error!void {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\vmwrite %[val], %[enc]
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            : [enc] "r" (@as(u64, encoding)),
+              [val] "r" (value),
+            : .{ .memory = true, .cc = true });
+        return mapRflags(rflags);
+    }
+
+    /// Execute `invept kind, [descriptor]` (Intel: `INVEPT r64, m128`).
+    /// Invalidates EPT-derived mappings on the issuing logical processor
+    /// per `kind`. Privileged (CPL 0). Returns `Error!void` mapped from
+    /// RFLAGS.
+    pub fn invept(kind: InveptKind, descriptor: *const InveptDescriptor) Error!void {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\invept %[desc], %[kind]
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            : [kind] "r" (@as(u64, @intFromEnum(kind))),
+              [desc] "*m" (descriptor),
+            : .{ .memory = true, .cc = true });
+        return mapRflags(rflags);
+    }
+
+    /// Execute `invvpid kind, [descriptor]` (Intel: `INVVPID r64, m128`).
+    /// Invalidates VPID-tagged mappings on the issuing logical processor
+    /// per `kind`. Privileged (CPL 0). Returns `Error!void` mapped from
+    /// RFLAGS.
+    pub fn invvpid(kind: InvvpidKind, descriptor: *const InvvpidDescriptor) Error!void {
+        if (!supported) @compileError(wrong_target);
+        var rflags: u64 = undefined;
+        asm volatile (
+            \\invvpid %[desc], %[kind]
+            \\pushfq
+            \\popq %[rflags]
+            : [rflags] "=r" (rflags),
+            : [kind] "r" (@as(u64, @intFromEnum(kind))),
+              [desc] "*m" (descriptor),
+            : .{ .memory = true, .cc = true });
+        return mapRflags(rflags);
+    }
+};
+
+/// AMD SVM (Secure Virtual Machine) ISA wrappers.
+pub const Svm = struct {
+    /// Strong physical-address value type covering the full 64-bit
+    /// physical-address space. Distinct from `Vmx.PhysAddr`.
+    pub const PhysAddr = enum(u64) {
+        _,
+
+        /// Wrap a raw `u64` as a strong `PhysAddr`. Compiles on any target.
+        pub fn fromInt(value: u64) PhysAddr {
+            return @enumFromInt(value);
+        }
+
+        /// Return the underlying `u64`. Compiles on any target.
+        pub fn raw(self: PhysAddr) u64 {
+            return @intFromEnum(self);
+        }
+    };
+
+    /// 4 KiB VMCB region per AMD APM Vol.2 §15.5. Split at the
+    /// architectural boundary between the control area (0x000-0x3FF) and
+    /// the state save area (0x400-0xFFF); field layouts inside each area
+    /// are downstream policy.
+    pub const Vmcb = extern struct {
+        control: [1024]u8 align(4096),
+        state: [3072]u8,
+
+        pub const alignment: usize = 4096;
+
+        comptime {
+            std.debug.assert(@sizeOf(Vmcb) == 4096);
+            std.debug.assert(@alignOf(Vmcb) == 4096);
+            std.debug.assert(@offsetOf(Vmcb, "control") == 0);
+            std.debug.assert(@offsetOf(Vmcb, "state") == 0x400);
+        }
+    };
+
+    /// Execute `vmrun` with the VMCB physical address in `RAX`. Enters
+    /// guest execution; returns after `#VMEXIT` per AMD APM Vol.2 §15.5.1.
+    /// Privileged (CPL 0); may `#GP`/`#UD`. `memory` clobber.
+    pub fn vmrun(vmcb: PhysAddr) void {
+        if (!supported) @compileError(wrong_target);
+        asm volatile ("vmrun"
+            :
+            : [vmcb] "{rax}" (@intFromEnum(vmcb)),
+            : .{ .memory = true });
+    }
+
+    /// Execute `vmload` with the VMCB physical address in `RAX`. Loads
+    /// FS/GS/TR/LDTR selectors and SYSCALL/SYSENTER MSRs per APM Vol.2
+    /// §15.5. Privileged (CPL 0). `memory` clobber.
+    pub fn vmload(vmcb: PhysAddr) void {
+        if (!supported) @compileError(wrong_target);
+        asm volatile ("vmload"
+            :
+            : [vmcb] "{rax}" (@intFromEnum(vmcb)),
+            : .{ .memory = true });
+    }
+
+    /// Execute `vmsave` with the VMCB physical address in `RAX`. Saves the
+    /// same processor-state subset that `vmload` restores. Privileged
+    /// (CPL 0). `memory` clobber.
+    pub fn vmsave(vmcb: PhysAddr) void {
+        if (!supported) @compileError(wrong_target);
+        asm volatile ("vmsave"
+            :
+            : [vmcb] "{rax}" (@intFromEnum(vmcb)),
+            : .{ .memory = true });
+    }
+
+    /// Execute `stgi`. Sets the Global Interrupt Flag. Privileged (CPL 0);
+    /// requires `EFER.SVME = 1`. `memory` clobber.
+    pub fn stgi() void {
+        if (!supported) @compileError(wrong_target);
+        asm volatile ("stgi" ::: .{ .memory = true });
+    }
+
+    /// Execute `clgi`. Clears the Global Interrupt Flag, blocking maskable
+    /// interrupts, NMI, SMI, INIT, and #MC. Privileged (CPL 0); requires
+    /// `EFER.SVME = 1`. `memory` clobber.
+    pub fn clgi() void {
+        if (!supported) @compileError(wrong_target);
+        asm volatile ("clgi" ::: .{ .memory = true });
+    }
+
+    /// Execute `invlpga` with linear address in `RAX` and ASID in `ECX`.
+    /// Invalidates one TLB entry on the current logical processor.
+    /// Privileged (CPL 0). `memory` clobber.
+    pub fn invlpga(virt_addr: u64, asid: u32) void {
+        if (!supported) @compileError(wrong_target);
+        asm volatile ("invlpga"
+            :
+            : [addr] "{rax}" (virt_addr),
+              [asid] "{ecx}" (asid),
+            : .{ .memory = true });
+    }
+
+    /// Execute `skinit` with the SL image physical base in `EAX`. Clears
+    /// processor state, performs a DEV-protected TPM measurement, and
+    /// transfers control to the SL image (architecturally `noreturn`).
+    /// Privileged (CPL 0). `memory` clobber.
+    pub fn skinit(base: u32) noreturn {
+        if (!supported) @compileError(wrong_target);
+        asm volatile ("skinit"
+            :
+            : [base] "{eax}" (base),
+            : .{ .memory = true });
+        unreachable;
     }
 };
