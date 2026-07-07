@@ -7,10 +7,6 @@ a fixed number of parties per generation; when the last party arrives, the
 generation advances, all waiters are released, and the primitive is armed
 again for the next round.
 
-A rendezvous is a *fan-in point*: it tells each arriving party that every peer
-in the same generation has reached the same point. It is not a mutex,
-semaphore, counted event, latch, or one-shot completion primitive.
-
 ## Owned scope
 
 This spec owns:
@@ -341,13 +337,6 @@ Correct backend shape:
 4. otherwise park, block, yield, or spin according to backend policy;
 5. return success after wake or spurious wake, or return a `WaitError`.
 
-This rule prevents the classic lost wake:
-
-1. waiter commits its CAS against generation G with observed remaining `>= 2`;
-2. the last arriver of generation G advances the state to generation G+1 and
-   calls `wakeAll(&state)`;
-3. waiter parks against generation G after the wake would fire.
-
 A backend that cannot perform the post-registration recheck is not valid for
 `Rendezvous`.
 
@@ -449,50 +438,12 @@ Implementation must:
 
 ## std.Io lane
 
-`sync.Rendezvous(Backend)` serves both lanes declared in the spec queue:
+`sync.Rendezvous(Backend)` serves both spec-queue lanes:
 
-1. Composes inside a downstream `std.Io` backend by pairing with an
-   `Io`-implemented `Backend` that satisfies the shared wait/wake contract.
-2. Serves freestanding consumers (`Rendezvous(sync.spin.Backend)`) where
-   `std.Io` is unavailable, including kernel SMP bring-up rounds,
-   hypervisor multi-worker fan-in, and firmware pre-runtime bring-up.
-
-Distinct from `std.Thread.WaitGroup` and `std.Thread.ResetEvent`:
-
-- reusable across generations without an external reset step;
-- freestanding-safe (spin backend has no scheduler dependency);
-- explicit ordering vocabulary via `Token` and `changedSince`;
-- backend seam that composes with any wait/wake implementation.
-
-## Planned use
-
-Multi-CPU boot barrier reused across bring-up stages:
-
-```zig
-var boot_rv = stdx.sync.Rendezvous(stdx.sync.spin.Backend)
-    .Static(num_cpus)
-    .init(.{});
-
-// Stage 1: every CPU installs its own IDT.
-setupLocalIdt();
-try boot_rv.arrive();
-
-// Stage 2: every CPU installs its own GDT.
-setupLocalGdt();
-try boot_rv.arrive();
-```
-
-Multi-worker fan-in in a hypervisor:
-
-```zig
-var vcpu_rv = stdx.sync.Rendezvous(WaitQueueBackend)
-    .Bounded
-    .init(num_vcpus, .{ .queue = &sched_queue });
-
-// Each vCPU handler:
-processHostRequest();
-try vcpu_rv.arrive();
-```
+1. Composes inside a downstream `std.Io` backend that satisfies the shared
+   wait/wake contract.
+2. Serves freestanding consumers via `Rendezvous(sync.spin.Backend)` where
+   `std.Io` is unavailable.
 
 ## Examples
 

@@ -7,10 +7,6 @@ provided initializer exactly once against a shared `sync.once.State` word, safe
 from any number of concurrent callers, callable from interrupt-off and
 pre-runtime contexts.
 
-`Once` is a doorbell for initialization: it tells losers that the winner's
-writes are visible. It is not a mutex, semaphore, or general critical-section
-primitive.
-
 ## Owned scope
 
 This spec owns:
@@ -356,19 +352,6 @@ Correct backend shape:
 4. otherwise park, block, yield, or spin according to backend policy;
 5. return success after wake or spurious wake, or return a `WaitError`.
 
-This rule prevents the classic lost wake for `Once`:
-
-1. loser observes `untouched` or `running`;
-2. winner completes `work`, publishes `done`, calls `wakeAll(&state)`;
-3. loser parks after the wake would fire.
-
-The same rule prevents the rollback lost wake:
-
-1. loser observes `running` with generation G;
-2. winner's `callChecked` fails, rolls back to `untouched` at generation
-   G+1, calls `wakeAll(&state)`;
-3. loser parks against generation G.
-
 A backend that cannot perform the post-registration recheck is not valid
 for `Once`.
 
@@ -494,20 +477,12 @@ contract.
 
 ## std.Io lane
 
-`sync.Once(Backend)` serves both lanes declared in the spec queue:
+`sync.Once(Backend)` serves both spec-queue lanes:
 
-1. Composes inside a downstream `std.Io` backend by pairing with an
-   `Io`-implemented `Backend` that satisfies the shared wait/wake contract.
-2. Serves freestanding consumers (`sync.Once(sync.spin.Backend)`) where
-   `std.Io` is unavailable, including kernel init, hypervisor setup,
-   firmware pre-runtime, and interrupt-off contexts.
-
-Distinct from `std.once`:
-
-- freestanding-safe (spin backend has no scheduler dependency);
-- explicit ordering vocabulary via `Token` and `changedSince`;
-- retry-on-error via `callChecked`;
-- backend seam that composes with any wait/wake implementation.
+1. Composes inside a downstream `std.Io` backend that satisfies the shared
+   wait/wake contract.
+2. Serves freestanding consumers via `sync.Once(sync.spin.Backend)` where
+   `std.Io` is unavailable.
 
 ## Examples
 

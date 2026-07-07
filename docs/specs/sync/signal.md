@@ -6,9 +6,6 @@ Status: Approved.
 notification state from scheduler, wait-queue, futex, or spin policy by using an
 explicit compile-time backend for wait-capable signals.
 
-A signal is a doorbell: it tells waiters that state may have changed. It is not a
-queue, semaphore, mutex, condition variable, or data-visibility substitute.
-
 ## Owned scope
 
 This spec owns:
@@ -291,12 +288,6 @@ Correct backend shape:
 4. otherwise park, block, yield, or spin according to backend policy;
 5. return success after wake or spurious wake, or return a `WaitError`.
 
-This rule prevents the classic lost wake:
-
-1. waiter observes unset;
-2. producer calls `set` and `wakeAll(&state)`;
-3. waiter parks after the wake.
-
 A backend that cannot perform the post-registration recheck is not valid for
 `Signal.Manual`.
 
@@ -375,35 +366,6 @@ Implementation must:
 - never call backend code from `clear`;
 - never allocate in the signal layer;
 - avoid hidden globals and target-specific waits in the signal layer.
-
-## Planned use
-
-A signal serves as a doorbell for a `stdx.concurrent.mpsc.Ring`:
-
-```zig
-try ring.tryPushBack(item);
-ready.set();
-```
-
-The consumer drains the ring, clears the signal, rechecks the ring, then waits:
-
-```zig
-while (ring.popFront()) |item| {
-    handle(item);
-}
-
-ready.clear();
-
-if (ring.popFront()) |item| {
-    handle(item);
-    continue;
-}
-
-try ready.wait();
-```
-
-The backend supplied by the caller maps `wait(state, observed)` and
-`wakeAll(state)` to its scheduler or wait queue.
 
 ## Required tests
 
