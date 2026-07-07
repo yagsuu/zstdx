@@ -119,8 +119,9 @@ and the required tests from the spec land in `test/`.
 
 ### Approved, implementation pending
 
-No entries. All approved specs are implemented; the next batch moves
-through the workflow at the head of the `Queue` section below.
+- `docs/specs/sync/latch.md`
+- `docs/specs/arch/x86_64/vmx.md`
+- `docs/specs/arch/x86_64/svm.md`
 
 ## Queue
 
@@ -173,78 +174,14 @@ existing `mem.BuddyAllocator`, `mem.BitmapAllocator`, and `mem.Pool` substrate.
 `docs/specs/mem/pool.md` also gained a debug-fill contract inherited by
 `PoolCache` and every downstream typed pool.
 
-Wave 1 — CPU-facing baseline:
-
-1. `docs/specs/sync/latch.md` — one-shot countdown latch. `Static(N)` and
-    `Bounded` variants. `arrive` decrements the remaining counter; `wait`
-    blocks until the counter reaches zero; once released, the latch stays
-    released and is not reusable. Uses the same caller-composed `Backend`
-    seam. Distinct value from `sync/rendezvous.md`: latches model
-    grace-period joins, one-time initialization joins, and multi-producer
-    completion signals where reuse is not required. Owns only the counter,
-    arrival protocol, and wait composition; does not own reset, scheduler
-    parking, or per-arrival policy.
+Wave 1 — CPU-facing baseline — complete. `docs/specs/sync/latch.md` shipped;
+hv/firmware/kernel consumers can compose one-shot countdown joins over any
+conforming wait/wake backend, including `sync.spin.Backend` for freestanding
+use and scheduler-owned backends inside `std.Io` implementations.
 
 Wave 2 — hv-specific:
 
-2. `docs/specs/arch/x86_64/vmx.md` — VMX ISA wrappers: `vmxon`/`vmxoff`/
-    `vmlaunch`/`vmresume`/`vmread`/`vmwrite`/`vmclear`/`vmptrld`/`vmptrst`/
-    `invept`/`invvpid` as inline-asm helpers. Same "just the ISA" boundary
-    as base. No VMCS field catalog, no VMCS layout policy. Proposal must
-    decide:
-    - error typing: `Error = error{ VMfailInvalid, VMfailValid }` derived
-      from `RFLAGS` after each VMX instruction (`CF = 1` →
-      `VMfailInvalid`; `ZF = 1` → `VMfailValid`; neither → success). The
-      wrapper does not decode `VMfailValid`; callers who need the error
-      code call `vmread(0x4400)`;
-    - physical-address argument shape:
-      `PhysAddr = enum(u64) { _ }`;
-    - VMCS/VMXON region types are 4 KiB `extern struct`s declared with
-      `align(4096)` and a `pub const alignment: usize = 4096`;
-    - INVEPT/INVVPID descriptors are 16-byte `extern struct`s declared
-      with `align(16)` and a `pub const alignment: usize = 16`; kinds are
-      `enum(u64)`;
-    - `vmread`/`vmwrite` take a raw `u32` field encoding per Intel SDM
-      natural-index encoding — no typed field catalog;
-    - `vmlaunch`/`vmresume` return type `Error!noreturn`; on success control
-      transfers to the guest and re-enters at the caller-installed host RIP
-      outside this wrapper;
-    - `vmxon`/`vmclear`/`vmptrld`/`vmptrst` take `*const PhysAddr` /
-      `*PhysAddr` (m64 physical-pointer operand), not `PhysAddr` by value;
-    - VMX instructions are CPL 0; `#GP` at CPL > 0 and `#UD` when VMX is
-      unsupported are traps, not error-union failures;
-    - required tests are compile-only in the default host suite (regions
-      have the declared size/alignment, descriptors have the declared
-      size/alignment, `vmlaunch`/`vmresume` are `Error!noreturn`, module
-      compiles on x86_64, non-x86_64 build either omits or `@compileError`s).
-3. `docs/specs/arch/x86_64/svm.md` — SVM ISA wrappers: `vmrun`/`vmload`/
-    `vmsave`/`stgi`/`clgi`/`invlpga`/`skinit` as inline-asm helpers. Same
-    "just the ISA" boundary as VMX. No VMCB field catalog, no VMCB layout
-    policy. Proposal must decide:
-    - error typing: SVM does not use the VMX `RFLAGS.CF/ZF` convention.
-      Faults manifest as CPU exceptions (`#UD` when `EFER.SVME = 0` or
-      SVM is unsupported; `#GP` on CR4/VMCB rule violations). Wrappers are
-      infallible in the Zig signature — same convention as `hlt`/`wbinvd`;
-    - physical-address argument shape: `PhysAddr = enum(u64) { _ }`, passed
-      by value (SVM instructions take the physical address in `RAX`, not a
-      memory-indirect operand);
-    - VMCB is a 4 KiB `extern struct` declared with `align(4096)` and a
-      `pub const alignment: usize = 4096`; the wrapper exposes size and
-      alignment only, leaving the control-area / state-save-area layout as
-      opaque byte arrays for downstream hypervisor projects to overlay;
-    - `vmrun` and `skinit` return type `noreturn`;
-    - `vmload`, `vmsave`, `stgi`, `clgi`, `invlpga` return type `void`;
-    - `invlpga(virt_addr: u64, asid: u32)` — no ASID typing; ASID
-      allocation is caller policy;
-    - every SVM instruction uses inline asm with a memory clobber, matching
-      the VMX and DebugRegister wrapper convention (`stgi`/`clgi` need the
-      memory clobber to bracket sensitive host code correctly);
-    - required tests are compile-only in the default host suite
-      (`@sizeOf(Vmcb) == 4096` and `@alignOf(Vmcb) == 4096`, `vmrun`/
-      `skinit` are `noreturn`, `vmload`/`vmsave`/`stgi`/`clgi`/`invlpga`
-      are `void`, module compiles on x86_64, non-x86_64 build either omits
-      or `@compileError`s).
-4. `docs/specs/concurrent/mpsc-atomic-ring.md` — single-atomic-publication
+1. `docs/specs/concurrent/mpsc-atomic-ring.md` — single-atomic-publication
     MPSC ring, sibling to `docs/specs/concurrent/mpsc-ring.md` under the
     same `mpsc` namespace. Not a mode flag on `Ring`. Publishes an item
     in one atomic step (packed sequence tag + payload in a single CAS on
@@ -273,7 +210,7 @@ Wave 2 — hv-specific:
       16's NMI-safe sibling pointer) is repointed at
       `docs/specs/concurrent/mpsc-atomic-ring.md`;
     - zero-allocation, bounded, no policy on wake or scheduler.
-5. `docs/specs/concurrent/qsbr.md` — quiescent-state-based reclamation
+2. `docs/specs/concurrent/qsbr.md` — quiescent-state-based reclamation
     substrate. Answers the "rcu-lite" need for exit-handler tables and mapping
     updates. Simplest of the four reclamation candidates (`epoch`, `hazard`,
     `qsbr`, `rcu`) and enough for the stated bounded-quiescent-state use case.
