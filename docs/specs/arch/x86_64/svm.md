@@ -107,11 +107,11 @@ pub const Svm = struct {
     };
 
     pub const Vmcb = extern struct {
-        control: [1024]u8,
+        control: [1024]u8 align(4096),
         state: [3072]u8,
 
         pub const alignment: usize = 4096;
-    } align(4096);
+    };
 
     pub fn vmrun(vmcb: PhysAddr) void;
     pub fn vmload(vmcb: PhysAddr) void;
@@ -168,9 +168,10 @@ memory-indirect).
 
 ### Vmcb
 
-`Svm.Vmcb` is a 4 KiB `extern struct` with declared `align(4096)` and a
-`pub const alignment: usize = 4096`. Its body is split at the
-architectural boundary AMD APM Vol.2 §15.5 defines:
+`Svm.Vmcb` is a 4 KiB `extern struct`. Alignment is raised to 4096 via a
+field-level `align(4096)` on `control`, and the type exposes
+`pub const alignment: usize = 4096`. Its body is split at the architectural
+boundary AMD APM Vol.2 §15.5 defines:
 
 - `control: [1024]u8` at offset `0x000` — VMCB control area (intercept
   vectors, TLB control, guest ASID, VMEXIT information, event injection,
@@ -191,8 +192,8 @@ Compile-time invariants held inside the type body:
 - `@offsetOf(Vmcb, "control") == 0x000`;
 - `@offsetOf(Vmcb, "state") == 0x400`.
 
-The struct-level `align(4096)` provides the 4 KiB VMCB alignment SVM
-requires. No stronger field-level alignment is required.
+The field-level `align(4096)` on `control` provides the 4 KiB VMCB
+alignment SVM requires.
 
 `Vmcb` compiles on any target because it emits no inline assembly. Only
 the wrappers that consume its physical-address pointer require x86_64.
@@ -391,7 +392,7 @@ const x86 = stdx.arch.x86_64;
 const Svm = x86.Svm;
 
 // Caller-owned VMCB (typically page-aligned in a page allocator).
-var vmcb: Svm.Vmcb align(4096) = std.mem.zeroes(Svm.Vmcb);
+var vmcb: Svm.Vmcb = std.mem.zeroes(Svm.Vmcb);
 const vmcb_phys: Svm.PhysAddr = .fromInt(physicalAddressOf(&vmcb));
 
 // Program VMCB control and state areas via overlays owned by the

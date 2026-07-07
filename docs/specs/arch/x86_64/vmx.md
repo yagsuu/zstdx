@@ -111,19 +111,19 @@ pub const Vmx = struct {
     };
 
     pub const VmxonRegion = extern struct {
-        revision_id: u32 = 0,
+        revision_id: u32 align(4096) = 0,
         _reserved: [4092]u8 = @splat(0),
 
         pub const alignment: usize = 4096;
-    } align(4096);
+    };
 
     pub const Vmcs = extern struct {
-        revision_id: u32 = 0,
+        revision_id: u32 align(4096) = 0,
         abort_indicator: u32 = 0,
         _reserved: [4088]u8 = @splat(0),
 
         pub const alignment: usize = 4096;
-    } align(4096);
+    };
 
     pub const InveptKind = enum(u64) {
         single_context = 1,
@@ -132,11 +132,11 @@ pub const Vmx = struct {
     };
 
     pub const InveptDescriptor = extern struct {
-        eptp: u64,
+        eptp: u64 align(16),
         _reserved: u64 = 0,
 
         pub const alignment: usize = 16;
-    } align(16);
+    };
 
     pub const InvvpidKind = enum(u64) {
         individual_address = 0,
@@ -147,13 +147,13 @@ pub const Vmx = struct {
     };
 
     pub const InvvpidDescriptor = extern struct {
-        vpid: u16,
+        vpid: u16 align(16),
         _reserved_low: u16 = 0,
         _reserved_high: u32 = 0,
         linear_address: u64 = 0,
 
         pub const alignment: usize = 16;
-    } align(16);
+    };
 
     pub fn vmxon(region: *const PhysAddr) Error!void;
     pub fn vmxoff() Error!void;
@@ -222,10 +222,11 @@ outcome for `vmxon`/`vmclear`/`vmptrld` and is caller policy.
 
 ### VmxonRegion and Vmcs
 
-`VmxonRegion` and `Vmcs` are 4 KiB `extern struct` region types with
-declared `align(4096)` and a `pub const alignment: usize = 4096`. Both
-expose the architectural region header defined by SDM Vol.3 §24.11; the
-remainder is `_reserved: [N]u8 = @splat(0)`.
+`VmxonRegion` and `Vmcs` are 4 KiB `extern struct` region types. Alignment
+is raised to 4096 via a field-level `align(4096)` on the first field, and
+each type exposes `pub const alignment: usize = 4096`. Both cover the
+architectural region header defined by SDM Vol.3 §24.11; the remainder
+is `_reserved: [N]u8 = @splat(0)`.
 
 The VMCS body MUST NOT be accessed through ordinary loads or stores (SDM
 Vol.3 §24.2). The `_reserved` byte array is opaque; its layout is
@@ -278,7 +279,8 @@ INVEPT invalidation types (SDM Vol.3 §30.3):
 Kinds 0 and 3 are architecturally reserved and produce `VMfailInvalid`.
 The `_` tag keeps the enum open.
 
-`InveptDescriptor` is a 16-byte `extern struct` with `align(16)` and
+`InveptDescriptor` is a 16-byte `extern struct`. Alignment is raised to 16
+via `align(16)` on `eptp`, and the type exposes
 `pub const alignment: usize = 16`:
 
 - `eptp: u64` at offset 0 — extended-page-table pointer whose bit layout
@@ -310,7 +312,8 @@ defined INVVPID invalidation types (SDM Vol.3 §30.3):
 
 Kinds 4 and higher are architecturally reserved and produce `VMfailInvalid`.
 
-`InvvpidDescriptor` is a 16-byte `extern struct` with `align(16)` and
+`InvvpidDescriptor` is a 16-byte `extern struct`. Alignment is raised to
+16 via `align(16)` on `vpid`, and the type exposes
 `pub const alignment: usize = 16`:
 
 - `vpid: u16` at offset 0 — virtual-processor identifier;
@@ -501,8 +504,8 @@ const revision: u32 = @truncate(IA32_VMX_BASIC.read());
 // Allocate 4 KiB regions in caller-owned physical memory. The variables
 // below stand in for whatever physical-memory allocator the caller uses;
 // `.fromInt` wraps the resulting physical addresses as strong values.
-var vmxon_region: Vmx.VmxonRegion align(4096) = .{ .revision_id = revision };
-var vmcs: Vmx.Vmcs align(4096) = .{ .revision_id = revision };
+var vmxon_region: Vmx.VmxonRegion = .{ .revision_id = revision };
+var vmcs: Vmx.Vmcs = .{ .revision_id = revision };
 
 const vmxon_phys: Vmx.PhysAddr = .fromInt(physicalAddressOf(&vmxon_region));
 const vmcs_phys: Vmx.PhysAddr = .fromInt(physicalAddressOf(&vmcs));
