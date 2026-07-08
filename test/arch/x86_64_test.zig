@@ -7,6 +7,13 @@ const builtin = @import("builtin");
 const stdx = @import("stdx");
 
 const x86 = stdx.arch.x86_64;
+const cpuid = x86.cpuid;
+const register = x86.register;
+const interrupts = x86.interrupts;
+const cpu = x86.cpu;
+const fence = x86.fence;
+const cache = x86.cache;
+const privilege = x86.privilege;
 
 const testing = std.testing;
 
@@ -36,19 +43,14 @@ test "unit: supported matches the build target" {
     try testing.expectEqual(builtin.cpu.arch == .x86_64, x86.supported);
 }
 
-test "model: Descriptor.Pointer is exactly 10 bytes with no inter-field padding" {
-    try testing.expectEqual(@as(usize, 10), @sizeOf(x86.Descriptor.Pointer));
-    try testing.expectEqual(@as(usize, 0), @offsetOf(x86.Descriptor.Pointer, "limit"));
-    try testing.expectEqual(@as(usize, 2), @offsetOf(x86.Descriptor.Pointer, "base"));
+test "model: register.descriptor.Pointer is exactly 10 bytes with no inter-field padding" {
+    try testing.expectEqual(@as(usize, 10), @sizeOf(register.descriptor.Pointer));
+    try testing.expectEqual(@as(usize, 0), @offsetOf(register.descriptor.Pointer, "limit"));
+    try testing.expectEqual(@as(usize, 2), @offsetOf(register.descriptor.Pointer, "base"));
 }
 
-// ---------------- Compile-only instantiation tests ----------------
-//
-// Compile-only references via `@TypeOf` validate that every entry point
-// exists with the documented signature and is reachable on x86_64. They do
-// not codegen the bodies, which is the point: privileged or wrong-target
-// uses must never run in the host suite. On non-x86_64 `supported` is
-// comptime-false and the entire body is dead before any reference fires.
+// `@TypeOf` checks keep privileged wrappers compile-only: signatures are
+// checked without codegen or host execution.
 
 fn expectFn(comptime T: type, comptime f: anytype) void {
     comptime testing.expectEqual(T, @TypeOf(f)) catch unreachable;
@@ -74,12 +76,12 @@ test "compile: Port slice I/O instantiates for every width" {
     expectFn(fn (x86.Port, []const u32) void, x86.Port.outSlice32);
 }
 
-test "compile: Cpuid family instantiates" {
+test "compile: cpuid family instantiates" {
     if (!x86.supported) return;
-    expectFn(fn (x86.Cpuid.Leaf) x86.Cpuid.Result, x86.Cpuid.leaf);
-    expectFn(fn (x86.Cpuid.Leaf, u32) x86.Cpuid.Result, x86.Cpuid.subleaf);
-    expectFn(fn () u32, x86.Cpuid.maxBasicLeaf);
-    expectFn(fn () u32, x86.Cpuid.maxExtendedLeaf);
+    expectFn(fn (cpuid.Leaf) cpuid.Result, cpuid.leaf);
+    expectFn(fn (cpuid.Leaf, u32) cpuid.Result, cpuid.subleaf);
+    expectFn(fn () u32, cpuid.maxBasicLeaf);
+    expectFn(fn () u32, cpuid.maxExtendedLeaf);
 }
 
 test "compile: Msr read/write instantiate" {
@@ -88,132 +90,129 @@ test "compile: Msr read/write instantiate" {
     expectFn(fn (x86.Msr, u64) void, x86.Msr.write);
 }
 
-test "compile: ControlRegister family instantiates" {
+test "compile: register.control family instantiates" {
     if (!x86.supported) return;
-    expectFn(fn () u64, x86.ControlRegister.Cr0.read);
-    expectFn(fn (u64) void, x86.ControlRegister.Cr0.write);
-    expectFn(fn () u64, x86.ControlRegister.Cr2.read);
-    expectFn(fn () u64, x86.ControlRegister.Cr3.read);
-    expectFn(fn (u64) void, x86.ControlRegister.Cr3.write);
-    expectFn(fn () u64, x86.ControlRegister.Cr4.read);
-    expectFn(fn (u64) void, x86.ControlRegister.Cr4.write);
-    expectFn(fn () u64, x86.ControlRegister.Cr8.read);
-    expectFn(fn (u64) void, x86.ControlRegister.Cr8.write);
-    expectFn(fn () u64, x86.ControlRegister.Xcr0.read);
-    expectFn(fn (u64) void, x86.ControlRegister.Xcr0.write);
+    expectFn(fn () u64, register.control.cr0.read);
+    expectFn(fn (u64) void, register.control.cr0.write);
+    expectFn(fn () u64, register.control.cr2.read);
+    expectFn(fn () u64, register.control.cr3.read);
+    expectFn(fn (u64) void, register.control.cr3.write);
+    expectFn(fn () u64, register.control.cr4.read);
+    expectFn(fn (u64) void, register.control.cr4.write);
+    expectFn(fn () u64, register.control.cr8.read);
+    expectFn(fn (u64) void, register.control.cr8.write);
+    expectFn(fn () u64, register.control.xcr0.read);
+    expectFn(fn (u64) void, register.control.xcr0.write);
 }
 
-test "compile: Rflags read/write instantiate" {
+test "compile: register.rflags read/write instantiate" {
     if (!x86.supported) return;
-    expectFn(fn () u64, x86.Rflags.read);
-    expectFn(fn (u64) void, x86.Rflags.write);
+    expectFn(fn () u64, register.rflags.read);
+    expectFn(fn (u64) void, register.rflags.write);
 }
 
-test "compile: Interrupts family instantiates" {
+test "compile: interrupts family instantiates" {
     if (!x86.supported) return;
-    expectFn(fn () void, x86.Interrupts.enable);
-    expectFn(fn () void, x86.Interrupts.disable);
-    expectFn(fn () bool, x86.Interrupts.enabled);
+    expectFn(fn () void, interrupts.enable);
+    expectFn(fn () void, interrupts.disable);
+    expectFn(fn () bool, interrupts.enabled);
 }
 
-test "compile: Cpu one-shots instantiate" {
+test "compile: cpu one-shots instantiate" {
     if (!x86.supported) return;
-    expectFn(fn () void, x86.Cpu.halt);
-    expectFn(fn () void, x86.Cpu.pause);
-    expectFn(fn () void, x86.Cpu.breakpoint);
+    expectFn(fn () void, cpu.halt);
+    expectFn(fn () void, cpu.pause);
+    expectFn(fn () void, cpu.breakpoint);
 }
 
-test "compile: Descriptor table family instantiates" {
+test "compile: register.descriptor table family instantiates" {
     if (!x86.supported) return;
-    expectFn(fn (*const x86.Descriptor.Pointer) void, x86.Descriptor.Gdt.load);
-    expectFn(fn () x86.Descriptor.Pointer, x86.Descriptor.Gdt.store);
-    expectFn(fn (*const x86.Descriptor.Pointer) void, x86.Descriptor.Idt.load);
-    expectFn(fn () x86.Descriptor.Pointer, x86.Descriptor.Idt.store);
-    expectFn(fn (u16) void, x86.Descriptor.TaskRegister.load);
-    expectFn(fn () u16, x86.Descriptor.TaskRegister.store);
+    expectFn(fn (*const register.descriptor.Pointer) void, register.descriptor.gdtr.load);
+    expectFn(fn (*register.descriptor.Pointer) void, register.descriptor.gdtr.store);
+    expectFn(fn (*const register.descriptor.Pointer) void, register.descriptor.idtr.load);
+    expectFn(fn (*register.descriptor.Pointer) void, register.descriptor.idtr.store);
+    expectFn(fn (u16) void, register.descriptor.tr.load);
+    expectFn(fn () u16, register.descriptor.tr.store);
 }
 
-test "compile: Segment register family instantiates" {
+test "compile: register.segment family instantiates" {
     if (!x86.supported) return;
-    expectFn(fn () u16, x86.Segment.Cs.read);
-    expectFn(fn (u16) void, x86.Segment.Cs.writeFarReturn);
-    expectFn(fn () u16, x86.Segment.Ds.read);
-    expectFn(fn (u16) void, x86.Segment.Ds.write);
-    expectFn(fn () u16, x86.Segment.Es.read);
-    expectFn(fn (u16) void, x86.Segment.Es.write);
-    expectFn(fn () u16, x86.Segment.Fs.read);
-    expectFn(fn (u16) void, x86.Segment.Fs.write);
-    expectFn(fn () u16, x86.Segment.Gs.read);
-    expectFn(fn (u16) void, x86.Segment.Gs.write);
-    expectFn(fn () u16, x86.Segment.Ss.read);
-    expectFn(fn (u16) void, x86.Segment.Ss.write);
-    expectFn(fn () u64, x86.Segment.FsBase.read);
-    expectFn(fn (u64) void, x86.Segment.FsBase.write);
-    expectFn(fn () u64, x86.Segment.GsBase.read);
-    expectFn(fn (u64) void, x86.Segment.GsBase.write);
-    expectFn(fn () void, x86.Segment.swapGs);
+    expectFn(fn () u16, register.segment.cs.read);
+    expectFn(fn (u16) void, register.segment.cs.writeFarReturn);
+    expectFn(fn () u16, register.segment.ds.read);
+    expectFn(fn (u16) void, register.segment.ds.write);
+    expectFn(fn () u16, register.segment.es.read);
+    expectFn(fn (u16) void, register.segment.es.write);
+    expectFn(fn () u16, register.segment.fs.read);
+    expectFn(fn (u16) void, register.segment.fs.write);
+    expectFn(fn () u16, register.segment.gs.read);
+    expectFn(fn (u16) void, register.segment.gs.write);
+    expectFn(fn () u16, register.segment.ss.read);
+    expectFn(fn (u16) void, register.segment.ss.write);
+    expectFn(fn () u64, register.segment.fs_base.read);
+    expectFn(fn (u64) void, register.segment.fs_base.write);
+    expectFn(fn () u64, register.segment.gs_base.read);
+    expectFn(fn (u64) void, register.segment.gs_base.write);
+    expectFn(fn () void, register.segment.swapGs);
 }
 
-test "compile: Fence family instantiates" {
+test "compile: fence family instantiates" {
     if (!x86.supported) return;
-    expectFn(fn () void, x86.Fence.lfence);
-    expectFn(fn () void, x86.Fence.sfence);
-    expectFn(fn () void, x86.Fence.mfence);
+    expectFn(fn () void, fence.lfence);
+    expectFn(fn () void, fence.sfence);
+    expectFn(fn () void, fence.mfence);
 }
 
-test "compile: Cache family instantiates" {
+test "compile: cache family instantiates" {
     if (!x86.supported) return;
-    expectFn(fn () usize, x86.Cache.lineSize);
-    expectFn(fn (usize) void, x86.Cache.flush);
-    expectFn(fn (usize) void, x86.Cache.flushOptimized);
-    expectFn(fn (usize) void, x86.Cache.writeBack);
-    expectFn(fn ([*]const u8, usize) void, x86.Cache.flushRange);
-    expectFn(fn ([*]const u8, usize) void, x86.Cache.writeBackRange);
-    expectFn(fn () void, x86.Cache.writeBackInvalidate);
-    expectFn(fn () void, x86.Cache.invalidate);
+    expectFn(fn () usize, cache.lineSize);
+    expectFn(fn (usize) void, cache.flush);
+    expectFn(fn (usize) void, cache.flushOptimized);
+    expectFn(fn (usize) void, cache.writeBack);
+    expectFn(fn ([*]const u8, usize) void, cache.flushRange);
+    expectFn(fn ([*]const u8, usize) void, cache.writeBackRange);
+    expectFn(fn () void, cache.writeBackInvalidate);
+    expectFn(fn () void, cache.invalidate);
 }
 
-test "compile: Privilege.currentLevel and ioWait instantiate" {
+test "compile: privilege.currentLevel and ioWait instantiate" {
     if (!x86.supported) return;
-    expectFn(fn () u2, x86.Privilege.currentLevel);
+    expectFn(fn () u2, privilege.currentLevel);
     expectFn(fn () void, x86.ioWait);
 }
 
-// ---------------- Host-safe runtime tests ----------------
-//
-// Only unprivileged instructions that do not modify global CPU state are
-// exercised. The default host test suite must observe nothing privileged.
+// Host runtime coverage stays limited to unprivileged, non-mutating
+// instructions.
 
-test "host: Cpuid.maxBasicLeaf reports at least leaf 1" {
+test "host: cpuid.maxBasicLeaf reports at least leaf 1" {
     if (!x86.supported) return;
-    try testing.expect(x86.Cpuid.maxBasicLeaf() >= 1);
+    try testing.expect(cpuid.maxBasicLeaf() >= 1);
 }
 
-test "host: Cpuid.maxExtendedLeaf reports at least 0x80000000" {
+test "host: cpuid.maxExtendedLeaf reports at least 0x80000000" {
     if (!x86.supported) return;
-    try testing.expect(x86.Cpuid.maxExtendedLeaf() >= 0x80000000);
+    try testing.expect(cpuid.maxExtendedLeaf() >= 0x80000000);
 }
 
-test "host: Cpu.pause executes once" {
+test "host: cpu.pause executes once" {
     if (!x86.supported) return;
-    x86.Cpu.pause();
+    cpu.pause();
 }
 
-test "host: Fence.lfence/sfence/mfence each execute once" {
+test "host: fence.lfence/sfence/mfence each execute once" {
     if (!x86.supported) return;
-    x86.Fence.lfence();
-    x86.Fence.sfence();
-    x86.Fence.mfence();
+    fence.lfence();
+    fence.sfence();
+    fence.mfence();
 }
 
-test "host: Rflags.read returns a value with reserved bit 1 set" {
+test "host: register.rflags.read returns a value with reserved bit 1 set" {
     if (!x86.supported) return;
-    const flags = x86.Rflags.read();
+    const flags = register.rflags.read();
     try testing.expect((flags & 0b10) != 0);
 }
 
-test "host: Privilege.currentLevel returns the userspace CPL" {
+test "host: privilege.currentLevel returns the userspace CPL" {
     if (!x86.supported) return;
-    // The default host test suite always runs in userspace at CPL 3.
-    try testing.expectEqual(@as(u2, 3), x86.Privilege.currentLevel());
+    try testing.expectEqual(@as(u2, 3), privilege.currentLevel());
 }

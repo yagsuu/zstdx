@@ -123,8 +123,8 @@ NVMe-class submission paths.
 ## `compiler` semantics
 
 `compiler()` emits no ISA instruction. It compiles down to
-`asm volatile ("" ::: "memory")` — an empty inline assembly block with a
-`"memory"` clobber that constrains only compiler reordering.
+`asm volatile ("" ::: .{ .memory = true })` — an empty inline assembly block
+with a `memory` clobber that constrains only compiler reordering.
 
 `compiler` is the primitive that all `mmio.*` and `dma.*` operations layer on
 top of. It is exposed as a named primitive so that consumers who need only the
@@ -173,7 +173,7 @@ while (true) {
     const csts = regs.csts.load();     // MMIO load of controller status
     stdx.barrier.mmio.acquire();       // lfence on x86_64
     if (csts_ready(csts)) break;
-    stdx.arch.x86_64.Cpu.pause();
+    stdx.arch.x86_64.cpu.pause();
 }
 ```
 
@@ -276,7 +276,7 @@ followed by an ordering-dependent load of DMA-updated state.
 
 | Op | x86_64 | aarch64 | riscv64 |
 | --- | --- | --- | --- |
-| `compiler()` | `asm volatile ("" ::: "memory")` | same | same |
+| `compiler()` | `asm volatile ("" ::: .{ .memory = true })` | same | same |
 | `mmio.release()` | `sfence` | future | future |
 | `mmio.acquire()` | `lfence` | future | future |
 | `mmio.releaseAcquire()` | `mfence` | future | future |
@@ -347,10 +347,10 @@ Referencing any `mmio.*` or `dma.*` operation on a non-x86_64 target produces
 Implementation must:
 
 - expose every op as `pub inline fn`;
-- lower `compiler()` to `asm volatile ("" ::: "memory")` with no other clobbers
-  and no register operands;
+- lower `compiler()` to `asm volatile ("" ::: .{ .memory = true })` with no
+  other clobbers and no register operands;
 - lower each x86_64 `mmio.*` and `dma.*` op through the corresponding
-  `stdx.arch.x86_64.Fence` operation, which carries the `"memory"` clobber;
+  `stdx.arch.x86_64.fence` operation, which carries the `memory` clobber;
 - gate non-x86_64 bodies with `@compileError` referencing the missing arch
   spec so that mere imports of `stdx.barrier` stay portable;
 - never introduce runtime target probing;
@@ -407,13 +407,13 @@ privilege and do not trap. They do not prove ordering.
 
 On x86_64:
 
-- `mmio.release` and `dma.release` reference `stdx.arch.x86_64.Fence.sfence`;
-- `mmio.acquire` and `dma.acquire` reference `stdx.arch.x86_64.Fence.lfence`;
+- `mmio.release` and `dma.release` reference `stdx.arch.x86_64.fence.sfence`;
+- `mmio.acquire` and `dma.acquire` reference `stdx.arch.x86_64.fence.lfence`;
 - `mmio.releaseAcquire` and `dma.releaseAcquire` reference
-  `stdx.arch.x86_64.Fence.mfence`.
+  `stdx.arch.x86_64.fence.mfence`.
 
 Implementations satisfy this test by lowering each barrier through the
-corresponding `stdx.arch.x86_64.Fence.*` function; the test asserts referential
+corresponding `stdx.arch.x86_64.fence.*` function; the test asserts referential
 equivalence at compile time rather than inspecting emitted bytes.
 
 ### Target gating

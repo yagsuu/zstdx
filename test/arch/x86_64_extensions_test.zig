@@ -7,139 +7,127 @@ const builtin = @import("builtin");
 const stdx = @import("stdx");
 
 const x86 = stdx.arch.x86_64;
+const cpuid = x86.cpuid;
+const register = x86.register;
+const cpu = x86.cpu;
 
 const testing = std.testing;
 
-// Compile-only structural tests pinning the layout, tag set, and namespace
-// shape spelled out in the spec's "Required tests" section. `comptime
-// std.debug.assert` matches the convention used by `test/tags/tag_test.zig`
-// for compile-time-negative probes: positive shapes are asserted here; the
-// trailing comments enumerate the shapes the source's `@compileError`
-// gates reject.
+// Compile-time assertions pin the required layouts, enum tags, and namespace
+// shape. Privileged operations stay signature-only in the host suite.
 
 comptime {
-    // InvpcidDescriptor: exactly 16 bytes, 16-byte aligned, pcid at 0,
+    // cpu.tlb.InvpcidDescriptor: exactly 16 bytes, 16-byte aligned, pcid at 0,
     // linear_address at 8. Spec §Cpu.Tlb.
-    std.debug.assert(@sizeOf(x86.Cpu.Tlb.InvpcidDescriptor) == 16);
-    std.debug.assert(@alignOf(x86.Cpu.Tlb.InvpcidDescriptor) == 16);
-    std.debug.assert(@offsetOf(x86.Cpu.Tlb.InvpcidDescriptor, "pcid") == 0);
-    std.debug.assert(@offsetOf(x86.Cpu.Tlb.InvpcidDescriptor, "linear_address") == 8);
-    std.debug.assert(x86.Cpu.Tlb.InvpcidDescriptor.alignment == 16);
+    std.debug.assert(@sizeOf(cpu.tlb.InvpcidDescriptor) == 16);
+    std.debug.assert(@alignOf(cpu.tlb.InvpcidDescriptor) == 16);
+    std.debug.assert(@offsetOf(cpu.tlb.InvpcidDescriptor, "pcid") == 0);
+    std.debug.assert(@offsetOf(cpu.tlb.InvpcidDescriptor, "linear_address") == 8);
+    std.debug.assert(cpu.tlb.InvpcidDescriptor.alignment == 16);
 
-    // InvpcidKind: four tags with backing values 0..3 in enum-declaration
+    // cpu.tlb.InvpcidKind: four tags with backing values 0..3 in enum-declaration
     // order matching the spec table. Spec §Cpu.Tlb "InvpcidKind values".
-    const kind_info = @typeInfo(x86.Cpu.Tlb.InvpcidKind).@"enum";
+    const kind_info = @typeInfo(cpu.tlb.InvpcidKind).@"enum";
     std.debug.assert(kind_info.fields.len == 4);
     std.debug.assert(kind_info.tag_type == u2);
-    std.debug.assert(@intFromEnum(x86.Cpu.Tlb.InvpcidKind.individual_address) == 0);
-    std.debug.assert(@intFromEnum(x86.Cpu.Tlb.InvpcidKind.single_context) == 1);
-    std.debug.assert(@intFromEnum(x86.Cpu.Tlb.InvpcidKind.all_including_globals) == 2);
-    std.debug.assert(@intFromEnum(x86.Cpu.Tlb.InvpcidKind.all_excluding_globals) == 3);
+    std.debug.assert(@intFromEnum(cpu.tlb.InvpcidKind.individual_address) == 0);
+    std.debug.assert(@intFromEnum(cpu.tlb.InvpcidKind.single_context) == 1);
+    std.debug.assert(@intFromEnum(cpu.tlb.InvpcidKind.all_including_globals) == 2);
+    std.debug.assert(@intFromEnum(cpu.tlb.InvpcidKind.all_excluding_globals) == 3);
 
-    // Cpu.Tsc.Reading: fields are exactly u64 (tsc) and u32 (aux). Spec
+    // cpu.tsc.Reading: fields are exactly u64 (tsc) and u32 (aux). Spec
     // §Cpu.Tsc Reading.
-    std.debug.assert(@FieldType(x86.Cpu.Tsc.Reading, "tsc") == u64);
-    std.debug.assert(@FieldType(x86.Cpu.Tsc.Reading, "aux") == u32);
+    std.debug.assert(@FieldType(cpu.tsc.Reading, "tsc") == u64);
+    std.debug.assert(@FieldType(cpu.tsc.Reading, "aux") == u32);
 
-    // DebugRegister: eight sub-types Dr0..Dr7, each exposing read() and
+    // register.debug: eight sub-types dr0..dr7, each exposing read() and
     // write(u64). Spec §DebugRegister approved API. Rejected shapes:
-    //   - Any `DrN` where `N` is not one of 0..7 does not exist (the
-    //     `DebugRegister` namespace only declares those eight);
-    //   - Missing `read`/`write` on any `DrN` — every slot uses the same
-    //     `DebugRegSlot` factory in `src/arch/x86_64.zig`.
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr0.read) == fn () u64);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr1.read) == fn () u64);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr2.read) == fn () u64);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr3.read) == fn () u64);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr4.read) == fn () u64);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr5.read) == fn () u64);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr6.read) == fn () u64);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr7.read) == fn () u64);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr0.write) == fn (u64) void);
-    std.debug.assert(@TypeOf(x86.DebugRegister.Dr7.write) == fn (u64) void);
+    //   - Any `drN` where `N` is not one of 0..7 does not exist (the
+    //     `register.debug` namespace only declares those eight);
+    //   - Missing `read`/`write` on any `drN` — every slot uses the same
+    //     `DebugRegSlot` factory in `src/arch/x86_64/register/debug.zig`.
+    std.debug.assert(@TypeOf(register.debug.dr0.read) == fn () u64);
+    std.debug.assert(@TypeOf(register.debug.dr1.read) == fn () u64);
+    std.debug.assert(@TypeOf(register.debug.dr2.read) == fn () u64);
+    std.debug.assert(@TypeOf(register.debug.dr3.read) == fn () u64);
+    std.debug.assert(@TypeOf(register.debug.dr4.read) == fn () u64);
+    std.debug.assert(@TypeOf(register.debug.dr5.read) == fn () u64);
+    std.debug.assert(@TypeOf(register.debug.dr6.read) == fn () u64);
+    std.debug.assert(@TypeOf(register.debug.dr7.read) == fn () u64);
+    std.debug.assert(@TypeOf(register.debug.dr0.write) == fn (u64) void);
+    std.debug.assert(@TypeOf(register.debug.dr7.write) == fn (u64) void);
 }
 
 // Compile-only instantiation tests validating the spec's "Compile-only"
 // required-test bullets on x86_64 targets: every asm-emitting entry point
 // exists with the exact signature. Bodies are not codegenned; privileged
-// operations (Dr*, invlpg, invpcid, lldt) are compile-only per spec —
+// operations (dr*, invlpg, invpcid, lldt) are compile-only per spec —
 // runtime coverage requires a kernel harness.
 
 fn expectFn(comptime T: type, comptime f: anytype) void {
     comptime testing.expectEqual(T, @TypeOf(f)) catch unreachable;
 }
 
-test "contract: Cpu.Tsc read/readSerializing instantiate" {
+test "contract: cpu.tsc read/readSerializing instantiate" {
     if (!x86.supported) return;
-    expectFn(fn () u64, x86.Cpu.Tsc.read);
-    expectFn(fn () x86.Cpu.Tsc.Reading, x86.Cpu.Tsc.readSerializing);
+    expectFn(fn () u64, cpu.tsc.read);
+    expectFn(fn () cpu.tsc.Reading, cpu.tsc.readSerializing);
 }
 
-test "contract: Cpu.Tlb invalidatePage/invalidatePcid instantiate" {
+test "contract: cpu.tlb invalidatePage/invalidatePcid instantiate" {
     if (!x86.supported) return;
-    // Privileged (CPL 0); runtime coverage requires a kernel harness —
-    // spec: extensions.md §"Trap and privilege behavior".
-    expectFn(fn (usize) void, x86.Cpu.Tlb.invalidatePage);
-    expectFn(fn (x86.Cpu.Tlb.InvpcidKind, *const x86.Cpu.Tlb.InvpcidDescriptor) void, x86.Cpu.Tlb.invalidatePcid);
+    expectFn(fn (usize) void, cpu.tlb.invalidatePage);
+    expectFn(fn (cpu.tlb.InvpcidKind, *const cpu.tlb.InvpcidDescriptor) void, cpu.tlb.invalidatePcid);
 }
 
-test "contract: DebugRegister Dr0..Dr7 read/write instantiate" {
+test "contract: register.debug dr0..dr7 read/write instantiate" {
     if (!x86.supported) return;
-    // Privileged (CPL 0); runtime coverage requires a kernel harness —
-    // spec: extensions.md §"Trap and privilege behavior".
-    expectFn(fn () u64, x86.DebugRegister.Dr0.read);
-    expectFn(fn (u64) void, x86.DebugRegister.Dr0.write);
-    expectFn(fn () u64, x86.DebugRegister.Dr1.read);
-    expectFn(fn (u64) void, x86.DebugRegister.Dr1.write);
-    expectFn(fn () u64, x86.DebugRegister.Dr2.read);
-    expectFn(fn (u64) void, x86.DebugRegister.Dr2.write);
-    expectFn(fn () u64, x86.DebugRegister.Dr3.read);
-    expectFn(fn (u64) void, x86.DebugRegister.Dr3.write);
-    expectFn(fn () u64, x86.DebugRegister.Dr4.read);
-    expectFn(fn (u64) void, x86.DebugRegister.Dr4.write);
-    expectFn(fn () u64, x86.DebugRegister.Dr5.read);
-    expectFn(fn (u64) void, x86.DebugRegister.Dr5.write);
-    expectFn(fn () u64, x86.DebugRegister.Dr6.read);
-    expectFn(fn (u64) void, x86.DebugRegister.Dr6.write);
-    expectFn(fn () u64, x86.DebugRegister.Dr7.read);
-    expectFn(fn (u64) void, x86.DebugRegister.Dr7.write);
+    expectFn(fn () u64, register.debug.dr0.read);
+    expectFn(fn (u64) void, register.debug.dr0.write);
+    expectFn(fn () u64, register.debug.dr1.read);
+    expectFn(fn (u64) void, register.debug.dr1.write);
+    expectFn(fn () u64, register.debug.dr2.read);
+    expectFn(fn (u64) void, register.debug.dr2.write);
+    expectFn(fn () u64, register.debug.dr3.read);
+    expectFn(fn (u64) void, register.debug.dr3.write);
+    expectFn(fn () u64, register.debug.dr4.read);
+    expectFn(fn (u64) void, register.debug.dr4.write);
+    expectFn(fn () u64, register.debug.dr5.read);
+    expectFn(fn (u64) void, register.debug.dr5.write);
+    expectFn(fn () u64, register.debug.dr6.read);
+    expectFn(fn (u64) void, register.debug.dr6.write);
+    expectFn(fn () u64, register.debug.dr7.read);
+    expectFn(fn (u64) void, register.debug.dr7.write);
 }
 
-test "contract: Descriptor.Ldtr load/store instantiate" {
+test "contract: register.descriptor.ldtr load/store instantiate" {
     if (!x86.supported) return;
-    // Privileged (CPL 0) for `lldt`; runtime coverage requires a kernel
-    // harness — spec: extensions.md §"Trap and privilege behavior".
-    expectFn(fn (u16) void, x86.Descriptor.Ldtr.load);
-    expectFn(fn () u16, x86.Descriptor.Ldtr.store);
+    expectFn(fn (u16) void, register.descriptor.ldtr.load);
+    expectFn(fn () u16, register.descriptor.ldtr.store);
     comptime {
-        _ = &x86.Descriptor.Ldtr.store;
-        _ = &x86.Descriptor.Ldtr.load;
+        _ = &register.descriptor.ldtr.store;
+        _ = &register.descriptor.ldtr.load;
     }
 }
 
-// Host-safe runtime tests: only unprivileged instructions that do not modify
-// global CPU state are exercised. Non-x86 hosts early-return so the suite
-// still compiles.
+// Host runtime coverage stays limited to unprivileged, non-mutating
+// instructions.
 
-test "unit: Cpu.Tsc.read is monotonic across two calls" {
+test "unit: cpu.tsc.read is monotonic across two calls" {
     if (builtin.cpu.arch != .x86_64) return;
-    const before = x86.Cpu.Tsc.read();
-    const after = x86.Cpu.Tsc.read();
+    const before = cpu.tsc.read();
+    const after = cpu.tsc.read();
     try testing.expect(after >= before);
 }
 
-test "unit: Cpu.Tsc.readSerializing.tsc is monotonic against a prior rdtsc" {
+test "unit: cpu.tsc.readSerializing.tsc is monotonic against a prior rdtsc" {
     if (builtin.cpu.arch != .x86_64) return;
-    // `rdtscp` requires CPUID leaf 0x80000001 EDX[27]; on modern x86_64
-    // hosts this is always true, but skip if the CPU somehow lacks it
-    // rather than trigger `#UD`.
-    if (x86.Cpuid.maxExtendedLeaf() < 0x8000_0001) return;
-    if (!x86.Cpuid.extendedFeatures().edx.rdtscp) return;
+    // Skip instead of triggering `#UD` on hosts without RDTSCP.
+    if (cpuid.maxExtendedLeaf() < 0x8000_0001) return;
+    if (!cpuid.extendedFeatures().edx.rdtscp) return;
 
-    const previous = x86.Cpu.Tsc.read();
-    const reading = x86.Cpu.Tsc.readSerializing();
+    const previous = cpu.tsc.read();
+    const reading = cpu.tsc.readSerializing();
     try testing.expect(reading.tsc >= previous);
-    // `aux` is whatever the OS programmed into IA32_TSC_AUX; any u32 is
-    // legal. Reference it so the compiler cannot discard the read.
     _ = reading.aux;
 }

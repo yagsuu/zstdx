@@ -1,105 +1,89 @@
-# x86_64 architecture primitives
+# x86_64 architecture base
 
 Status: Approved.
 
-`stdx.arch.x86_64` owns thin, inline-asm-only wrappers for x86_64 instruction
-primitives that generic `zstdx` specs and downstream packages cannot portably
-express through `std` or Zig language facilities.
-
-The namespace is the boundary between architecture instruction semantics and
-generic contracts. Generic specs (`stdx.barrier`, `stdx.io`, `stdx.sync`,
-`stdx.concurrent`, DMA visibility) consume these primitives instead of carrying
-their own inline assembly.
+`stdx.arch.x86_64` is the architecture namespace for x86_64 primitive wrappers. It exposes lower-case submodule namespaces for instruction/register families and PascalCase names only for concrete value types. Base owns target gating, facade shape, root value types, and small instruction namespaces that do not warrant a dedicated spec.
 
 ## Owned scope
 
 This spec owns:
 
-- the `stdx.arch.x86_64` namespace and its `supported` target predicate;
-- strong port-number type `Port` and its scalar and string I/O methods;
-- the legacy `ioWait` helper;
-- raw `Cpuid` access by leaf and subleaf;
-- strong MSR address type `Msr` and `read`/`write` methods;
-- control-register and extended control-register read/write families
-  (`ControlRegister.Cr0`, `Cr2`, `Cr3`, `Cr4`, `Cr8`, `Xcr0`);
-- `Rflags` read/write and `Interrupts.enable`/`disable`/`enabled`;
-- CPU one-shots: `Cpu.halt`, `Cpu.pause`, `Cpu.breakpoint`;
-- descriptor-table load/store: `Descriptor.Gdt`, `Descriptor.Idt`,
-  `Descriptor.TaskRegister`;
-- segment-register and segment-base access: `Segment.Cs`, `Ds`, `Es`, `Fs`,
-  `Gs`, `Ss`, `FsBase`, `GsBase`, `swapGs`;
-- raw fence instructions: `Fence.lfence`, `sfence`, `mfence`;
-- cache-control instructions: `Cache.lineSize`, `flush`, `flushOptimized`,
-  `writeBack`, `flushRange`, `writeBackRange`, `writeBackInvalidate`,
-  `invalidate`;
-- current privilege level: `Privilege.currentLevel`;
-- target gating, compile-out behavior, and privilege documentation;
-- compiler-ordering and non-ordering guarantees;
-- required tests.
+- the `stdx.arch.x86_64` namespace and `supported` target predicate;
+- source layout and facade policy for split x86_64 modules;
+- strong root value types `Port` and `Msr`;
+- legacy `ioWait`;
+- `interrupts.enable`, `interrupts.disable`, and `interrupts.enabled`;
+- `privilege.currentLevel`;
+- raw fence instructions under `fence`;
+- cache-line/full-cache maintenance under `cache`;
+- target gating, privilege/trap documentation, and required tests for these base primitives.
+
+## Delegated x86_64 specs
+
+These x86_64 APIs are owned by sibling specs:
+
+- `cpuid` — `docs/specs/arch/x86_64/cpuid.md`;
+- `register` — `docs/specs/arch/x86_64/register.md`;
+- `cpu` — `docs/specs/arch/x86_64/cpu.md`;
+- `vmx` — `docs/specs/arch/x86_64/vmx.md`;
+- `svm` — `docs/specs/arch/x86_64/svm.md`;
+- `paging` — `docs/specs/arch/x86_64/paging.md`.
 
 ## Deferred scope and non-goals
 
 This spec does not own:
 
-- bitfield layouts for `Cr0`, `Cr3`, `Cr4`, `Xcr0`, or `Rflags`;
-- descriptor-entry layouts (`SegmentDescriptor`, `InterruptGate`, `TssDescriptor`);
-- CPUID feature decoding, vendor strings, brand strings, or topology decoding;
-- MSR address constants or per-MSR field layouts;
-- enumeration of x87/SSE/AVX/AMX state areas;
-- 32-bit x86 (`i386`/`i486`/`i586`/`i686`) primitives;
-- 16-bit real-mode primitives;
-- generic compiler barriers, generic CPU fences, or atomic-fence helpers;
-- MMIO register wrappers, volatile-cell access, or polling helpers;
-- DMA visibility, cache-maintenance, or coherency policy;
-- PCI configuration constants, PCI-config address encoding, MCFG/ECAM policy;
-- PCI enumeration, MSI/MSI-X configuration, IOMMU policy;
-- ACPI, SMBIOS, or UEFI protocol/service invocation;
-- OS calls such as `ioperm`, `iopl`, `request_region`, `request_irq`;
-- signal handling, page-fault recovery, or other trap recovery;
-- driver setup, device-tree parsing, or platform enumeration;
-- runtime feature gating beyond raw `Cpuid` access;
-- scheduler integration, preemption control, or interrupt save/restore policy;
-- allocation, blocking, sleeping, or spinning.
-
-Downstream consumers implement these systems on top of the primitives in this
-spec.
+- CPUID decoding or raw CPUID access;
+- raw register access beyond the `Msr` value type;
+- CPU timestamp/TLB wrappers;
+- VMX/SVM instruction wrappers;
+- paging structures or page walkers;
+- PCI, ACPI, UEFI, IOMMU, device, scheduler, or OS service policy;
+- interrupt controllers, IDT/GDT contents, trap handlers, or exception recovery;
+- runtime feature probing beyond the explicit CPUID namespace;
+- root promotion.
 
 ## Public namespace
 
-x86_64 primitives live under `stdx.arch.x86_64`:
-
 ```zig
 stdx.arch.x86_64
+stdx.arch.x86_64.supported
 stdx.arch.x86_64.Port
-stdx.arch.x86_64.Cpuid
 stdx.arch.x86_64.Msr
-stdx.arch.x86_64.ControlRegister
-stdx.arch.x86_64.Rflags
-stdx.arch.x86_64.Interrupts
-stdx.arch.x86_64.Cpu
-stdx.arch.x86_64.Descriptor
-stdx.arch.x86_64.Segment
-stdx.arch.x86_64.Fence
-stdx.arch.x86_64.Cache
-stdx.arch.x86_64.Privilege
+stdx.arch.x86_64.ioWait
+stdx.arch.x86_64.interrupts
+stdx.arch.x86_64.privilege
+stdx.arch.x86_64.fence
+stdx.arch.x86_64.cache
 ```
 
-They are not root-promoted:
+Delegated submodules also appear under `stdx.arch.x86_64`:
 
 ```zig
-stdx.Port          // not exported
-stdx.arch.Port     // not exported
-stdx.x86_64        // not exported
+stdx.arch.x86_64.cpuid
+stdx.arch.x86_64.register
+stdx.arch.x86_64.cpu
+stdx.arch.x86_64.vmx
+stdx.arch.x86_64.svm
+stdx.arch.x86_64.paging
 ```
 
-Architecture-specific code is only ever reached through the `stdx.arch.x86_64`
-path.
+Historical PascalCase namespace aliases such as `Cpuid`, `ControlRegister`, `Cpu`, `Descriptor`, `Segment`, `Fence`, `Cache`, `Privilege`, `Vmx`, and `Svm` are not exported. `Port` and `Msr` remain PascalCase because they are concrete strong value types.
+
+No x86_64 names are root-promoted.
 
 ## Source ownership
 
 ```text
 src/arch.zig
 src/arch/x86_64.zig
+src/arch/x86_64/target.zig
+src/arch/x86_64/port.zig
+src/arch/x86_64/msr.zig
+src/arch/x86_64/interrupts.zig
+src/arch/x86_64/privilege.zig
+src/arch/x86_64/fence.zig
+src/arch/x86_64/cache.zig
 test/arch/x86_64_test.zig
 ```
 
@@ -109,39 +93,47 @@ test/arch/x86_64_test.zig
 pub const x86_64 = @import("arch/x86_64.zig");
 ```
 
-`src/arch.zig` is a thin facade. It contains no logic beyond re-exporting
-architecture submodules.
+`src/arch/x86_64.zig` is a thin facade. It re-exports base primitives and sibling spec modules; it contains no inline assembly bodies.
+
+Required facade shape:
+
+```zig
+pub const supported = @import("x86_64/target.zig").supported;
+
+pub const Port = @import("x86_64/port.zig").Port;
+pub const Msr = @import("x86_64/msr.zig").Msr;
+pub const ioWait = @import("x86_64/port.zig").ioWait;
+
+pub const interrupts = @import("x86_64/interrupts.zig");
+pub const privilege = @import("x86_64/privilege.zig");
+pub const fence = @import("x86_64/fence.zig");
+pub const cache = @import("x86_64/cache.zig");
+
+pub const cpuid = @import("x86_64/cpuid.zig");
+pub const register = @import("x86_64/register.zig");
+pub const cpu = @import("x86_64/cpu.zig");
+pub const vmx = @import("x86_64/vmx.zig");
+pub const svm = @import("x86_64/svm.zig");
+pub const paging = @import("x86_64/paging.zig");
+```
+
+`target.zig` owns the target predicate and shared wrong-target diagnostic string.
 
 ## Target gating
 
-`stdx.arch.x86_64` may be `@import`-ed on any target. Importing the module on a
-non-x86_64 target must not trigger inline assembly emission.
+The x86_64 module may be imported on any target. Operations that emit x86_64 inline assembly produce `@compileError` only when referenced on non-x86_64 targets.
 
-The module exposes:
-
-```zig
-pub const supported = builtin.cpu.arch == .x86_64;
-```
-
-Any operation that would emit x86_64 inline assembly produces a compile error
-when referenced on a non-x86_64 target. The implementation may use
-`@compileError` in a target-gated branch or move the asm body behind an
-`if (!supported)` compile-error path so that mere imports stay portable but use
-sites fail at compile time on the wrong target.
-
-Operations whose semantics do not depend on the instruction set
-(`Port.fromInt`, `Port.raw`, `Msr.fromInt`, `Msr.raw`, `supported`) compile on
-any target.
-
-## Approved API
-
-The full public surface of `stdx.arch.x86_64`:
+Declarations whose layout does not require x86_64 instruction emission compile on every target.
 
 ```zig
 pub const supported: bool = builtin.cpu.arch == .x86_64;
+```
 
-// ---------------- Port I/O ----------------
+## Approved API
 
+### `Port`
+
+```zig
 pub const Port = enum(u16) {
     _,
 
@@ -166,578 +158,147 @@ pub const Port = enum(u16) {
 };
 
 pub fn ioWait() void;
+```
 
-// ---------------- CPUID ----------------
+`Port` covers the full 16-bit x86 I/O port space. Slice I/O wrappers use `rep ins*` / `rep outs*`; callers must ensure direction flag and memory validity satisfy architectural requirements.
 
-pub const Cpuid = struct {
-    pub const Result = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };
+`ioWait` executes the legacy `out 0x80, al` delay with `al = 0`.
 
-    pub const Leaf = enum(u32) {
-        max_basic = 0x0,
-        feature_info = 0x1,
-        structured_extended_features = 0x7,
-        max_extended = 0x8000_0000,
-        extended_feature_bits = 0x8000_0001,
-        _,
-    };
+### `Msr`
 
-    pub fn leaf(which: Leaf) Result;
-    pub fn subleaf(which: Leaf, sub: u32) Result;
-    pub fn maxBasicLeaf() u32;
-    pub fn maxExtendedLeaf() u32;
-};
-
-// ---------------- MSRs ----------------
-
+```zig
 pub const Msr = enum(u32) {
     _,
 
     pub fn fromInt(value: u32) Msr;
     pub fn raw(self: Msr) u32;
-
     pub fn read(self: Msr) u64;
     pub fn write(self: Msr, value: u64) void;
 };
+```
 
-// ---------------- Control registers ----------------
+`Msr.read` executes `rdmsr`; `Msr.write` executes `wrmsr`. MSR address constants and bitfield layouts are caller or future-spec policy.
 
-pub const ControlRegister = struct {
-    pub const Cr0 = struct {
-        pub fn read() u64;
-        pub fn write(value: u64) void;
-    };
-    pub const Cr2 = struct {
-        pub fn read() u64;
-        pub fn write(value: u64) void;
-    };
-    pub const Cr3 = struct {
-        pub fn read() u64;
-        pub fn write(value: u64) void;
-    };
-    pub const Cr4 = struct {
-        pub fn read() u64;
-        pub fn write(value: u64) void;
-    };
-    pub const Cr8 = struct {
-        pub fn read() u64;
-        pub fn write(value: u64) void;
-    };
-    pub const Xcr0 = struct {
-        pub fn read() u64;
-        pub fn write(value: u64) void;
-    };
-};
+### `interrupts`
 
-// ---------------- Flags and interrupt control ----------------
-
-pub const Rflags = struct {
-    pub fn read() u64;
-    pub fn write(value: u64) void;
-};
-
-pub const Interrupts = struct {
+```zig
+pub const interrupts = struct {
     pub fn enable() void;
     pub fn disable() void;
     pub fn enabled() bool;
 };
+```
 
-// ---------------- CPU one-shots ----------------
+`enable` executes `sti`; `disable` executes `cli`; `enabled` reads RFLAGS.IF through the register namespace. Interrupt-controller state, nesting policy, save/restore guards, and preemption integration are caller policy.
 
-pub const Cpu = struct {
-    pub fn halt() void;
-    pub fn pause() void;
-    pub fn breakpoint() void;
-};
+### `privilege`
 
-// ---------------- Descriptor tables ----------------
-
-pub const Descriptor = struct {
-    pub const Pointer = packed struct {
-        limit: u16,
-        base: u64,
-    };
-
-    pub const Gdt = struct {
-        pub fn load(ptr: *const Pointer) void;
-        pub fn store() Pointer;
-    };
-    pub const Idt = struct {
-        pub fn load(ptr: *const Pointer) void;
-        pub fn store() Pointer;
-    };
-    pub const TaskRegister = struct {
-        pub fn load(selector: u16) void;
-        pub fn store() u16;
-    };
-};
-
-// ---------------- Segments ----------------
-
-pub const Segment = struct {
-    pub const Cs = struct {
-        pub fn read() u16;
-        pub fn writeFarReturn(selector: u16) void;
-    };
-    pub const Ds = struct {
-        pub fn read() u16;
-        pub fn write(selector: u16) void;
-    };
-    pub const Es = struct {
-        pub fn read() u16;
-        pub fn write(selector: u16) void;
-    };
-    pub const Fs = struct {
-        pub fn read() u16;
-        pub fn write(selector: u16) void;
-    };
-    pub const Gs = struct {
-        pub fn read() u16;
-        pub fn write(selector: u16) void;
-    };
-    pub const Ss = struct {
-        pub fn read() u16;
-        pub fn write(selector: u16) void;
-    };
-
-    pub const FsBase = struct {
-        pub fn read() u64;
-        pub fn write(value: u64) void;
-    };
-    pub const GsBase = struct {
-        pub fn read() u64;
-        pub fn write(value: u64) void;
-    };
-
-    pub fn swapGs() void;
-};
-
-// ---------------- Fences ----------------
-
-pub const Fence = struct {
-    pub fn lfence() void;
-    pub fn sfence() void;
-    pub fn mfence() void;
-};
-
-// ---------------- Cache control ----------------
-
-pub const Cache = struct {
-    pub fn lineSize() usize;
-
-    pub fn flush(addr: usize) void;
-    pub fn flushOptimized(addr: usize) void;
-    pub fn writeBack(addr: usize) void;
-
-    pub fn flushRange(ptr: [*]const u8, len: usize) void;
-    pub fn writeBackRange(ptr: [*]const u8, len: usize) void;
-
-    pub fn writeBackInvalidate() void;
-    pub fn invalidate() void;
-};
-
-// ---------------- Privilege ----------------
-
-pub const Privilege = struct {
+```zig
+pub const privilege = struct {
     pub fn currentLevel() u2;
 };
 ```
 
-## Semantics
+`currentLevel` reads the low two bits of CS and returns them as a raw CPL value. It does not interpret OS privilege policy.
 
-### Port I/O
+### `fence`
 
-`Port` is a strong port-number value type covering the entire x86 16-bit I/O
-address space.
+```zig
+pub const fence = struct {
+    pub fn lfence() void;
+    pub fn sfence() void;
+    pub fn mfence() void;
+};
+```
 
-- `Port.fromInt(value)` is infallible.
-- `Port.raw()` returns the exact `u16` port number.
-- `Port` is `enum(u16) { _ }`; values of different `Port` instances do not need
-  to compare equal across unrelated subsystems.
-- `in8`/`in16`/`in32` execute the x86 `in al, dx`/`in ax, dx`/`in eax, dx`
-  instructions respectively.
-- `out8`/`out16`/`out32` execute the matching `out` instructions.
-- `inSlice8` executes `rep insb` and reads `dst.len` bytes into `dst`.
-- `inSlice16` executes `rep insw` and reads `dst.len` 16-bit words.
-- `inSlice32` executes `rep insd` and reads `dst.len` 32-bit dwords.
-- `outSlice8` executes `rep outsb` and writes `src.len` bytes from `src`.
-- `outSlice16` executes `rep outsw` and writes `src.len` 16-bit words.
-- `outSlice32` executes `rep outsd` and writes `src.len` 32-bit dwords.
+These wrappers expose raw x86 fence instructions and use memory clobbers.
 
-Slice operands must be aligned to their element type. The direction flag (`DF`)
-must be clear; this spec does not save or restore `DF`.
+### `cache`
 
-Port I/O does not validate device presence, port ownership, or layout. The
-caller owns device protocol sequencing.
+```zig
+pub const cache = struct {
+    pub fn lineSize() usize;
+    pub fn flush(addr: usize) void;
+    pub fn flushOptimized(addr: usize) void;
+    pub fn writeBack(addr: usize) void;
+    pub fn flushRange(ptr: [*]const u8, len: usize) void;
+    pub fn writeBackRange(ptr: [*]const u8, len: usize) void;
+    pub fn writeBackInvalidate() void;
+    pub fn invalidate() void;
+};
+```
 
-There is no 64-bit port I/O API. x86 port I/O is defined for 8/16/32-bit
-operands only.
-
-### io wait
-
-`ioWait()` performs `out 0x80, al` with a zero `al`. The classic short-delay
-trick. Port `0x80` is the legacy POST diagnostic port; on many systems writes
-are observable to firmware/post hardware. The caller asserts that the platform
-permits this access. The helper is opt-in and is never used implicitly by any
-other operation in this spec.
-
-### CPUID
-
-`Cpuid` exposes the raw `cpuid` instruction. Leaves are addressed through the
-open `Cpuid.Leaf` enum: named tags cover the leaves zstdx itself reads, and
-callers needing a vendor- or model-specific leaf pass
-`@enumFromInt(value)`.
-
-- `leaf(which)` executes `cpuid` with `ecx = 0` and returns the resulting
-  `Result`.
-- `subleaf(which, sub)` executes `cpuid` with the supplied `ecx`.
-- `maxBasicLeaf()` returns `leaf(.max_basic).eax`.
-- `maxExtendedLeaf()` returns `leaf(.max_extended).eax`.
-
-See `docs/specs/arch/x86_64/cpuid.md` for vendor identification, version
-decoding, feature-flag decoding, cache topology, brand string, and
-address-size extraction built on top of these raw accessors.
-
-`cpuid` is unprivileged and available at any CPL.
-
-### MSRs
-
-`Msr` is a strong MSR-address value type.
-
-- `Msr.fromInt(value)` is infallible.
-- `Msr.raw()` returns the exact MSR address.
-- `read()` executes `rdmsr` and returns the combined `edx:eax` as `u64`.
-- `write(value)` executes `wrmsr` with `edx:eax` set from `value`.
-
-`rdmsr`/`wrmsr` are privileged (CPL 0). Reading or writing an MSR address that
-the CPU does not implement triggers `#GP`. This spec exposes no list of MSR
-addresses; the caller selects the address from a domain spec (kernel, firmware,
-hypervisor) or from CPU documentation.
-
-### Control registers
-
-Each control register exposes a `read` method and a `write` method. `Cr2`
-writes are architecturally legal — `mov cr2, r64` — and used by hypervisors,
-VM-exit handlers, and page-fault injection paths in emulators. The bitfield
-meaning of the value (linear address of the last page fault) remains caller
-policy; this spec owns only the raw access.
-
-- `Cr0`, `Cr3`, `Cr4`, `Cr8` use `mov rNN, crX` / `mov crX, rNN`.
-- `Xcr0` uses `xgetbv`/`xsetbv` with `ecx = 0`.
-- Values are exchanged as raw `u64`. Bitfield layouts (`PE`, `PG`, `PCID`,
-  `PCD`, `SCE`, etc.) are not owned by this spec.
-
-Control-register access is privileged. `Xcr0.write` requires `Cr4.OSXSAVE`.
-
-### Flags and interrupt control
-
-`Rflags.read` executes `pushfq; pop` into a register and returns the value as
-`u64`. `Rflags.write(value)` pushes `value` and executes `popfq`.
-
-`Interrupts.enable` executes `sti`. `Interrupts.disable` executes `cli`. Both
-are privileged.
-
-`Interrupts.enabled()` reads `rflags` and returns whether the `IF` bit is set.
-It is unprivileged.
-
-This spec does not provide save-and-disable / restore-flags helpers. Interrupt
-state save/restore is policy owned by callers (kernel, firmware, hypervisor).
-
-### CPU one-shots
-
-`Cpu.halt` executes `hlt`. Privileged.
-
-`Cpu.pause` executes `pause`. Unprivileged. This is the raw instruction; the
-generic `std.atomic.spinLoopHint` is a portable emitter that this spec does not
-replace. The planned `stdx.barrier` and `stdx.sync` specs consume `Cpu.pause`
-directly when they need the architectural instruction rather than the portable
-hint.
-
-`Cpu.breakpoint` executes `int3`. Unprivileged; raises `#BP` so behavior
-depends on the installed exception handler.
-
-See also `Cpu.Tsc` and `Cpu.Tlb` in
-`docs/specs/arch/x86_64/extensions.md`.
-
-### Descriptor tables
-
-`Descriptor.Pointer` is the architectural pseudo-descriptor used by `lgdt`,
-`sgdt`, `lidt`, and `sidt`. Layout is fixed: 16-bit `limit` followed by 64-bit
-`base`, packed without padding. The type MUST satisfy:
-
-- `@sizeOf(Descriptor.Pointer) == 10`;
-- `@offsetOf(Descriptor.Pointer, "limit") == 0`;
-- `@offsetOf(Descriptor.Pointer, "base") == 2`.
-
-Implementations carry these invariants as compile-time assertions inside the
-type body.
-
-- `Descriptor.Gdt.load(ptr)` executes `lgdt [ptr]`.
-- `Descriptor.Gdt.store()` executes `sgdt` into a stack temporary and returns it.
-- `Descriptor.Idt.load(ptr)` executes `lidt [ptr]`.
-- `Descriptor.Idt.store()` executes `sidt` and returns the pointer.
-- `Descriptor.TaskRegister.load(selector)` executes `ltr selector`.
-- `Descriptor.TaskRegister.store()` executes `str` and returns the selector.
-
-Descriptor table loads are privileged. Stores are unprivileged on architectures
-where `sgdt`/`sidt` are accessible at CPL > 0, but that is a CPU/OS policy
-decision the caller owns. This spec does not own GDT or IDT entry layouts;
-those belong to the consuming kernel or firmware project.
-
-See also `Descriptor.Ldtr` in
-`docs/specs/arch/x86_64/extensions.md`.
-
-### Segments
-
-- `Segment.{Cs,Ds,Es,Fs,Gs,Ss}.read()` executes `mov rNN, sreg`.
-- `Segment.{Ds,Es,Fs,Gs,Ss}.write(selector)` executes `mov sreg, rNN`.
-- `Segment.Cs.writeFarReturn(selector)` performs the architectural far-return
-  sequence required to load `cs`. The exact trampoline (push selector, push
-  return label, `retfq`) is implementation detail; the helper does not own a
-  trampoline policy.
-- `Segment.FsBase.read`/`write` use `rdfsbase`/`wrfsbase` when
-  `CPUID.(EAX=7,ECX=0):EBX[bit 0]` (`FSGSBASE`) is set on the running CPU,
-  with a fallback through `IA32_FS_BASE` (MSR `0xC0000100`) otherwise. The
-  `rdfsbase`/`wrfsbase` path additionally requires `Cr4.FSGSBASE`; the MSR
-  fallback is privileged (CPL 0).
-- `Segment.GsBase.read`/`write` behave analogously against `IA32_GS_BASE`
-  (MSR `0xC0000101`).
-- The FSGSBASE probe result is cached in a process-lifetime atomic location
-  with `.monotonic` load/store ordering. Concurrent first-call publication
-  is benign: every caller computes the same value from the same CPUID
-  result, and a torn read cannot produce a different final state. Callers
-  on heterogeneous CPUs where `FSGSBASE` differs across logical cores must
-  query CPUID directly and not rely on these accessors.
-- `Segment.swapGs()` executes `swapgs`. Privileged.
-
-`Segment.Cs.writeFarReturn` is privileged or unprivileged depending on the
-target descriptor; the caller validates the descriptor.
-
-### Fences
-
-`Fence.lfence`, `Fence.sfence`, `Fence.mfence` execute the matching x86 fence
-instructions. All are unprivileged.
-
-These are the raw architectural fences. The generic `stdx.barrier` spec, when
-approved, names higher-level barriers and is the home for cross-target ordering
-contracts. This spec promises only the x86 architectural fence semantics.
-
-### Cache control
-
-- `Cache.lineSize()` returns the L1 cacheline size in bytes. The implementation
-  may probe `cpuid` once and cache the result. If `cpuid` does not advertise a
-  size, the implementation returns 64. The function is unprivileged.
-- `Cache.flush(addr)` executes `clflush [addr]`.
-- `Cache.flushOptimized(addr)` executes `clflushopt [addr]` and may compile
-  down to `clflush` when `clflushopt` is unavailable.
-- `Cache.writeBack(addr)` executes `clwb [addr]` and may compile down to
-  `clflushopt` or `clflush` when `clwb` is unavailable.
-- `Cache.flushRange(ptr, len)` walks the supplied range in `Cache.lineSize()`
-  steps, calling `Cache.flush` per line.
-- `Cache.writeBackRange(ptr, len)` walks the supplied range in
-  `Cache.lineSize()` steps, calling `Cache.writeBack` per line.
-- `Cache.writeBackInvalidate()` executes `wbinvd`. Privileged.
-- `Cache.invalidate()` executes `invd`. Privileged. Calling this without a
-  prior write-back loses dirty cache state.
-
-`Cache` does not order accesses with respect to other agents. Cross-agent
-visibility requires the appropriate fence or DMA-visibility contract from the
-consuming generic spec.
-
-### Privilege
-
-`Privilege.currentLevel()` reads the low two bits of `cs` and returns them as
-`u2`. It does not assert any property of the result; the caller interprets the
-value against the current OS/firmware model. `currentLevel()` is itself
-unprivileged.
+`lineSize` uses CPUID leaf 1 `EBX[15:8] * 8` and falls back to 64 when unavailable. Cache maintenance instructions expose raw ISA behavior; cache coherency and DMA policy are outside this spec.
 
 ## Behavior contract
 
-For every operation in this spec:
+| Operation | Allocation | Waiting | Bounds | Concurrency | Ordering | Errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Port.fromInt`, `Port.raw`, `Msr.fromInt`, `Msr.raw` | never | never | O(1) | value-only | none | infallible |
+| `Port.in*`, `Port.out*`, `ioWait` | never | never | O(1) | reentrant | full memory clobber | infallible; may `#GP` |
+| `Port.inSlice*`, `Port.outSlice*` | never | never | O(slice len) | caller owns slices | full memory clobber | infallible; may `#GP` |
+| `Msr.read` | never | never | O(1) | reentrant | memory clobber | infallible; may `#GP` |
+| `Msr.write` | never | never | O(1) | reentrant | full memory clobber | infallible; may `#GP` |
+| `interrupts.enable`, `interrupts.disable` | never | never | O(1) | caller policy | full memory clobber | infallible; may `#GP` |
+| `interrupts.enabled` | never | never | O(1) | reentrant | none | infallible |
+| `privilege.currentLevel` | never | never | O(1) | reentrant | none | infallible |
+| `fence.*` | never | never | O(1) | reentrant | hardware fence + memory clobber | infallible |
+| `cache.lineSize` | never | never | O(1) | reentrant | none | infallible |
+| `cache.flush`, `flushOptimized`, `writeBack` | never | never | O(1) | reentrant | memory clobber | infallible; may `#UD` |
+| `cache.flushRange`, `writeBackRange` | never | never | O(lines) | caller owns range | memory clobber per line | infallible; may `#UD` |
+| `cache.writeBackInvalidate`, `cache.invalidate` | never | never | O(1) instruction | caller policy | full memory clobber | infallible; may `#GP`/`#UD` |
 
-- allocation: never;
-- waiting: never;
-- blocking: never;
-- sleeping: never;
-- spinning: never;
-- hidden globals: none;
-- syscalls or OS service calls: none;
-- runtime target probing: none beyond the optional one-shot `Cpuid` probe
-  inside `Cache.lineSize`.
+No base operation allocates, sleeps, blocks on scheduler primitives, or installs exception handlers.
 
-Operations either:
+## Trap and privilege behavior
 
-- compile to a fixed inline-asm fragment;
-- compile to a fixed sequence of inline-asm fragments;
-- return a value composed from inline-asm outputs.
+Operations that are privileged or otherwise preconditioned may raise CPU exceptions:
 
-## Ordering contract
+- port I/O and `ioWait`: `#GP` when IOPL/TSS permission checks deny access;
+- `Msr.read`/`write`: `#GP` for unimplemented MSRs or invalid values;
+- `interrupts.enable`/`disable`: `#GP` at insufficient privilege;
+- cache maintenance: `#UD` when unsupported; `writeBackInvalidate`/`invalidate` may `#GP` at insufficient privilege.
 
-Each instruction wrapper is emitted as `asm volatile` with the minimum clobber
-set required for correctness:
-
-- read-only register accesses use the operand width's clobber on the affected
-  register;
-- writes to control state (`cr*`, `xcr0`, `cs`, segment registers, descriptor
-  registers, `rflags`) use a `memory` clobber;
-- `Port.in*`/`out*` use a `memory` clobber to prevent the compiler from
-  reordering port I/O with surrounding memory accesses;
-- `Port.inSlice*`/`outSlice*` clobber `rcx`, `rdi`/`rsi`, and `memory`;
-- `Cpuid.leaf`/`subleaf` use a register clobber on `eax`/`ebx`/`ecx`/`edx`;
-- `Msr.read`/`write` clobber the architectural input/output registers and use
-  `memory`;
-- `Fence.lfence`/`sfence`/`mfence` use a `memory` clobber;
-- `Cache.flush`/`flushOptimized`/`writeBack`/`writeBackInvalidate`/`invalidate`
-  use a `memory` clobber;
-- `Cpu.halt` uses a `memory` clobber;
-- `Cpu.pause` does not require a `memory` clobber;
-- `Cpu.breakpoint` uses a `memory` clobber.
-
-The architectural ordering rules of each instruction are not redefined here.
-In particular:
-
-- `Port.in*`/`out*` are serializing with respect to prior loads and stores on
-  the issuing logical CPU as defined by the x86 ISA; they do not flush other
-  CPUs' caches and do not synchronize with other agents on the bus beyond what
-  the I/O subsystem provides.
-- Cache-control instructions provide only the architectural ordering of `clflush`,
-  `clflushopt`, `clwb`, `wbinvd`, and `invd`. Cross-agent visibility for DMA
-  requires the consuming generic spec to issue the appropriate fence sequence.
-- `Fence.{l,s,m}fence` provide only the architectural fence semantics.
-
-This spec does not promise DMA visibility, MMIO ordering relative to memory,
-or cross-target barrier semantics. Those contracts are owned by the planned
-`stdx.barrier`, `stdx.io`, and DMA specs.
-
-## Error and trap behavior
-
-No operation returns an error. The Zig signatures are infallible.
-
-Operations that are privileged or otherwise preconditioned may raise CPU
-exceptions:
-
-- `Port.in*`/`out*`/`inSlice*`/`outSlice*` and `ioWait`: `#GP` when the
-  effective IOPL or TSS I/O permission bitmap denies access.
-- `Msr.read`/`write`, `ControlRegister.*` writes (including `Cr2.write`),
-  `ControlRegister.Cr8`,
-  `Interrupts.enable`/`disable`, `Cpu.halt`, `Descriptor.Gdt.load`,
-  `Descriptor.Idt.load`, `Descriptor.TaskRegister.load`,
-  `Segment.swapGs`, `Cache.writeBackInvalidate`, `Cache.invalidate`,
-  `Segment.{Ds,Es,Fs,Gs,Ss}.write`: `#GP` when called at CPL > 0 or when the
-  supplied operand violates architectural rules.
-- `Cpu.breakpoint`: `#BP` by design.
-- `Msr.read`/`write`: `#GP` when the MSR address is unimplemented.
-- `Xcr0.write`: `#GP` when bits violate CPU support.
-- `ControlRegister.Cr3.write`: may invalidate TLB entries per architectural
-  rules. Per-address invalidation (`invlpg`, `invpcid`) is provided by
-  `docs/specs/arch/x86_64/extensions.md`; broadcast invalidation remains
-  caller policy.
-
-Trap recovery is owned by the host OS, firmware, or hypervisor. `zstdx` does
-not install handlers and does not recover from these exceptions.
-
-## Concurrency and reentrancy
-
-- Operations are reentrant.
-- Operations are not atomic with respect to other CPUs unless the underlying
-  instruction is architecturally atomic; this spec defines no extra atomicity.
-- Operations do not take locks, do not park, and never block.
-- Save/restore of interrupt state across calls is owned by the caller.
-
-## Debug assertion behavior
-
-This spec adds no runtime checks. The operations either compile or do not;
-runtime invalid inputs (such as a port number whose device is absent) are
-indistinguishable from valid inputs at this layer.
-
-`Port` and `Msr` constructors accept the full integer domain because every
-value is architecturally representable.
+Trap recovery is caller policy.
 
 ## Examples
 
 ```zig
-const stdx = @import("stdx");
 const x86 = stdx.arch.x86_64;
 
-// Legacy COM1 status read.
 const com1: x86.Port = .fromInt(0x3f8);
 const status = com1.in8();
-com1.out8(0xff);
+com1.out8(status);
 
-// CPUID basic leaf 1.
-const r = x86.Cpuid.leaf(.feature_info);
-const family = (r.eax >> 8) & 0xf;
+const efer: x86.Msr = .fromInt(0xc000_0080);
+const efer_value = efer.read();
+_ = efer_value;
 
-// Time-stamp counter via MSR (privileged).
-const tsc_msr: x86.Msr = .fromInt(0x10);
-const tsc = tsc_msr.read();
+x86.interrupts.disable();
+defer x86.interrupts.enable();
 
-// Read current paging root.
-const cr3 = x86.ControlRegister.Cr3.read();
-
-// Inside an interrupt-controlling region.
-x86.Interrupts.disable();
-defer x86.Interrupts.enable();
-x86.Cpu.halt();
-
-// Load a new IDT.
-const idt: x86.Descriptor.Pointer = .{ .limit = limit, .base = base };
-x86.Descriptor.Idt.load(&idt);
-
-// Per-CPU base.
-x86.Segment.GsBase.write(per_cpu_base);
-
-// Ordering between two stores from this CPU.
-x86.Fence.sfence();
-
-// Cache write-back for a DMA-visible buffer.
-x86.Cache.writeBackRange(buf.ptr, buf.len);
-
-// CPL probe.
-if (x86.Privilege.currentLevel() != 0) {
-    return error.NotKernelMode;
+while (!ready.load(.acquire)) {
+    x86.cpu.pause();
 }
+
+x86.fence.sfence();
+x86.cache.writeBackRange(buf.ptr, buf.len);
 ```
 
 ## Required tests
 
-Tests live in `test/arch/x86_64_test.zig`. Tests that execute privileged
-instructions must not run in the default host test suite. Tests that execute
-unprivileged user-mode instructions may run on the host when `supported` is
-true.
-
 Required tests:
 
-- `Port.fromInt`/`raw` round-trip for `0`, a non-zero mid value, and `0xffff`;
-- `Port` value identity is distinct across constructions and survives a
-  `raw` round-trip;
-- `Msr.fromInt`/`raw` round-trip for `0`, a non-zero mid value, and
-  `0xffffffff`;
-- `supported` is `true` iff the test target is x86_64;
-- compile-only instantiation tests for every PortIO width on x86_64 targets;
-- compile-only instantiation tests for `Cpu.pause`, `Fence.lfence`,
-  `Fence.sfence`, `Fence.mfence`, `Cpuid.leaf`, `Cpuid.subleaf`;
-- compile-only instantiation tests for every `ControlRegister`,
-  `Rflags.read`/`write`, `Interrupts.enable`/`disable`/`enabled`,
-  `Cpu.halt`/`pause`/`breakpoint`, `Descriptor.Gdt`/`Idt`/`TaskRegister`,
-  `Segment.{Cs,Ds,Es,Fs,Gs,Ss,FsBase,GsBase}`, `Segment.swapGs`, `Cache.*`,
-  `Privilege.currentLevel`;
-- a runtime execution test on host-safe instructions only when running with
-  `supported == true`: `Cpuid.maxBasicLeaf` returns a value `>= 1`,
-  `Cpuid.maxExtendedLeaf` returns a value `>= 0x80000000`, `Cpu.pause`
-  executes once, `Fence.lfence`/`sfence`/`mfence` each execute once,
-  `Rflags.read()` returns a value with bit 1 set (the architectural reserved
-  bit always reads as 1), and `Privilege.currentLevel()` returns the host's
-  CPL (typically 3);
-- a non-x86_64 build, when added to the test matrix, must compile the module
-  without referencing any privileged or asm-emitting operation and must report
-  `supported == false`;
-- `Descriptor.Pointer` has the architectural size of 10 bytes and no padding
-  between `limit` and `base`.
+- `supported` matches `builtin.cpu.arch == .x86_64`;
+- `Port.fromInt` / `raw` round-trip boundary values;
+- `Msr.fromInt` / `raw` round-trip boundary values;
+- compile-only: every port I/O width and slice method instantiates on x86_64;
+- compile-only: `Msr.read` and `Msr.write` instantiate on x86_64;
+- compile-only: `interrupts`, `privilege`, `fence`, and `cache` functions instantiate on x86_64;
+- runtime host-safe: `privilege.currentLevel()` returns a value in 0..3 when `supported`;
+- runtime host-safe: `cache.lineSize()` returns a non-zero power-of-two value;
+- non-x86_64 import tests, when target matrix includes them, verify importing the facade alone does not emit inline assembly.
 
-The default host test suite must not execute any privileged instruction or any
-operation whose semantics modify global CPU state observable to the rest of the
-process.
+## Amendments
 
-## Open questions
-
-None.
+This spec supersedes the monolithic `base.md` ownership of CPUID, register access, CPU TSC/TLB, VMX, SVM, and paging. Those surfaces are owned by sibling x86_64 specs.

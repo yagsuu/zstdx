@@ -32,7 +32,7 @@ This spec does not own:
   slots);
 - MMIO ordering — that is owned by `stdx.io.Mmio.Register`;
 - architecture-specific fences — callers reach for
-  `stdx.arch.x86_64.Fence.*` directly when needed;
+  `stdx.arch.x86_64.fence.*` directly when needed;
 - hidden retry loops on `cmpxchgWeak` — callers write the loop;
 - lock-free containers (stack, queue, deque) — those live in
   `stdx.concurrent`;

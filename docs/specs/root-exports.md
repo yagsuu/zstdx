@@ -56,6 +56,8 @@ pub const rings = @import("rings.zig");
 pub const tags = @import("tags.zig");
 pub const dma = @import("dma.zig");
 pub const time = @import("time.zig");
+pub const cpu = @import("cpu.zig");
+pub const func = @import("func.zig");
 pub const algo = @import("algo.zig");
 pub const diag = @import("diag.zig");
 ```
@@ -118,15 +120,21 @@ pub const arch = @import("arch.zig");
 pub const diag = @import("diag.zig");
 pub const sync = @import("sync.zig");
 pub const concurrent = @import("concurrent.zig");
+pub const io = @import("io.zig");
+pub const barrier = @import("barrier.zig");
+pub const time = @import("time.zig");
+pub const dma = @import("dma.zig");
 pub const cpu = @import("cpu.zig");
+pub const func = @import("func.zig");
 
 pub const List = collections.List;
 pub const Ring = collections.Ring;
 ```
 
 `List` and `Ring` are root-promoted collection families. `sync`, `concurrent`,
-`diag`, and `graph` are namespace exports only; `Signal`, `mpsc.Ring`,
-diagnostic types and helpers, and `Forest` remain under their owning namespaces.
+`diag`, `graph`, `io`, `barrier`, `time`, `dma`, `cpu`, and `func` are namespace
+exports only; `Signal`, `mpsc.Ring`, diagnostic types and helpers, `Forest`,
+`Buffer`, `Clock`, `PerCpu`, and `Callback` remain under their owning namespaces.
 
 ## Exports that stay namespaced
 
@@ -169,7 +177,7 @@ stdx.VirtAddr
 These domains stay namespaced:
 
 ```zig
-stdx.arch.x86
+stdx.arch.x86_64
 stdx.barrier
 stdx.io
 stdx.concurrent

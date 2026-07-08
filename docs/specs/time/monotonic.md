@@ -472,7 +472,7 @@ while (true) {
     if (csts_ready(csts)) break;
 
     if (clock.now().afterOrEq(deadline)) return error.Timeout;
-    stdx.arch.x86_64.Cpu.pause();
+    stdx.arch.x86_64.cpu.pause();
 }
 ```
 

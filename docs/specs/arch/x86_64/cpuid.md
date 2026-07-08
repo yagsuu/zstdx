@@ -2,36 +2,33 @@
 
 Status: Approved.
 
-`stdx.arch.x86_64.Cpuid` decoders build on the raw `Cpuid.leaf`/`subleaf`
-accessors approved in `docs/specs/arch/x86_64/base.md`. This spec owns
+`stdx.arch.x86_64.cpuid` owns raw CPUID accessors and decoders. It owns
 vendor identification, family/model/stepping decoding, typed feature-flag
 surfaces over the leaves the library and its downstream consumers
 actually read, cache-topology iteration, brand string, and address-size
 extraction.
 
-Adopting this spec supersedes the "This spec does not decode feature
-flags, vendor strings, brand strings, or topology" clause in
-`docs/specs/arch/x86_64/base.md` §CPUID.
+This spec supersedes the CPUID portions previously owned by `docs/specs/arch/x86_64/base.md`.
 
 ## Owned scope
 
 This spec owns:
 
-- `Cpuid.Vendor` enum + `vendor()` and `vendorString()`;
-- `Cpuid.Version` family/model/stepping decoder built on leaf 1 EAX;
+- raw `cpuid.Result`, `cpuid.Leaf`, `cpuid.leaf`, `cpuid.subleaf`, `cpuid.maxBasicLeaf`, and `cpuid.maxExtendedLeaf`;
+- `cpuid.Vendor` enum + `vendor()` and `vendorString()`;
+- `cpuid.Version` family/model/stepping decoder built on leaf 1 EAX;
 - typed feature masks as `packed struct(u32)` per register for:
   leaf 1 EDX (`BasicFeatureEdx`), leaf 1 ECX (`BasicFeatureEcx`),
   leaf 7 subleaf 0 EBX/ECX/EDX (`StructuredEbx`/`Ecx`/`Edx`),
   extended leaf `0x80000001` EDX/ECX (`ExtendedFeatureEdx`/`Ecx`);
 - reserved-bit reporting via `hasReserved()` on every mask type;
-- `Cpuid.Cache.Descriptor` and `Cpuid.Cache.Iterator` decoding leaf 4
+- `cpuid.cache.Descriptor` and `cpuid.cache.Iterator` decoding leaf 4
   deterministic-cache subleaves;
-- `Cpuid.brandString()` on extended leaves `0x80000002`..`0x80000004`;
-- `Cpuid.Features` bundle for one-shot fetch of every feature mask;
-- `Cpuid.AddressSizes` and `Cpuid.addressSizes()` on leaf `0x80000008`
+- `cpuid.brandString()` on extended leaves `0x80000002`..`0x80000004`;
+- `cpuid.Features` bundle for one-shot fetch of every feature mask;
+- `cpuid.AddressSizes` and `cpuid.addressSizes()` on leaf `0x80000008`
   because hv/kernel paths hit it constantly;
-- amendments to `docs/specs/arch/x86_64/base.md` §CPUID replacing the
-  disown clause with a reference to this spec;
+- base-spec amendment that moves CPUID ownership here;
 - required tests.
 
 ## Deferred scope and non-goals
@@ -41,12 +38,12 @@ This spec does not own:
 - global feature caching or a hidden `hasFeature(...)` shortcut;
 - errata database or workaround selection;
 - feature gating of other zstdx primitives beyond the existing
-  `Cache.lineSize` probe in base;
+  `cache.lineSize` probe in base;
 - SGX enumeration (leaf 0x12), SEV/SNP topology (AMD 0x8000001F),
   extended-state size enumeration (leaf 0xD subleaves);
 - hypervisor-leaf recognition (leaf 0x40000000..`0x400000FF` range);
 - CPUID emulation, spoofing, or fake-CPU test harness beyond raw
-  `Cpuid.leaf`/`subleaf` results;
+  `cpuid.leaf`/`subleaf` results;
 - AVX / AMX state-size math (belongs with a future `xsave` extension);
 - thermal/power leaves (leaf 6), perfmon leaf 0xA, or leaf 0x15
   TSC/core-crystal ratio;
@@ -56,37 +53,37 @@ This spec does not own:
 
 ## Public namespace
 
-Additive to the existing `stdx.arch.x86_64.Cpuid` namespace:
+`stdx.arch.x86_64.cpuid` is the public CPUID namespace:
 
 ```zig
-stdx.arch.x86_64.Cpuid.Vendor
-stdx.arch.x86_64.Cpuid.Version
-stdx.arch.x86_64.Cpuid.BasicFeatureEdx
-stdx.arch.x86_64.Cpuid.BasicFeatureEcx
-stdx.arch.x86_64.Cpuid.BasicFeatures
-stdx.arch.x86_64.Cpuid.StructuredEbx
-stdx.arch.x86_64.Cpuid.StructuredEcx
-stdx.arch.x86_64.Cpuid.StructuredEdx
-stdx.arch.x86_64.Cpuid.StructuredFeatures
-stdx.arch.x86_64.Cpuid.ExtendedFeatureEdx
-stdx.arch.x86_64.Cpuid.ExtendedFeatureEcx
-stdx.arch.x86_64.Cpuid.ExtendedFeatures
-stdx.arch.x86_64.Cpuid.Features
-stdx.arch.x86_64.Cpuid.Cache
-stdx.arch.x86_64.Cpuid.Cache.Kind
-stdx.arch.x86_64.Cpuid.Cache.Descriptor
-stdx.arch.x86_64.Cpuid.Cache.Iterator
-stdx.arch.x86_64.Cpuid.AddressSizes
-stdx.arch.x86_64.Cpuid.vendor
-stdx.arch.x86_64.Cpuid.vendorString
-stdx.arch.x86_64.Cpuid.version
-stdx.arch.x86_64.Cpuid.brandString
-stdx.arch.x86_64.Cpuid.basicFeatures
-stdx.arch.x86_64.Cpuid.structuredFeatures
-stdx.arch.x86_64.Cpuid.extendedFeatures
-stdx.arch.x86_64.Cpuid.features
-stdx.arch.x86_64.Cpuid.caches
-stdx.arch.x86_64.Cpuid.addressSizes
+stdx.arch.x86_64.cpuid.Vendor
+stdx.arch.x86_64.cpuid.Version
+stdx.arch.x86_64.cpuid.BasicFeatureEdx
+stdx.arch.x86_64.cpuid.BasicFeatureEcx
+stdx.arch.x86_64.cpuid.BasicFeatures
+stdx.arch.x86_64.cpuid.StructuredEbx
+stdx.arch.x86_64.cpuid.StructuredEcx
+stdx.arch.x86_64.cpuid.StructuredEdx
+stdx.arch.x86_64.cpuid.StructuredFeatures
+stdx.arch.x86_64.cpuid.ExtendedFeatureEdx
+stdx.arch.x86_64.cpuid.ExtendedFeatureEcx
+stdx.arch.x86_64.cpuid.ExtendedFeatures
+stdx.arch.x86_64.cpuid.Features
+stdx.arch.x86_64.cpuid.cache
+stdx.arch.x86_64.cpuid.cache.Kind
+stdx.arch.x86_64.cpuid.cache.Descriptor
+stdx.arch.x86_64.cpuid.cache.Iterator
+stdx.arch.x86_64.cpuid.AddressSizes
+stdx.arch.x86_64.cpuid.vendor
+stdx.arch.x86_64.cpuid.vendorString
+stdx.arch.x86_64.cpuid.version
+stdx.arch.x86_64.cpuid.brandString
+stdx.arch.x86_64.cpuid.basicFeatures
+stdx.arch.x86_64.cpuid.structuredFeatures
+stdx.arch.x86_64.cpuid.extendedFeatures
+stdx.arch.x86_64.cpuid.features
+stdx.arch.x86_64.cpuid.caches
+stdx.arch.x86_64.cpuid.addressSizes
 ```
 
 None are root-promoted.
@@ -94,22 +91,21 @@ None are root-promoted.
 ## Source ownership
 
 ```text
-src/arch/x86_64.zig               ← extends the existing file in place
-test/arch/x86_64_cpuid_test.zig   ← separate test file
+src/arch/x86_64.zig
+src/arch/x86_64/cpuid.zig
+test/arch/x86_64_cpuid_test.zig
 ```
 
-The source-directory split (`src/arch/x86_64/{base,extensions,cpuid,vmx,svm}.zig`)
-remains deferred until `vmx.md` and `svm.md` land, matching
-`extensions.md`'s decision.
+`src/arch/x86_64.zig` re-exports `pub const cpuid = @import("x86_64/cpuid.zig");`.
 
 ## Target gating
 
-Same rule as base and extensions: the module compiles on any target.
+The module compiles on any target.
 Every accessor that emits `cpuid` produces `@compileError` when
 referenced on a non-x86_64 target.
 
 Operations whose semantics do not depend on the instruction set
-(`Vendor` enum, `Features` bundle construction from raw values, `Cache.Descriptor`
+(`Vendor` enum, `Features` bundle construction from raw values, `cache.Descriptor`
 type layout) compile on any target.
 
 ## Approved API
@@ -117,8 +113,23 @@ type layout) compile on any target.
 ### Vendor and version
 
 ```zig
-pub const Cpuid = struct {
-    // ... existing base members: Result, Leaf, leaf, subleaf, maxBasicLeaf, maxExtendedLeaf ...
+pub const cpuid = struct {
+    pub const Result = struct {
+        eax: u32,
+        ebx: u32,
+        ecx: u32,
+        edx: u32,
+    };
+
+    pub const Leaf = enum(u32) {
+        feature_info = 0x0000_0001,
+        _,
+    };
+
+    pub fn leaf(leaf_id: Leaf) Result;
+    pub fn subleaf(leaf_id: Leaf, subleaf_id: u32) Result;
+    pub fn maxBasicLeaf() u32;
+    pub fn maxExtendedLeaf() u32;
 
     pub const Vendor = enum {
         intel,
@@ -409,7 +420,7 @@ pub fn features() Features;
 ### Cache topology
 
 ```zig
-pub const Cache = struct {
+pub const cache = struct {
     pub const Kind = enum(u5) {
         null = 0,
         data = 1,
@@ -440,7 +451,7 @@ pub const Cache = struct {
     };
 };
 
-pub fn caches() Cache.Iterator;
+pub fn caches() cache.Iterator;
 ```
 
 ### Address sizes
@@ -558,7 +569,7 @@ cache) subleaves starting at subleaf 0. Each `Iterator.next()` executes
 `Descriptor` fields:
 
 - `level` = `EAX[7:5]`;
-- `kind` = `EAX[4:0]` cast to `Cache.Kind` (open enum, so values 4..31
+- `kind` = `EAX[4:0]` cast to `cache.Kind` (open enum, so values 4..31
   reserved by Intel are preserved via `_`);
 - `line_size` = `(EBX[11:0]) + 1`;
 - `partitions` = `(EBX[21:12]) + 1`;
@@ -572,7 +583,7 @@ Leaf 4 is defined by Intel and reserved by AMD in the SDM sense, but
 modern AMD CPUs also implement leaf 4 for a small subset of the same
 fields (level, kind, line_size). This spec does not distinguish; the
 iterator returns descriptors on both vendors when leaf 4 is populated.
-Consumers who need vendor-specific extensions call `Cpuid.leaf` /
+Consumers who need vendor-specific extensions call `cpuid.leaf` /
 `subleaf` directly.
 
 On a CPU where `maxBasicLeaf() < 4`, the iterator's first `next()`
@@ -628,26 +639,12 @@ safe from any execution context including NMI.
 
 ## Ordering contract
 
-Every decoder inherits the register-clobber contract from
-`base.md`'s `Cpuid.leaf`/`subleaf`. No decoder uses a `memory` clobber;
-the operations are pure reads of CPU-provided immediate values.
+`cpuid.leaf` and `cpuid.subleaf` execute the instruction with register clobbers only. Decoders inherit that contract. No CPUID operation uses a `memory` clobber; the operations are pure reads of CPU-provided immediate values.
 
-## Amendments to base.md
+## Amendments
 
-Once this spec lands, `docs/specs/arch/x86_64/base.md` §CPUID has:
+This spec supersedes the CPUID portions previously owned by `docs/specs/arch/x86_64/base.md`. The base spec no longer owns raw CPUID access or CPUID decoding.
 
-1. The paragraph
-   > This spec does not decode feature flags, vendor strings, brand
-   > strings, or topology. Feature decoding is a candidate for a later
-   > spec when a generic consumer needs it.
-
-   is replaced with:
-   > See `docs/specs/arch/x86_64/cpuid.md` for vendor identification,
-   > version decoding, feature-flag decoding, cache topology, brand
-   > string, and address-size extraction built on top of these raw
-   > accessors.
-
-No other base content is renamed, moved, or removed.
 
 ## Examples
 
@@ -657,21 +654,21 @@ Vendor check plus one-shot feature fetch:
 const stdx = @import("stdx");
 const x86 = stdx.arch.x86_64;
 
-const feats = x86.Cpuid.features();
+const feats = x86.cpuid.features();
 
-if (x86.Cpuid.vendor() == .intel and feats.basic.ecx.vmx) {
+if (x86.cpuid.vendor() == .intel and feats.basic.ecx.vmx) {
     // VMX supported on Intel.
 }
 
 if (feats.structured.ebx.invpcid) {
-    // Safe to call Cpu.Tlb.invalidatePcid.
+    // Safe to call x86.cpu.tlb.invalidatePcid.
 }
 ```
 
 Enumerate caches:
 
 ```zig
-var it = x86.Cpuid.caches();
+var it = x86.cpuid.caches();
 while (it.next()) |desc| {
     log.info("L{d} {s} line={d} ways={d} sets={d}", .{
         desc.level, @tagName(desc.kind), desc.line_size, desc.ways, desc.sets,
@@ -682,14 +679,14 @@ while (it.next()) |desc| {
 Physical address width for a page-table walker:
 
 ```zig
-const sizes = x86.Cpuid.addressSizes();
+const sizes = x86.cpuid.addressSizes();
 const phys_mask = (@as(u64, 1) << @intCast(sizes.physical_bits)) - 1;
 ```
 
 Brand string:
 
 ```zig
-if (x86.Cpuid.brandString()) |brand| {
+if (x86.cpuid.brandString()) |brand| {
     const trimmed = std.mem.sliceTo(&brand, 0);
     log.info("cpu: {s}", .{trimmed});
 }
@@ -699,7 +696,7 @@ Reserved-bit inspection when a downstream project runs on a newer CPU
 than the zstdx version knows about:
 
 ```zig
-const feats = x86.Cpuid.structuredFeatures();
+const feats = x86.cpuid.structuredFeatures();
 if (feats.ebx.hasReserved()) {
     const raw: u32 = @bitCast(feats.ebx);
     log.warn("structured ebx has unknown bits: 0x{x}", .{raw & reserved_mask});
@@ -719,8 +716,8 @@ Required tests:
 - Compile-only: `@sizeOf(BasicFeatures)` == 8; `@sizeOf(StructuredFeatures)`
   == 12; `@sizeOf(ExtendedFeatures)` == 8; `@sizeOf(Features)` == 28;
 - Compile-only: `hasReserved` exists on every mask type;
-- Compile-only: `Cpuid.Vendor` has exactly the seven listed tags;
-- Compile-only: `Cpuid.Cache.Kind` is `enum(u5)` with `_` sentinel;
+- Compile-only: `cpuid.Vendor` has exactly the seven listed tags;
+- Compile-only: `cpuid.cache.Kind` is `enum(u5)` with `_` sentinel;
 - Runtime, host-safe (x86_64 target only): `vendor()` returns
   `.intel`, `.amd`, or `.unknown`;
 - Runtime, host-safe: `vendorString()` matches the vendor: prefix
@@ -740,7 +737,7 @@ Required tests:
   57;
 - Model test: `hasReserved` returns `true` when a `u32` with a known
   reserved bit set is `@bitCast` into the mask;
-- Model test: `basicFeatures()` on a stub `Cpuid.Result` with
+- Model test: `basicFeatures()` on a stub `cpuid.Result` with
   `EDX = 0x00000001, ECX = 0` decodes `.edx.fpu = true` and every
   other field `false`. Test-only helper `basicFeaturesFrom(result)`
   is exposed at a `test`-only visibility for injection.

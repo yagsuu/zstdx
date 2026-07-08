@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`stdx.diag.Diagnostics` is a namespace for static diagnostics instances. A
+`stdx.diag.Diagnostics` is a type family for static diagnostics instances. A
 participating fallible function opens one frame at function entry, registers any
 static or formatted detail with that frame, and marks the frame from `errdefer`
 only when an error propagates through it.

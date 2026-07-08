@@ -105,8 +105,14 @@ and the required tests from the spec land in `test/`.
 - `docs/specs/sync/atomic-cell.md` (`src/sync/atomic_cell.zig`)
 - `docs/specs/sync/raw-spin-lock.md` (`src/sync/raw_spin_lock.zig`)
 - `docs/specs/sync/once.md` (`src/sync/once.zig`)
-- `docs/specs/arch/x86_64/extensions.md` (`src/arch/x86_64.zig`)
-- `docs/specs/arch/x86_64/cpuid.md` (`src/arch/x86_64.zig`)
+- `docs/specs/arch/x86_64/base.md` (`src/arch/x86_64.zig`, `src/arch/x86_64/{target,port,msr,interrupts,privilege,fence,cache}.zig`)
+- `docs/specs/arch/x86_64/cpuid.md` (`src/arch/x86_64/cpuid.zig`)
+- `docs/specs/arch/x86_64/cpu.md` (`src/arch/x86_64/cpu.zig`)
+- `docs/specs/arch/x86_64/register.md` (`src/arch/x86_64/register.zig`, `src/arch/x86_64/register/*.zig`)
+- `docs/specs/arch/x86_64/vmx.md` (`src/arch/x86_64/vmx.zig`)
+- `docs/specs/arch/x86_64/svm.md` (`src/arch/x86_64/svm.zig`)
+- `docs/specs/arch/x86_64/paging.md` (`src/arch/x86_64/paging.zig`)
+- `docs/specs/arch/x86_64/extensions.md` (superseded doc-only)
 - `docs/specs/io/poll-until.md` (`src/io/poll.zig`)
 - `docs/specs/concurrent/spsc-ring.md` (`src/concurrent/spsc.zig`, `src/concurrent/spsc/ring.zig`)
 - `docs/specs/cpu/per-cpu.md` (`src/cpu.zig`, `src/cpu/per_cpu.zig`)
@@ -120,8 +126,6 @@ and the required tests from the spec land in `test/`.
 ### Approved, implementation pending
 
 - `docs/specs/sync/latch.md`
-- `docs/specs/arch/x86_64/vmx.md`
-- `docs/specs/arch/x86_64/svm.md`
 
 ## Queue
 

@@ -230,7 +230,11 @@ test "model: RangeMap matches optional array over small domain" {
         const start = @min(a, b);
         const end = @max(a, b);
         const range = try r(Range, start, end);
-        const value: Kind = switch ((seed >> 8) % 3) { 0 => .a, 1 => .b, else => .c };
+        const value: Kind = switch ((seed >> 8) % 3) {
+            0 => .a,
+            1 => .b,
+            else => .c,
+        };
 
         switch ((seed >> 16) % 4) {
             0 => if (map.insert(range, value)) {

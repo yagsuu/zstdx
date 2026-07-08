@@ -2,25 +2,23 @@
 
 Status: Approved.
 
-`stdx.arch.x86_64.Vmx` owns thin, inline-asm-only wrappers for Intel VMX
-(Virtual Machine Extensions) instructions. The namespace extends the
-existing `stdx.arch.x86_64` module; there is no separate submodule surface.
-Consumers reach every primitive at `stdx.arch.x86_64.Vmx`.
+`stdx.arch.x86_64.vmx` owns thin, inline-asm-only wrappers for Intel VMX
+(Virtual Machine Extensions) instructions. Consumers reach every primitive through the lower-case `stdx.arch.x86_64.vmx` namespace.
 
 ## Owned scope
 
 This spec owns:
 
-- `Vmx.Error` — the `RFLAGS`-derived error set common to every wrapper;
-- `Vmx.PhysAddr` — strong physical-address value type;
-- `Vmx.VmxonRegion` and `Vmx.Vmcs` — 4 KiB `extern struct` region types
+- `vmx.Error` — the `RFLAGS`-derived error set common to every wrapper;
+- `vmx.PhysAddr` — strong physical-address value type;
+- `vmx.VmxonRegion` and `vmx.Vmcs` — 4 KiB `extern struct` region types
   exposing only the architectural region header (revision identifier for
   both, plus VMX-abort indicator for `Vmcs`); the remainder of each region
   is a reserved byte array accessible only via the ISA (`vmread`/`vmwrite`
   for VMCS body) and not through ordinary loads or stores;
-- `Vmx.InveptKind` and `Vmx.InveptDescriptor` — 16-byte descriptor and
+- `vmx.InveptKind` and `vmx.InveptDescriptor` — 16-byte descriptor and
   invalidation-kind enum used by `invept`;
-- `Vmx.InvvpidKind` and `Vmx.InvvpidDescriptor` — 16-byte descriptor and
+- `vmx.InvvpidKind` and `vmx.InvvpidDescriptor` — 16-byte descriptor and
   invalidation-kind enum used by `invvpid`;
 - wrappers `vmxon`, `vmxoff`, `vmclear`, `vmptrld`, `vmptrst`, `vmlaunch`,
   `vmresume`, `vmread`, `vmwrite`, `invept`, `invvpid`;
@@ -37,8 +35,10 @@ This spec does not own:
   catalog belongs to downstream hypervisor projects;
 - decoded VMX exit reasons, decoded VM-instruction error codes, or bit
   layouts of any VMCS field;
-- EPT paging-structure entries, EPT PTE layouts, EPT permission encoding,
-  or VPID allocation policy;
+- EPT paging-structure entries, EPT PTE layouts, and EPT permission encoding
+  (future owner: `docs/specs/arch/x86_64/paging-slat-ept.md` /
+  `stdx.arch.x86_64.paging.slat.ept`);
+- VPID allocation policy;
 - CR4/EFER programming, VMX enable/disable dance beyond the ISA
   instructions themselves;
 - VMX revision-identifier probing via `IA32_VMX_BASIC` — MSR reads are
@@ -51,43 +51,40 @@ This spec does not own:
 - shadow-VMCS bitmap configuration (bit 31 of the VMCS revision-id word);
 - runtime execution on the host test suite — VMX instructions require
   CPL 0 and CR4.VMXE = 1, which the host runner cannot provide;
-- root promotion of any Vmx symbol.
+- root promotion of any vmx symbol.
 
 ## Public namespace
 
-Additive to the existing `stdx.arch.x86_64` namespace:
+`stdx.arch.x86_64.vmx` is the public VMX namespace:
 
 ```zig
-stdx.arch.x86_64.Vmx
-stdx.arch.x86_64.Vmx.Error
-stdx.arch.x86_64.Vmx.PhysAddr
-stdx.arch.x86_64.Vmx.VmxonRegion
-stdx.arch.x86_64.Vmx.Vmcs
-stdx.arch.x86_64.Vmx.InveptKind
-stdx.arch.x86_64.Vmx.InveptDescriptor
-stdx.arch.x86_64.Vmx.InvvpidKind
-stdx.arch.x86_64.Vmx.InvvpidDescriptor
+stdx.arch.x86_64.vmx
+stdx.arch.x86_64.vmx.Error
+stdx.arch.x86_64.vmx.PhysAddr
+stdx.arch.x86_64.vmx.VmxonRegion
+stdx.arch.x86_64.vmx.Vmcs
+stdx.arch.x86_64.vmx.InveptKind
+stdx.arch.x86_64.vmx.InveptDescriptor
+stdx.arch.x86_64.vmx.InvvpidKind
+stdx.arch.x86_64.vmx.InvvpidDescriptor
 ```
 
 None are root-promoted. Consumers reach VMX primitives only through the
-`stdx.arch.x86_64.Vmx` path.
+`stdx.arch.x86_64.vmx` path.
 
 ## Source ownership
 
 ```text
-src/arch/x86_64.zig             ← extends the existing file in place
+src/arch/x86_64.zig
+src/arch/x86_64/vmx.zig
 test/arch/x86_64_vmx_test.zig   ← separate test file
 ```
 
-The source file is not split. Splitting into
-`src/arch/x86_64/{base,extensions,vmx}.zig` is deferred until at least
-three sibling architecture files exist and a separate split proposal
-migrates them together, per the condition in
-`docs/specs/arch/x86_64/extensions.md`.
+`src/arch/x86_64.zig` re-exports `pub const vmx = @import("x86_64/vmx.zig");`.
 
 ## Target gating
 
-Same rule as `base.md` and `extensions.md`: `stdx.arch.x86_64` compiles on
+Same rule as `base.md`: `stdx.arch.x86_64` compiles on
 any target. Any operation added by this spec that would emit x86_64 inline
 assembly produces a compile error when referenced on a non-x86_64 target.
 
@@ -100,7 +97,7 @@ remain portable.
 ## Approved API
 
 ```zig
-pub const Vmx = struct {
+pub const vmx = struct {
     pub const Error = error{ VMfailInvalid, VMfailValid };
 
     pub const PhysAddr = enum(u64) {
@@ -198,7 +195,7 @@ malformed).
 `Error.VMfailValid` corresponds to failure with a current VMCS and a
 specific error code recorded in VMCS field `0x4400`
 (SDM Vol.3 Table 30-1). The wrapper does not read this field; callers who
-need the code invoke `Vmx.vmread(0x4400)` after receiving
+need the code invoke `vmx.vmread(0x4400)` after receiving
 `Error.VMfailValid`.
 
 Traps distinct from `VMfail*` (`#GP` at CPL > 0, `#UD` when VMX is not
@@ -207,7 +204,7 @@ modeled by `Error`. See `## Trap and privilege behavior` below.
 
 ### PhysAddr
 
-`Vmx.PhysAddr` is an opaque physical-address value type covering the full
+`vmx.PhysAddr` is an opaque physical-address value type covering the full
 64-bit physical-address space.
 
 - `PhysAddr.fromInt(value)` is infallible and compiles on any target.
@@ -334,7 +331,7 @@ Non-zero reserved bits produce `VMfailInvalid` per SDM.
 
 ### vmxon and vmxoff
 
-`Vmx.vmxon(region)` executes `vmxon [region]` where `region` is a
+`vmx.vmxon(region)` executes `vmxon [region]` where `region` is a
 `*const PhysAddr`. SDM Vol.3 §30.3 defines the operand as an `m64`
 physical-pointer operand: the CPU dereferences `region` as an ordinary
 memory read to obtain the 64-bit physical address of the VMXON region.
@@ -350,23 +347,23 @@ Preconditions the wrapper does not check (caller policy):
 - `IA32_FEATURE_CONTROL[VMXON_OUTSIDE_SMX]` (or the equivalent SMX bit)
   is enabled.
 
-`Vmx.vmxoff()` executes `vmxoff`. Preconditions the wrapper does not
+`vmx.vmxoff()` executes `vmxoff`. Preconditions the wrapper does not
 check: the processor is in VMX root operation.
 
 Both wrappers return `Error!void` mapped from `RFLAGS`.
 
 ### vmclear, vmptrld, and vmptrst
 
-`Vmx.vmclear(vmcs)` executes `vmclear [vmcs]` with `vmcs` a
+`vmx.vmclear(vmcs)` executes `vmclear [vmcs]` with `vmcs` a
 `*const PhysAddr`. Marks the VMCS as inactive and clear on the logical
 processor. Required before the first `vmptrld` for a freshly-initialized
 VMCS.
 
-`Vmx.vmptrld(vmcs)` executes `vmptrld [vmcs]` with `vmcs` a
+`vmx.vmptrld(vmcs)` executes `vmptrld [vmcs]` with `vmcs` a
 `*const PhysAddr`. Loads the VMCS pointer; the referenced region becomes
 the current VMCS on the logical processor.
 
-`Vmx.vmptrst(out)` executes `vmptrst [out]` with `out` a `*PhysAddr`. The
+`vmx.vmptrst(out)` executes `vmptrst [out]` with `out` a `*PhysAddr`. The
 CPU writes the current VMCS pointer into `*out`. When no VMCS is current
 the CPU stores the sentinel `0xFFFFFFFFFFFFFFFF`; callers may detect the
 sentinel by comparing `out.raw() == std.math.maxInt(u64)`.
@@ -375,8 +372,8 @@ All three wrappers return `Error!void` mapped from `RFLAGS`.
 
 ### vmlaunch and vmresume
 
-`Vmx.vmlaunch()` executes `vmlaunch`. Used on the first VM entry after a
-`vmptrld` on a VMCS whose launch state is `clear`. `Vmx.vmresume()`
+`vmx.vmlaunch()` executes `vmlaunch`. Used on the first VM entry after a
+`vmptrld` on a VMCS whose launch state is `clear`. `vmx.vmresume()`
 executes `vmresume`. Used on subsequent VM entries against a VMCS whose
 launch state is `launched`.
 
@@ -389,16 +386,16 @@ should still `catch |err| switch (err) { ... }` because the wrapper types
 the success branch as `noreturn`, not `void`.
 
 Programming `HOST_RIP` (VMCS encoding `0x6C16`) and `HOST_RSP`
-(`0x6C14`) is caller policy performed via `Vmx.vmwrite`. The wrapper
+(`0x6C14`) is caller policy performed via `vmx.vmwrite`. The wrapper
 does not install a host trampoline.
 
 ### vmread and vmwrite
 
-`Vmx.vmread(encoding)` executes `vmread` with `encoding` in a
+`vmx.vmread(encoding)` executes `vmread` with `encoding` in a
 general-purpose register (SDM natural width, passed as `u64` zero-extended
 from the wrapper's `u32` argument). Returns the field value as `u64`.
 
-`Vmx.vmwrite(encoding, value)` executes `vmwrite` with `encoding` and
+`vmx.vmwrite(encoding, value)` executes `vmwrite` with `encoding` and
 `value` in general-purpose registers. Returns `void` on success.
 
 `encoding` is the raw 32-bit field encoding per SDM Vol.3 Appendix B
@@ -407,18 +404,18 @@ Field encodings whose architectural width is less than 64 bits (16-bit or
 32-bit fields) are still exchanged as `u64`; the CPU zero-extends reads
 and ignores upper bits on writes per SDM.
 
-`Vmx.vmread` returns `Error!u64`; `Vmx.vmwrite` returns `Error!void`. Both
-outcomes are mapped from `RFLAGS`. On `Vmx.vmread` failure the returned
+`vmx.vmread` returns `Error!u64`; `vmx.vmwrite` returns `Error!void`. Both
+outcomes are mapped from `RFLAGS`. On `vmx.vmread` failure the returned
 value is unspecified.
 
 ### invept and invvpid
 
-`Vmx.invept(kind, descriptor)` executes `invept kind, [descriptor]` where
+`vmx.invept(kind, descriptor)` executes `invept kind, [descriptor]` where
 `kind` is passed in a general-purpose register (from
 `@intFromEnum(kind)`) and `descriptor` is a `*const InveptDescriptor`
 memory operand. Invalidates EPT-derived mappings per the kind.
 
-`Vmx.invvpid(kind, descriptor)` executes `invvpid kind, [descriptor]`
+`vmx.invvpid(kind, descriptor)` executes `invvpid kind, [descriptor]`
 analogously against VPID-tagged mappings.
 
 Both wrappers return `Error!void` mapped from `RFLAGS`. Cross-CPU
@@ -448,7 +445,7 @@ allocation, no lock, no target probing, no scheduler interaction.
 
 ## Ordering contract
 
-Following `base.md` and `extensions.md`:
+Following `base.md`:
 
 - Every VMX wrapper uses a memory clobber. VMX instructions read from and
   write to VMCS state that is architecturally visible to subsequent VM
@@ -495,7 +492,7 @@ Enter VMX operation and initialize a VMCS:
 ```zig
 const stdx = @import("stdx");
 const x86 = stdx.arch.x86_64;
-const Vmx = x86.Vmx;
+const vmx = x86.vmx;
 
 // Read the VMCS revision identifier the CPU expects.
 const IA32_VMX_BASIC = x86.Msr.fromInt(0x480);
@@ -504,15 +501,15 @@ const revision: u32 = @truncate(IA32_VMX_BASIC.read());
 // Allocate 4 KiB regions in caller-owned physical memory. The variables
 // below stand in for whatever physical-memory allocator the caller uses;
 // `.fromInt` wraps the resulting physical addresses as strong values.
-var vmxon_region: Vmx.VmxonRegion = .{ .revision_id = revision };
-var vmcs: Vmx.Vmcs = .{ .revision_id = revision };
+var vmxon_region: vmx.VmxonRegion = .{ .revision_id = revision };
+var vmcs: vmx.Vmcs = .{ .revision_id = revision };
 
-const vmxon_phys: Vmx.PhysAddr = .fromInt(physicalAddressOf(&vmxon_region));
-const vmcs_phys: Vmx.PhysAddr = .fromInt(physicalAddressOf(&vmcs));
+const vmxon_phys: vmx.PhysAddr = .fromInt(physicalAddressOf(&vmxon_region));
+const vmcs_phys: vmx.PhysAddr = .fromInt(physicalAddressOf(&vmcs));
 
-try Vmx.vmxon(&vmxon_phys);
-try Vmx.vmclear(&vmcs_phys);
-try Vmx.vmptrld(&vmcs_phys);
+try vmx.vmxon(&vmxon_phys);
+try vmx.vmclear(&vmcs_phys);
+try vmx.vmptrld(&vmcs_phys);
 ```
 
 Program a VMCS field via a caller-owned field enum:
@@ -525,18 +522,18 @@ const VmcsField = enum(u32) {
     _,
 };
 
-try Vmx.vmwrite(@intFromEnum(VmcsField.host_rip), @intFromPtr(&vm_exit_trampoline));
-try Vmx.vmwrite(@intFromEnum(VmcsField.host_rsp), host_stack_top);
+try vmx.vmwrite(@intFromEnum(VmcsField.host_rip), @intFromPtr(&vm_exit_trampoline));
+try vmx.vmwrite(@intFromEnum(VmcsField.host_rsp), host_stack_top);
 ```
 
 Launch a guest with `VMfailValid` decoding:
 
 ```zig
-Vmx.vmlaunch() catch |err| switch (err) {
+vmx.vmlaunch() catch |err| switch (err) {
     error.VMfailInvalid => return error.NoCurrentVmcs,
     error.VMfailValid => {
         // SDM Vol.3 Table 30-1: VM-instruction error field encoding.
-        const code: u32 = @truncate(try Vmx.vmread(0x4400));
+        const code: u32 = @truncate(try vmx.vmread(0x4400));
         return decodeInstrError(code);
     },
 };
@@ -555,25 +552,25 @@ Single-context EPT invalidation after modifying a page-table walk:
 
 ```zig
 const eptp: u64 = buildEptp(pml4_phys);
-const desc: Vmx.InveptDescriptor = .{ .eptp = eptp };
-try Vmx.invept(.single_context, &desc);
+const desc: vmx.InveptDescriptor = .{ .eptp = eptp };
+try vmx.invept(.single_context, &desc);
 ```
 
 Individual-address VPID invalidation:
 
 ```zig
-const desc: Vmx.InvvpidDescriptor = .{
+const desc: vmx.InvvpidDescriptor = .{
     .vpid = guest_vpid,
     .linear_address = guest_linear_addr,
 };
-try Vmx.invvpid(.individual_address, &desc);
+try vmx.invvpid(.individual_address, &desc);
 ```
 
 Query the currently loaded VMCS:
 
 ```zig
-var current: Vmx.PhysAddr = .fromInt(0);
-try Vmx.vmptrst(&current);
+var current: vmx.PhysAddr = .fromInt(0);
+try vmx.vmptrst(&current);
 if (current.raw() == std.math.maxInt(u64)) {
     // No current VMCS on this logical processor.
 }
@@ -588,52 +585,52 @@ outside this spec's scope.
 
 Required tests:
 
-- `Vmx.Error` has exactly two tags: `VMfailInvalid`, `VMfailValid`;
+- `vmx.Error` has exactly two tags: `VMfailInvalid`, `VMfailValid`;
 - `PhysAddr.fromInt`/`raw` round-trip for `0`, a non-zero mid value, and
   `std.math.maxInt(u64)`; the round-trip compiles on any target;
-- `@sizeOf(Vmx.VmxonRegion) == 4096`, `@alignOf(Vmx.VmxonRegion) == 4096`,
-  `Vmx.VmxonRegion.alignment == 4096`;
-- `@sizeOf(Vmx.Vmcs) == 4096`, `@alignOf(Vmx.Vmcs) == 4096`,
-  `Vmx.Vmcs.alignment == 4096`;
-- `@offsetOf(Vmx.VmxonRegion, "revision_id") == 0`;
-- `@offsetOf(Vmx.VmxonRegion, "_reserved") == 4`;
-- `@offsetOf(Vmx.Vmcs, "revision_id") == 0`;
-- `@offsetOf(Vmx.Vmcs, "abort_indicator") == 4`;
-- `@offsetOf(Vmx.Vmcs, "_reserved") == 8`;
-- `@sizeOf(Vmx.InveptDescriptor) == 16`,
-  `@alignOf(Vmx.InveptDescriptor) == 16`,
-  `Vmx.InveptDescriptor.alignment == 16`;
-- `@offsetOf(Vmx.InveptDescriptor, "eptp") == 0`;
-- `@offsetOf(Vmx.InveptDescriptor, "_reserved") == 8`;
-- `@sizeOf(Vmx.InvvpidDescriptor) == 16`,
-  `@alignOf(Vmx.InvvpidDescriptor) == 16`,
-  `Vmx.InvvpidDescriptor.alignment == 16`;
-- `@offsetOf(Vmx.InvvpidDescriptor, "vpid") == 0`;
-- `@offsetOf(Vmx.InvvpidDescriptor, "_reserved_low") == 2`;
-- `@offsetOf(Vmx.InvvpidDescriptor, "_reserved_high") == 4`;
-- `@offsetOf(Vmx.InvvpidDescriptor, "linear_address") == 8`;
-- `Vmx.InveptKind` is `enum(u64)` with tags `single_context = 1`,
+- `@sizeOf(vmx.VmxonRegion) == 4096`, `@alignOf(vmx.VmxonRegion) == 4096`,
+  `vmx.VmxonRegion.alignment == 4096`;
+- `@sizeOf(vmx.Vmcs) == 4096`, `@alignOf(vmx.Vmcs) == 4096`,
+  `vmx.Vmcs.alignment == 4096`;
+- `@offsetOf(vmx.VmxonRegion, "revision_id") == 0`;
+- `@offsetOf(vmx.VmxonRegion, "_reserved") == 4`;
+- `@offsetOf(vmx.Vmcs, "revision_id") == 0`;
+- `@offsetOf(vmx.Vmcs, "abort_indicator") == 4`;
+- `@offsetOf(vmx.Vmcs, "_reserved") == 8`;
+- `@sizeOf(vmx.InveptDescriptor) == 16`,
+  `@alignOf(vmx.InveptDescriptor) == 16`,
+  `vmx.InveptDescriptor.alignment == 16`;
+- `@offsetOf(vmx.InveptDescriptor, "eptp") == 0`;
+- `@offsetOf(vmx.InveptDescriptor, "_reserved") == 8`;
+- `@sizeOf(vmx.InvvpidDescriptor) == 16`,
+  `@alignOf(vmx.InvvpidDescriptor) == 16`,
+  `vmx.InvvpidDescriptor.alignment == 16`;
+- `@offsetOf(vmx.InvvpidDescriptor, "vpid") == 0`;
+- `@offsetOf(vmx.InvvpidDescriptor, "_reserved_low") == 2`;
+- `@offsetOf(vmx.InvvpidDescriptor, "_reserved_high") == 4`;
+- `@offsetOf(vmx.InvvpidDescriptor, "linear_address") == 8`;
+- `vmx.InveptKind` is `enum(u64)` with tags `single_context = 1`,
   `global = 2`, and the `_` open tag;
-- `Vmx.InvvpidKind` is `enum(u64)` with tags `individual_address = 0`,
+- `vmx.InvvpidKind` is `enum(u64)` with tags `individual_address = 0`,
   `single_context = 1`, `all_contexts = 2`,
   `single_context_retaining_globals = 3`, and the `_` open tag;
-- `Vmx.VmxonRegion`, `Vmx.Vmcs`, `Vmx.InveptDescriptor`,
-  `Vmx.InvvpidDescriptor` compile on any target (portable value types);
+- `vmx.VmxonRegion`, `vmx.Vmcs`, `vmx.InveptDescriptor`,
+  `vmx.InvvpidDescriptor` compile on any target (portable value types);
 - On x86_64, every wrapper instantiates with the declared signature:
-  - `Vmx.vmxon(*const Vmx.PhysAddr) Vmx.Error!void`;
-  - `Vmx.vmxoff() Vmx.Error!void`;
-  - `Vmx.vmclear(*const Vmx.PhysAddr) Vmx.Error!void`;
-  - `Vmx.vmptrld(*const Vmx.PhysAddr) Vmx.Error!void`;
-  - `Vmx.vmptrst(*Vmx.PhysAddr) Vmx.Error!void`;
-  - `Vmx.vmlaunch() Vmx.Error!noreturn`;
-  - `Vmx.vmresume() Vmx.Error!noreturn`;
-  - `Vmx.vmread(u32) Vmx.Error!u64`;
-  - `Vmx.vmwrite(u32, u64) Vmx.Error!void`;
-  - `Vmx.invept(Vmx.InveptKind, *const Vmx.InveptDescriptor) Vmx.Error!void`;
-  - `Vmx.invvpid(Vmx.InvvpidKind, *const Vmx.InvvpidDescriptor) Vmx.Error!void`;
+  - `vmx.vmxon(*const vmx.PhysAddr) vmx.Error!void`;
+  - `vmx.vmxoff() vmx.Error!void`;
+  - `vmx.vmclear(*const vmx.PhysAddr) vmx.Error!void`;
+  - `vmx.vmptrld(*const vmx.PhysAddr) vmx.Error!void`;
+  - `vmx.vmptrst(*vmx.PhysAddr) vmx.Error!void`;
+  - `vmx.vmlaunch() vmx.Error!noreturn`;
+  - `vmx.vmresume() vmx.Error!noreturn`;
+  - `vmx.vmread(u32) vmx.Error!u64`;
+  - `vmx.vmwrite(u32, u64) vmx.Error!void`;
+  - `vmx.invept(vmx.InveptKind, *const vmx.InveptDescriptor) vmx.Error!void`;
+  - `vmx.invvpid(vmx.InvvpidKind, *const vmx.InvvpidDescriptor) vmx.Error!void`;
 - Non-x86_64 build: importing `stdx.arch.x86_64` compiles; every
   asm-emitting wrapper produces a compile error only when referenced,
-  matching `base.md`/`extensions.md` gating.
+  matching `base.md` gating.
 
 The default host test suite must not execute any VMX instruction.
 

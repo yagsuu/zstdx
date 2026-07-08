@@ -6,72 +6,72 @@ const builtin = @import("builtin");
 
 const stdx = @import("stdx");
 
-const Vmx = stdx.arch.x86_64.Vmx;
+const vmx = stdx.arch.x86_64.vmx;
 
 const testing = std.testing;
 
 comptime {
-    const err_info = @typeInfo(Vmx.Error).error_set.?;
+    const err_info = @typeInfo(vmx.Error).error_set.?;
     std.debug.assert(err_info.len == 2);
 
-    std.debug.assert(@sizeOf(Vmx.VmxonRegion) == 4096);
-    std.debug.assert(@alignOf(Vmx.VmxonRegion) == 4096);
-    std.debug.assert(Vmx.VmxonRegion.alignment == 4096);
-    std.debug.assert(@offsetOf(Vmx.VmxonRegion, "revision_id") == 0);
-    std.debug.assert(@offsetOf(Vmx.VmxonRegion, "_reserved") == 4);
+    std.debug.assert(@sizeOf(vmx.VmxonRegion) == 4096);
+    std.debug.assert(@alignOf(vmx.VmxonRegion) == 4096);
+    std.debug.assert(vmx.VmxonRegion.alignment == 4096);
+    std.debug.assert(@offsetOf(vmx.VmxonRegion, "revision_id") == 0);
+    std.debug.assert(@offsetOf(vmx.VmxonRegion, "_reserved") == 4);
 
-    std.debug.assert(@sizeOf(Vmx.Vmcs) == 4096);
-    std.debug.assert(@alignOf(Vmx.Vmcs) == 4096);
-    std.debug.assert(Vmx.Vmcs.alignment == 4096);
-    std.debug.assert(@offsetOf(Vmx.Vmcs, "revision_id") == 0);
-    std.debug.assert(@offsetOf(Vmx.Vmcs, "abort_indicator") == 4);
-    std.debug.assert(@offsetOf(Vmx.Vmcs, "_reserved") == 8);
+    std.debug.assert(@sizeOf(vmx.Vmcs) == 4096);
+    std.debug.assert(@alignOf(vmx.Vmcs) == 4096);
+    std.debug.assert(vmx.Vmcs.alignment == 4096);
+    std.debug.assert(@offsetOf(vmx.Vmcs, "revision_id") == 0);
+    std.debug.assert(@offsetOf(vmx.Vmcs, "abort_indicator") == 4);
+    std.debug.assert(@offsetOf(vmx.Vmcs, "_reserved") == 8);
 
-    std.debug.assert(@sizeOf(Vmx.InveptDescriptor) == 16);
-    std.debug.assert(@alignOf(Vmx.InveptDescriptor) == 16);
-    std.debug.assert(Vmx.InveptDescriptor.alignment == 16);
-    std.debug.assert(@offsetOf(Vmx.InveptDescriptor, "eptp") == 0);
-    std.debug.assert(@offsetOf(Vmx.InveptDescriptor, "_reserved") == 8);
+    std.debug.assert(@sizeOf(vmx.InveptDescriptor) == 16);
+    std.debug.assert(@alignOf(vmx.InveptDescriptor) == 16);
+    std.debug.assert(vmx.InveptDescriptor.alignment == 16);
+    std.debug.assert(@offsetOf(vmx.InveptDescriptor, "eptp") == 0);
+    std.debug.assert(@offsetOf(vmx.InveptDescriptor, "_reserved") == 8);
 
-    std.debug.assert(@sizeOf(Vmx.InvvpidDescriptor) == 16);
-    std.debug.assert(@alignOf(Vmx.InvvpidDescriptor) == 16);
-    std.debug.assert(Vmx.InvvpidDescriptor.alignment == 16);
-    std.debug.assert(@offsetOf(Vmx.InvvpidDescriptor, "vpid") == 0);
-    std.debug.assert(@offsetOf(Vmx.InvvpidDescriptor, "_reserved_low") == 2);
-    std.debug.assert(@offsetOf(Vmx.InvvpidDescriptor, "_reserved_high") == 4);
-    std.debug.assert(@offsetOf(Vmx.InvvpidDescriptor, "linear_address") == 8);
+    std.debug.assert(@sizeOf(vmx.InvvpidDescriptor) == 16);
+    std.debug.assert(@alignOf(vmx.InvvpidDescriptor) == 16);
+    std.debug.assert(vmx.InvvpidDescriptor.alignment == 16);
+    std.debug.assert(@offsetOf(vmx.InvvpidDescriptor, "vpid") == 0);
+    std.debug.assert(@offsetOf(vmx.InvvpidDescriptor, "_reserved_low") == 2);
+    std.debug.assert(@offsetOf(vmx.InvvpidDescriptor, "_reserved_high") == 4);
+    std.debug.assert(@offsetOf(vmx.InvvpidDescriptor, "linear_address") == 8);
 
-    const invept_info = @typeInfo(Vmx.InveptKind).@"enum";
+    const invept_info = @typeInfo(vmx.InveptKind).@"enum";
     std.debug.assert(invept_info.tag_type == u64);
     std.debug.assert(invept_info.is_exhaustive == false);
-    std.debug.assert(@intFromEnum(Vmx.InveptKind.single_context) == 1);
-    std.debug.assert(@intFromEnum(Vmx.InveptKind.global) == 2);
+    std.debug.assert(@intFromEnum(vmx.InveptKind.single_context) == 1);
+    std.debug.assert(@intFromEnum(vmx.InveptKind.global) == 2);
 
-    const invvpid_info = @typeInfo(Vmx.InvvpidKind).@"enum";
+    const invvpid_info = @typeInfo(vmx.InvvpidKind).@"enum";
     std.debug.assert(invvpid_info.tag_type == u64);
     std.debug.assert(invvpid_info.is_exhaustive == false);
-    std.debug.assert(@intFromEnum(Vmx.InvvpidKind.individual_address) == 0);
-    std.debug.assert(@intFromEnum(Vmx.InvvpidKind.single_context) == 1);
-    std.debug.assert(@intFromEnum(Vmx.InvvpidKind.all_contexts) == 2);
-    std.debug.assert(@intFromEnum(Vmx.InvvpidKind.single_context_retaining_globals) == 3);
+    std.debug.assert(@intFromEnum(vmx.InvvpidKind.individual_address) == 0);
+    std.debug.assert(@intFromEnum(vmx.InvvpidKind.single_context) == 1);
+    std.debug.assert(@intFromEnum(vmx.InvvpidKind.all_contexts) == 2);
+    std.debug.assert(@intFromEnum(vmx.InvvpidKind.single_context_retaining_globals) == 3);
 }
 
-test "unit: Vmx.Error names exactly VMfailInvalid and VMfailValid" {
-    const invalid: Vmx.Error = error.VMfailInvalid;
-    const valid: Vmx.Error = error.VMfailValid;
-    try testing.expectEqual(@as(Vmx.Error, error.VMfailInvalid), invalid);
-    try testing.expectEqual(@as(Vmx.Error, error.VMfailValid), valid);
+test "unit: vmx.Error names exactly VMfailInvalid and VMfailValid" {
+    const invalid: vmx.Error = error.VMfailInvalid;
+    const valid: vmx.Error = error.VMfailValid;
+    try testing.expectEqual(@as(vmx.Error, error.VMfailInvalid), invalid);
+    try testing.expectEqual(@as(vmx.Error, error.VMfailValid), valid);
 }
 
-test "unit: Vmx.PhysAddr.fromInt/raw round-trip at boundaries" {
-    try testing.expectEqual(@as(u64, 0), Vmx.PhysAddr.fromInt(0).raw());
+test "unit: vmx.PhysAddr.fromInt/raw round-trip at boundaries" {
+    try testing.expectEqual(@as(u64, 0), vmx.PhysAddr.fromInt(0).raw());
     try testing.expectEqual(
         @as(u64, 0x1234_5678_9abc_def0),
-        Vmx.PhysAddr.fromInt(0x1234_5678_9abc_def0).raw(),
+        vmx.PhysAddr.fromInt(0x1234_5678_9abc_def0).raw(),
     );
     try testing.expectEqual(
         std.math.maxInt(u64),
-        Vmx.PhysAddr.fromInt(std.math.maxInt(u64)).raw(),
+        vmx.PhysAddr.fromInt(std.math.maxInt(u64)).raw(),
     );
 }
 
@@ -79,39 +79,39 @@ fn expectFn(comptime T: type, comptime f: anytype) void {
     comptime testing.expectEqual(T, @TypeOf(f)) catch unreachable;
 }
 
-test "contract: Vmx.vmxon/vmxoff instantiate" {
+test "contract: vmx.vmxon/vmxoff instantiate" {
     if (builtin.cpu.arch != .x86_64) return;
-    expectFn(fn (*const Vmx.PhysAddr) Vmx.Error!void, Vmx.vmxon);
-    expectFn(fn () Vmx.Error!void, Vmx.vmxoff);
+    expectFn(fn (*const vmx.PhysAddr) vmx.Error!void, vmx.vmxon);
+    expectFn(fn () vmx.Error!void, vmx.vmxoff);
 }
 
-test "contract: Vmx.vmclear/vmptrld/vmptrst instantiate" {
+test "contract: vmx.vmclear/vmptrld/vmptrst instantiate" {
     if (builtin.cpu.arch != .x86_64) return;
-    expectFn(fn (*const Vmx.PhysAddr) Vmx.Error!void, Vmx.vmclear);
-    expectFn(fn (*const Vmx.PhysAddr) Vmx.Error!void, Vmx.vmptrld);
-    expectFn(fn (*Vmx.PhysAddr) Vmx.Error!void, Vmx.vmptrst);
+    expectFn(fn (*const vmx.PhysAddr) vmx.Error!void, vmx.vmclear);
+    expectFn(fn (*const vmx.PhysAddr) vmx.Error!void, vmx.vmptrld);
+    expectFn(fn (*vmx.PhysAddr) vmx.Error!void, vmx.vmptrst);
 }
 
-test "contract: Vmx.vmlaunch/vmresume instantiate" {
+test "contract: vmx.vmlaunch/vmresume instantiate" {
     if (builtin.cpu.arch != .x86_64) return;
-    expectFn(fn () Vmx.Error!noreturn, Vmx.vmlaunch);
-    expectFn(fn () Vmx.Error!noreturn, Vmx.vmresume);
+    expectFn(fn () vmx.Error!noreturn, vmx.vmlaunch);
+    expectFn(fn () vmx.Error!noreturn, vmx.vmresume);
 }
 
-test "contract: Vmx.vmread/vmwrite instantiate" {
+test "contract: vmx.vmread/vmwrite instantiate" {
     if (builtin.cpu.arch != .x86_64) return;
-    expectFn(fn (u32) Vmx.Error!u64, Vmx.vmread);
-    expectFn(fn (u32, u64) Vmx.Error!void, Vmx.vmwrite);
+    expectFn(fn (u32) vmx.Error!u64, vmx.vmread);
+    expectFn(fn (u32, u64) vmx.Error!void, vmx.vmwrite);
 }
 
-test "contract: Vmx.invept/invvpid instantiate" {
+test "contract: vmx.invept/invvpid instantiate" {
     if (builtin.cpu.arch != .x86_64) return;
     expectFn(
-        fn (Vmx.InveptKind, *const Vmx.InveptDescriptor) Vmx.Error!void,
-        Vmx.invept,
+        fn (vmx.InveptKind, *const vmx.InveptDescriptor) vmx.Error!void,
+        vmx.invept,
     );
     expectFn(
-        fn (Vmx.InvvpidKind, *const Vmx.InvvpidDescriptor) Vmx.Error!void,
-        Vmx.invvpid,
+        fn (vmx.InvvpidKind, *const vmx.InvvpidDescriptor) vmx.Error!void,
+        vmx.invvpid,
     );
 }

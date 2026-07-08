@@ -113,9 +113,18 @@ zstdx names encode ownership and capacity.
 
 zstdx public names use the baseline Zig naming rules with these package terms:
 
-- namespaces and modules are lower-case domain names: `bits`, `addr`, `mem`, `layout`, `bytes`, `intrusive`;
-- type names and type factories are PascalCase: `List`, `BitSet`, `Address`, `BitFlags`;
+- namespaces, modules, and operation families are lower-case domain names: `bits`, `addr`, `mem`, `layout`,
+  `bytes`, `intrusive`, `barrier.mmio`, `arch.x86_64.register.control`;
+- type names, type families, and type factories are PascalCase: `List`, `BitSet`, `Address`, `BitFlags`,
+  `Mmio`, `ScatterGather`, `Page`, `Clock.Monotonic`;
+- the split is by declaration role, not by ownership: `Entry`, `Root`, `Result`, and `Mode` are PascalCase
+  even when they own no memory; `cpu.tlb`, `register.control.cr3`, and `barrier.dma` are lower-case even
+  when they access or mutate architectural state;
+- a `struct` used only to group operations is a namespace and uses lower-case. A PascalCase `struct`
+  must be a type, type family, or type factory that callers may name as a value shape or generic parameter;
 - runtime functions and methods are lower camel case: `alignUp`, `append`, `pushBack`, `clearRetainingCapacity`;
+- fields, option names, enum tags, and public constants are snake_case unless an owning spec approves an ABI
+  spelling. Zig error-set tags use the PascalCase names listed in the error vocabulary below;
 - acronyms are words unless the owning spec approves an ABI name: `PhysAddr`, `VirtAddr`, `DmaAddr`,
   `MmioRegister`;
 - `Static`, `Bounded`, `Managed`, and `Unmanaged` are nested under the family they specialize: `List.Static`, not

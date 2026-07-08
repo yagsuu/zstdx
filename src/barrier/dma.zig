@@ -13,19 +13,19 @@ const wrong_target = "stdx.barrier.dma: unsupported target; requires an arch spe
 /// owned by this API.
 pub inline fn release() void {
     if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.Fence.sfence();
+    x86_64.fence.sfence();
 }
 
 /// Order a preceding load of DMA-written data before subsequent loads from
 /// related caller memory. Emits `lfence` on x86_64 with a `memory` clobber.
 pub inline fn acquire() void {
     if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.Fence.lfence();
+    x86_64.fence.lfence();
 }
 
 /// Order prior DMA-visible stores before subsequent DMA-visible loads on the
 /// same CPU. Emits `mfence` on x86_64 with a `memory` clobber.
 pub inline fn releaseAcquire() void {
     if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.Fence.mfence();
+    x86_64.fence.mfence();
 }

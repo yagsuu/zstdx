@@ -254,7 +254,7 @@ The primitive does not detect it. The caller invites the deadlock.
 preempted by an interrupt takes lock `L`, and the interrupt handler
 also acquires `L`, the outer path deadlocks. Callers either disable
 interrupts around `acquire()` (using
-`stdx.arch.x86_64.Interrupts.disable` on x86_64, or the equivalent on
+`stdx.arch.x86_64.interrupts.disable` on x86_64, or the equivalent on
 other targets) or ensure interrupt handlers cannot reach `L`. This
 spec does not import `arch`; the composition is caller code.
 

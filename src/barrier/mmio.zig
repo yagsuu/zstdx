@@ -13,7 +13,7 @@ const wrong_target = "stdx.barrier.mmio: unsupported target; requires an arch sp
 /// caches.
 pub inline fn release() void {
     if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.Fence.sfence();
+    x86_64.fence.sfence();
 }
 
 /// Order a preceding MMIO load before following memory reads. Emits `lfence`
@@ -21,7 +21,7 @@ pub inline fn release() void {
 /// primitive beyond the ISA rules.
 pub inline fn acquire() void {
     if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.Fence.lfence();
+    x86_64.fence.lfence();
 }
 
 /// Order prior stores and MMIO accesses before subsequent stores and loads on
@@ -29,5 +29,5 @@ pub inline fn acquire() void {
 /// who only need one direction use the cheaper `release` or `acquire`.
 pub inline fn releaseAcquire() void {
     if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.Fence.mfence();
+    x86_64.fence.mfence();
 }

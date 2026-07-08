@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 const stdx = @import("stdx");
 
 const x86 = stdx.arch.x86_64;
-const Cpuid = x86.Cpuid;
+const cpuid = x86.cpuid;
 
 const testing = std.testing;
 
@@ -19,13 +19,13 @@ comptime {
     // Every feature mask is a packed-struct-of-u32 with @sizeOf == 4.
     // Spec §Feature masks.
     const masks = .{
-        Cpuid.BasicFeatureEdx,
-        Cpuid.BasicFeatureEcx,
-        Cpuid.StructuredEbx,
-        Cpuid.StructuredEcx,
-        Cpuid.StructuredEdx,
-        Cpuid.ExtendedFeatureEdx,
-        Cpuid.ExtendedFeatureEcx,
+        cpuid.BasicFeatureEdx,
+        cpuid.BasicFeatureEcx,
+        cpuid.StructuredEbx,
+        cpuid.StructuredEcx,
+        cpuid.StructuredEdx,
+        cpuid.ExtendedFeatureEdx,
+        cpuid.ExtendedFeatureEcx,
     };
     for (masks) |M| {
         std.debug.assert(@bitSizeOf(M) == 32);
@@ -36,7 +36,7 @@ comptime {
 
     // `@bitCast(u32, BasicFeatureEdx{}) == 0`; the default-initialized mask
     // has every named bit `false` and every reserved slot 0.
-    std.debug.assert(@as(u32, @bitCast(Cpuid.BasicFeatureEdx{
+    std.debug.assert(@as(u32, @bitCast(cpuid.BasicFeatureEdx{
         .fpu = false,
         .vme = false,
         .de = false,
@@ -70,54 +70,54 @@ comptime {
 
     // `@bitCast(BasicFeatureEdx, @as(u32, 0))` reconstructs an all-false
     // mask; check one representative field.
-    const zero_mask: Cpuid.BasicFeatureEdx = @bitCast(@as(u32, 0));
+    const zero_mask: cpuid.BasicFeatureEdx = @bitCast(@as(u32, 0));
     std.debug.assert(zero_mask.fpu == false);
     std.debug.assert(zero_mask.tsc == false);
 
     // Bundle sizes. Spec §Feature bundles.
-    std.debug.assert(@sizeOf(Cpuid.BasicFeatures) == 8);
-    std.debug.assert(@sizeOf(Cpuid.StructuredFeatures) == 12);
-    std.debug.assert(@sizeOf(Cpuid.ExtendedFeatures) == 8);
-    std.debug.assert(@sizeOf(Cpuid.Features) == 28);
+    std.debug.assert(@sizeOf(cpuid.BasicFeatures) == 8);
+    std.debug.assert(@sizeOf(cpuid.StructuredFeatures) == 12);
+    std.debug.assert(@sizeOf(cpuid.ExtendedFeatures) == 8);
+    std.debug.assert(@sizeOf(cpuid.Features) == 28);
 
     // `hasReserved` exists on every mask type with signature
     // `fn (mask) bool`.
-    std.debug.assert(@TypeOf(Cpuid.BasicFeatureEdx.hasReserved) == fn (Cpuid.BasicFeatureEdx) bool);
-    std.debug.assert(@TypeOf(Cpuid.BasicFeatureEcx.hasReserved) == fn (Cpuid.BasicFeatureEcx) bool);
-    std.debug.assert(@TypeOf(Cpuid.StructuredEbx.hasReserved) == fn (Cpuid.StructuredEbx) bool);
-    std.debug.assert(@TypeOf(Cpuid.StructuredEcx.hasReserved) == fn (Cpuid.StructuredEcx) bool);
-    std.debug.assert(@TypeOf(Cpuid.StructuredEdx.hasReserved) == fn (Cpuid.StructuredEdx) bool);
-    std.debug.assert(@TypeOf(Cpuid.ExtendedFeatureEdx.hasReserved) == fn (Cpuid.ExtendedFeatureEdx) bool);
-    std.debug.assert(@TypeOf(Cpuid.ExtendedFeatureEcx.hasReserved) == fn (Cpuid.ExtendedFeatureEcx) bool);
+    std.debug.assert(@TypeOf(cpuid.BasicFeatureEdx.hasReserved) == fn (cpuid.BasicFeatureEdx) bool);
+    std.debug.assert(@TypeOf(cpuid.BasicFeatureEcx.hasReserved) == fn (cpuid.BasicFeatureEcx) bool);
+    std.debug.assert(@TypeOf(cpuid.StructuredEbx.hasReserved) == fn (cpuid.StructuredEbx) bool);
+    std.debug.assert(@TypeOf(cpuid.StructuredEcx.hasReserved) == fn (cpuid.StructuredEcx) bool);
+    std.debug.assert(@TypeOf(cpuid.StructuredEdx.hasReserved) == fn (cpuid.StructuredEdx) bool);
+    std.debug.assert(@TypeOf(cpuid.ExtendedFeatureEdx.hasReserved) == fn (cpuid.ExtendedFeatureEdx) bool);
+    std.debug.assert(@TypeOf(cpuid.ExtendedFeatureEcx.hasReserved) == fn (cpuid.ExtendedFeatureEcx) bool);
 
     // Vendor enum: exactly seven tags in the documented order. Spec
     // §Vendor and version.
-    const vendor_info = @typeInfo(Cpuid.Vendor).@"enum";
+    const vendor_info = @typeInfo(cpuid.Vendor).@"enum";
     std.debug.assert(vendor_info.fields.len == 7);
     std.debug.assert(std.mem.eql(u8, vendor_info.fields[0].name, "intel"));
     std.debug.assert(std.mem.eql(u8, vendor_info.fields[1].name, "amd"));
     std.debug.assert(std.mem.eql(u8, vendor_info.fields[6].name, "unknown"));
 
-    // Cache.Kind: `enum(u5)` with `_` sentinel (i.e., non-exhaustive).
+    // cache.Kind: `enum(u5)` with `_` sentinel (i.e., non-exhaustive).
     // Spec §Cache topology.
-    const kind_info = @typeInfo(Cpuid.Cache.Kind).@"enum";
+    const kind_info = @typeInfo(cpuid.cache.Kind).@"enum";
     std.debug.assert(kind_info.tag_type == u5);
     std.debug.assert(!kind_info.is_exhaustive);
-    std.debug.assert(@intFromEnum(Cpuid.Cache.Kind.null) == 0);
-    std.debug.assert(@intFromEnum(Cpuid.Cache.Kind.data) == 1);
-    std.debug.assert(@intFromEnum(Cpuid.Cache.Kind.instruction) == 2);
-    std.debug.assert(@intFromEnum(Cpuid.Cache.Kind.unified) == 3);
+    std.debug.assert(@intFromEnum(cpuid.cache.Kind.null) == 0);
+    std.debug.assert(@intFromEnum(cpuid.cache.Kind.data) == 1);
+    std.debug.assert(@intFromEnum(cpuid.cache.Kind.instruction) == 2);
+    std.debug.assert(@intFromEnum(cpuid.cache.Kind.unified) == 3);
 
     // Version field types match the spec's Approved API block.
-    std.debug.assert(@FieldType(Cpuid.Version, "family") == u12);
-    std.debug.assert(@FieldType(Cpuid.Version, "model") == u8);
-    std.debug.assert(@FieldType(Cpuid.Version, "stepping") == u4);
-    std.debug.assert(@FieldType(Cpuid.Version, "eax") == u32);
+    std.debug.assert(@FieldType(cpuid.Version, "family") == u12);
+    std.debug.assert(@FieldType(cpuid.Version, "model") == u8);
+    std.debug.assert(@FieldType(cpuid.Version, "stepping") == u4);
+    std.debug.assert(@FieldType(cpuid.Version, "eax") == u32);
 
     // AddressSizes field types.
-    std.debug.assert(@FieldType(Cpuid.AddressSizes, "physical_bits") == u8);
-    std.debug.assert(@FieldType(Cpuid.AddressSizes, "linear_bits") == u8);
-    std.debug.assert(@FieldType(Cpuid.AddressSizes, "guest_physical_bits") == u8);
+    std.debug.assert(@FieldType(cpuid.AddressSizes, "physical_bits") == u8);
+    std.debug.assert(@FieldType(cpuid.AddressSizes, "linear_bits") == u8);
+    std.debug.assert(@FieldType(cpuid.AddressSizes, "guest_physical_bits") == u8);
 }
 
 // Compile-only accessor signatures: every asm-emitting accessor exists on
@@ -129,27 +129,27 @@ fn expectFn(comptime T: type, comptime f: anytype) void {
     comptime testing.expectEqual(T, @TypeOf(f)) catch unreachable;
 }
 
-test "contract: Cpuid vendor/version/brand accessors instantiate" {
+test "contract: cpuid vendor/version/brand accessors instantiate" {
     if (!x86.supported) return;
-    expectFn(fn () Cpuid.Vendor, Cpuid.vendor);
-    expectFn(fn () [12]u8, Cpuid.vendorString);
-    expectFn(fn () Cpuid.Version, Cpuid.version);
-    expectFn(fn () ?[48]u8, Cpuid.brandString);
+    expectFn(fn () cpuid.Vendor, cpuid.vendor);
+    expectFn(fn () [12]u8, cpuid.vendorString);
+    expectFn(fn () cpuid.Version, cpuid.version);
+    expectFn(fn () ?[48]u8, cpuid.brandString);
 }
 
-test "contract: Cpuid feature accessors instantiate" {
+test "contract: cpuid feature accessors instantiate" {
     if (!x86.supported) return;
-    expectFn(fn () Cpuid.BasicFeatures, Cpuid.basicFeatures);
-    expectFn(fn () Cpuid.StructuredFeatures, Cpuid.structuredFeatures);
-    expectFn(fn () Cpuid.ExtendedFeatures, Cpuid.extendedFeatures);
-    expectFn(fn () Cpuid.Features, Cpuid.features);
+    expectFn(fn () cpuid.BasicFeatures, cpuid.basicFeatures);
+    expectFn(fn () cpuid.StructuredFeatures, cpuid.structuredFeatures);
+    expectFn(fn () cpuid.ExtendedFeatures, cpuid.extendedFeatures);
+    expectFn(fn () cpuid.Features, cpuid.features);
 }
 
-test "contract: Cpuid caches/addressSizes instantiate" {
+test "contract: cpuid caches/addressSizes instantiate" {
     if (!x86.supported) return;
-    expectFn(fn () Cpuid.Cache.Iterator, Cpuid.caches);
-    expectFn(fn () Cpuid.AddressSizes, Cpuid.addressSizes);
-    expectFn(fn (*Cpuid.Cache.Iterator) ?Cpuid.Cache.Descriptor, Cpuid.Cache.Iterator.next);
+    expectFn(fn () cpuid.cache.Iterator, cpuid.caches);
+    expectFn(fn () cpuid.AddressSizes, cpuid.addressSizes);
+    expectFn(fn (*cpuid.cache.Iterator) ?cpuid.cache.Descriptor, cpuid.cache.Iterator.next);
 }
 
 // Value-only model assertions that do not depend on the running CPU.
@@ -157,21 +157,21 @@ test "contract: Cpuid caches/addressSizes instantiate" {
 test "model: hasReserved returns true when a reserved bit is set" {
     // BasicFeatureEdx reserved bits are at positions 10, 20, 30. Set bit 10.
     const raw: u32 = 1 << 10;
-    const mask: Cpuid.BasicFeatureEdx = @bitCast(raw);
+    const mask: cpuid.BasicFeatureEdx = @bitCast(raw);
     try testing.expect(mask.hasReserved());
     // Confirm round-trip preserves the bit.
     try testing.expectEqual(raw, @as(u32, @bitCast(mask)));
 }
 
 test "model: hasReserved is false on a zeroed mask" {
-    const mask: Cpuid.BasicFeatureEdx = @bitCast(@as(u32, 0));
+    const mask: cpuid.BasicFeatureEdx = @bitCast(@as(u32, 0));
     try testing.expect(!mask.hasReserved());
 }
 
 test "model: BasicFeatureEcx round-trips a reserved bit at position 16" {
     // Ecx reserved bit is at 16.
     const raw: u32 = 1 << 16;
-    const mask: Cpuid.BasicFeatureEcx = @bitCast(raw);
+    const mask: cpuid.BasicFeatureEcx = @bitCast(raw);
     try testing.expect(mask.hasReserved());
     try testing.expectEqual(raw, @as(u32, @bitCast(mask)));
 }
@@ -179,7 +179,7 @@ test "model: BasicFeatureEcx round-trips a reserved bit at position 16" {
 test "model: ExtendedFeatureEdx wide reserved run sets hasReserved" {
     // ExtendedFeatureEdx bits 0..10 are all reserved. Set bit 0.
     const raw: u32 = 1 << 0;
-    const mask: Cpuid.ExtendedFeatureEdx = @bitCast(raw);
+    const mask: cpuid.ExtendedFeatureEdx = @bitCast(raw);
     try testing.expect(mask.hasReserved());
 }
 
@@ -188,14 +188,14 @@ test "model: ExtendedFeatureEdx wide reserved run sets hasReserved" {
 
 test "unit: vendor returns intel, amd, or unknown" {
     if (builtin.cpu.arch != .x86_64) return;
-    const v = Cpuid.vendor();
+    const v = cpuid.vendor();
     try testing.expect(v == .intel or v == .amd or v == .unknown);
 }
 
 test "unit: vendorString matches vendor enum prefix" {
     if (builtin.cpu.arch != .x86_64) return;
-    const s = Cpuid.vendorString();
-    switch (Cpuid.vendor()) {
+    const s = cpuid.vendorString();
+    switch (cpuid.vendor()) {
         .intel => try testing.expectEqualSlices(u8, "Genu", s[0..4]),
         .amd => try testing.expectEqualSlices(u8, "Auth", s[0..4]),
         else => {},
@@ -204,13 +204,13 @@ test "unit: vendorString matches vendor enum prefix" {
 
 test "unit: version.family is at least 6 on modern CPUs" {
     if (builtin.cpu.arch != .x86_64) return;
-    const v = Cpuid.version();
+    const v = cpuid.version();
     try testing.expect(v.family >= 6);
 }
 
 test "unit: basicFeatures FPU and TSC are true; reserved is clean" {
     if (builtin.cpu.arch != .x86_64) return;
-    const bf = Cpuid.basicFeatures();
+    const bf = cpuid.basicFeatures();
     try testing.expect(bf.edx.fpu);
     try testing.expect(bf.edx.tsc);
     try testing.expect(!bf.edx.hasReserved());
@@ -218,10 +218,10 @@ test "unit: basicFeatures FPU and TSC are true; reserved is clean" {
 
 test "unit: features() bundle matches individual accessors" {
     if (builtin.cpu.arch != .x86_64) return;
-    const bundle = Cpuid.features();
-    const basic = Cpuid.basicFeatures();
-    const structured = Cpuid.structuredFeatures();
-    const extended = Cpuid.extendedFeatures();
+    const bundle = cpuid.features();
+    const basic = cpuid.basicFeatures();
+    const structured = cpuid.structuredFeatures();
+    const extended = cpuid.extendedFeatures();
 
     try testing.expectEqual(@as(u32, @bitCast(basic.edx)), @as(u32, @bitCast(bundle.basic.edx)));
     try testing.expectEqual(@as(u32, @bitCast(basic.ecx)), @as(u32, @bitCast(bundle.basic.ecx)));
@@ -240,9 +240,9 @@ test "unit: caches iterator produces well-formed L1 descriptor when populated" {
     // iterator correctly returns null on the first call; skip the L1
     // shape assertion in that case per the spec's "when leaf 4 is
     // populated" wording.
-    if (Cpuid.maxBasicLeaf() < 4) return;
+    if (cpuid.maxBasicLeaf() < 4) return;
 
-    var it = Cpuid.caches();
+    var it = cpuid.caches();
     var seen_l1_64 = false;
     var count: u32 = 0;
     while (it.next()) |desc| : (count += 1) {
@@ -262,7 +262,7 @@ test "unit: caches iterator produces well-formed L1 descriptor when populated" {
 
 test "unit: brandString returns non-null printable ASCII on modern CPUs" {
     if (builtin.cpu.arch != .x86_64) return;
-    const brand = Cpuid.brandString() orelse return error.TestSkipped;
+    const brand = cpuid.brandString() orelse return error.TestSkipped;
     const trimmed = std.mem.sliceTo(&brand, 0);
     try testing.expect(trimmed.len > 0);
     for (trimmed) |c| {
@@ -273,6 +273,6 @@ test "unit: brandString returns non-null printable ASCII on modern CPUs" {
 
 test "unit: addressSizes physical_bits is between 32 and 57" {
     if (builtin.cpu.arch != .x86_64) return;
-    const s = Cpuid.addressSizes();
+    const s = cpuid.addressSizes();
     try testing.expect(s.physical_bits >= 32 and s.physical_bits <= 57);
 }
