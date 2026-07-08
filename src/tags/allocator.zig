@@ -87,6 +87,8 @@ pub const TagAllocator = struct {
                 return !testBit(self.words[0..], idx);
             }
 
+            /// `error.OutOfTags`: no free tag. Unchanged on error.
+            /// Successful tag values may be reused after `freeOne`.
             pub fn allocOne(self: *Self) Error!Tag {
                 const before = self.allocated_count;
                 std.debug.assert(before <= tag_capacity);
@@ -100,6 +102,8 @@ pub const TagAllocator = struct {
                 return Tag.fromInt(@intCast(idx));
             }
 
+            /// `error.OutOfBounds`: `tag.raw() >= capacity()`.
+            /// `error.AlreadyAllocated`: the tag is already reserved. Unchanged on error.
             pub fn reserveOne(self: *Self, tag: Tag) Error!void {
                 const before = self.allocated_count;
                 std.debug.assert(before <= tag_capacity);
@@ -113,6 +117,9 @@ pub const TagAllocator = struct {
                 std.debug.assert(self.allocated_count == before + 1);
             }
 
+            /// `error.OutOfBounds`: `tag.raw() >= capacity()`.
+            /// `error.NotAllocated`: the tag is already free. Unchanged on error.
+            /// No destructor is invoked for external resources keyed by the tag.
             pub fn freeOne(self: *Self, tag: Tag) Error!void {
                 const before = self.allocated_count;
                 std.debug.assert(before <= tag_capacity);
@@ -220,6 +227,8 @@ pub const TagAllocator = struct {
                 return !testBit(self.words, idx);
             }
 
+            /// `error.OutOfTags`: no free tag. Unchanged on error.
+            /// Successful tag values may be reused after `freeOne`.
             pub fn allocOne(self: *Self) Error!Tag {
                 const before = self.allocated_count;
                 std.debug.assert(before <= self.tag_capacity);
@@ -233,6 +242,8 @@ pub const TagAllocator = struct {
                 return Tag.fromInt(@intCast(idx));
             }
 
+            /// `error.OutOfBounds`: `tag.raw() >= capacity()`.
+            /// `error.AlreadyAllocated`: the tag is already reserved. Unchanged on error.
             pub fn reserveOne(self: *Self, tag: Tag) Error!void {
                 const before = self.allocated_count;
                 std.debug.assert(before <= self.tag_capacity);
@@ -246,6 +257,9 @@ pub const TagAllocator = struct {
                 std.debug.assert(self.allocated_count == before + 1);
             }
 
+            /// `error.OutOfBounds`: `tag.raw() >= capacity()`.
+            /// `error.NotAllocated`: the tag is already free. Unchanged on error.
+            /// No destructor is invoked for external resources keyed by the tag.
             pub fn freeOne(self: *Self, tag: Tag) Error!void {
                 const before = self.allocated_count;
                 std.debug.assert(before <= self.tag_capacity);

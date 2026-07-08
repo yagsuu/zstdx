@@ -6,7 +6,10 @@ const debug = @import("../core/debug.zig");
 const endian = @import("../layout/endian.zig");
 
 fn isAllowedNativeInt(comptime T: type) bool {
-    return T == u8 or T == u16 or T == u32 or T == u64;
+    return switch (T) {
+        u8, u16, u32, u64 => true,
+        else => false,
+    };
 }
 
 fn isAllowedEndianInt(comptime T: type) bool {
@@ -22,7 +25,10 @@ fn isAllowedPackedStruct(comptime T: type) bool {
     if (info != .@"struct") return false;
     if (info.@"struct".layout != .@"packed") return false;
     const backing = info.@"struct".backing_integer orelse return false;
-    return backing == u8 or backing == u16 or backing == u32 or backing == u64;
+    return switch (backing) {
+        u8, u16, u32, u64 => true,
+        else => false,
+    };
 }
 
 fn requireRegisterType(comptime T: type) void {

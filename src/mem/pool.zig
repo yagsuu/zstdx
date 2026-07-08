@@ -260,5 +260,5 @@ fn slotInBuffer(comptime Slot: type, buffer: []const Slot, slot: *const Slot) bo
 
     const offset = slot_addr - base_addr;
     if (offset % @sizeOf(Slot) != 0) return false;
-    return offset / @sizeOf(Slot) < buffer.len;
+    return @divExact(offset, @sizeOf(Slot)) < buffer.len;
 }

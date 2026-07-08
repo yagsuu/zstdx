@@ -299,7 +299,9 @@ fn DiagnosticChild(comptime T: type) type {
         .null => NoopDiagnostics,
         .pointer => |pointer| pointer.child,
         .optional => |optional| DiagnosticChild(optional.child),
-        else => @compileError("diagnostics value must be null, a diagnostics pointer, or an optional diagnostics pointer"),
+        else => @compileError(
+            "diagnostics value must be null, a diagnostics pointer, or an optional diagnostics pointer",
+        ),
     };
 }
 
@@ -313,7 +315,9 @@ fn diagnosticPointer(value: anytype) ?DiagnosticPointer(@TypeOf(value)) {
         .null => null,
         .pointer => value,
         .optional => if (value) |child| diagnosticPointer(child) else null,
-        else => @compileError("diagnostics value must be null, a diagnostics pointer, or an optional diagnostics pointer"),
+        else => @compileError(
+            "diagnostics value must be null, a diagnostics pointer, or an optional diagnostics pointer",
+        ),
     };
 }
 

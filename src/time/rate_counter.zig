@@ -122,7 +122,7 @@ fn project(self: *const RateCounter, now: Instant) Projection {
     // fault-free outside the checked contract.
     const elapsed_i64: i64 = now.since(self.base).nanos();
     const elapsed_ns: u128 = if (elapsed_i64 < 0) 0 else @intCast(elapsed_i64);
-    const unbounded: u128 = (elapsed_ns * @as(u128, self.rate_hz)) / nanos_per_second;
+    const unbounded: u128 = @divFloor(elapsed_ns * @as(u128, self.rate_hz), nanos_per_second);
 
     if (self.width_bits == 64) {
         return .{

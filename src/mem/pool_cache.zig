@@ -80,7 +80,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             next: ?*RegionHeader,
             list: ListId,
             inner: InnerPool,
-            region_ptr: [*]align(region_align_const) u8,
+            region_ptr: [*]align(region_align) u8,
 
             const ListId = enum(u8) { empty, partial, full };
         };
@@ -96,16 +96,11 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
         /// Number of slots per region. Region layout is `RegionHeader`,
         /// alignment padding, then a contiguous `[slots_per_region]Slot`
         /// array. Derived once at instantiation.
-        pub const slots_per_region: usize = blk: {
-            const header_end = @sizeOf(RegionHeader);
-            const slot_start = alignment.alignUp(usize, header_end, @alignOf(Slot)) catch unreachable;
-            const remaining_bytes = RegionSource.region_bytes - slot_start;
-            break :blk remaining_bytes / @sizeOf(Slot);
-        };
+        pub const slots_per_region: usize = @divFloor(RegionSource.region_bytes - slot_start, @sizeOf(Slot));
 
-        const region_bytes_const: usize = RegionSource.region_bytes;
-        const region_align_const: usize = RegionSource.region_align;
-        const slot_start_const: usize = alignment.alignUp(usize, @sizeOf(RegionHeader), @alignOf(Slot)) catch unreachable;
+        const region_bytes: usize = RegionSource.region_bytes;
+        const region_align: usize = RegionSource.region_align;
+        const slot_start: usize = alignment.alignUp(usize, @sizeOf(RegionHeader), @alignOf(Slot)) catch unreachable;
 
         comptime {
             requireRegionSource(RegionSource, RegionHeader, Slot);
@@ -181,10 +176,10 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
         /// empty list. Propagates the source's error unchanged.
         pub fn refill(self: *Self) RefillError!void {
             const region = try self.source.acquire();
-            const region_bytes: [*]align(region_align_const) u8 = @ptrCast(region);
-            const header: *RegionHeader = @ptrCast(@alignCast(region_bytes));
+            const region_base: [*]align(region_align) u8 = @ptrCast(region);
+            const header: *RegionHeader = @ptrCast(@alignCast(region_base));
 
-            const slot_bytes: [*]align(@alignOf(Slot)) u8 = @alignCast(region_bytes + slot_start_const);
+            const slot_bytes: [*]align(@alignOf(Slot)) u8 = @alignCast(region_base + slot_start);
             const slots_ptr: [*]Slot = @ptrCast(slot_bytes);
             const slots = slots_ptr[0..slots_per_region];
 
@@ -192,7 +187,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
                 .next = null,
                 .list = .empty,
                 .inner = InnerPool.wrap(slots),
-                .region_ptr = region_bytes,
+                .region_ptr = region_base,
             };
 
             pushHead(&self.empty_head, header);
@@ -208,7 +203,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             while (current) |header| {
                 const next = header.next;
                 const region_ptr = header.region_ptr;
-                const region_array: *align(region_align_const) [region_bytes_const]u8 =
+                const region_array: *align(region_align) [region_bytes]u8 =
                     @ptrCast(@alignCast(region_ptr));
                 self.source.release(region_array);
                 self.region_count -= 1;
@@ -307,14 +302,14 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             return false;
         }
 
-        fn regionPtrFromItem(item: anytype) [*]align(region_align_const) u8 {
+        fn regionPtrFromItem(item: anytype) [*]align(region_align) u8 {
             const raw: usize = @intFromPtr(item);
-            const mask: usize = ~(region_align_const - 1);
+            const mask: usize = ~(region_align - 1);
             const base = raw & mask;
             return @ptrFromInt(base);
         }
 
-        fn headerFromRegionPtr(region_ptr: [*]align(region_align_const) u8) *RegionHeader {
+        fn headerFromRegionPtr(region_ptr: [*]align(region_align) u8) *RegionHeader {
             return @ptrCast(@alignCast(region_ptr));
         }
     };

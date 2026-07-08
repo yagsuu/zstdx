@@ -49,10 +49,16 @@ pub const RangeSet = struct {
                 self.count = 0;
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Full`: canonical result would exceed capacity.
+            /// Empty range is a no-op. Success invalidates prior slices; error leaves set unchanged.
             pub fn insert(self: *Self, range: Range) Error!void {
                 try insertRange(Range, self.buffer[0..], &self.count, range);
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Full`: middle split needs a slot at capacity.
+            /// Empty/disjoint ranges are no-ops. Success invalidates prior slices; error leaves set unchanged.
             pub fn remove(self: *Self, range: Range) Error!void {
                 try removeRange(Range, self.buffer[0..], &self.count, range);
             }
@@ -61,10 +67,14 @@ pub const RangeSet = struct {
                 return self.findContaining(value) != null;
             }
 
+            /// Precondition: `range.isValid()`. Empty ranges follow `Range`
+            /// boundary containment: inside stored ranges or on boundaries, never gaps.
             pub fn containsRange(self: *const Self, range: Range) bool {
                 return containsRangeInSlice(Range, self.asConstSlice(), range);
             }
 
+            /// Precondition: `range.isValid()`.
+            /// Empty ranges never overlap. Non-empty ranges need a stored intersection.
             pub fn overlaps(self: *const Self, range: Range) bool {
                 return self.findIntersecting(range) != null;
             }
@@ -73,6 +83,8 @@ pub const RangeSet = struct {
                 return findContainingValue(Range, self.asConstSlice(), value);
             }
 
+            /// Precondition: `range.isValid()`.
+            /// First ascending non-empty intersection, or `null`. Empty ranges yield `null`.
             pub fn findIntersecting(self: *const Self, range: Range) ?Range {
                 return findIntersectingRange(Range, self.asConstSlice(), range);
             }
@@ -125,10 +137,16 @@ pub const RangeSet = struct {
                 self.count = 0;
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Full`: canonical result would exceed capacity.
+            /// Empty range is a no-op. Success invalidates prior slices; error leaves set unchanged.
             pub fn insert(self: *Self, range: Range) Error!void {
                 try insertRange(Range, self.buffer, &self.count, range);
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Full`: middle split needs a slot at capacity.
+            /// Empty/disjoint ranges are no-ops. Success invalidates prior slices; error leaves set unchanged.
             pub fn remove(self: *Self, range: Range) Error!void {
                 try removeRange(Range, self.buffer, &self.count, range);
             }
@@ -137,10 +155,14 @@ pub const RangeSet = struct {
                 return self.findContaining(value) != null;
             }
 
+            /// Precondition: `range.isValid()`. Empty ranges follow `Range`
+            /// boundary containment: inside stored ranges or on boundaries, never gaps.
             pub fn containsRange(self: *const Self, range: Range) bool {
                 return containsRangeInSlice(Range, self.asConstSlice(), range);
             }
 
+            /// Precondition: `range.isValid()`.
+            /// Empty ranges never overlap. Non-empty ranges need a stored intersection.
             pub fn overlaps(self: *const Self, range: Range) bool {
                 return self.findIntersecting(range) != null;
             }
@@ -149,6 +171,8 @@ pub const RangeSet = struct {
                 return findContainingValue(Range, self.asConstSlice(), value);
             }
 
+            /// Precondition: `range.isValid()`.
+            /// First ascending non-empty intersection, or `null`. Empty ranges yield `null`.
             pub fn findIntersecting(self: *const Self, range: Range) ?Range {
                 return findIntersectingRange(Range, self.asConstSlice(), range);
             }
@@ -232,7 +256,7 @@ fn findContainingValue(comptime Range: type, ranges: []const Range, value: anyty
     var low: usize = 0;
     var high: usize = ranges.len;
     while (low < high) {
-        const mid = low + (high - low) / 2;
+        const mid = low + @divFloor(high - low, 2);
         if (value < ranges[mid].start) {
             high = mid;
         } else if (value >= ranges[mid].end) {
@@ -265,7 +289,7 @@ fn findIntersectingRange(comptime Range: type, ranges: []const Range, range: Ran
     var low: usize = 0;
     var high: usize = ranges.len;
     while (low < high) {
-        const mid = low + (high - low) / 2;
+        const mid = low + @divFloor(high - low, 2);
         if (ranges[mid].end <= range.start) {
             low = mid + 1;
         } else {

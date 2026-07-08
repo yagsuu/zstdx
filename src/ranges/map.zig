@@ -58,14 +58,27 @@ pub const RangeMap = struct {
                 self.count = 0;
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Overlap`: `range` overlaps a stored entry.
+            /// `error.Full`: disjoint insert needs a slot at capacity.
+            /// Empty range is a no-op. Success invalidates prior pointers/slices.
+            /// Error leaves map unchanged.
             pub fn insert(self: *Self, range: Range, value: V) Error!void {
                 try insertEntry(Range, Entry, self.buffer[0..], &self.count, range, value);
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Full`: final entry count would exceed capacity.
+            /// Empty range is a no-op. Assignment never coalesces neighbors.
+            /// Success invalidates prior pointers/slices; error leaves map unchanged.
             pub fn assign(self: *Self, range: Range, value: V) Error!void {
                 try assignEntry(Range, Entry, self.buffer[0..], &self.count, range, value);
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Full`: middle split needs a slot at capacity.
+            /// Empty/disjoint ranges are no-ops; there is no `NotFound`.
+            /// Success invalidates prior pointers/slices; error leaves map unchanged.
             pub fn remove(self: *Self, range: Range) Error!void {
                 try removeEntry(Range, Entry, self.buffer[0..], &self.count, range);
             }
@@ -78,23 +91,35 @@ pub const RangeMap = struct {
                 return self.findContaining(value) != null;
             }
 
+            /// Returned pointer aliases the stored value and is invalidated by any
+            /// mutation, move, or `clearRetainingCapacity`.
             pub fn get(self: *const Self, value: T) ?*const V {
                 const entry = self.findContaining(value) orelse return null;
                 return &entry.value;
             }
 
+            /// Precondition: `range.isValid()`. Adjacent entries count as continuous
+            /// coverage even with differing values. Empty ranges follow boundary
+            /// containment on mapped entries, never gaps.
             pub fn containsRange(self: *const Self, range: Range) bool {
                 return containsMappedRange(Range, Entry, self.asConstSlice(), range);
             }
 
+            /// Precondition: `range.isValid()`.
+            /// Empty ranges never overlap. Non-empty ranges need a stored-entry intersection.
             pub fn overlaps(self: *const Self, range: Range) bool {
                 return self.findIntersecting(range) != null;
             }
 
+            /// Returned pointer aliases stored storage and is invalidated by any
+            /// mutation, move, or `clearRetainingCapacity`.
             pub fn findContaining(self: *const Self, value: T) ?*const Entry {
                 return findContainingEntry(Range, Entry, self.asConstSlice(), value);
             }
 
+            /// Precondition: `range.isValid()`.
+            /// First ascending intersecting entry, or `null`. Empty ranges yield `null`.
+            /// Pointer is invalidated by mutation, move, or clear.
             pub fn findIntersecting(self: *const Self, range: Range) ?*const Entry {
                 return findIntersectingEntry(Range, Entry, self.asConstSlice(), range);
             }
@@ -152,14 +177,27 @@ pub const RangeMap = struct {
                 self.count = 0;
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Overlap`: `range` overlaps a stored entry.
+            /// `error.Full`: disjoint insert needs a slot at capacity.
+            /// Empty range is a no-op. Success invalidates prior pointers/slices.
+            /// Error leaves map unchanged.
             pub fn insert(self: *Self, range: Range, value: V) Error!void {
                 try insertEntry(Range, Entry, self.buffer, &self.count, range, value);
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Full`: final entry count would exceed capacity.
+            /// Empty range is a no-op. Assignment never coalesces neighbors.
+            /// Success invalidates prior pointers/slices; error leaves map unchanged.
             pub fn assign(self: *Self, range: Range, value: V) Error!void {
                 try assignEntry(Range, Entry, self.buffer, &self.count, range, value);
             }
 
+            /// `error.InvalidRange`: `range` is invalid.
+            /// `error.Full`: middle split needs a slot at capacity.
+            /// Empty/disjoint ranges are no-ops; there is no `NotFound`.
+            /// Success invalidates prior pointers/slices; error leaves map unchanged.
             pub fn remove(self: *Self, range: Range) Error!void {
                 try removeEntry(Range, Entry, self.buffer, &self.count, range);
             }
@@ -172,23 +210,35 @@ pub const RangeMap = struct {
                 return self.findContaining(value) != null;
             }
 
+            /// Returned pointer aliases the stored value and is invalidated by any
+            /// mutation, move, or `clearRetainingCapacity`.
             pub fn get(self: *const Self, value: T) ?*const V {
                 const entry = self.findContaining(value) orelse return null;
                 return &entry.value;
             }
 
+            /// Precondition: `range.isValid()`. Adjacent entries count as continuous
+            /// coverage even with differing values. Empty ranges follow boundary
+            /// containment on mapped entries, never gaps.
             pub fn containsRange(self: *const Self, range: Range) bool {
                 return containsMappedRange(Range, Entry, self.asConstSlice(), range);
             }
 
+            /// Precondition: `range.isValid()`.
+            /// Empty ranges never overlap. Non-empty ranges need a stored-entry intersection.
             pub fn overlaps(self: *const Self, range: Range) bool {
                 return self.findIntersecting(range) != null;
             }
 
+            /// Returned pointer aliases stored storage and is invalidated by any
+            /// mutation, move, or `clearRetainingCapacity`.
             pub fn findContaining(self: *const Self, value: T) ?*const Entry {
                 return findContainingEntry(Range, Entry, self.asConstSlice(), value);
             }
 
+            /// Precondition: `range.isValid()`.
+            /// First ascending intersecting entry, or `null`. Empty ranges yield `null`.
+            /// Pointer is invalidated by mutation, move, or clear.
             pub fn findIntersecting(self: *const Self, range: Range) ?*const Entry {
                 return findIntersectingEntry(Range, Entry, self.asConstSlice(), range);
             }
@@ -341,7 +391,7 @@ fn findContainingEntry(
     var low: usize = 0;
     var high: usize = entries.len;
     while (low < high) {
-        const mid = low + (high - low) / 2;
+        const mid = low + @divFloor(high - low, 2);
         if (value < entries[mid].range.start) {
             high = mid;
         } else if (value >= entries[mid].range.end) {
@@ -361,7 +411,7 @@ fn containsMappedRange(comptime Range: type, comptime Entry: type, entries: []co
     var covered_end = first.range.end;
     if (covered_end >= range.end) return true;
 
-    var index = (@intFromPtr(first) - @intFromPtr(entries.ptr)) / @sizeOf(Entry) + 1;
+    var index = @divExact(@intFromPtr(first) - @intFromPtr(entries.ptr), @sizeOf(Entry)) + 1;
     while (index < entries.len and entries[index].range.start <= covered_end) : (index += 1) {
         covered_end = entries[index].range.end;
         if (covered_end >= range.end) return true;
@@ -394,7 +444,7 @@ fn findIntersectingEntry(
     var low: usize = 0;
     var high: usize = entries.len;
     while (low < high) {
-        const mid = low + (high - low) / 2;
+        const mid = low + @divFloor(high - low, 2);
         if (entries[mid].range.end <= range.start) {
             low = mid + 1;
         } else {

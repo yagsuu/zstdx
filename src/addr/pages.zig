@@ -37,7 +37,9 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
 
         pub const Size = struct {
             pub const bytes: AddressInt = page_size;
+            /// Sub-page offset mask (`bytes - 1`).
             pub const mask: AddressInt = page_size - 1;
+            /// Base-2 page shift; valid because `bytes` is a power of two.
             pub const shift: comptime_int = @ctz(page_size);
         };
 
@@ -62,17 +64,20 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return fromPages(std.math.maxInt(AddressInt));
             }
 
+            /// `bytes` must be an exact multiple of `Size.bytes`; otherwise `error.Misaligned`.
             pub fn fromBytesExact(bytes: AddressInt) Error!This {
                 if ((bytes & Size.mask) != 0) return error.Misaligned;
                 return fromPages(bytes >> Size.shift);
             }
 
+            /// Rounds toward larger page count; `error.Overflow` when padding overflows.
             pub fn fromBytesRoundUp(bytes: AddressInt) Error!This {
                 if (bytes == 0) return zero();
                 const rounded = std.math.add(AddressInt, bytes, Size.mask) catch return error.Overflow;
                 return fromPages(rounded >> Size.shift);
             }
 
+            /// Page count converted to bytes; `error.Overflow` on multiplication.
             pub fn toBytes(self: This) Error!AddressInt {
                 return std.math.mul(AddressInt, self.pages(), Size.bytes) catch return error.Overflow;
             }
@@ -83,11 +88,13 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
 
             const This = @This();
 
+            /// `addr_value` must be page-aligned; otherwise `error.Misaligned`.
             pub fn fromAddress(addr_value: Addr) Error!This {
                 if (!isAlignedAddress(addr_value)) return error.Misaligned;
                 return @enumFromInt(addr_value.raw());
             }
 
+            /// Integer-address form of `fromAddress`; unaligned values return `error.Misaligned`.
             pub fn fromAddressInt(value: AddressInt) Error!This {
                 return fromAddress(Addr.fromInt(value));
             }
@@ -100,6 +107,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return @intFromEnum(self);
             }
 
+            /// Frame index in page-size units.
             pub fn frameIndex(self: This) AddressInt {
                 return self.addressInt() >> Size.shift;
             }
@@ -116,22 +124,26 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return (addr_value.raw() & Size.mask) == 0;
             }
 
+            /// Rounds down to the containing page boundary.
             pub fn containingAddress(addr_value: Addr) Error!This {
                 return fromAddressInt(addr_value.raw() & ~Size.mask);
             }
 
+            /// Rounds up to the next page boundary; `error.Overflow` when padding overflows.
             pub fn nextAlignedAddress(addr_value: Addr) Error!This {
                 if (isAlignedAddress(addr_value)) return fromAddress(addr_value);
                 const added = std.math.add(AddressInt, addr_value.raw(), Size.mask) catch return error.Overflow;
                 return fromAddressInt(added & ~Size.mask);
             }
 
+            /// Forward offset in page units; `error.Overflow` on address addition.
             pub fn add(self: This, count: Count) Error!This {
                 const bytes = try count.toBytes();
                 const value = std.math.add(AddressInt, self.addressInt(), bytes) catch return error.Overflow;
                 return fromAddressInt(value);
             }
 
+            /// Backward offset in page units; `error.Overflow` on address subtraction.
             pub fn sub(self: This, count: Count) Error!This {
                 const bytes = try count.toBytes();
                 const value = std.math.sub(AddressInt, self.addressInt(), bytes) catch return error.Overflow;
@@ -145,17 +157,20 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
 
             const This = @This();
 
+            /// Half-open `[base, base + count)`; `error.Overflow` when the end is not representable.
             pub fn fromBaseCount(base: Frame, count: Count) Error!This {
                 _ = try base.add(count);
                 return .{ .base = base, .count = count };
             }
 
+            /// `base` and `bytes` must be page-aligned; `error.Overflow` when the end is not representable.
             pub fn fromAddressBytes(base: Addr, bytes: AddressInt) Error!This {
                 const frame = try Frame.fromAddress(base);
                 const count = try Count.fromBytesExact(bytes);
                 return fromBaseCount(frame, count);
             }
 
+            /// Covers a byte span by rounding start down and end up; `error.Overflow` on end rounding.
             pub fn fromAddressByteSpan(start: Addr, byte_len: AddressInt) Error!This {
                 const base = try Frame.containingAddress(start);
                 const raw_end = std.math.add(AddressInt, start.raw(), byte_len) catch return error.Overflow;
@@ -165,6 +180,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return fromBaseCount(base, try Count.fromBytesExact(bytes));
             }
 
+            /// Empty range anchored at `at`.
             pub fn empty(at: Frame) This {
                 return .{ .base = at, .count = Count.zero() };
             }
@@ -183,26 +199,31 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return self.count.pages() == 0;
             }
 
+            /// Byte extent of a valid range; valid ranges guarantee fit in `AddressInt`.
             pub fn byteLen(self: This) AddressInt {
                 self.assertValid();
                 return self.count.toBytes() catch unreachable;
             }
 
+            /// Exclusive end frame; receiver must be valid.
             pub fn end(self: This) Frame {
                 self.assertValid();
                 return self.base.add(self.count) catch unreachable;
             }
 
+            /// Half-open frame membership: `[base, end)`.
             pub fn containsFrame(self: This, frame: Frame) bool {
                 self.assertValid();
                 return self.base.addressInt() <= frame.addressInt() and frame.addressInt() < self.end().addressInt();
             }
 
+            /// Byte membership in `[base.addressInt(), end.addressInt())`; `address` need not be page-aligned.
             pub fn containsAddress(self: This, address: Addr) bool {
                 self.assertValid();
                 return self.base.addressInt() <= address.raw() and address.raw() < self.end().addressInt();
             }
 
+            /// Full containment; empty ranges may anchor at `[base, end]` boundaries.
             pub fn containsFrameRange(self: This, other: This) bool {
                 self.assertValid();
                 other.assertValid();
@@ -214,6 +235,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return self_start <= other_start and other_end <= self_end;
             }
 
+            /// Non-empty intersection only; adjacent and empty ranges do not overlap.
             pub fn overlaps(self: This, other: This) bool {
                 self.assertValid();
                 other.assertValid();
@@ -227,6 +249,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return self_start < other_end and other_start < self_end;
             }
 
+            /// Boundary equality; empty ranges follow the same boundary rule.
             pub fn isAdjacent(self: This, other: This) bool {
                 self.assertValid();
                 other.assertValid();
@@ -238,6 +261,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return self_end == other_start or other_end == self_start;
             }
 
+            /// Non-empty intersection, or `null` for disjoint, adjacent, or empty inputs.
             pub fn intersection(self: This, other: This) ?This {
                 if (!self.overlaps(other)) return null;
 
@@ -248,6 +272,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return fromBaseCount(base, count) catch unreachable;
             }
 
+            /// Smallest range covering both inputs and any gap; bounds come from existing valid endpoints.
             pub fn span(self: This, other: This) This {
                 self.assertValid();
                 other.assertValid();
@@ -259,6 +284,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return fromBaseCount(base, count) catch unreachable;
             }
 
+            /// Split boundary must lie in `[base, end]`; otherwise `error.OutOfBounds`.
             pub fn splitAt(self: This, at: Frame) Error!struct { left: This, right: This } {
                 self.assertValid();
                 at.assertValid();

@@ -9,8 +9,8 @@ const wrong_target = "stdx.barrier.dma: unsupported target; requires an arch spe
 
 /// Order prior stores to caller memory before a following store the device
 /// will observe via DMA. Emits `sfence` on x86_64 with a `memory` clobber.
-/// Not a cache-maintenance primitive; non-coherent DMA cache maintenance is
-/// owned by a future `stdx.barrier.cache` spec.
+/// Not a cache-maintenance primitive; cache-maintenance sequences are not
+/// owned by this API.
 pub inline fn release() void {
     if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
     x86_64.Fence.sfence();

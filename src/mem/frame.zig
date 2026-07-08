@@ -65,7 +65,9 @@ fn requireBackendErrorFits(comptime Backend: type, comptime Superset: type) void
             }
         }
         if (!found) {
-            @compileError("FrameAllocator backend Error contains variant not in FrameAllocator.Error: " ++ backend_err.name);
+            @compileError(
+                "FrameAllocator backend Error contains variant not in FrameAllocator.Error: " ++ backend_err.name,
+            );
         }
     }
 }
@@ -128,14 +130,28 @@ pub const FrameAllocator = struct {
                 return remainingBytesImpl(AddressInt, Page.Size.bytes, self.freeFrames());
             }
 
+            /// `order` selects `1 << order` frames.
+            /// `error.InvalidOrder`: `order >= backend.orderCount()`.
+            /// `error.OutOfMemory`: no fitting block.
+            /// `error.Overflow`: frame arithmetic overflow. Error leaves allocator unchanged.
             pub fn alloc(self: *Self, order: u8) Error!FrameRange {
                 return allocImpl(Backend, Page, &self.backend, base_frame, order);
             }
 
+            /// `range` must be a single allocated block.
+            /// `error.InvalidRequest`: bad size or alignment.
+            /// `error.OutOfBounds`: `range` escapes allocator span.
+            /// `error.NotAllocated`: double-free.
+            /// `error.Overflow`: unit arithmetic overflow. Error leaves allocator unchanged.
             pub fn free(self: *Self, range: FrameRange) Error!void {
                 return freeImpl(Backend, Page, &self.backend, base_frame, range);
             }
 
+            /// `error.InvalidRequest`: `range` is invalid.
+            /// `error.OutOfBounds`: `range` escapes allocator span.
+            /// `error.AlreadyAllocated`: any frame is already unavailable.
+            /// `error.Overflow`: unit arithmetic overflow. Empty in-bounds range is a no-op.
+            /// Error leaves allocator unchanged.
             pub fn reserve(self: *Self, range: FrameRange) Error!void {
                 return reserveImpl(Backend, Page, &self.backend, base_frame, range);
             }
@@ -215,14 +231,28 @@ pub const FrameAllocator = struct {
                 return remainingBytesImpl(AddressInt, Page.Size.bytes, self.freeFrames());
             }
 
+            /// `order` selects `1 << order` frames.
+            /// `error.InvalidOrder`: `order >= backend.orderCount()`.
+            /// `error.OutOfMemory`: no fitting block.
+            /// `error.Overflow`: frame arithmetic overflow. Error leaves allocator unchanged.
             pub fn alloc(self: *Self, order: u8) Error!FrameRange {
                 return allocImpl(Backend, Page, &self.backend, self.base, order);
             }
 
+            /// `range` must be a single allocated block.
+            /// `error.InvalidRequest`: bad size or alignment.
+            /// `error.OutOfBounds`: `range` escapes allocator span.
+            /// `error.NotAllocated`: double-free.
+            /// `error.Overflow`: unit arithmetic overflow. Error leaves allocator unchanged.
             pub fn free(self: *Self, range: FrameRange) Error!void {
                 return freeImpl(Backend, Page, &self.backend, self.base, range);
             }
 
+            /// `error.InvalidRequest`: `range` is invalid.
+            /// `error.OutOfBounds`: `range` escapes allocator span.
+            /// `error.AlreadyAllocated`: any frame is already unavailable.
+            /// `error.Overflow`: unit arithmetic overflow. Empty in-bounds range is a no-op.
+            /// Error leaves allocator unchanged.
             pub fn reserve(self: *Self, range: FrameRange) Error!void {
                 return reserveImpl(Backend, Page, &self.backend, self.base, range);
             }
@@ -259,7 +289,7 @@ fn allocImpl(
 ) FrameError!Page.FrameRange {
     if (order >= backend.orderCount()) return error.InvalidOrder;
     const block = try backend.alloc(order);
-    return frameRangeFromBlock(Page, base, block);
+    return frameRangeFromBlock(Backend, Page, base, block);
 }
 
 fn freeImpl(
@@ -352,7 +382,11 @@ fn largestFreeOrderImpl(comptime Backend: type, backend: *const Backend) ?u8 {
     }
 }
 
-fn remainingBytesImpl(comptime AddressInt: type, page_bytes: AddressInt, free_frames: AddressInt) FrameError!AddressInt {
+fn remainingBytesImpl(
+    comptime AddressInt: type,
+    page_bytes: AddressInt,
+    free_frames: AddressInt,
+) FrameError!AddressInt {
     return std.math.mul(AddressInt, free_frames, page_bytes) catch error.Overflow;
 }
 
@@ -376,13 +410,16 @@ fn isValidImpl(
 }
 
 fn frameRangeFromBlock(
+    comptime Backend: type,
     comptime Page: type,
     base: Page.Frame,
-    block: anytype,
+    block: Backend.Block,
 ) FrameError!Page.FrameRange {
-    const start_offset: Page.AddressInt = std.math.cast(Page.AddressInt, block.start) orelse return error.Overflow;
+    const start_offset: Page.AddressInt =
+        std.math.cast(Page.AddressInt, block.start) orelse return error.Overflow;
     const count_pages_native: usize = Buddy.blockSize(block.order) catch return error.Overflow;
-    const count_pages: Page.AddressInt = std.math.cast(Page.AddressInt, count_pages_native) orelse return error.Overflow;
+    const count_pages: Page.AddressInt =
+        std.math.cast(Page.AddressInt, count_pages_native) orelse return error.Overflow;
 
     const base_frame = base.add(Page.Count.fromPages(start_offset)) catch return error.Overflow;
     return Page.FrameRange.fromBaseCount(base_frame, Page.Count.fromPages(count_pages)) catch return error.Overflow;
@@ -446,11 +483,11 @@ fn FrameSourceImpl(comptime Parent: type, comptime Page: type, comptime order: u
             const count_pages = Buddy.blockSize(order) catch unreachable;
             const count = Page.Count.fromPages(@intCast(count_pages));
             const range = Page.FrameRange.fromBaseCount(frame, count) catch unreachable;
-            self.parent.free(range) catch |err| {
-                // Foreign region or double-release; matches RegionSource.release's
-                // infallible signature by asserting under safety checks.
-                std.debug.assert(err == error.OutOfMemory or err == error.NotAllocated or err == error.InvalidRequest);
-            };
+            self.parent.free(range) catch |err| std.debug.panic(
+                "FrameSource.release: parent.free failed ({s}); " ++
+                    "foreign region or double-release violates RegionSource contract",
+                .{@errorName(err)},
+            );
         }
     };
 }

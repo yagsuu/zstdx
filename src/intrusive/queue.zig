@@ -20,6 +20,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             return self.head == null;
         }
 
+        /// Borrowed FIFO head pointer; invalidated by mutation.
         pub fn front(self: *Self) ?*T {
             return self.head;
         }
@@ -36,6 +37,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             return self.tail;
         }
 
+        /// `item`'s node must be detached; FIFO order follows successful `pushBack` calls.
         pub fn pushBack(self: *Self, item: *T) void {
             assertDetached(item);
 
@@ -48,6 +50,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             }
         }
 
+        /// Returned node has `next` cleared before return.
         pub fn popFront(self: *Self) ?*T {
             const item = self.head orelse return null;
 
@@ -58,6 +61,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             return item;
         }
 
+        /// Detaches every node; parent objects are not moved, freed, or zeroed.
         pub fn clear(self: *Self) void {
             var current = self.head;
             while (current) |item| {
@@ -69,6 +73,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             self.tail = null;
         }
 
+        /// Checks endpoint symmetry, tail reachability, terminal null, and absence of a head cycle.
         pub fn assertValid(self: *const Self) void {
             if (self.head == null) {
                 std.debug.assert(self.tail == null);
@@ -83,7 +88,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
                 const next_fast = constNext(fast_item) orelse break;
                 fast = constNext(next_fast);
                 slow = if (slow) |slow_item| constNext(slow_item) else null;
-                if (fast != null and slow != null and fast.? == slow.?) unreachable;
+                if (fast) |f| if (slow) |s| if (f == s) unreachable;
             }
 
             var current: ?*const T = self.head;

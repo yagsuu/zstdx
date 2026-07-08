@@ -54,6 +54,7 @@ pub const List = struct {
                 return constItemFromNode(next_node);
             }
 
+            /// `item`'s node must be detached; double insert is a programmer error.
             pub fn pushFront(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -63,6 +64,7 @@ pub const List = struct {
                 if (self.tail == null) self.tail = item;
             }
 
+            /// `item`'s node must be detached; double insert is a programmer error.
             pub fn pushBack(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -75,6 +77,7 @@ pub const List = struct {
                 }
             }
 
+            /// `previous` must belong to this list; `item`'s node must be detached.
             pub fn insertAfter(self: *Self, previous: *T, item: *T) void {
                 assertDetached(item);
 
@@ -85,6 +88,7 @@ pub const List = struct {
                 if (self.tail == previous) self.tail = item;
             }
 
+            /// Returned node is detached before return.
             pub fn popFront(self: *Self) ?*T {
                 const item = self.head orelse return null;
 
@@ -95,6 +99,7 @@ pub const List = struct {
                 return item;
             }
 
+            /// Success detaches `item`; failure leaves the list unchanged.
             pub fn tryRemove(self: *Self, item: *T) bool {
                 var previous: ?*T = null;
                 var current = self.head;
@@ -117,6 +122,7 @@ pub const List = struct {
                 return false;
             }
 
+            /// Detaches every node; parent objects are not moved, freed, or zeroed.
             pub fn clear(self: *Self) void {
                 var current = self.head;
                 while (current) |item| {
@@ -128,6 +134,7 @@ pub const List = struct {
                 self.tail = null;
             }
 
+            /// Checks endpoint symmetry, tail reachability, terminal null, and absence of a head cycle.
             pub fn assertValid(self: *const Self) void {
                 if (self.head == null) {
                     std.debug.assert(self.tail == null);
@@ -142,7 +149,7 @@ pub const List = struct {
                     const next_fast = constNext(fast_item) orelse break;
                     fast = constNext(next_fast);
                     slow = if (slow) |slow_item| constNext(slow_item) else null;
-                    if (fast != null and slow != null and fast.? == slow.?) unreachable;
+                    if (fast) |f| if (slow) |s| if (f == s) unreachable;
                 }
 
                 var current: ?*const T = self.head;
@@ -230,6 +237,7 @@ pub const List = struct {
                 return constItemFromNode(previous_node);
             }
 
+            /// `item`'s node must be detached; double insert is a programmer error.
             pub fn pushFront(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -244,6 +252,7 @@ pub const List = struct {
                 }
             }
 
+            /// `item`'s node must be detached; double insert is a programmer error.
             pub fn pushBack(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -258,6 +267,7 @@ pub const List = struct {
                 }
             }
 
+            /// `next_item` must belong to this list; `item`'s node must be detached.
             pub fn insertBefore(self: *Self, next_item: *T, item: *T) void {
                 assertDetached(item);
 
@@ -275,6 +285,7 @@ pub const List = struct {
                 next_node.prev = item_node;
             }
 
+            /// `previous_item` must belong to this list; `item`'s node must be detached.
             pub fn insertAfter(self: *Self, previous_item: *T, item: *T) void {
                 assertDetached(item);
 
@@ -292,18 +303,21 @@ pub const List = struct {
                 previous_node.next = item_node;
             }
 
+            /// Returned node is detached before return.
             pub fn popFront(self: *Self) ?*T {
                 const item = self.head orelse return null;
                 self.remove(item);
                 return item;
             }
 
+            /// Returned node is detached before return.
             pub fn popBack(self: *Self) ?*T {
                 const item = self.tail orelse return null;
                 self.remove(item);
                 return item;
             }
 
+            /// `item` must belong to this list; success detaches it before return.
             pub fn remove(self: *Self, item: *T) void {
                 self.assertAttached(item);
                 const item_node = node(item);
@@ -324,6 +338,7 @@ pub const List = struct {
                 item_node.next = null;
             }
 
+            /// Detaches every node; parent objects are not moved, freed, or zeroed.
             pub fn clear(self: *Self) void {
                 var current = self.head;
                 while (current) |item| {
@@ -336,6 +351,7 @@ pub const List = struct {
                 self.tail = null;
             }
 
+            /// Checks endpoint and link symmetry plus absence of a head cycle.
             pub fn assertValid(self: *const Self) void {
                 if (self.head == null) {
                     std.debug.assert(self.tail == null);
@@ -353,7 +369,7 @@ pub const List = struct {
                     const next_fast = constNext(fast_item) orelse break;
                     fast = constNext(next_fast);
                     slow = if (slow) |slow_item| constNext(slow_item) else null;
-                    if (fast != null and slow != null and fast.? == slow.?) unreachable;
+                    if (fast) |f| if (slow) |s| if (f == s) unreachable;
                 }
 
                 var current: ?*const T = self.head;

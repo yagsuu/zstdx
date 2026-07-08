@@ -17,7 +17,7 @@ fn requireUnsignedInt(comptime Word: type) void {
 pub fn count(comptime Word: type, bit_capacity: usize) usize {
     comptime requireUnsignedInt(Word);
     const bits: usize = @bitSizeOf(Word);
-    return bit_capacity / bits + @intFromBool(bit_capacity % bits != 0);
+    return @divFloor(bit_capacity, bits) + @intFromBool(bit_capacity % bits != 0);
 }
 
 /// Mask covering the used low bits of the trailing word in a bitmap of
@@ -36,7 +36,7 @@ pub fn lastMask(comptime Word: type, bit_capacity: usize) Word {
 /// Word index containing `bit_index`: `bit_index / @bitSizeOf(Word)`.
 pub fn indexOf(comptime Word: type, bit_index: usize) usize {
     comptime requireUnsignedInt(Word);
-    return bit_index / @bitSizeOf(Word);
+    return @divFloor(bit_index, @bitSizeOf(Word));
 }
 
 /// Single-bit mask at position `bit_index % @bitSizeOf(Word)`.

@@ -30,7 +30,7 @@ fn requireEndianInt(comptime T: type) void {
 pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) type {
     comptime requireEndianInt(T);
     const bits = @bitSizeOf(T);
-    const bytes_len = bits / 8;
+    const bytes_len = @divExact(bits, 8);
     return extern struct {
         bytes: [bytes_len]u8,
 

@@ -3,6 +3,9 @@
 const std = @import("std");
 
 const bits = @import("../../bits.zig");
+const cache = @import("../../mem/cache.zig");
+
+const CachePad = cache.CachePad;
 
 fn requireRuntimeValue(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("MPSC ring element type must have nonzero size");
@@ -28,8 +31,10 @@ pub const Ring = struct {
 
         return struct {
             slots: [item_capacity]Slot = undefined,
-            head: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-            tail: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+            head: CachePad(std.atomic.Value(usize)) =
+                .{ .value = std.atomic.Value(usize).init(0) },
+            tail: CachePad(std.atomic.Value(usize)) =
+                .{ .value = std.atomic.Value(usize).init(0) },
 
             const Self = @This();
 
@@ -54,8 +59,8 @@ pub const Ring = struct {
             /// Reset head, tail, and every slot's publication ticket to
             /// zero. Must be called before any concurrent use.
             pub fn init(self: *Self) void {
-                self.head.store(0, .monotonic);
-                self.tail.store(0, .monotonic);
+                self.head.value.store(0, .monotonic);
+                self.tail.value.store(0, .monotonic);
                 for (&self.slots) |*slot| {
                     slot.sequence.store(0, .monotonic);
                 }
@@ -94,7 +99,9 @@ pub const Ring = struct {
             /// Does not prove absence of concurrent races.
             pub fn assertValid(self: *const Self) void {
                 std.debug.assert(bits.isPowerOfTwo(usize, item_capacity));
-                std.debug.assert(self.tail.load(.monotonic) -% self.head.load(.monotonic) <= item_capacity);
+                std.debug.assert(
+                    self.tail.value.load(.monotonic) -% self.head.value.load(.monotonic) <= item_capacity,
+                );
             }
         };
     }
@@ -107,8 +114,10 @@ pub const Ring = struct {
 
         return struct {
             slots: []Slot,
-            head: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-            tail: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+            head: CachePad(std.atomic.Value(usize)) =
+                .{ .value = std.atomic.Value(usize).init(0) },
+            tail: CachePad(std.atomic.Value(usize)) =
+                .{ .value = std.atomic.Value(usize).init(0) },
 
             const Self = @This();
 
@@ -133,8 +142,8 @@ pub const Ring = struct {
             pub fn init(self: *Self, slots: []Slot) void {
                 std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
                 self.slots = slots;
-                self.head.store(0, .monotonic);
-                self.tail.store(0, .monotonic);
+                self.head.value.store(0, .monotonic);
+                self.tail.value.store(0, .monotonic);
                 for (self.slots) |*slot| {
                     slot.sequence.store(0, .monotonic);
                 }
@@ -171,7 +180,9 @@ pub const Ring = struct {
             pub fn assertValid(self: *const Self) void {
                 const item_capacity = self.slots.len;
                 std.debug.assert(bits.isPowerOfTwo(usize, item_capacity));
-                std.debug.assert(self.tail.load(.monotonic) -% self.head.load(.monotonic) <= item_capacity);
+                std.debug.assert(
+                    self.tail.value.load(.monotonic) -% self.head.value.load(.monotonic) <= item_capacity,
+                );
             }
         };
     }
@@ -181,8 +192,8 @@ fn tryPushBackImpl(
     comptime Slot: type,
     comptime T: type,
     slots: []Slot,
-    head: *std.atomic.Value(usize),
-    tail: *std.atomic.Value(usize),
+    head: *const CachePad(std.atomic.Value(usize)),
+    tail: *CachePad(std.atomic.Value(usize)),
     item: T,
 ) error{ Full, Contended }!void {
     std.debug.assert(slots.len != 0);
@@ -190,37 +201,60 @@ fn tryPushBackImpl(
 
     const capacity = slots.len;
     const mask = capacity - 1;
-    const observed_tail = tail.load(.monotonic);
-    const observed_head = head.load(.acquire);
+    const observed_tail = tail.value.load(.monotonic);
+
+    // acquire: pairs with the consumer's release-store of head in popFrontImpl;
+    // ensures the slot at observed_tail & mask is free for reuse before we publish.
+    const observed_head = head.value.load(.acquire);
 
     if (observed_tail -% observed_head >= capacity) return error.Full;
-    if (tail.cmpxchgStrong(observed_tail, observed_tail +% 1, .monotonic, .monotonic) != null) return error.Contended;
+    if (tail.value.cmpxchgStrong(observed_tail, observed_tail +% 1, .monotonic, .monotonic) != null) {
+        return error.Contended;
+    }
 
     const slot = &slots[observed_tail & mask];
     slot.item = item;
+
+    // release: publishes slot.item to the consumer's acquire-load of slot.sequence in popFrontImpl.
     slot.sequence.store(observed_tail +% 1, .release);
 }
 
-fn popFrontImpl(comptime Slot: type, comptime T: type, slots: []Slot, head: *std.atomic.Value(usize)) ?T {
+fn popFrontImpl(
+    comptime Slot: type,
+    comptime T: type,
+    slots: []Slot,
+    head: *CachePad(std.atomic.Value(usize)),
+) ?T {
     std.debug.assert(slots.len != 0);
     std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
 
-    const observed_head = head.load(.monotonic);
+    const observed_head = head.value.load(.monotonic);
     const slot = &slots[observed_head & (slots.len - 1)];
 
+    // acquire: pairs with the producer's release-store of slot.sequence in tryPushBackImpl;
+    // ensures slot.item is visible before we read it.
     if (slot.sequence.load(.acquire) != observed_head +% 1) return null;
 
     const out = slot.item;
-    head.store(observed_head +% 1, .release);
+
+    // release: publishes slot consumption to producers' acquire-load of head in tryPushBackImpl.
+    head.value.store(observed_head +% 1, .release);
     return out;
 }
 
-fn isEmptyImpl(comptime Slot: type, comptime T: type, slots: []const Slot, head: *const std.atomic.Value(usize)) bool {
+fn isEmptyImpl(
+    comptime Slot: type,
+    comptime T: type,
+    slots: []const Slot,
+    head: *const CachePad(std.atomic.Value(usize)),
+) bool {
     _ = T;
     std.debug.assert(slots.len != 0);
     std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
 
-    const observed_head = head.load(.monotonic);
+    const observed_head = head.value.load(.monotonic);
     const slot = &slots[observed_head & (slots.len - 1)];
+
+    // acquire: pairs with the producer's release-store of slot.sequence in tryPushBackImpl.
     return slot.sequence.load(.acquire) != observed_head +% 1;
 }

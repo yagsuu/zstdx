@@ -19,6 +19,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             return self.top == null;
         }
 
+        /// Borrowed LIFO top pointer; invalidated by mutation.
         pub fn peek(self: *Self) ?*T {
             return self.top;
         }
@@ -27,6 +28,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             return self.top;
         }
 
+        /// `item`'s node must be detached; double insert is a programmer error.
         pub fn push(self: *Self, item: *T) void {
             assertDetached(item);
 
@@ -34,6 +36,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             self.top = item;
         }
 
+        /// Returned node has `next` cleared before return.
         pub fn pop(self: *Self) ?*T {
             const item = self.top orelse return null;
 
@@ -43,6 +46,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             return item;
         }
 
+        /// Detaches every node; parent objects are not moved, freed, or zeroed.
         pub fn clear(self: *Self) void {
             var current = self.top;
             while (current) |item| {
@@ -53,6 +57,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             self.top = null;
         }
 
+        /// Checks that no cycle is reachable from `top`.
         pub fn assertValid(self: *const Self) void {
             var slow: ?*const T = self.top;
             var fast: ?*const T = self.top;
@@ -60,7 +65,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
                 const next_fast = constNext(fast_item) orelse break;
                 fast = constNext(next_fast);
                 slow = if (slow) |slow_item| constNext(slow_item) else null;
-                if (fast != null and slow != null and fast.? == slow.?) unreachable;
+                if (fast) |f| if (slow) |s| if (f == s) unreachable;
             }
         }
 
