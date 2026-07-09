@@ -11,19 +11,19 @@ const Sg = stdx.dma.ScatterGather;
 
 const testing = std.testing;
 
-fn seg(base: u64, len_bytes: usize) Sg.Segment {
+fn seg(base: u64, len_bytes: DmaAddr.Raw) Sg.Segment {
     return .{ .addr = DmaAddr.fromInt(base), .len_bytes = len_bytes };
 }
 
 test "unit: Segment.init succeeds for a zero-length segment" {
     const s = try Sg.Segment.init(DmaAddr.fromInt(0xDEAD), 0);
     try testing.expect(s.isEmpty());
-    try testing.expectEqual(@as(usize, 0), s.byteLen());
+    try testing.expectEqual(@as(u64, 0), s.byteLen());
 }
 
 test "unit: Segment.init succeeds for a non-empty segment" {
     const s = try Sg.Segment.init(DmaAddr.fromInt(0x1000), 128);
-    try testing.expectEqual(@as(usize, 128), s.byteLen());
+    try testing.expectEqual(@as(u64, 128), s.byteLen());
     try testing.expect(!s.isEmpty());
 }
 
@@ -37,7 +37,7 @@ test "unit: Segment.fromBuffer matches buffer.dmaAddr and buffer.byteLen" {
     const buf = try Buffer(u32).init(&backing, DmaAddr.fromInt(0x1000));
     const s = Sg.Segment.fromBuffer(u32, buf);
     try testing.expectEqual(buf.dmaAddr().raw(), s.addr.raw());
-    try testing.expectEqual(@as(usize, buf.byteLen()), s.byteLen());
+    try testing.expectEqual(buf.byteLen(), s.byteLen());
 }
 
 test "unit: Segment.endAddr returns addr + len_bytes for valid segments" {
@@ -72,7 +72,7 @@ test "unit: Segment.isAligned checks both addr and byte length against alignment
 test "unit: Segment.byteLen and isEmpty reflect len_bytes" {
     try testing.expect(seg(0x1000, 0).isEmpty());
     try testing.expect(!seg(0x1000, 1).isEmpty());
-    try testing.expectEqual(@as(usize, 42), seg(0, 42).byteLen());
+    try testing.expectEqual(@as(u64, 42), seg(0, 42).byteLen());
 }
 
 fn exerciseList(comptime L: type, list_ptr: *L) !void {
@@ -92,7 +92,7 @@ fn exerciseList(comptime L: type, list_ptr: *L) !void {
     try testing.expectEqual(@as(u64, 0x3000), (try list_ptr.constAt(2)).addr.raw());
     try testing.expectError(error.OutOfBounds, list_ptr.at(3));
 
-    try testing.expectEqual(@as(usize, 64 + 128 + 32), try list_ptr.totalByteLen());
+    try testing.expectEqual(@as(u64, 64 + 128 + 32), try list_ptr.totalByteLen());
 
     list_ptr.clearRetainingCapacity();
     try testing.expect(list_ptr.isEmpty());
@@ -137,14 +137,14 @@ test "unit: List.Static.appendBuffer combines fromBuffer and append" {
     var list = Sg.List.Static(2).init();
     try list.appendBuffer(u32, buf);
     try testing.expectEqual(@as(usize, 1), list.len());
-    try testing.expectEqual(@as(usize, 16), (try list.constAt(0)).byteLen());
+    try testing.expectEqual(@as(u64, 16), (try list.constAt(0)).byteLen());
     try testing.expectEqual(@as(u64, 0x1000), (try list.constAt(0)).addr.raw());
 }
 
 test "unit: List.totalByteLen returns Overflow on sum wraparound" {
     var storage: [2]Sg.Segment = undefined;
     var list = Sg.List.Bounded.wrap(&storage);
-    try list.append(seg(0, std.math.maxInt(usize) - 3));
+    try list.append(seg(0, std.math.maxInt(u64) - 3));
     try list.append(seg(0x1000, 8));
     try testing.expectError(error.Overflow, list.totalByteLen());
 }

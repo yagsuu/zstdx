@@ -73,14 +73,8 @@ There is no `stdx.List.SinglyLinked`, `stdx.SinglyLinkedList`, or
 
 ```zig
 pub const List = struct {
-    pub const SinglyLinkedNode = struct {
-        next: ?*@This() = null,
-    };
-
-    pub const DoublyLinkedNode = struct {
-        prev: ?*@This() = null,
-        next: ?*@This() = null,
-    };
+    pub const SinglyLinkedNode = std.SinglyLinkedList.Node;
+    pub const DoublyLinkedNode = std.DoublyLinkedList.Node;
 
     pub fn SinglyLinked(comptime T: type, comptime node_field: []const u8) type;
     pub fn DoublyLinked(comptime T: type, comptime node_field: []const u8) type;

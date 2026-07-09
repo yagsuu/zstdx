@@ -128,7 +128,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | --- | --- | --- | --- | --- | --- |
 | Safety options | `SafetyMode` | Value enum | Never | `build_mode`, `checked`, `unchecked`; controls optional zstdx checks only. | `std.builtin.Mode` reports optimize mode; `SafetyMode` chooses whether zstdx primitives run their own extra checks *independent* of optimize mode. |
 | Debug checks | `debug.checksEnabled(mode)` | None | Never | Comptime predicate; explicit `assertValid` calls always check. | Zig's `std.debug.assert` cannot be selectively enabled per module; `checksEnabled` gates optional invariants without a global switch. |
-| Callback traits | `Order`, `Compare`, `LessThan`, `Eql`, `Hash` | Function type factories | Never | `*const T` operands avoid required copies; laws are caller contracts. | `std.sort`/`std.HashMap` require ad-hoc closure or context types with no shared trait vocabulary; these factories give one shape reused across collections. |
+| Callback traits | `Order = std.math.Order`, `Compare`, `LessThan`, `Eql`, `Hash` | Function type factories | Never | `*const T` operands avoid required copies; laws are caller contracts. | `std.math.Order` is reused for ordering vocabulary; `std.sort`/`std.HashMap` still require ad-hoc callback or context shapes, while these factories give one pointer-operand shape reused across collections. |
 | Ranges | `Range(T)` | Value struct | Never | Unsigned half-open `[start, end)` range; checked construction/arithmetic; O(1); no mutation outside returned values. | Zig has no `Range` type; `std` treats slices as ranges implicitly. `Range(T)` gives a strongly-typed half-open interval independent of any slice. |
 
 ### Bits
@@ -144,7 +144,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Family | APIs / variants | Storage | External allocation | Contract highlights | Why not std.*? |
 | --- | --- | --- | --- | --- | --- |
 | `Address` | `Address(Tag, Int)`, `PhysAddr`, `VirtAddr`, `DmaAddr` | Value enum | Never | Strong typed unsigned address values; checked arithmetic and alignment; tag identity prevents accidental domain mixing. | Zig has no newtype and `std` uses bare `usize`/`u64` for addresses; nothing prevents mixing physical, virtual, and DMA addresses. `Address(Tag, Int)` makes each domain a distinct type. |
-| Page constants | `_4kib`, `_16kib`, `_64kib`, `_2mib`, `_1gib` | None | Never | Exact byte counts only; no platform support or policy implied. | `std.mem.page_size` is a single host page size at build time; page-tier constants for firmware, MMU, and DMA sizing have no home in `std`. |
+| Page constants | `_4kib`, `_16kib`, `_64kib`, `_2mib`, `_1gib` | None | Never | Exact byte counts only; no platform support or policy implied. | `std.heap.pageSize()` and `std.heap.page_size_{min,max}` describe host/target allocation pages; page-tier constants for firmware, MMU, and DMA sizing have no home in `std`. |
 | `Page` | `Page(Addr, page_size)` | Value types under returned namespace | Never | `Size`, `Count`, `Frame`, `FrameRange`; checked byte/page conversion, frame arithmetic, containment, overlap, span, and split. | Zig has no page/frame algebra; `std.mem.alignForward` on `usize` loses the domain distinction. `Page(Addr, ...)` gives frame arithmetic parameterized on the address type. |
 
 ### Layout
@@ -308,7 +308,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | All error returns leave the list unchanged. |
 | Invalidation | `insert` and `orderedRemove` invalidate at/after index; `swapRemove` invalidates removed index and old last; clear invalidates all initialized-element pointers/slices. |
 | Ordering | Append and insert preserve order; `orderedRemove` preserves order; `swapRemove` does not. |
-| Why not std.*? | `std.ArrayList` allocates through an `Allocator` and grows. `List.Static/Bounded` refuses to grow: `error.Full` at capacity, no allocator dependency, works freestanding. |
+| Why not std.*? | `std.ArrayList.initBuffer` can borrow caller storage, but the type still exposes allocator-taking growth APIs and assert-heavy operations. `List.Static/Bounded` exposes only fixed-capacity operations: `error.Full` at capacity, inline or caller-owned storage, no allocator dependency, and explicit invalidation/no-mutation contracts. |
 
 #### `collections.Ring`
 
@@ -327,7 +327,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | `error.Full` leaves the ring unchanged. |
 | Invalidation | Push invalidates back pointer; pop invalidates old front pointer; overwrite-oldest on full invalidates old front and old back; clear invalidates front/back pointers. |
 | Ordering | FIFO. `pushBackOverwriteOldest` appends newest and evicts oldest when full. |
-| Why not std.*? | `std` has no bounded FIFO ring; `std.fifo.LinearFifo` uses an `Allocator` and copies on rebalance. `Ring.Static/Bounded` is fixed-capacity with explicit `Full` behavior. |
+| Why not std.*? | `std.Deque.initBuffer` can provide a bounded double-ended queue, but it exposes a broader deque/growth surface and has no overwrite-oldest FIFO contract. `Ring.Static/Bounded` is a narrow fixed-capacity FIFO ring with explicit `Full` behavior and `pushBackOverwriteOldest`. |
 
 ### Intrusive collections
 
@@ -350,7 +350,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | Not applicable for public errors; programmer-error misuse may assert. |
 | Invalidation | Insert/remove/clear change intrusive membership and neighbor links; parent object addresses are not moved. |
 | Ordering | Singly and doubly linked lists preserve explicit link order. |
-| Why not std.*? | `std.SinglyLinkedList`/`std.DoublyLinkedList` own the node storage. `intrusive.List` binds `field` inside a caller-declared struct so multiple lists can thread one object without extra allocation. |
+| Why not std.*? | `std.SinglyLinkedList`/`std.DoublyLinkedList` already provide intrusive node storage. `intrusive.List` reuses that storage shape and adds typed `field` binding, parent-pointer recovery, endpoint contracts, and multi-membership discipline for caller-declared structs. |
 
 #### `intrusive.Queue`
 
@@ -368,7 +368,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | Not applicable for public errors. |
 | Invalidation | `popFront` and `clear` detach memberships; parent object addresses are not moved. |
 | Ordering | FIFO. |
-| Why not std.*? | `std.fifo.LinearFifo` allocates and stores payload by value. `intrusive.Queue` requires zero allocations because caller objects carry the link fields. |
+| Why not std.*? | `std.SinglyLinkedList` can be used to build a queue manually, but callers must manage node-to-parent recovery and endpoints themselves. `intrusive.Queue` binds a caller-owned node field to a typed FIFO API without allocation or payload moves. |
 
 #### `intrusive.Stack`
 
@@ -386,7 +386,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | Not applicable for public errors. |
 | Invalidation | `pop` and `clear` detach memberships; parent object addresses are not moved. |
 | Ordering | LIFO. |
-| Why not std.*? | `std` has no LIFO container that borrows caller storage. `intrusive.Stack` is the intrusive counterpart of `SinglyLinked`, in LIFO order. |
+| Why not std.*? | `std.SinglyLinkedList` can be used as a LIFO manually, but callers must manage node-to-parent recovery themselves. `intrusive.Stack` binds a caller-owned node field to a typed LIFO API without allocation or payload moves. |
 
 ### Ranges
 
@@ -569,13 +569,13 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | Redundant `set`/`clear` leave the state word unchanged; backend `wait` failure does not mutate state. |
 | Invalidation | None; the primitive owns no external storage. Copying/moving after initialization is outside the contract. |
 | Ordering | Sticky (manual reset). `set` release-publishes the unset->set transition and calls `backend.wakeAll()` exactly once on the winning CAS; `clear` release-publishes the set->unset transition and never wakes. Lost-wakeup protection is via `Token.changedSince(observed)` from the backend. |
-| Why not std.*? | `std.Thread.ResetEvent` bundles OS parking and requires a hosted thread runtime. `Signal.Manual(Backend)` exposes the sticky notification without picking a wait implementation: spin, futex, kernel wait queue, and cooperative parkers all plug in as compile-time backends. |
+| Why not std.*? | `std.Io.Event` bundles waiting with the hosted `Io` futex/cancellation surface. `Signal.Manual(Backend)` exposes sticky notification without picking a wait implementation: spin, futex, kernel wait queue, and cooperative parkers all plug in as compile-time backends. |
 
 #### `sync.spin.Backend`
 
 | Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
 | --- | --- | --- | --- | --- | --- |
-| Spin-only wait/wake backend | `sync.spin.Backend`, `wait`, `wakeAll`, `WaitError = error{}` | Zero-sized value (`@sizeOf == 0`) | Never | Canonical minimal wait/wake backend for every wait-capable primitive in `stdx.sync` and `stdx.concurrent`. `wait` emits one `std.atomic.spinLoopHint()` and returns without observing state; `wakeAll` is a no-op. `state` and `observed` are ignored by design. Safe from any execution context including NMI. | `std` has no plug-in backend seam for wait/wake primitives; `std.Thread.ResetEvent` bundles the OS parker. `sync.spin.Backend` is a compile-time compose-in-place substitute for scheduler-parking, futex, or IO backends. |
+| Spin-only wait/wake backend | `sync.spin.Backend`, `wait`, `wakeAll`, `WaitError = error{}` | Zero-sized value (`@sizeOf == 0`) | Never | Canonical minimal wait/wake backend for every wait-capable primitive in `stdx.sync` and `stdx.concurrent`. `wait` emits one `std.atomic.spinLoopHint()` and returns without observing state; `wakeAll` is a no-op. `state` and `observed` are ignored by design. Safe from any execution context including NMI. | `std.Io` owns hosted wait/futex surfaces, but `std` has no compile-time plug-in backend seam shared across freestanding wait-capable primitives. `sync.spin.Backend` is the compose-in-place substitute for scheduler parking, futex, or IO backends. |
 
 #### `sync.AtomicCell`
 
@@ -612,7 +612,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | The caller's arrival CAS has already committed when `backend.wait` fails; no rollback. |
 | Invalidation | None; the primitive owns no external storage. Copying/moving after any pointer is shared is outside the contract. |
 | Ordering | Reusable N-way barrier. The last arriver installs `remaining = capacity_parties` and `generation +% 1` in a single `.acq_rel` CAS, then calls `backend.wakeAll(&state)`. Non-last arrivers `.acquire`-observe the generation advance to synchronize-with the last arriver's release publication. Lost-wakeup protection is via `State.changedSince(token)` from the backend. |
-| Why not std.*? | `std.Thread.WaitGroup` and `std.Thread.ResetEvent` bundle OS parking and require a hosted thread runtime; neither is reusable across generations. `Rendezvous(Backend)` exposes the sticky cyclic-barrier contract without picking a wait implementation: spin, futex, kernel wait queue, and cooperative parkers all plug in as compile-time backends. |
+| Why not std.*? | `std.Io.Group` is task-resource management tied to the hosted `Io` surface, and `std.Io.Event` is a boolean event; neither is a reusable N-way cyclic barrier. `Rendezvous(Backend)` exposes the cyclic-barrier contract without picking a wait implementation: spin, futex, kernel wait queue, and cooperative parkers all plug in as compile-time backends. |
 
 ### Concurrent
 
@@ -658,7 +658,7 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 
 | Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
 | --- | --- | --- | --- | --- | --- |
-| `Instant` | `fromNanos`, `nanos`, `zero`, `add`, `since`, `afterOrEq` | Value `enum(u64)` | Never | Monotonic nanoseconds over ~584 years; `add` returns `error.Overflow` on signed under/overflow of the `u64` domain; `since` is infallible within the primitive's `±292` year contract. | `std.time.Instant` is host-clock aware and returns via OS calls. `stdx.time.Instant` is a strong `enum(u64)` that carries no clock and is composable with any backend clock. |
+| `Instant` | `fromNanos`, `nanos`, `zero`, `add`, `since`, `afterOrEq` | Value `enum(u64)` | Never | Monotonic nanoseconds over ~584 years; `add` returns `error.Overflow` on signed under/overflow of the `u64` domain; `since` is infallible within the primitive's `±292` year contract. | `std.Io.Timestamp` is tied to the hosted `Io` clock surface. `stdx.time.Instant` is a strong `enum(u64)` that carries no clock and is composable with any backend clock. |
 | `Duration` | `fromNanos`, `nanos`, `fromMicros`, `fromMillis`, `fromSeconds`, `isPositive`, `isNegative` | Value `enum(i64)` | Never | Signed nanoseconds over `±292` years; `from{Micros,Millis,Seconds}` multiplication returns `error.Overflow`. | `std.time.ns_per_*` are `comptime` constants without a strong type. `stdx.time.Duration` is a strong `enum(i64)` and returns `error.Overflow` on unit-conversion overflow. |
 
 #### `time.Clock.Monotonic`
@@ -677,13 +677,13 @@ Stateless functions and domain-specific strong types stay namespaced. Examples:
 | Mutation on error | Not applicable. |
 | Invalidation | None; the wrapper owns no external storage. |
 | Ordering | Backend-defined monotonicity, asserted under `core.debug.checksEnabled(.build_mode)`. Release builds hold `@sizeOf(Backend)` exactly. |
-| Why not std.*? | `std.time.Timer` calls the host monotonic clock directly and offers no sleep composition. `Clock.Monotonic(Backend)` composes any monotonic source (kernel TSC, HPET, PMU counter, virtual clock, test fake) behind one API, forwards a backend-provided `sleep` verbatim, and asserts monotonicity + non-negative delta in debug builds. |
+| Why not std.*? | `std.Io.Clock` reaches clock operations through an `Io` vtable. `Clock.Monotonic(Backend)` composes any monotonic source (kernel TSC, HPET, PMU counter, virtual clock, test fake) behind one compile-time API, forwards a backend-provided `sleep` verbatim, and asserts monotonicity + non-negative delta in debug builds. |
 
 #### `time.Deadline`
 
 | Family | APIs | Storage | External allocation | Contract highlights | Why not std.*? |
 | --- | --- | --- | --- | --- | --- |
-| Monotonic deadline | `Deadline`, `Deadline.at`, `Deadline.now`, `Deadline.never`, `Deadline.instant`, `Deadline.isNever`, `Deadline.expired`, `Deadline.remaining`, `Deadline.expireBy` | Value `enum(u64)` | Never | Strong monotonic-instant anchor; `expired` uses `afterOrEq` (boundary is expired); `remaining` returns signed `Duration` with `Deadline.never` saturating at `Duration.fromNanos(maxInt(i64))`; `expireBy` returns `error.Timeout` on past-deadline. Clock parameter is duck-typed at compile time; error-union `now` is a compile error. | `std.time.Timer` measures elapsed on a host clock; there is no strong deadline type. `Deadline` is a `u64`-word deadline anchor composable with any monotonic backend. |
+| Monotonic deadline | `Deadline`, `Deadline.at`, `Deadline.now`, `Deadline.never`, `Deadline.instant`, `Deadline.isNever`, `Deadline.expired`, `Deadline.remaining`, `Deadline.expireBy` | Value `enum(u64)` | Never | Strong monotonic-instant anchor; `expired` uses `afterOrEq` (boundary is expired); `remaining` returns signed `Duration` with `Deadline.never` saturating at `Duration.fromNanos(maxInt(i64))`; `expireBy` returns `error.Timeout` on past-deadline. Clock parameter is duck-typed at compile time; error-union `now` is a compile error. | `std.Io.Timeout` ties deadlines to the hosted `Io` clock/cancellation surface. `Deadline` is a `u64`-word deadline anchor composable with any monotonic backend. |
 
 #### `time.Backoff`
 

@@ -13,7 +13,7 @@ const DmaRaw = DmaAddr.Raw;
 /// Untyped device-visible range descriptor.
 pub const Segment = struct {
     addr: DmaAddr,
-    len_bytes: usize,
+    len_bytes: DmaRaw,
 
     pub const Address = DmaAddr;
 
@@ -22,20 +22,17 @@ pub const Segment = struct {
     pub const Error = error{ Misaligned, Overflow };
 
     /// Validated `[addr, addr + len_bytes)` segment.
-    pub fn init(addr: DmaAddr, len_bytes: usize) Error!Segment {
-        const len_raw: DmaRaw = std.math.cast(DmaRaw, len_bytes) orelse return error.Overflow;
-        _ = std.math.add(DmaRaw, addr.raw(), len_raw) catch return error.Overflow;
+    pub fn init(addr: DmaAddr, len_bytes: DmaRaw) Error!Segment {
+        _ = std.math.add(DmaRaw, addr.raw(), len_bytes) catch return error.Overflow;
         return .{ .addr = addr, .len_bytes = len_bytes };
     }
 
     /// Segment covering the whole `Buffer(T)`.
     pub fn fromBuffer(comptime T: type, buf: buffer.Buffer(T)) Segment {
-        const byte_len_raw = buf.byteLen();
-        const byte_len = std.math.cast(usize, byte_len_raw) orelse unreachable;
-        return .{ .addr = buf.dmaAddr(), .len_bytes = byte_len };
+        return .{ .addr = buf.dmaAddr(), .len_bytes = buf.byteLen() };
     }
 
-    pub fn byteLen(self: Segment) usize {
+    pub fn byteLen(self: Segment) DmaRaw {
         return self.len_bytes;
     }
 
@@ -45,8 +42,7 @@ pub const Segment = struct {
 
     /// One-past-the-end device address; revalidates hand-built segments.
     pub fn endAddr(self: Segment) Error!DmaAddr {
-        const len_raw: DmaRaw = std.math.cast(DmaRaw, self.len_bytes) orelse return error.Overflow;
-        const raw = std.math.add(DmaRaw, self.addr.raw(), len_raw) catch return error.Overflow;
+        const raw = std.math.add(DmaRaw, self.addr.raw(), self.len_bytes) catch return error.Overflow;
         return DmaAddr.fromInt(raw);
     }
 
@@ -57,13 +53,11 @@ pub const Segment = struct {
         if (!bits.isPowerOfTwo(DmaRaw, alignment)) return false;
         const mask = alignment - 1;
         if ((self.addr.raw() & mask) != 0) return false;
-        const len_raw: DmaRaw = std.math.cast(DmaRaw, self.len_bytes) orelse return false;
-        return (len_raw & mask) == 0;
+        return (self.len_bytes & mask) == 0;
     }
 
     pub fn assertValid(self: Segment) void {
-        const len_raw: DmaRaw = std.math.cast(DmaRaw, self.len_bytes) orelse unreachable;
-        _ = std.math.add(DmaRaw, self.addr.raw(), len_raw) catch unreachable;
+        _ = std.math.add(DmaRaw, self.addr.raw(), self.len_bytes) catch unreachable;
     }
 };
 
@@ -151,8 +145,8 @@ pub const List = struct {
                 return &self.buffer[index];
             }
 
-            /// Sum `len_bytes`; returns `error.Overflow` on `usize` wrap.
-            pub fn totalByteLen(self: *const Self) error{Overflow}!usize {
+            /// Sum `len_bytes`; returns `error.Overflow` on `Address.Raw` wrap.
+            pub fn totalByteLen(self: *const Self) error{Overflow}!DmaRaw {
                 return sumSegmentLens(self.asConstSlice());
             }
 
@@ -239,7 +233,7 @@ pub const List = struct {
             return &self.buffer[index];
         }
 
-        pub fn totalByteLen(self: *const Bounded) error{Overflow}!usize {
+        pub fn totalByteLen(self: *const Bounded) error{Overflow}!DmaRaw {
             return sumSegmentLens(self.asConstSlice());
         }
 
@@ -413,10 +407,10 @@ pub const Builder = struct {
     }
 };
 
-fn sumSegmentLens(segments: []const Segment) error{Overflow}!usize {
-    var total: usize = 0;
+fn sumSegmentLens(segments: []const Segment) error{Overflow}!DmaRaw {
+    var total: DmaRaw = 0;
     for (segments) |segment| {
-        total = std.math.add(usize, total, segment.len_bytes) catch return error.Overflow;
+        total = std.math.add(DmaRaw, total, segment.len_bytes) catch return error.Overflow;
     }
     return total;
 }

@@ -75,11 +75,7 @@ pub const Hash = @import("core/traits.zig").Hash;
 ## Approved API
 
 ```zig
-pub const Order = enum {
-    lt,
-    eq,
-    gt,
-};
+pub const Order = std.math.Order;
 
 pub fn Compare(comptime Context: type, comptime T: type) type {
     return fn (context: Context, lhs: *const T, rhs: *const T) Order;

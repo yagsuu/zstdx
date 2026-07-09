@@ -1,10 +1,8 @@
 //! Callback trait type factories. See docs/specs/core/traits.md.
 
-pub const Order = enum {
-    lt,
-    eq,
-    gt,
-};
+const std = @import("std");
+
+pub const Order = std.math.Order;
 
 pub fn Compare(comptime Context: type, comptime T: type) type {
     return fn (context: Context, lhs: *const T, rhs: *const T) Order;
