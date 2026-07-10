@@ -126,6 +126,7 @@ and the required tests from the spec land in `test/`.
 ### Approved, implementation pending
 
 - `docs/specs/sync/latch.md`
+- `docs/specs/concurrent/qsbr.md`
 
 ## Queue
 
@@ -214,12 +215,6 @@ Wave 2 — hv-specific:
       16's NMI-safe sibling pointer) is repointed at
       `docs/specs/concurrent/mpsc-atomic-ring.md`;
     - zero-allocation, bounded, no policy on wake or scheduler.
-2. `docs/specs/concurrent/qsbr.md` — quiescent-state-based reclamation
-    substrate. Answers the "rcu-lite" need for exit-handler tables and mapping
-    updates. Simplest of the four reclamation candidates (`epoch`, `hazard`,
-    `qsbr`, `rcu`) and enough for the stated bounded-quiescent-state use case.
-    `hazard`, `epoch`, and `rcu` stay deferred until a second consumer needs a
-    different reclamation model.
 
 Additional non-waved head-of-queue additions (distinct hv/kernel value, no
 strict ordering dependency):

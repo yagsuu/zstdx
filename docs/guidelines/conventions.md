@@ -22,6 +22,13 @@ Every public module is owned by one spec under `docs/specs/`.
 - Planning documents do not define public API contracts.
 - Specs define contracts; source implements them.
 
+## Spec writing
+
+Spec ownership, status values, document format, per-operation contract sections,
+and spec testing requirements are defined in
+`docs/guidelines/spec-writing.md`. New and substantially revised specs under
+`docs/specs/` follow that guide.
+
 ## Directory ownership
 
 Source directory ownership is defined by `docs/specs/architecture.md`.
