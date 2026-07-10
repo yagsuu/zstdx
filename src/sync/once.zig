@@ -205,9 +205,8 @@ pub fn Once(comptime Backend: type) type {
 
             checkNotRecursive(&self.state);
 
-            // Outer retry: rollback returns state to `untouched`, at which
-            // point every loser released by `wakeAll` re-races the claim
-            // per spec §Checked-call semantics "Required behavior" bullet 2.
+            // Rollback returns state to `untouched`, so every loser released
+            // by `wakeAll` re-races the claim instead of waiting on a stale token.
             while (true) {
                 if (self.state.isDone()) return;
 
@@ -238,10 +237,9 @@ pub fn Once(comptime Backend: type) type {
     };
 }
 
-// Comptime interface check for `Backend`. Verifies the four decls the
-// spec requires and rejects `anyerror` as `WaitError`. Full signature
-// conformance is enforced at the call sites in `Once` (attempting to
-// invoke a non-conforming `wait`/`wakeAll` fails to compile there).
+// This comptime backend check requires explicit `WaitError`, `wait`, and
+// `wakeAll` declarations, rejects `anyerror`, and leaves full signature
+// enforcement to the call sites in `Once`.
 fn requireBackend(comptime Backend: type) void {
     if (!@hasDecl(Backend, "WaitError")) {
         @compileError("Once(Backend): Backend must declare pub const WaitError");

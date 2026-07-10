@@ -79,17 +79,19 @@ pub const Mmio = struct {
             /// Storage width in bytes.
             pub const width_bytes: comptime_int = @sizeOf(T);
 
-            /// Single volatile load at the natural width and alignment of
-            /// `T`. Emits exactly one memory access at the ISA level on
-            /// targets whose native access widths match `@sizeOf(T)`.
-            /// Compiler-ordered against other volatile accesses; no ISA fence
-            /// and no cross-CPU or cross-DMA synchronization.
+            /// Loads `T` with one volatile access at the lane's natural width
+            /// and alignment on targets whose native access widths match
+            /// `@sizeOf(T)`.
+            /// Ordering: Compiler-ordered against other volatile accesses. It
+            /// emits no ISA fence or cross-CPU or cross-DMA synchronization.
             pub fn load(self: *const volatile Self) T {
                 return self.value;
             }
 
-            /// Single volatile store at the natural width and alignment of
-            /// `T`. Same ordering semantics as `load`.
+            /// Stores `T` with one volatile access at the lane's natural width
+            /// and alignment.
+            /// Ordering: Compiler-ordered against other volatile accesses. It
+            /// emits no ISA fence or cross-CPU or cross-DMA synchronization.
             pub fn store(self: *volatile Self, value: T) void {
                 self.value = value;
             }
@@ -129,7 +131,6 @@ pub const Mmio = struct {
                 return .{ .base = bytes.ptr, .len = bytes.len };
             }
 
-            /// Caller-supplied byte extent.
             pub fn byteLen(self: Self) usize {
                 return self.len;
             }

@@ -109,15 +109,14 @@ pub const PerCpu = struct {
                 return self.storage[0..];
             }
 
-            /// Read-only companion to `slots`.
+            /// Immutable padded slot slice over `[0..capacity())`; read `slot.value` for the payload.
             pub fn slotsConst(self: *const Self) []const Padded {
                 return self.storage[0..];
             }
 
-            /// Layout invariant: storage base is padded-aligned and adjacent
-            /// slots are exactly `@sizeOf(Padded)` apart. Runs
-            /// unconditionally; gate at the call site under
-            /// `stdx.core.debug.checksEnabled(.build_mode)`.
+            /// Invariant: storage base is padded-aligned and adjacent slots are
+            /// exactly `@sizeOf(Padded)` apart. Runs unconditionally; gate at
+            /// the call site under `stdx.core.debug.checksEnabled(.build_mode)`.
             pub fn assertValid(self: *const Self) void {
                 assertValidPadded(Padded, self.storage[0..]);
             }
@@ -211,10 +210,9 @@ pub const PerCpu = struct {
                 return self.slots_backing;
             }
 
-            /// Layout invariant: backing slice is padded-aligned and adjacent
-            /// slots are exactly `@sizeOf(Padded)` apart. Runs
-            /// unconditionally; gate at the call site under
-            /// `stdx.core.debug.checksEnabled(.build_mode)`.
+            /// Invariant: backing slice is padded-aligned and adjacent slots are
+            /// exactly `@sizeOf(Padded)` apart. Runs unconditionally; gate at
+            /// the call site under `stdx.core.debug.checksEnabled(.build_mode)`.
             pub fn assertValid(self: *const Self) void {
                 assertValidPadded(Padded, self.slots_backing);
             }

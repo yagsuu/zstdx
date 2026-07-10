@@ -24,7 +24,7 @@ pub fn disable() void {
     asm volatile ("cli" ::: .{ .memory = true });
 }
 
-/// Whether the `IF` bit in `RFLAGS` is set.
+/// Return whether the `IF` bit in `RFLAGS` is set.
 /// Privilege: unprivileged.
 pub fn enabled() bool {
     if (!supported) @compileError(wrong_target);

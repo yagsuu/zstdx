@@ -16,6 +16,7 @@ pub const cr0 = struct {
             : [ret] "=r" (-> u64),
         );
     }
+
     /// Execute `mov cr0, rNN` writing `value`.
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
@@ -64,6 +65,7 @@ pub const cr3 = struct {
             : [ret] "=r" (-> u64),
         );
     }
+
     /// Execute `mov cr3, rNN` writing `value`.
     /// Privilege: CPL 0.
     /// Notes: may invalidate TLB entries per architectural rules.
@@ -88,6 +90,7 @@ pub const cr4 = struct {
             : [ret] "=r" (-> u64),
         );
     }
+
     /// Execute `mov cr4, rNN` writing `value`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` on reserved-bit violations.
@@ -112,6 +115,7 @@ pub const cr8 = struct {
             : [ret] "=r" (-> u64),
         );
     }
+
     /// Execute `mov cr8, rNN` writing `value`.
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
@@ -141,6 +145,7 @@ pub const xcr0 = struct {
         );
         return (@as(u64, hi) << 32) | @as(u64, lo);
     }
+
     /// Execute `xsetbv` with `ecx = 0` and `edx:eax` split from `value`.
     /// Privilege: CPL 0.
     /// Requirements: `Cr4.OSXSAVE`.

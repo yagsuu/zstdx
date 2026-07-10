@@ -1,3 +1,4 @@
+//! Strongly typed tag values for tag allocator domains.
 //! Spec: docs/specs/tags/tag-allocator.md.
 
 fn requireUnsignedInt(comptime Int: type) void {
@@ -10,7 +11,7 @@ fn requireUnsignedInt(comptime Int: type) void {
     }
 }
 
-/// Strong-typed tag value for the `(Domain, Int)` pair. `Domain` is a
+/// Strongly typed tag value for the `(Domain, Int)` pair. `Domain` is a
 /// phantom-type identity; `Int` must be unsigned (u1..u64). Distinct
 /// `Domain` types yield distinct `Tag` types even when `Int` matches.
 pub fn Tag(comptime DomainT: type, comptime IntT: type) type {
@@ -29,7 +30,7 @@ pub fn Tag(comptime DomainT: type, comptime IntT: type) type {
             return @enumFromInt(value);
         }
 
-        /// Underlying integer value of the tag.
+        /// Returns the tag's underlying integer value.
         pub fn raw(self: Self) IntT {
             return @intFromEnum(self);
         }

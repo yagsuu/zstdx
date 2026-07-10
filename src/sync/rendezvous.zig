@@ -100,7 +100,7 @@ pub fn Rendezvous(comptime Backend: type) type {
                 /// Backend-provided error set for `wait`.
                 pub const WaitError = Backend.WaitError;
 
-                /// Comptime party capacity (slot count).
+                /// Comptime party capacity.
                 pub const party_capacity: usize = capacity_parties;
 
                 const capacity_u32: u32 = @intCast(capacity_parties);

@@ -38,10 +38,10 @@ pub const PanicLog = struct {
 
             const Self = @This();
 
-            /// `WriterBusy`: seat CAS lost to a concurrent writer;
-            /// the drop was already accounted for. `PayloadTooLarge`:
-            /// `payload.len` exceeds `max_payload_bytes`.
-            /// `EmptyPayload`: zero-length write is invalid.
+            /// WriterBusy: seat CAS lost to a concurrent writer; drop
+            /// already accounted.
+            /// PayloadTooLarge: `payload.len` exceeds `max_payload_bytes`.
+            /// EmptyPayload: zero-length writes are invalid.
             pub const Error = error{
                 WriterBusy,
                 PayloadTooLarge,
@@ -89,9 +89,9 @@ pub const PanicLog = struct {
                 if (payload.len == 0) return error.EmptyPayload;
                 if (payload.len > max_payload_bytes) return error.PayloadTooLarge;
 
-                // acquire: pairs with the seat release-store at the end of `write`.
+                // Acquire: pairs with the seat release-store at the end of `write`.
                 if (self.seat.cmpxchgStrong(0, 1, .acquire, .monotonic) != null) {
-                    // release: publishes drop count to drain's dropped_seq acquire.
+                    // Release: publishes drop count to drain's dropped_seq acquire.
                     _ = self.dropped_seq.fetchAdd(1, .release);
                     return error.WriterBusy;
                 }
@@ -105,7 +105,7 @@ pub const PanicLog = struct {
                     const flen: usize = readU32Wrap(&self.bytes, tail_off, capacity_bytes);
                     tail_val += header_bytes + flen;
                     self.tail.store(tail_val, .release);
-                    // release: publishes drop count to drain's dropped_seq acquire.
+                    // Release: publishes drop count to drain's dropped_seq acquire.
                     _ = self.dropped_seq.fetchAdd(1, .release);
                 }
 
@@ -118,11 +118,11 @@ pub const PanicLog = struct {
                 copyInWrap(&self.bytes, (head_off + header_bytes) % capacity_bytes, payload, capacity_bytes);
 
                 head_val += needed;
-                // release: publishes header + payload bytes to drain's head acquire.
+                // Release: publishes header and payload bytes to drain's head acquire.
                 self.head.value.store(head_val, .release);
-                // release: publishes new seq value to drain's seq acquire.
+                // Release: publishes the new seq value to drain's seq acquire.
                 self.seq.store(new_seq, .release);
-                // release: publishes header + payload writes to the next seat CAS.
+                // Release: publishes header and payload writes to the next seat CAS.
                 self.seat.store(0, .release);
             }
 
@@ -139,9 +139,9 @@ pub const PanicLog = struct {
                 var cursor_ready = false;
 
                 while (true) {
-                    // acquire: pairs with write's seq release-store.
+                    // Acquire: pairs with write's seq release-store.
                     const seq_now = self.seq.load(.acquire);
-                    // acquire: pairs with write's dropped_seq fetchAdd release (seat-busy and eviction paths).
+                    // Acquire: pairs with write's dropped_seq fetchAdd release.
                     const dropped_now = self.dropped_seq.load(.acquire);
 
                     if (dropped_now != reader_state.dropped_snapshot) {
@@ -155,7 +155,7 @@ pub const PanicLog = struct {
 
                     if (reader_state.next_seq > seq_now) return;
 
-                    // acquire: pairs with write's head release-store.
+                    // Acquire: pairs with write's head release-store.
                     const head_now = self.head.value.load(.acquire);
                     const tail_now = self.tail.load(.acquire);
 
@@ -253,7 +253,7 @@ pub const PanicLog = struct {
                 return true;
             }
 
-            /// Trap on structural invalid — programmer-error signal.
+            /// Assert structural validity; invalid state is programmer error.
             pub fn assertValid(self: *const Self) void {
                 std.debug.assert(self.isValid());
             }

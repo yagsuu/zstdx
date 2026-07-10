@@ -190,8 +190,8 @@ fn tryPushBackImpl(
     const mask = capacity - 1;
     const observed_tail = tail.value.load(.monotonic);
 
-    // acquire: pairs with the consumer's release-store of head in popFrontImpl;
-    // ensures the slot at observed_tail & mask is free for reuse before we write it.
+    // Ordering: the acquire load pairs with the consumer's release-store of head in popFrontImpl.
+    // This ensures the slot at observed_tail & mask is free for reuse before writing it.
     const observed_head = head.value.load(.acquire);
 
     if (observed_tail -% observed_head >= capacity) return error.Full;
@@ -199,7 +199,7 @@ fn tryPushBackImpl(
     const slot = &slots[observed_tail & mask];
     slot.item = item;
 
-    // release: publishes slot.item to the consumer's acquire-load of tail in popFrontImpl.
+    // Ordering: the release store publishes slot.item to the consumer's acquire-load of tail in popFrontImpl.
     tail.value.store(observed_tail +% 1, .release);
 }
 
@@ -215,8 +215,8 @@ fn popFrontImpl(
 
     const observed_head = head.value.load(.monotonic);
 
-    // acquire: pairs with the producer's release-store of tail in tryPushBackImpl;
-    // ensures the slot's item write is visible before we read it.
+    // Ordering: the acquire load pairs with the producer's release-store of tail in tryPushBackImpl.
+    // This ensures the slot's item write is visible before it is read.
     const observed_tail = tail.value.load(.acquire);
 
     if (observed_tail == observed_head) return null;
@@ -224,7 +224,7 @@ fn popFrontImpl(
     const slot = &slots[observed_head & (slots.len - 1)];
     const out = slot.item;
 
-    // release: publishes slot consumption to the producer's acquire-load of head in tryPushBackImpl.
+    // Ordering: the release store publishes slot consumption to the producer's acquire-load of head in tryPushBackImpl.
     head.value.store(observed_head +% 1, .release);
     return out;
 }
@@ -235,7 +235,7 @@ fn isEmptyImpl(
 ) bool {
     const observed_head = head.value.load(.monotonic);
 
-    // acquire: pairs with the producer's release-store of tail in tryPushBackImpl.
+    // Ordering: the acquire load pairs with the producer's release-store of tail in tryPushBackImpl.
     const observed_tail = tail.value.load(.acquire);
     return observed_head == observed_tail;
 }

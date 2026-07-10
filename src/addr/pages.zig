@@ -94,7 +94,8 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return @enumFromInt(addr_value.raw());
             }
 
-            /// Integer-address form of `fromAddress`; unaligned values return `error.Misaligned`.
+            /// Converts an integer address with the same contract as `fromAddress`.
+            /// Unaligned `value` returns `error.Misaligned`.
             pub fn fromAddressInt(value: AddressInt) Error!This {
                 return fromAddress(Addr.fromInt(value));
             }

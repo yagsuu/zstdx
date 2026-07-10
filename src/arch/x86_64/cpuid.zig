@@ -92,9 +92,7 @@ pub const Version = struct {
     eax: u32,
 };
 
-/// Comptime helper: return `true` when any field prefixed `_reserved_`
-/// on the packed-struct value is non-zero. Shared by every mask's
-/// `hasReserved`.
+/// Return true when any `_reserved_` field in a packed mask is non-zero.
 fn maskHasReserved(comptime T: type, self: T) bool {
     inline for (@typeInfo(T).@"struct".fields) |f| {
         if (comptime std.mem.startsWith(u8, f.name, "_reserved_")) {

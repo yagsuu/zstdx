@@ -12,7 +12,7 @@ fn requireRuntimeValue(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("Buffer element type must have nonzero size");
 }
 
-/// Borrowed host slice paired with its device-visible base address.
+/// A buffer pairs a borrowed host slice with its device-visible base address.
 pub fn Buffer(comptime T: type) type {
     comptime requireRuntimeValue(T);
     return struct {
@@ -29,7 +29,7 @@ pub fn Buffer(comptime T: type) type {
         /// `OutOfBounds`: item offset/window escapes `virt`.
         pub const Error = error{ Misaligned, Overflow, OutOfBounds };
 
-        /// Item window for `sub`. Both fields are item counts, not bytes.
+        /// A subrange names an item window for `sub`. Both fields are item counts, not bytes.
         pub const SubRange = struct {
             offset_items: usize,
             count_items: usize,
@@ -85,7 +85,7 @@ pub fn Buffer(comptime T: type) type {
             return self.virt.len;
         }
 
-        /// Byte length as `Address.Raw`; construction proves no overflow.
+        /// Returns the byte length as `Address.Raw`. Construction proves no overflow.
         pub fn byteLen(self: Self) Address.Raw {
             self.assertValid();
             const virt_len: Address.Raw = @intCast(self.virt.len);
@@ -97,13 +97,13 @@ pub fn Buffer(comptime T: type) type {
             return self.virt.len == 0;
         }
 
-        /// Device-visible base address.
+        /// Returns the device-visible base address.
         pub fn dmaAddr(self: Self) Address {
             self.assertValid();
             return self.dma;
         }
 
-        /// Device-visible address at an item offset; `len()` is the end cursor.
+        /// Returns the device-visible address at an item offset. `len()` is the end cursor.
         pub fn dmaAddrAt(self: Self, offset_items: usize) Error!Address {
             self.assertValid();
             if (offset_items > self.virt.len) return error.OutOfBounds;
@@ -112,7 +112,7 @@ pub fn Buffer(comptime T: type) type {
             return Address.fromInt(self.dma.raw() + byte_offset);
         }
 
-        /// Validated subrange preserving the caller's contiguity claim.
+        /// Returns a validated subrange that preserves the caller's contiguity claim.
         pub fn sub(self: Self, range: SubRange) Error!Self {
             self.assertValid();
             const end = std.math.add(
@@ -130,7 +130,7 @@ pub fn Buffer(comptime T: type) type {
             };
         }
 
-        /// Debug invariant check for construction guarantees.
+        /// Checks the invariants established by construction in debug builds.
         pub fn assertValid(self: Self) void {
             std.debug.assert((self.dma.raw() & (@as(Address.Raw, @alignOf(T)) - 1)) == 0);
             const virt_len: Address.Raw = std.math.cast(Address.Raw, self.virt.len) orelse unreachable;

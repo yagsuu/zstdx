@@ -84,7 +84,10 @@ pub const RangeSet = struct {
             }
 
             /// Precondition: `range.isValid()`.
-            /// First ascending non-empty intersection, or `null`. Empty ranges yield `null`.
+            /// Returns the first ascending non-empty intersection, or `null` when no
+            /// stored range intersects. Empty ranges yield `null`.
+            /// The returned range is a value copy; mutation, move, or
+            /// `clearRetainingCapacity` cannot invalidate it.
             pub fn findIntersecting(self: *const Self, range: Range) ?Range {
                 return findIntersectingRange(Range, self.asConstSlice(), range);
             }
@@ -172,7 +175,10 @@ pub const RangeSet = struct {
             }
 
             /// Precondition: `range.isValid()`.
-            /// First ascending non-empty intersection, or `null`. Empty ranges yield `null`.
+            /// Returns the first ascending non-empty intersection, or `null` when no
+            /// stored range intersects. Empty ranges yield `null`.
+            /// The returned range is a value copy; mutation, move, or
+            /// `clearRetainingCapacity` cannot invalidate it.
             pub fn findIntersecting(self: *const Self, range: Range) ?Range {
                 return findIntersectingRange(Range, self.asConstSlice(), range);
             }

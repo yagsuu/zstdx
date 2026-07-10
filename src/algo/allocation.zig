@@ -1,8 +1,6 @@
+//! Allocation-placement algorithms over free ranges and buddy block arithmetic.
+//! Value-only; no allocation, waiting, or input mutation.
 //! Spec: docs/specs/algo/allocation.md.
-//!
-//! Allocation-placement algorithms over caller-provided free ranges and
-//! buddy block arithmetic. Pure value-only API; no allocation, no waiting,
-//! and no mutation of inputs.
 
 const std = @import("std");
 

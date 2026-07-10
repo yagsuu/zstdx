@@ -12,7 +12,7 @@ const alignment = @import("alignment.zig");
 const ArenaError = error{ OutOfMemory, InvalidAlignment, Overflow };
 
 /// Fixed-capacity bump arena family. Each variant exposes the same
-/// `Error` set under its own type; private helpers share the algorithm.
+/// `Error` set under its own type.
 pub const Arena = struct {
     /// Borrowed `[]u8` bump arena. Owns nothing; the caller keeps `buffer`
     /// alive while any allocation is live.

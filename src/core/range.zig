@@ -11,9 +11,9 @@ fn requireUnsignedInt(comptime T: type) void {
     }
 }
 
-/// Half-open unsigned-integer range parameterized by `T`. The returned type
-/// is a plain value (`{ start, end }`) so copying is checkpointing; no
-/// allocation, no waiting.
+/// Returns a half-open unsigned-integer range type parameterized by `T`.
+/// The returned type is a plain value (`{ start, end }`) so copying is
+/// checkpointing; no allocation, no waiting.
 pub fn Range(comptime T: type) type {
     comptime requireUnsignedInt(T);
     return struct {
@@ -27,21 +27,21 @@ pub fn Range(comptime T: type) type {
         /// `OutOfBounds`: point lies outside `[start, end]`.
         pub const Error = error{ InvalidRange, Overflow, OutOfBounds };
 
-        /// Construct `[start, end)`. Returns `error.InvalidRange` when
+        /// Constructs `[start, end)`. Returns `error.InvalidRange` when
         /// `end < start`.
         pub fn fromBounds(start: T, end: T) Error!Self {
             if (end < start) return error.InvalidRange;
             return .{ .start = start, .end = end };
         }
 
-        /// Construct `[start, start + length)`. Returns `error.Overflow` when
+        /// Constructs `[start, start + length)`. Returns `error.Overflow` when
         /// `start + length` exceeds `T`.
         pub fn fromStartLen(start: T, length: T) Error!Self {
             const end = std.math.add(T, start, length) catch return error.Overflow;
             return fromBounds(start, end);
         }
 
-        /// Empty range positioned at `at`.
+        /// Returns an empty range positioned at `at`.
         pub fn empty(at: T) Self {
             return .{ .start = at, .end = at };
         }
@@ -76,8 +76,8 @@ pub fn Range(comptime T: type) type {
             return other.start >= self.start and other.end <= self.end;
         }
 
-        /// True only when the intersection is non-empty; empty ranges never
-        /// overlap.
+        /// Returns `true` only when the intersection is non-empty; empty ranges
+        /// never overlap.
         pub fn overlaps(self: Self, other: Self) bool {
             self.assertValid();
             other.assertValid();
@@ -90,7 +90,7 @@ pub fn Range(comptime T: type) type {
             return self.end == other.start or other.end == self.start;
         }
 
-        /// Non-empty intersection of `self` and `other`, or `null` when empty.
+        /// Returns the non-empty intersection of `self` and `other`, or `null`.
         pub fn intersection(self: Self, other: Self) ?Self {
             self.assertValid();
             other.assertValid();
@@ -102,7 +102,7 @@ pub fn Range(comptime T: type) type {
             return .{ .start = start, .end = end };
         }
 
-        /// Smallest range covering both inputs, including any gap.
+        /// Returns the smallest range covering both inputs, including any gap.
         pub fn span(self: Self, other: Self) Self {
             self.assertValid();
             other.assertValid();
@@ -112,7 +112,7 @@ pub fn Range(comptime T: type) type {
             };
         }
 
-        /// Prefix of `self` ending at `point`. `point` must lie in
+        /// Returns the prefix of `self` ending at `point`. `point` must lie in
         /// `[start, end]`; otherwise returns `error.OutOfBounds`.
         pub fn prefix(self: Self, point: T) Error!Self {
             self.assertValid();
@@ -120,7 +120,7 @@ pub fn Range(comptime T: type) type {
             return .{ .start = self.start, .end = point };
         }
 
-        /// Suffix of `self` starting at `point`. `point` must lie in
+        /// Returns the suffix of `self` starting at `point`. `point` must lie in
         /// `[start, end]`; otherwise returns `error.OutOfBounds`.
         pub fn suffix(self: Self, point: T) Error!Self {
             self.assertValid();
@@ -128,23 +128,23 @@ pub fn Range(comptime T: type) type {
             return .{ .start = point, .end = self.end };
         }
 
-        /// `value - start` when `value` is contained, else `null`.
+        /// Returns `value - start` when `value` is contained, else `null`.
         pub fn offsetOf(self: Self, value: T) ?T {
             self.assertValid();
             if (!self.contains(value)) return null;
             return value - self.start;
         }
 
-        /// `start + offset` when `offset < len()`, else `null`. Symmetric
-        /// with `offsetOf`; round trip preserves containment.
+        /// Returns `start + offset` when `offset < len()`, else `null`.
+        /// Symmetry with `offsetOf` preserves containment on round trip.
         pub fn atOffset(self: Self, offset: T) ?T {
             self.assertValid();
             if (offset >= self.len()) return null;
             return self.start + offset;
         }
 
-        /// Shift both endpoints forward by `amount`; `error.Overflow` when
-        /// either endpoint would exceed `T`.
+        /// Shifts both endpoints forward by `amount`; returns `error.Overflow`
+        /// when either endpoint would exceed `T`.
         pub fn shiftForward(self: Self, amount: T) Error!Self {
             self.assertValid();
 
@@ -153,8 +153,8 @@ pub fn Range(comptime T: type) type {
             return .{ .start = start, .end = end };
         }
 
-        /// Shift both endpoints backward by `amount`; `error.Overflow` when
-        /// subtraction would underflow `T`.
+        /// Shifts both endpoints backward by `amount`; returns `error.Overflow`
+        /// when subtraction would underflow `T`.
         pub fn shiftBackward(self: Self, amount: T) Error!Self {
             self.assertValid();
             if (amount > self.start) return error.Overflow;

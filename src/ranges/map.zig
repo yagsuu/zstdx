@@ -118,8 +118,9 @@ pub const RangeMap = struct {
             }
 
             /// Precondition: `range.isValid()`.
-            /// First ascending intersecting entry, or `null`. Empty ranges yield `null`.
-            /// Pointer is invalidated by mutation, move, or clear.
+            /// Returns the first ascending entry whose range intersects `range`, or `null`
+            /// when no stored entry intersects. Empty ranges yield `null`.
+            /// The returned pointer is invalidated by mutation, move, or `clearRetainingCapacity`.
             pub fn findIntersecting(self: *const Self, range: Range) ?*const Entry {
                 return findIntersectingEntry(Range, Entry, self.asConstSlice(), range);
             }
@@ -237,8 +238,9 @@ pub const RangeMap = struct {
             }
 
             /// Precondition: `range.isValid()`.
-            /// First ascending intersecting entry, or `null`. Empty ranges yield `null`.
-            /// Pointer is invalidated by mutation, move, or clear.
+            /// Returns the first ascending entry whose range intersects `range`, or `null`
+            /// when no stored entry intersects. Empty ranges yield `null`.
+            /// The returned pointer is invalidated by mutation, move, or `clearRetainingCapacity`.
             pub fn findIntersecting(self: *const Self, range: Range) ?*const Entry {
                 return findIntersectingEntry(Range, Entry, self.asConstSlice(), range);
             }

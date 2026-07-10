@@ -73,7 +73,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             self.tail = null;
         }
 
-        /// Checks endpoint symmetry, tail reachability, terminal null, and absence of a head cycle.
+        /// Invariant: endpoint symmetry, tail reachability, terminal null, and no head cycle.
         pub fn assertValid(self: *const Self) void {
             if (self.head == null) {
                 std.debug.assert(self.tail == null);

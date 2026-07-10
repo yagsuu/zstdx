@@ -151,7 +151,6 @@ pub const BuddyAllocator = struct {
         /// `InvalidRequest`: invalid range, invalid `free` block, or invalid `wrap` input.
         /// `AlreadyAllocated`: `reserve` overlaps an allocated unit.
         /// `NotAllocated`: `free` names a currently free block.
-        /// `Overflow`: reserved for future `usize`-boundary arithmetic.
         pub const Error = error{
             OutOfMemory,
             OutOfBounds,
@@ -250,8 +249,6 @@ pub const BuddyAllocator = struct {
         }
     };
 };
-
-// Shared implementation used by both Static and Bounded variants.
 
 const BuddyBlock = Buddy.Block;
 const BuddyError = BuddyAllocator.Bounded.Error;

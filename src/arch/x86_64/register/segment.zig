@@ -5,8 +5,6 @@ const target = @import("../target.zig");
 const supported = target.supported;
 const wrong_target = target.wrong_target;
 
-/// Code-segment selector access.
-/// Privilege: `read` is unprivileged; loading `cs` requires a far return.
 pub const cs = struct {
     /// Execute `mov rNN, cs` and return the current selector.
     /// Privilege: unprivileged.
@@ -34,7 +32,6 @@ pub const cs = struct {
     }
 };
 
-/// `DS` selector access.
 pub const ds = struct {
     /// Execute `mov rNN, ds` and return the current selector.
     /// Privilege: unprivileged.
@@ -44,6 +41,7 @@ pub const ds = struct {
             : [ret] "=r" (-> u16),
         );
     }
+
     /// Execute `mov ds, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
@@ -57,7 +55,6 @@ pub const ds = struct {
     }
 };
 
-/// `ES` selector access.
 pub const es = struct {
     /// Execute `mov rNN, es` and return the current selector.
     /// Privilege: unprivileged.
@@ -67,6 +64,7 @@ pub const es = struct {
             : [ret] "=r" (-> u16),
         );
     }
+
     /// Execute `mov es, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
@@ -80,7 +78,6 @@ pub const es = struct {
     }
 };
 
-/// `FS` selector access.
 pub const fs = struct {
     /// Execute `mov rNN, fs` and return the current selector.
     /// Privilege: unprivileged.
@@ -90,6 +87,7 @@ pub const fs = struct {
             : [ret] "=r" (-> u16),
         );
     }
+
     /// Execute `mov fs, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
@@ -103,7 +101,6 @@ pub const fs = struct {
     }
 };
 
-/// `GS` selector access.
 pub const gs = struct {
     /// Execute `mov rNN, gs` and return the current selector.
     /// Privilege: unprivileged.
@@ -113,6 +110,7 @@ pub const gs = struct {
             : [ret] "=r" (-> u16),
         );
     }
+
     /// Execute `mov gs, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
@@ -126,7 +124,6 @@ pub const gs = struct {
     }
 };
 
-/// `SS` selector access.
 pub const ss = struct {
     /// Execute `mov rNN, ss` and return the current selector.
     /// Privilege: unprivileged.
@@ -136,6 +133,7 @@ pub const ss = struct {
             : [ret] "=r" (-> u16),
         );
     }
+
     /// Execute `mov ss, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
@@ -160,6 +158,7 @@ pub const fs_base = struct {
             : [ret] "=r" (-> u64),
         );
     }
+
     /// Write the FS base with `wrfsbase`.
     /// Clobbers: `memory`.
     pub fn write(value: u64) void {
@@ -182,6 +181,7 @@ pub const gs_base = struct {
             : [ret] "=r" (-> u64),
         );
     }
+
     /// Write the GS base with `wrgsbase`.
     /// Clobbers: `memory`.
     pub fn write(value: u64) void {

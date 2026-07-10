@@ -1,5 +1,5 @@
-//! Inline-storage constructor for `Callback`. Spec:
-//! docs/specs/func/callback.md.
+//! Inline-storage constructor for `Callback`.
+//! Spec: docs/specs/func/callback.md.
 
 const std = @import("std");
 

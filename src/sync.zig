@@ -1,6 +1,5 @@
-//! Synchronization primitives. See docs/specs/sync/signal.md,
-//! docs/specs/sync/spin.md, docs/specs/sync/atomic-cell.md,
-//! docs/specs/sync/raw-spin-lock.md, docs/specs/sync/once.md,
+//! Synchronization primitives. Specs: docs/specs/sync/signal.md, docs/specs/sync/spin.md,
+//! docs/specs/sync/atomic-cell.md, docs/specs/sync/raw-spin-lock.md, docs/specs/sync/once.md,
 //! docs/specs/sync/rendezvous.md, and docs/specs/sync/latch.md.
 
 pub const atomic_cell = @import("sync/atomic_cell.zig");

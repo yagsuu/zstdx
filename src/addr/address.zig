@@ -109,13 +109,10 @@ pub const VirtTag = opaque {};
 /// outside this library.
 pub const DmaTag = opaque {};
 
-/// Default physical address: `Address(PhysTag, u64)`.
 pub const PhysAddr = Address(PhysTag, u64);
 
-/// Default virtual address: `Address(VirtTag, usize)`.
 pub const VirtAddr = Address(VirtTag, usize);
 
-/// Default DMA address: `Address(DmaTag, u64)`. Distinct from `PhysAddr`
-/// even though both share `u64`; conversion between them is an explicit
-/// caller decision.
+/// DMA addresses are domain-separated from physical addresses even when both use
+/// `u64`. Conversion between them is an explicit caller decision.
 pub const DmaAddr = Address(DmaTag, u64);

@@ -203,8 +203,8 @@ fn tryPushBackImpl(
     const mask = capacity - 1;
     const observed_tail = tail.value.load(.monotonic);
 
-    // acquire: pairs with the consumer's release-store of head in popFrontImpl;
-    // ensures the slot at observed_tail & mask is free for reuse before we publish.
+    // Ordering: the acquire load pairs with the consumer's release-store of head in popFrontImpl.
+    // This ensures the slot at observed_tail & mask is free for reuse before publication.
     const observed_head = head.value.load(.acquire);
 
     if (observed_tail -% observed_head >= capacity) return error.Full;
@@ -215,7 +215,7 @@ fn tryPushBackImpl(
     const slot = &slots[observed_tail & mask];
     slot.item = item;
 
-    // release: publishes slot.item to the consumer's acquire-load of slot.sequence in popFrontImpl.
+    // Ordering: the release store publishes slot.item to the consumer's acquire-load of slot.sequence in popFrontImpl.
     slot.sequence.store(observed_tail +% 1, .release);
 }
 
@@ -231,13 +231,13 @@ fn popFrontImpl(
     const observed_head = head.value.load(.monotonic);
     const slot = &slots[observed_head & (slots.len - 1)];
 
-    // acquire: pairs with the producer's release-store of slot.sequence in tryPushBackImpl;
-    // ensures slot.item is visible before we read it.
+    // Ordering: the acquire load pairs with the producer's release-store of slot.sequence in tryPushBackImpl.
+    // This ensures slot.item is visible before it is read.
     if (slot.sequence.load(.acquire) != observed_head +% 1) return null;
 
     const out = slot.item;
 
-    // release: publishes slot consumption to producers' acquire-load of head in tryPushBackImpl.
+    // Ordering: the release store publishes slot consumption to producers' acquire-load of head in tryPushBackImpl.
     head.value.store(observed_head +% 1, .release);
     return out;
 }
@@ -255,6 +255,6 @@ fn isEmptyImpl(
     const observed_head = head.value.load(.monotonic);
     const slot = &slots[observed_head & (slots.len - 1)];
 
-    // acquire: pairs with the producer's release-store of slot.sequence in tryPushBackImpl.
+    // Ordering: the acquire load pairs with the producer's release-store of slot.sequence in tryPushBackImpl.
     return slot.sequence.load(.acquire) != observed_head +% 1;
 }

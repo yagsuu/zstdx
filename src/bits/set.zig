@@ -6,12 +6,12 @@ const std = @import("std");
 
 const word = @import("word.zig");
 
-/// Family of fixed-capacity bit sets. The single approved variant `Static(N)`
-/// owns inline word storage; never allocates and never waits.
+/// Provides a family of fixed-capacity bit sets. The single approved variant
+/// `Static(N)` owns inline word storage; never allocates and never waits.
 pub const BitSet = struct {
-    /// Bit set with comptime-fixed capacity `capacity_bits`. `capacity_bits`
-    /// must be at least 1; `Static(0)` is rejected at compile time. Unused
-    /// high bits in the final word stay zero after every public operation.
+    /// Returns a bit set with comptime-fixed capacity `capacity_bits`.
+    /// `capacity_bits` must be at least 1; `Static(0)` is rejected at compile
+    /// time. Unused high bits in the final word stay zero after every public operation.
     pub fn Static(comptime capacity_bits: usize) type {
         comptime if (capacity_bits == 0) @compileError("BitSet.Static requires capacity_bits >= 1");
 
@@ -23,36 +23,34 @@ pub const BitSet = struct {
             /// `OutOfBounds`: mutator received an index at or past `bit_capacity`.
             pub const Error = error{OutOfBounds};
 
-            /// Backing storage word type.
             pub const Word = u64;
 
-            /// Bits per backing word.
             pub const word_bits = @bitSizeOf(Word);
 
-            /// Comptime bit capacity (slot count).
+            /// `bit_capacity` is the comptime slot count.
             pub const bit_capacity = capacity_bits;
 
-            /// Number of backing words; rounded up from `bit_capacity / word_bits`.
+            /// `word_count` is the number of backing words rounded up from `bit_capacity`.
             pub const word_count = word.count(Word, capacity_bits);
 
-            /// Empty set.
+            /// Returns an empty set.
             pub fn init() Self {
                 return .{};
             }
 
-            /// Set with every valid bit set and every unused high bit clear.
+            /// Returns a set with every valid bit set and every unused high bit clear.
             pub fn full() Self {
                 var self: Self = .{};
                 self.setAll();
                 return self;
             }
 
-            /// Clear every valid bit; slot count is unchanged.
+            /// Clears every valid bit; slot count is unchanged.
             pub fn clearRetainingCapacity(self: *Self) void {
                 for (&self.words) |*w| w.* = 0;
             }
 
-            /// Set every valid bit; unused high bits stay clear.
+            /// Sets every valid bit; unused high bits stay clear.
             pub fn setAll(self: *Self) void {
                 for (&self.words) |*w| w.* = ~@as(Word, 0);
                 self.clearUnused();
@@ -70,7 +68,7 @@ pub const BitSet = struct {
                 return self.words[word_count - 1] == word.lastMask(Word, bit_capacity);
             }
 
-            /// Population (number of set bits).
+            /// Returns the number of set bits.
             pub fn count(self: *const Self) usize {
                 self.assertValid();
 
@@ -79,7 +77,7 @@ pub const BitSet = struct {
                 return total;
             }
 
-            /// True when `index` is set. Returns `false` for
+            /// Returns `true` when `index` is set. Returns `false` for
             /// `index >= bit_capacity`; never errors.
             pub fn isSet(self: *const Self, index: usize) bool {
                 self.assertValid();
@@ -122,7 +120,7 @@ pub const BitSet = struct {
                 return (w.* & bit) != 0;
             }
 
-            /// Lowest set index, or `null` when empty.
+            /// Returns the lowest set index, or `null` when empty.
             pub fn firstSet(self: *const Self) ?usize {
                 self.assertValid();
                 for (self.words, 0..) |w, word_index| {
@@ -160,21 +158,21 @@ pub const BitSet = struct {
                 return false;
             }
 
-            /// `self <- self ∪ other`.
+            /// Updates this set to the union of itself and `other`.
             pub fn unionWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* |= b;
                 self.clearUnused();
             }
 
-            /// `self <- self ∩ other`.
+            /// Updates this set to the intersection of itself and `other`.
             pub fn intersectWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* &= b;
                 self.clearUnused();
             }
 
-            /// `self <- self \ other`.
+            /// Removes every bit set in `other` from this set.
             pub fn differenceWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* &= ~b;

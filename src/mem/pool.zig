@@ -10,8 +10,8 @@ fn requireRuntimeValue(comptime T: type) void {
 }
 
 /// Fixed-capacity object pool family. Both variants store `T` inside a
-/// private `Slot = union(enum) { free, occupied }` and share LIFO
-/// intrusive-free-list discipline.
+/// `Slot = union(enum) { free, occupied }` and share LIFO intrusive-free-list
+/// discipline.
 pub const Pool = struct {
     /// Inline `[capacity_items]Slot` storage. The pool value owns its
     /// backing storage; do not move the value while any pointer is live.

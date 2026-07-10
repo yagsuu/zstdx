@@ -57,7 +57,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             self.top = null;
         }
 
-        /// Checks that no cycle is reachable from `top`.
+        /// Invariant: no cycle is reachable from `top`.
         pub fn assertValid(self: *const Self) void {
             var slow: ?*const T = self.top;
             var fast: ?*const T = self.top;

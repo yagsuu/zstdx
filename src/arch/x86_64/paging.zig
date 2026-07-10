@@ -1,4 +1,5 @@
-//! x86_64 paging data formats and read-only walker. Spec: docs/specs/arch/x86_64/paging.md.
+//! x86_64 paging data formats and read-only walker.
+//! Spec: docs/specs/arch/x86_64/paging.md.
 
 const std = @import("std");
 

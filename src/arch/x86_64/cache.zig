@@ -9,7 +9,7 @@ const target = @import("target.zig");
 const supported = target.supported;
 const wrong_target = target.wrong_target;
 
-/// L1 cache-line size in bytes, derived from `CPUID.1:EBX[15:8] * 8`.
+/// Cache-flush line size in bytes, from `CPUID.1:EBX[15:8] * 8`.
 /// Falls back to 64 when CPUID does not advertise a size.
 pub fn lineSize() usize {
     if (!supported) @compileError(wrong_target);
@@ -32,7 +32,7 @@ pub fn flush(addr: usize) void {
 
 /// Execute `clflushopt [addr]`.
 /// Privilege: unprivileged.
-/// Notes: may compile down to `clflush` when `clflushopt` is unavailable.
+/// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLFLUSHOPT`.
 /// Clobbers: `memory`.
 pub fn flushOptimized(addr: usize) void {
     if (!supported) @compileError(wrong_target);
@@ -44,7 +44,7 @@ pub fn flushOptimized(addr: usize) void {
 
 /// Execute `clwb [addr]`.
 /// Privilege: unprivileged.
-/// Notes: may compile down to `clflushopt` or `clflush` when unavailable.
+/// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLWB`.
 /// Clobbers: `memory`.
 pub fn writeBack(addr: usize) void {
     if (!supported) @compileError(wrong_target);
@@ -54,15 +54,16 @@ pub fn writeBack(addr: usize) void {
         : .{ .memory = true });
 }
 
-/// Walk `[ptr, ptr + len)` in `lineSize()` steps, calling `flush` per line.
+/// Flush every cache line intersecting `[ptr, ptr + len)`.
+/// Contract: `ptr + len` must not wrap; `len == 0` does nothing.
 /// Privilege: unprivileged.
 pub fn flushRange(ptr: [*]const u8, len: usize) void {
     if (!supported) @compileError(wrong_target);
     rangeWalk(ptr, len, flush);
 }
 
-/// Walk `[ptr, ptr + len)` in `lineSize()` steps, calling `writeBack` per
-/// line.
+/// Write back every cache line intersecting `[ptr, ptr + len)`.
+/// Contract: `ptr + len` must not wrap; `len == 0` does nothing.
 /// Privilege: unprivileged.
 pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
     if (!supported) @compileError(wrong_target);

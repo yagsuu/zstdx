@@ -1,4 +1,4 @@
-//! Spec: docs/specs/diag/diagnostic.md.
+//! Structured diagnostic frame stack. Spec: docs/specs/diag/diagnostic.md.
 
 const std = @import("std");
 

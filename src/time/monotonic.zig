@@ -1,5 +1,5 @@
-//! Monotonic clock, Instant, and Duration value types. See
-//! docs/specs/time/monotonic.md.
+//! Monotonic clock, `Instant`, and `Duration` value types.
+//! Spec: docs/specs/time/monotonic.md.
 
 const std = @import("std");
 

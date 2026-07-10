@@ -21,12 +21,14 @@ pub fn PollReturnType(comptime Predicate: type) type {
     return (Deadline.TimeoutError || shape.error_set)!shape.payload;
 }
 
-/// Poll `predicate` until it returns a payload, propagates an error, or
-/// the deadline expires. The predicate runs first on every iteration;
-/// only `null` returns advance the backoff. `Backoff.next` owns the
-/// deadline check per `docs/specs/time/backoff.md`. Never allocates,
-/// never locks, never touches the clock or backoff outside their public
-/// contracts. Single-owner over `*Backoff`.
+/// Polls `predicate` until it returns a payload, propagates an error, or the
+/// deadline expires.
+/// Ordering: The predicate runs first on every iteration, and only `null`
+/// advances the backoff.
+/// Deadline: `Backoff.next` owns the deadline check per
+/// `docs/specs/time/backoff.md`.
+/// Effects: Never allocates, never locks, and never touches the clock or
+/// backoff outside their public contracts. The caller owns `*Backoff`.
 pub fn until(
     clock: anytype,
     dl: Deadline,

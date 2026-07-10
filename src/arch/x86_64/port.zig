@@ -170,6 +170,10 @@ pub const Port = enum(u16) {
     }
 };
 
+/// Execute a legacy I/O delay by writing zero to port `0x80`.
+/// Privilege: IOPL/TSS I/O bitmap permits access.
+/// Faults: `#GP` when access is denied.
+/// Clobbers: `memory`.
 pub fn ioWait() void {
     if (!supported) @compileError(wrong_target);
     asm volatile ("outb %[v], $0x80"

@@ -128,7 +128,7 @@ pub const List = struct {
                 self.tail = null;
             }
 
-            /// Checks endpoint symmetry, tail reachability, terminal null, and absence of a head cycle.
+            /// Invariant: endpoint symmetry, tail reachability, terminal null, and no head cycle.
             pub fn assertValid(self: *const Self) void {
                 if (self.head == null) {
                     std.debug.assert(self.tail == null);
@@ -345,7 +345,7 @@ pub const List = struct {
                 self.tail = null;
             }
 
-            /// Checks endpoint and link symmetry plus absence of a head cycle.
+            /// Invariant: endpoint and link symmetry plus no head cycle.
             pub fn assertValid(self: *const Self) void {
                 if (self.head == null) {
                     std.debug.assert(self.tail == null);

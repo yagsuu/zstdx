@@ -7,7 +7,7 @@ const wrong_target = target.wrong_target;
 
 fn DebugRegSlot(comptime name: []const u8) type {
     return struct {
-        /// Execute `mov rax, drN` and return the raw `u64`.
+        /// Execute `mov rNN, drN` and return the raw `u64`.
         /// Privilege: CPL 0.
         /// Faults: `#GP` at CPL > 0.
         /// Clobbers: registers only.
@@ -18,7 +18,7 @@ fn DebugRegSlot(comptime name: []const u8) type {
             );
         }
 
-        /// Execute `mov drN, rax` writing `value`.
+        /// Execute `mov drN, rNN` writing `value`.
         /// Privilege: CPL 0.
         /// Faults: `#GP` at CPL > 0.
         /// Clobbers: `memory`.
