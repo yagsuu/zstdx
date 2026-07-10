@@ -115,6 +115,7 @@ and the required tests from the spec land in `test/`.
 - `docs/specs/arch/x86_64/extensions.md` (superseded doc-only)
 - `docs/specs/io/poll-until.md` (`src/io/poll.zig`)
 - `docs/specs/concurrent/spsc-ring.md` (`src/concurrent/spsc.zig`, `src/concurrent/spsc/ring.zig`)
+- `docs/specs/concurrent/qsbr.md` (`src/concurrent.zig`, `src/concurrent/qsbr.zig`, `test/concurrent/qsbr_test.zig`)
 - `docs/specs/cpu/per-cpu.md` (`src/cpu.zig`, `src/cpu/per_cpu.zig`)
 - `docs/specs/diag/panic-log.md` (`src/diag/panic_log.zig`)
 - `docs/specs/mem/pool-cache.md` (`src/mem/pool_cache.zig`)
@@ -126,7 +127,6 @@ and the required tests from the spec land in `test/`.
 ### Approved, implementation pending
 
 - `docs/specs/sync/latch.md`
-- `docs/specs/concurrent/qsbr.md`
 
 ## Queue
 
