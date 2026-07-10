@@ -39,6 +39,27 @@ test "unit: Msr.fromInt and raw round-trip at boundaries" {
     try testing.expectEqual(@as(u32, 0xffff_ffff), x86.Msr.fromInt(0xffff_ffff).raw());
 }
 
+test "unit: Msr named tags match architectural addresses" {
+    try testing.expectEqual(@as(u32, 0x0000_0010), x86.Msr.tsc.raw());
+    try testing.expectEqual(@as(u32, 0x0000_001b), x86.Msr.apic_base.raw());
+    try testing.expectEqual(@as(u32, 0x0000_003a), x86.Msr.feature_control.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0277), x86.Msr.pat.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0480), x86.Msr.vmx_basic.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0481), x86.Msr.vmx_pinbased_ctls.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0482), x86.Msr.vmx_procbased_ctls.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0483), x86.Msr.vmx_exit_ctls.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0484), x86.Msr.vmx_entry_ctls.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0080), x86.Msr.efer.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0081), x86.Msr.star.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0082), x86.Msr.lstar.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0084), x86.Msr.fmask.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0100), x86.Msr.fs_base.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0101), x86.Msr.gs_base.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0102), x86.Msr.kernel_gs_base.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0103), x86.Msr.tsc_aux.raw());
+    try testing.expectEqual(@as(u32, 0xc001_0117), x86.Msr.vm_hsave_pa.raw());
+}
+
 test "unit: supported matches the build target" {
     try testing.expectEqual(builtin.cpu.arch == .x86_64, x86.supported);
 }

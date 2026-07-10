@@ -41,7 +41,6 @@ This spec does not own:
 - PCI, ACPI, UEFI, IOMMU, device, scheduler, or OS service policy;
 - interrupt controllers, IDT/GDT contents, trap handlers, or exception recovery;
 - runtime feature probing beyond the explicit CPUID namespace;
-- root promotion.
 
 ## Public namespace
 
@@ -69,8 +68,6 @@ stdx.arch.x86_64.paging
 ```
 
 Historical PascalCase namespace aliases such as `Cpuid`, `ControlRegister`, `Cpu`, `Descriptor`, `Segment`, `Fence`, `Cache`, `Privilege`, `Vmx`, and `Svm` are not exported. `Port` and `Msr` remain PascalCase because they are concrete strong value types.
-
-No x86_64 names are root-promoted.
 
 ## Source ownership
 
@@ -168,6 +165,24 @@ pub fn ioWait() void;
 
 ```zig
 pub const Msr = enum(u32) {
+    tsc = 0x0000_0010,
+    apic_base = 0x0000_001b,
+    feature_control = 0x0000_003a,
+    pat = 0x0000_0277,
+    vmx_basic = 0x0000_0480,
+    vmx_pinbased_ctls = 0x0000_0481,
+    vmx_procbased_ctls = 0x0000_0482,
+    vmx_exit_ctls = 0x0000_0483,
+    vmx_entry_ctls = 0x0000_0484,
+    efer = 0xc000_0080,
+    star = 0xc000_0081,
+    lstar = 0xc000_0082,
+    fmask = 0xc000_0084,
+    fs_base = 0xc000_0100,
+    gs_base = 0xc000_0101,
+    kernel_gs_base = 0xc000_0102,
+    tsc_aux = 0xc000_0103,
+    vm_hsave_pa = 0xc001_0117,
     _,
 
     pub fn fromInt(value: u32) Msr;
@@ -177,7 +192,14 @@ pub const Msr = enum(u32) {
 };
 ```
 
-`Msr.read` executes `rdmsr`; `Msr.write` executes `wrmsr`. MSR address constants and bitfield layouts are caller or future-spec policy.
+Named tags are approved MSR address values. Tag names are lower snake case,
+omit the `ia32_` prefix for `IA32_*` architectural register names, and retain
+non-`IA32_*` architectural prefixes as part of the register name. The `_` tag
+keeps the full `u32` MSR address space available through `fromInt`.
+
+This spec owns MSR address values only. It does not own per-MSR bitfield
+layouts, reserved-bit validation, feature-detection policy, or safe write
+sequences.
 
 ### `interrupts`
 
@@ -270,8 +292,7 @@ const com1: x86.Port = .fromInt(0x3f8);
 const status = com1.in8();
 com1.out8(status);
 
-const efer: x86.Msr = .fromInt(0xc000_0080);
-const efer_value = efer.read();
+const efer_value = x86.Msr.efer.read();
 _ = efer_value;
 
 x86.interrupts.disable();
@@ -291,7 +312,7 @@ Required tests:
 
 - `supported` matches `builtin.cpu.arch == .x86_64`;
 - `Port.fromInt` / `raw` round-trip boundary values;
-- `Msr.fromInt` / `raw` round-trip boundary values;
+- `Msr.fromInt` / `raw` round-trip boundary values and named MSR tag values;
 - compile-only: every port I/O width and slice method instantiates on x86_64;
 - compile-only: `Msr.read` and `Msr.write` instantiate on x86_64;
 - compile-only: `interrupts`, `privilege`, `fence`, and `cache` functions instantiate on x86_64;
