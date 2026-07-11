@@ -14,6 +14,13 @@ test "unit: range init rejects inverted bounds" {
     try testing.expectEqual(@as(u64, 0), (try R.fromBounds(5, 5)).len());
 }
 
+test "comptime: range of constructs literals" {
+    const R = Range(u8);
+    const r = comptime R.of(5, 9);
+    try testing.expectEqual(R{ .start = 5, .end = 9 }, r);
+    try testing.expectEqual(R.empty(7), comptime R.of(7, 7));
+}
+
 test "unit: range fromStartLen detects overflow" {
     const R = Range(u64);
     try testing.expectError(error.Overflow, R.fromStartLen(std.math.maxInt(u64), 1));

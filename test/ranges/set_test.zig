@@ -181,8 +181,8 @@ test "comptime: RangeSet mutates at compile time" {
         const Range = Set.Range;
 
         var set = Set.init();
-        try set.insert(try Range.fromBounds(1, 3));
-        try set.insert(try Range.fromBounds(3, 5));
+        try set.insert(Range.of(1, 3));
+        try set.insert(Range.of(3, 5));
 
         std.debug.assert(set.len() == 1);
         std.debug.assert(set.contains(4));

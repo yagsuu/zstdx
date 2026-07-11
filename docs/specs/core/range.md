@@ -72,6 +72,7 @@ pub const Self = struct {
 
 
     pub fn fromBounds(start: T, end: T) Error!Self;
+    pub fn of(comptime start: T, comptime end: T) Self;
     pub fn fromStartLen(start: T, len: T) Error!Self;
     pub fn empty(at: T) Self;
 
@@ -122,6 +123,8 @@ start == end
 ## Constructors
 
 `fromBounds(start, end)` returns `error.InvalidRange` when `end < start`.
+
+`of(start, end)` constructs `[start, end)` from compile-time-known bounds. It is a compile error when `end < start`.
 
 `fromStartLen(start, len)` constructs `[start, start + len)`. It returns `error.Overflow` when `start + len` overflows `T`.
 
@@ -226,6 +229,7 @@ Required for `Range(usize)` and at least one small unsigned integer type such as
 
 - `fromBounds` accepts valid and empty ranges;
 - `fromBounds` rejects `end < start`;
+- `of` accepts valid and empty ranges;
 - `fromStartLen` catches overflow;
 - `empty` creates `[at, at)`;
 - `isValid` and `assertValid` cover valid ranges;

@@ -278,8 +278,8 @@ test "comptime: RangeMap mutates at compile time" {
         const Range = Map.Range;
 
         var map = Map.init();
-        try map.insert(try Range.fromBounds(1, 3), .a);
-        try map.assign(try Range.fromBounds(2, 5), .b);
+        try map.insert(Range.of(1, 3), .a);
+        try map.assign(Range.of(2, 5), .b);
 
         std.debug.assert(map.contains(4));
         std.debug.assert(map.get(1).?.* == .a);

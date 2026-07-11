@@ -34,6 +34,13 @@ pub fn Range(comptime T: type) type {
             return .{ .start = start, .end = end };
         }
 
+        /// Constructs `[start, end)` at compile time. Invalid bounds are a
+        /// compile error.
+        pub fn of(comptime start: T, comptime end: T) Self {
+            if (end < start) @compileError("Range.of requires start <= end");
+            return .{ .start = start, .end = end };
+        }
+
         /// Constructs `[start, start + length)`. Returns `error.Overflow` when
         /// `start + length` exceeds `T`.
         pub fn fromStartLen(start: T, length: T) Error!Self {

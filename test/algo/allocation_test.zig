@@ -15,8 +15,8 @@ const Buddy = allocation.Buddy;
 
 const testing = std.testing;
 
-fn r(start: usize, end: usize) Range {
-    return .{ .start = start, .end = end };
+fn r(comptime start: usize, comptime end: usize) Range {
+    return Range.of(start, end);
 }
 
 fn expectPartition(source: Range, selection: Selection) !void {
