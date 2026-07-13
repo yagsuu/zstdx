@@ -64,16 +64,15 @@ pub const Self = struct {
     start: T,
     end: T,
 
-    pub const Error = error{
-        InvalidRange,
-        Overflow,
-        OutOfBounds,
-    };
+    pub const InvalidRangeError = error{InvalidRange};
+    pub const OverflowError = error{Overflow};
+    pub const OutOfBoundsError = error{OutOfBounds};
+    pub const Error = InvalidRangeError || OverflowError || OutOfBoundsError;
 
 
-    pub fn fromBounds(start: T, end: T) Error!Self;
+    pub fn fromBounds(start: T, end: T) InvalidRangeError!Self;
     pub fn of(comptime start: T, comptime end: T) Self;
-    pub fn fromStartLen(start: T, len: T) Error!Self;
+    pub fn fromStartLen(start: T, len: T) OverflowError!Self;
     pub fn empty(at: T) Self;
 
     pub fn assertValid(self: Self) void;
@@ -90,13 +89,13 @@ pub const Self = struct {
     pub fn intersection(self: Self, other: Self) ?Self;
     pub fn span(self: Self, other: Self) Self;
 
-    pub fn prefix(self: Self, point: T) Error!Self;
-    pub fn suffix(self: Self, point: T) Error!Self;
+    pub fn prefix(self: Self, point: T) OutOfBoundsError!Self;
+    pub fn suffix(self: Self, point: T) OutOfBoundsError!Self;
     pub fn offsetOf(self: Self, value: T) ?T;
     pub fn atOffset(self: Self, offset: T) ?T;
 
-    pub fn shiftForward(self: Self, amount: T) Error!Self;
-    pub fn shiftBackward(self: Self, amount: T) Error!Self;
+    pub fn shiftForward(self: Self, amount: T) OverflowError!Self;
+    pub fn shiftBackward(self: Self, amount: T) OverflowError!Self;
 };
 ```
 

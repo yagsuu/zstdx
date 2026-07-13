@@ -161,12 +161,10 @@ pub const Self = struct {
     pub const word_count = capacity / word_bits +
         @intFromBool(capacity % word_bits != 0);
 
-    pub const Error = error{
-        OutOfTags,
-        OutOfBounds,
-        AlreadyAllocated,
-        NotAllocated,
-    };
+    pub const AllocError = error{OutOfTags};
+    pub const ReserveError = error{ OutOfBounds, AlreadyAllocated };
+    pub const FreeError = error{ OutOfBounds, NotAllocated };
+    pub const Error = AllocError || ReserveError || FreeError;
 
     pub fn init() Self;
 
@@ -179,9 +177,9 @@ pub const Self = struct {
     pub fn isAllocated(self: *const Self, tag: Tag) bool;
     pub fn isFree(self: *const Self, tag: Tag) bool;
 
-    pub fn allocOne(self: *Self) Error!Tag;
-    pub fn reserveOne(self: *Self, tag: Tag) Error!void;
-    pub fn freeOne(self: *Self, tag: Tag) Error!void;
+    pub fn allocOne(self: *Self) AllocError!Tag;
+    pub fn reserveOne(self: *Self, tag: Tag) ReserveError!void;
+    pub fn freeOne(self: *Self, tag: Tag) FreeError!void;
 
     pub fn clearRetainingCapacity(self: *Self) void;
 
@@ -210,14 +208,13 @@ pub const Self = struct {
     pub const Word = u64;
     pub const word_bits = @bitSizeOf(Word);
 
-    pub const Error = error{
-        OutOfTags,
-        OutOfBounds,
-        AlreadyAllocated,
-        NotAllocated,
-    };
+    pub const WrapError = error{OutOfBounds};
+    pub const AllocError = error{OutOfTags};
+    pub const ReserveError = error{ OutOfBounds, AlreadyAllocated };
+    pub const FreeError = error{ OutOfBounds, NotAllocated };
+    pub const Error = WrapError || AllocError || ReserveError || FreeError;
 
-    pub fn wrap(words: []Word, tag_capacity: usize) Error!Self;
+    pub fn wrap(words: []Word, tag_capacity: usize) WrapError!Self;
 
     pub fn capacity(self: *const Self) usize;
     pub fn allocated(self: *const Self) usize;
@@ -228,9 +225,9 @@ pub const Self = struct {
     pub fn isAllocated(self: *const Self, tag: Tag) bool;
     pub fn isFree(self: *const Self, tag: Tag) bool;
 
-    pub fn allocOne(self: *Self) Error!Tag;
-    pub fn reserveOne(self: *Self, tag: Tag) Error!void;
-    pub fn freeOne(self: *Self, tag: Tag) Error!void;
+    pub fn allocOne(self: *Self) AllocError!Tag;
+    pub fn reserveOne(self: *Self, tag: Tag) ReserveError!void;
+    pub fn freeOne(self: *Self, tag: Tag) FreeError!void;
 
     pub fn clearRetainingCapacity(self: *Self) void;
 

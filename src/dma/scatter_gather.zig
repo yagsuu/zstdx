@@ -17,9 +17,8 @@ pub const Segment = struct {
 
     pub const Address = DmaAddr;
 
-    /// `Misaligned`: builder alignment rejection.
     /// `Overflow`: `addr.raw() + len_bytes` exceeds `Address.Raw`.
-    pub const Error = error{ Misaligned, Overflow };
+    pub const Error = error{Overflow};
 
     /// Creates a validated `[addr, addr + len_bytes)` segment.
     pub fn init(addr: DmaAddr, len_bytes: DmaRaw) Error!Segment {

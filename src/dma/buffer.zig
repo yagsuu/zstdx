@@ -27,7 +27,10 @@ pub fn Buffer(comptime T: type) type {
         /// `Misaligned`: invalid address or requested alignment.
         /// `Overflow`: byte length, end address, or sub-range sum overflows.
         /// `OutOfBounds`: item offset/window escapes `virt`.
-        pub const Error = error{ Misaligned, Overflow, OutOfBounds };
+        pub const InitError = error{ Misaligned, Overflow };
+        pub const OffsetError = error{OutOfBounds};
+        pub const SubError = error{ Overflow, OutOfBounds };
+        pub const Error = InitError || OffsetError || SubError;
 
         /// A subrange names an item window for `sub`. Both fields are item counts, not bytes.
         pub const SubRange = struct {
@@ -36,18 +39,18 @@ pub fn Buffer(comptime T: type) type {
         };
 
         /// Validate default type alignment and address range.
-        pub fn init(virt: []T, dma: Address) Error!Self {
+        pub fn init(virt: []T, dma: Address) InitError!Self {
             return initAlignedWith(virt, dma, @alignOf(T));
         }
 
         /// Validate `dma` against `max(alignment, @alignOf(T))`.
         /// Invalid alignment returns `error.Misaligned`.
-        pub fn initAligned(virt: []T, dma: Address, alignment: Address.Raw) Error!Self {
+        pub fn initAligned(virt: []T, dma: Address, alignment: Address.Raw) InitError!Self {
             if (alignment == 0 or !bits.isPowerOfTwo(Address.Raw, alignment)) return error.Misaligned;
             return initAlignedWith(virt, dma, alignment);
         }
 
-        fn initAlignedWith(virt: []T, dma: Address, alignment: Address.Raw) Error!Self {
+        fn initAlignedWith(virt: []T, dma: Address, alignment: Address.Raw) InitError!Self {
             const type_alignment: Address.Raw = @alignOf(T);
             const required = @max(alignment, type_alignment);
             if ((dma.raw() & (required - 1)) != 0) return error.Misaligned;
@@ -104,7 +107,7 @@ pub fn Buffer(comptime T: type) type {
         }
 
         /// Returns the device-visible address at an item offset. `len()` is the end cursor.
-        pub fn dmaAddrAt(self: Self, offset_items: usize) Error!Address {
+        pub fn dmaAddrAt(self: Self, offset_items: usize) OffsetError!Address {
             self.assertValid();
             if (offset_items > self.virt.len) return error.OutOfBounds;
             const offset_raw: Address.Raw = @intCast(offset_items);
@@ -113,7 +116,7 @@ pub fn Buffer(comptime T: type) type {
         }
 
         /// Returns a validated subrange that preserves the caller's contiguity claim.
-        pub fn sub(self: Self, range: SubRange) Error!Self {
+        pub fn sub(self: Self, range: SubRange) SubError!Self {
             self.assertValid();
             const end = std.math.add(
                 usize,

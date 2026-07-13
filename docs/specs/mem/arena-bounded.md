@@ -73,11 +73,10 @@ pub const Arena = struct {
         buffer: []u8,
         index: usize = 0,
 
-        pub const Error = error{
-            OutOfMemory,
-            InvalidAlignment,
-            Overflow,
-        };
+        pub const ArenaAllocationError = error{ OutOfMemory, Overflow };
+        pub const ArenaError = error{ OutOfMemory, InvalidAlignment, Overflow };
+        pub const AllocationError = ArenaAllocationError;
+        pub const Error = ArenaError;
 
         pub const Mark = struct {
             index: usize,
@@ -97,15 +96,15 @@ pub const Arena = struct {
         pub fn restore(self: *Bounded, checkpoint: Mark) void;
         pub fn reset(self: *Bounded) void;
 
-        pub fn allocBytes(self: *Bounded, len: usize) Error![]u8;
+        pub fn allocBytes(self: *Bounded, len: usize) AllocationError![]u8;
         pub fn allocAlignedBytes(
             self: *Bounded,
             len: usize,
             alignment: usize,
         ) Error![]u8;
 
-        pub fn alloc(self: *Bounded, comptime T: type) Error!*T;
-        pub fn allocSlice(self: *Bounded, comptime T: type, len: usize) Error![]T;
+        pub fn alloc(self: *Bounded, comptime T: type) AllocationError!*T;
+        pub fn allocSlice(self: *Bounded, comptime T: type, len: usize) AllocationError![]T;
 
         pub fn allocator(self: *Bounded) std.mem.Allocator;
     };
@@ -262,7 +261,7 @@ atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
 
 ## Error behavior
 
-- invalid alignment returns `error.InvalidAlignment`;
+- `allocAlignedBytes` returns `error.InvalidAlignment` for invalid alignment;
 - alignment rounding overflow returns `error.Overflow`;
 - typed byte-count overflow returns `error.Overflow`;
 - insufficient remaining capacity returns `error.OutOfMemory`;

@@ -25,11 +25,14 @@ pub fn Range(comptime T: type) type {
         /// `InvalidRange`: caller passed `end < start`.
         /// `Overflow`: arithmetic on `start`, `end`, or `len` exceeded `T`.
         /// `OutOfBounds`: point lies outside `[start, end]`.
-        pub const Error = error{ InvalidRange, Overflow, OutOfBounds };
+        pub const InvalidRangeError = error{InvalidRange};
+        pub const OverflowError = error{Overflow};
+        pub const OutOfBoundsError = error{OutOfBounds};
+        pub const Error = InvalidRangeError || OverflowError || OutOfBoundsError;
 
         /// Constructs `[start, end)`. Returns `error.InvalidRange` when
         /// `end < start`.
-        pub fn fromBounds(start: T, end: T) Error!Self {
+        pub fn fromBounds(start: T, end: T) InvalidRangeError!Self {
             if (end < start) return error.InvalidRange;
             return .{ .start = start, .end = end };
         }
@@ -43,9 +46,9 @@ pub fn Range(comptime T: type) type {
 
         /// Constructs `[start, start + length)`. Returns `error.Overflow` when
         /// `start + length` exceeds `T`.
-        pub fn fromStartLen(start: T, length: T) Error!Self {
+        pub fn fromStartLen(start: T, length: T) OverflowError!Self {
             const end = std.math.add(T, start, length) catch return error.Overflow;
-            return fromBounds(start, end);
+            return .{ .start = start, .end = end };
         }
 
         /// Returns an empty range positioned at `at`.
@@ -121,7 +124,7 @@ pub fn Range(comptime T: type) type {
 
         /// Returns the prefix of `self` ending at `point`. `point` must lie in
         /// `[start, end]`; otherwise returns `error.OutOfBounds`.
-        pub fn prefix(self: Self, point: T) Error!Self {
+        pub fn prefix(self: Self, point: T) OutOfBoundsError!Self {
             self.assertValid();
             if (point < self.start or point > self.end) return error.OutOfBounds;
             return .{ .start = self.start, .end = point };
@@ -129,7 +132,7 @@ pub fn Range(comptime T: type) type {
 
         /// Returns the suffix of `self` starting at `point`. `point` must lie in
         /// `[start, end]`; otherwise returns `error.OutOfBounds`.
-        pub fn suffix(self: Self, point: T) Error!Self {
+        pub fn suffix(self: Self, point: T) OutOfBoundsError!Self {
             self.assertValid();
             if (point < self.start or point > self.end) return error.OutOfBounds;
             return .{ .start = point, .end = self.end };
@@ -152,7 +155,7 @@ pub fn Range(comptime T: type) type {
 
         /// Shifts both endpoints forward by `amount`; returns `error.Overflow`
         /// when either endpoint would exceed `T`.
-        pub fn shiftForward(self: Self, amount: T) Error!Self {
+        pub fn shiftForward(self: Self, amount: T) OverflowError!Self {
             self.assertValid();
 
             const start = std.math.add(T, self.start, amount) catch return error.Overflow;
@@ -162,7 +165,7 @@ pub fn Range(comptime T: type) type {
 
         /// Shifts both endpoints backward by `amount`; returns `error.Overflow`
         /// when subtraction would underflow `T`.
-        pub fn shiftBackward(self: Self, amount: T) Error!Self {
+        pub fn shiftBackward(self: Self, amount: T) OverflowError!Self {
             self.assertValid();
             if (amount > self.start) return error.Overflow;
             return .{ .start = self.start - amount, .end = self.end - amount };

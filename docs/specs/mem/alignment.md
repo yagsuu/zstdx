@@ -69,16 +69,15 @@ pub const alignDownDelta = alignment.alignDownDelta;
 ## Approved API
 
 ```zig
-pub const Error = error{
-    InvalidAlignment,
-    Overflow,
-};
+pub const AlignError = error{InvalidAlignment};
+pub const OverflowError = error{Overflow};
+pub const Error = AlignError || OverflowError;
 
 pub fn alignUp(comptime T: type, value: T, alignment: T) Error!T;
-pub fn alignDown(comptime T: type, value: T, alignment: T) Error!T;
+pub fn alignDown(comptime T: type, value: T, alignment: T) AlignError!T;
 pub fn isAligned(comptime T: type, value: T, alignment: T) bool;
 pub fn alignUpDelta(comptime T: type, value: T, alignment: T) Error!T;
-pub fn alignDownDelta(comptime T: type, value: T, alignment: T) Error!T;
+pub fn alignDownDelta(comptime T: type, value: T, alignment: T) AlignError!T;
 ```
 
 `T` must be an unsigned integer type. Signed integers, floats, bools, enums,

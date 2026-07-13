@@ -85,9 +85,8 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             const ListId = enum(u8) { empty, partial, full };
         };
 
-        /// `RegionSource.Error || error{OutOfMemory}` — collapses when
-        /// the source's error set already contains `OutOfMemory`.
-        pub const RefillError = RegionSource.Error || error{OutOfMemory};
+        /// Refill propagates the source's error set unchanged.
+        pub const RefillError = RegionSource.Error;
 
         /// Acquire error set. `OutOfMemory` when every held region is
         /// full and no free slot exists.

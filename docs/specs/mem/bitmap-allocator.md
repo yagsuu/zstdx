@@ -83,14 +83,13 @@ pub const BitmapAllocator = struct {
         pub const Word = u64;
         pub const word_bits = @bitSizeOf(Word);
         pub const Range = stdx.core.Range(usize);
-        pub const Error = error{
-            OutOfMemory,
-            OutOfBounds,
-            AlreadyAllocated,
-            NotAllocated,
-        };
+        pub const WrapError = error{OutOfBounds};
+        pub const AllocError = error{OutOfMemory};
+        pub const ReserveError = error{ OutOfBounds, AlreadyAllocated };
+        pub const FreeError = error{ OutOfBounds, NotAllocated };
+        pub const Error = WrapError || AllocError || ReserveError || FreeError;
 
-        pub fn wrap(words: []Word, unit_capacity: usize) Error!Bounded;
+        pub fn wrap(words: []Word, unit_capacity: usize) WrapError!Bounded;
         pub fn clearRetainingCapacity(self: *Bounded) void;
 
         pub fn capacity(self: Bounded) usize;
@@ -102,12 +101,12 @@ pub const BitmapAllocator = struct {
         pub fn isAllocated(self: Bounded, index: usize) bool;
         pub fn isFree(self: Bounded, index: usize) bool;
 
-        pub fn allocOne(self: *Bounded) Error!usize;
-        pub fn allocRange(self: *Bounded, count: usize) Error!Range;
-        pub fn reserveOne(self: *Bounded, index: usize) Error!void;
-        pub fn reserveRange(self: *Bounded, range: Range) Error!void;
-        pub fn freeOne(self: *Bounded, index: usize) Error!void;
-        pub fn freeRange(self: *Bounded, range: Range) Error!void;
+        pub fn allocOne(self: *Bounded) AllocError!usize;
+        pub fn allocRange(self: *Bounded, count: usize) AllocError!Range;
+        pub fn reserveOne(self: *Bounded, index: usize) ReserveError!void;
+        pub fn reserveRange(self: *Bounded, range: Range) ReserveError!void;
+        pub fn freeOne(self: *Bounded, index: usize) FreeError!void;
+        pub fn freeRange(self: *Bounded, range: Range) FreeError!void;
 
         pub fn isValid(self: Bounded) bool;
         pub fn assertValid(self: Bounded) void;

@@ -158,7 +158,6 @@ pub const BuddyAllocator = struct {
             InvalidRequest,
             AlreadyAllocated,
             NotAllocated,
-            Overflow,
         };
 
         /// Borrowed words are zeroed only on success.

@@ -9,7 +9,10 @@ const alignment = @import("alignment.zig");
 /// `OutOfMemory`: remaining capacity does not fit the request.
 /// `InvalidAlignment`: `byte_alignment` is zero or not a power of two.
 /// `Overflow`: alignment rounding or typed byte count exceeded `usize`.
-const ArenaError = error{ OutOfMemory, InvalidAlignment, Overflow };
+pub const ArenaAllocationError = error{ OutOfMemory, Overflow };
+pub const ArenaError = error{ OutOfMemory, InvalidAlignment, Overflow };
+pub const AllocationError = ArenaAllocationError;
+pub const Error = ArenaError;
 
 /// Fixed-capacity bump arena family. Each variant exposes the same
 /// `Error` set under its own type.
@@ -21,6 +24,7 @@ pub const Arena = struct {
         index: usize = 0,
 
         pub const Error = ArenaError;
+        pub const AllocationError = ArenaAllocationError;
 
         /// Opaque checkpoint of the current allocation position.
         pub const Mark = struct {
@@ -75,24 +79,28 @@ pub const Arena = struct {
         }
 
         /// Allocate `len` bytes with byte alignment 1.
-        pub fn allocBytes(self: *Bounded, len: usize) Error![]u8 {
-            return self.allocAlignedBytes(len, 1);
+        pub fn allocBytes(self: *Bounded, len: usize) ArenaAllocationError![]u8 {
+            return allocBytesInto(self.buffer, &self.index, len, 1) catch |err| switch (err) {
+                error.InvalidAlignment => unreachable,
+                error.OutOfMemory => return error.OutOfMemory,
+                error.Overflow => return error.Overflow,
+            };
         }
 
         /// Allocate `len` bytes aligned to `byte_alignment`. Failure paths
         /// leave `index` unchanged. `len == 0` succeeds and does not advance.
-        pub fn allocAlignedBytes(self: *Bounded, len: usize, byte_alignment: usize) Error![]u8 {
+        pub fn allocAlignedBytes(self: *Bounded, len: usize, byte_alignment: usize) ArenaError![]u8 {
             return allocBytesInto(self.buffer, &self.index, len, byte_alignment);
         }
 
         /// Allocate one uninitialized `T` aligned to `@alignOf(T)`.
-        pub fn alloc(self: *Bounded, comptime T: type) Error!*T {
+        pub fn alloc(self: *Bounded, comptime T: type) ArenaAllocationError!*T {
             return allocOneInto(T, self.buffer, &self.index);
         }
 
         /// Allocate `len` uninitialized `T` values contiguously. Returns
         /// `error.Overflow` when `@sizeOf(T) * len` overflows.
-        pub fn allocSlice(self: *Bounded, comptime T: type, len: usize) Error![]T {
+        pub fn allocSlice(self: *Bounded, comptime T: type, len: usize) ArenaAllocationError![]T {
             return allocSliceInto(T, self.buffer, &self.index, len);
         }
 
@@ -113,6 +121,7 @@ pub const Arena = struct {
             const Self = @This();
 
             pub const Error = ArenaError;
+            pub const AllocationError = ArenaAllocationError;
 
             /// Opaque checkpoint of the current allocation position. Marks
             /// from one variant or one capacity cannot be restored into a
@@ -167,19 +176,23 @@ pub const Arena = struct {
                 self.index = 0;
             }
 
-            pub fn allocBytes(self: *Self, len: usize) Error![]u8 {
-                return self.allocAlignedBytes(len, 1);
+            pub fn allocBytes(self: *Self, len: usize) ArenaAllocationError![]u8 {
+                return allocBytesInto(self.buffer[0..], &self.index, len, 1) catch |err| switch (err) {
+                    error.InvalidAlignment => unreachable,
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.Overflow => return error.Overflow,
+                };
             }
 
-            pub fn allocAlignedBytes(self: *Self, len: usize, byte_alignment: usize) Error![]u8 {
+            pub fn allocAlignedBytes(self: *Self, len: usize, byte_alignment: usize) ArenaError![]u8 {
                 return allocBytesInto(self.buffer[0..], &self.index, len, byte_alignment);
             }
 
-            pub fn alloc(self: *Self, comptime T: type) Error!*T {
+            pub fn alloc(self: *Self, comptime T: type) ArenaAllocationError!*T {
                 return allocOneInto(T, self.buffer[0..], &self.index);
             }
 
-            pub fn allocSlice(self: *Self, comptime T: type, len: usize) Error![]T {
+            pub fn allocSlice(self: *Self, comptime T: type, len: usize) ArenaAllocationError![]T {
                 return allocSliceInto(T, self.buffer[0..], &self.index, len);
             }
 
@@ -223,19 +236,27 @@ fn allocBytesInto(buffer: []u8, index: *usize, len: usize, byte_alignment: usize
     return out;
 }
 
-fn allocOneInto(comptime T: type, buffer: []u8, index: *usize) ArenaError!*T {
+fn allocOneInto(comptime T: type, buffer: []u8, index: *usize) ArenaAllocationError!*T {
     comptime if (@sizeOf(T) == 0) @compileError("cannot allocate zero-sized type");
-    const bytes = try allocBytesInto(buffer, index, @sizeOf(T), @alignOf(T));
+    const bytes = allocBytesInto(buffer, index, @sizeOf(T), @alignOf(T)) catch |err| switch (err) {
+        error.InvalidAlignment => unreachable,
+        error.OutOfMemory => return error.OutOfMemory,
+        error.Overflow => return error.Overflow,
+    };
     return @ptrCast(@alignCast(bytes.ptr));
 }
 
-fn allocSliceInto(comptime T: type, buffer: []u8, index: *usize, len: usize) ArenaError![]T {
+fn allocSliceInto(comptime T: type, buffer: []u8, index: *usize, len: usize) ArenaAllocationError![]T {
     comptime if (@sizeOf(T) == 0) @compileError("cannot allocate zero-sized type");
     const byte_count = std.math.mul(usize, @sizeOf(T), len) catch return error.Overflow;
 
     if (len == 0) return &[_]T{};
 
-    const bytes = try allocBytesInto(buffer, index, byte_count, @alignOf(T));
+    const bytes = allocBytesInto(buffer, index, byte_count, @alignOf(T)) catch |err| switch (err) {
+        error.InvalidAlignment => unreachable,
+        error.OutOfMemory => return error.OutOfMemory,
+        error.Overflow => return error.Overflow,
+    };
     const ptr: [*]T = @ptrCast(@alignCast(bytes.ptr));
     return ptr[0..len];
 }

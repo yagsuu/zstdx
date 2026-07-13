@@ -23,6 +23,7 @@ pub const RangeMap = struct {
                 value: V,
             };
             pub const Error = error{ Full, InvalidRange, Overlap };
+            pub const UpdateError = error{ Full, InvalidRange };
             pub const entry_capacity = capacity_entries;
 
             pub fn init() Self {
@@ -71,7 +72,7 @@ pub const RangeMap = struct {
             /// `error.Full`: final entry count would exceed capacity.
             /// Empty range is a no-op. Assignment never coalesces neighbors.
             /// Success invalidates prior pointers/slices; error leaves map unchanged.
-            pub fn assign(self: *Self, range: Range, value: V) Error!void {
+            pub fn assign(self: *Self, range: Range, value: V) UpdateError!void {
                 try assignEntry(Range, Entry, self.buffer[0..], &self.count, range, value);
             }
 
@@ -79,7 +80,7 @@ pub const RangeMap = struct {
             /// `error.Full`: middle split needs a slot at capacity.
             /// Empty/disjoint ranges are no-ops; there is no `NotFound`.
             /// Success invalidates prior pointers/slices; error leaves map unchanged.
-            pub fn remove(self: *Self, range: Range) Error!void {
+            pub fn remove(self: *Self, range: Range) UpdateError!void {
                 try removeEntry(Range, Entry, self.buffer[0..], &self.count, range);
             }
 
@@ -145,6 +146,7 @@ pub const RangeMap = struct {
                 value: V,
             };
             pub const Error = error{ Full, InvalidRange, Overlap };
+            pub const UpdateError = error{ Full, InvalidRange };
 
             pub fn wrap(buffer: []Entry) Self {
                 return .{ .buffer = buffer };
@@ -191,7 +193,7 @@ pub const RangeMap = struct {
             /// `error.Full`: final entry count would exceed capacity.
             /// Empty range is a no-op. Assignment never coalesces neighbors.
             /// Success invalidates prior pointers/slices; error leaves map unchanged.
-            pub fn assign(self: *Self, range: Range, value: V) Error!void {
+            pub fn assign(self: *Self, range: Range, value: V) UpdateError!void {
                 try assignEntry(Range, Entry, self.buffer, &self.count, range, value);
             }
 
@@ -199,7 +201,7 @@ pub const RangeMap = struct {
             /// `error.Full`: middle split needs a slot at capacity.
             /// Empty/disjoint ranges are no-ops; there is no `NotFound`.
             /// Success invalidates prior pointers/slices; error leaves map unchanged.
-            pub fn remove(self: *Self, range: Range) Error!void {
+            pub fn remove(self: *Self, range: Range) UpdateError!void {
                 try removeEntry(Range, Entry, self.buffer, &self.count, range);
             }
 
@@ -280,7 +282,7 @@ fn assignEntry(
     count: *usize,
     range: Range,
     value: anytype,
-) error{ Full, InvalidRange, Overlap }!void {
+) error{ Full, InvalidRange }!void {
     if (!range.isValid()) return error.InvalidRange;
     if (range.isEmpty()) return;
 
@@ -319,7 +321,7 @@ fn removeEntry(
     buffer: []Entry,
     count: *usize,
     range: Range,
-) error{ Full, InvalidRange, Overlap }!void {
+) error{ Full, InvalidRange }!void {
     if (!range.isValid()) return error.InvalidRange;
     if (range.isEmpty()) return;
 

@@ -300,7 +300,6 @@ pub const Root = struct {
     cache_disable: bool = false,
 
     pub const Error = error{
-        Misaligned,
         ReservedBits,
         PhysicalAddressTooWide,
         InvalidPhysicalWidth,
@@ -336,9 +335,6 @@ pub const Entry = enum(u64) {
         NotPresent,
         WrongKind,
         ReservedBits,
-        Misaligned,
-        PhysicalAddressTooWide,
-        UnsupportedPageSize,
         InvalidPhysicalWidth,
     };
 
@@ -663,9 +659,8 @@ pub fn Walker(comptime Reader: type) type {
         config: Config,
         reader: Reader,
 
-        pub const Error = Reader.Error || error{
+        pub const Error = Reader.Error || Entry.Error || error{
             NonCanonical,
-            InvalidConfig,
         };
 
         pub fn init(config: Config, reader: Reader) @This();

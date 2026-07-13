@@ -92,19 +92,18 @@ pub const Self = struct {
     pub const Item = T;
     pub const Address = stdx.addr.DmaAddr;
 
-    pub const Error = error{
-        Misaligned,
-        Overflow,
-        OutOfBounds,
-    };
+    pub const InitError = error{ Misaligned, Overflow };
+    pub const OffsetError = error{OutOfBounds};
+    pub const SubError = error{ Overflow, OutOfBounds };
+    pub const Error = InitError || OffsetError || SubError;
 
     pub const SubRange = struct {
         offset_items: usize,
         count_items: usize,
     };
 
-    pub fn init(virt: []T, dma: Address) Error!Self;
-    pub fn initAligned(virt: []T, dma: Address, alignment: Address.Raw) Error!Self;
+    pub fn init(virt: []T, dma: Address) InitError!Self;
+    pub fn initAligned(virt: []T, dma: Address, alignment: Address.Raw) InitError!Self;
 
     pub fn slice(self: Self) []T;
     pub fn constSlice(self: Self) []const T;
@@ -116,9 +115,9 @@ pub const Self = struct {
     pub fn isEmpty(self: Self) bool;
 
     pub fn dmaAddr(self: Self) Address;
-    pub fn dmaAddrAt(self: Self, offset_items: usize) Error!Address;
+    pub fn dmaAddrAt(self: Self, offset_items: usize) OffsetError!Address;
 
-    pub fn sub(self: Self, range: SubRange) Error!Self;
+    pub fn sub(self: Self, range: SubRange) SubError!Self;
 
     pub fn assertValid(self: Self) void;
 };

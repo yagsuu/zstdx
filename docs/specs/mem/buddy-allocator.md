@@ -101,7 +101,6 @@ pub const BuddyAllocator = struct {
             InvalidRequest,
             AlreadyAllocated,
             NotAllocated,
-            Overflow,
         };
 
         pub fn wrap(words: []Word, unit_capacity: usize, order_count: u8) Error!Bounded;

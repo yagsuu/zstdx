@@ -82,7 +82,7 @@ pub const Segment = struct {
     len_bytes: stdx.addr.DmaAddr.Raw,
 
     pub const Address = stdx.addr.DmaAddr;
-    pub const Error = error{ Misaligned, Overflow };
+    pub const Error = error{Overflow};
 
     pub fn init(addr: Address, len_bytes: Address.Raw) Error!Segment;
     pub fn fromBuffer(comptime T: type, buffer: stdx.dma.Buffer(T)) Segment;

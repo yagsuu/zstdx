@@ -130,31 +130,30 @@ pub const Self = struct {
         next_sibling: ?NodeId = null,
     };
 
-    pub const Error = error{
-        OutOfBounds,
-        AlreadyLinked,
-        NotLinked,
-    };
+    pub const BoundsError = error{OutOfBounds};
+    pub const AppendError = error{ OutOfBounds, AlreadyLinked };
+    pub const RemoveError = error{ OutOfBounds, NotLinked };
+    pub const Error = BoundsError || AppendError || RemoveError;
 
     pub fn init() Self;
 
     pub fn capacity(self: *const Self) usize;
     pub fn isEmpty(self: *const Self) bool;
 
-    pub fn nodeId(self: *const Self, index: usize) Error!NodeId;
+    pub fn nodeId(self: *const Self, index: usize) BoundsError!NodeId;
     pub fn indexOf(node: NodeId) usize;
 
     pub fn firstRoot(self: *const Self) ?NodeId;
     pub fn lastRoot(self: *const Self) ?NodeId;
 
-    pub fn appendRoot(self: *Self, node: NodeId) Error!void;
-    pub fn appendChild(self: *Self, parent: NodeId, child: NodeId) Error!void;
-    pub fn remove(self: *Self, node: NodeId) Error!void;
+    pub fn appendRoot(self: *Self, node: NodeId) AppendError!void;
+    pub fn appendChild(self: *Self, parent: NodeId, child: NodeId) AppendError!void;
+    pub fn remove(self: *Self, node: NodeId) RemoveError!void;
 
-    pub fn parent(self: *const Self, node: NodeId) Error!?NodeId;
-    pub fn firstChild(self: *const Self, node: NodeId) Error!?NodeId;
-    pub fn lastChild(self: *const Self, node: NodeId) Error!?NodeId;
-    pub fn nextSibling(self: *const Self, node: NodeId) Error!?NodeId;
+    pub fn parent(self: *const Self, node: NodeId) BoundsError!?NodeId;
+    pub fn firstChild(self: *const Self, node: NodeId) BoundsError!?NodeId;
+    pub fn lastChild(self: *const Self, node: NodeId) BoundsError!?NodeId;
+    pub fn nextSibling(self: *const Self, node: NodeId) BoundsError!?NodeId;
 
     pub fn clearRetainingCapacity(self: *Self) void;
     pub fn assertValid(self: *const Self) void;
@@ -181,31 +180,30 @@ pub const Self = struct {
         next_sibling: ?NodeId = null,
     };
 
-    pub const Error = error{
-        OutOfBounds,
-        AlreadyLinked,
-        NotLinked,
-    };
+    pub const BoundsError = error{OutOfBounds};
+    pub const AppendError = error{ OutOfBounds, AlreadyLinked };
+    pub const RemoveError = error{ OutOfBounds, NotLinked };
+    pub const Error = BoundsError || AppendError || RemoveError;
 
     pub fn wrap(links: []Links) Self;
 
     pub fn capacity(self: *const Self) usize;
     pub fn isEmpty(self: *const Self) bool;
 
-    pub fn nodeId(self: *const Self, index: usize) Error!NodeId;
+    pub fn nodeId(self: *const Self, index: usize) BoundsError!NodeId;
     pub fn indexOf(node: NodeId) usize;
 
     pub fn firstRoot(self: *const Self) ?NodeId;
     pub fn lastRoot(self: *const Self) ?NodeId;
 
-    pub fn appendRoot(self: *Self, node: NodeId) Error!void;
-    pub fn appendChild(self: *Self, parent: NodeId, child: NodeId) Error!void;
-    pub fn remove(self: *Self, node: NodeId) Error!void;
+    pub fn appendRoot(self: *Self, node: NodeId) AppendError!void;
+    pub fn appendChild(self: *Self, parent: NodeId, child: NodeId) AppendError!void;
+    pub fn remove(self: *Self, node: NodeId) RemoveError!void;
 
-    pub fn parent(self: *const Self, node: NodeId) Error!?NodeId;
-    pub fn firstChild(self: *const Self, node: NodeId) Error!?NodeId;
-    pub fn lastChild(self: *const Self, node: NodeId) Error!?NodeId;
-    pub fn nextSibling(self: *const Self, node: NodeId) Error!?NodeId;
+    pub fn parent(self: *const Self, node: NodeId) BoundsError!?NodeId;
+    pub fn firstChild(self: *const Self, node: NodeId) BoundsError!?NodeId;
+    pub fn lastChild(self: *const Self, node: NodeId) BoundsError!?NodeId;
+    pub fn nextSibling(self: *const Self, node: NodeId) BoundsError!?NodeId;
 
     pub fn clearRetainingCapacity(self: *Self) void;
     pub fn assertValid(self: *const Self) void;

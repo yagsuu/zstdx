@@ -6,7 +6,9 @@ const bits = @import("../bits.zig");
 
 /// `InvalidAlignment`: `alignment` is zero or not a power of two.
 /// `Overflow`: rounding up exceeds `T`.
-pub const Error = error{ InvalidAlignment, Overflow };
+pub const AlignError = error{InvalidAlignment};
+pub const OverflowError = error{Overflow};
+pub const Error = AlignError || OverflowError;
 
 fn requireUnsignedInt(comptime T: type) void {
     const info = @typeInfo(T);
@@ -15,7 +17,7 @@ fn requireUnsignedInt(comptime T: type) void {
     }
 }
 
-fn validate(comptime T: type, alignment: T) Error!void {
+fn validate(comptime T: type, alignment: T) AlignError!void {
     comptime requireUnsignedInt(T);
     if (alignment == 0 or !bits.isPowerOfTwo(T, alignment)) return error.InvalidAlignment;
 }
@@ -31,7 +33,7 @@ pub fn alignUp(comptime T: type, value: T, alignment: T) Error!T {
 
 /// Largest multiple of `alignment` that is `<= value`. Returns the original
 /// value when already aligned; never overflows.
-pub fn alignDown(comptime T: type, value: T, alignment: T) Error!T {
+pub fn alignDown(comptime T: type, value: T, alignment: T) AlignError!T {
     try validate(T, alignment);
     return value & ~(alignment - 1);
 }
@@ -55,7 +57,7 @@ pub fn alignUpDelta(comptime T: type, value: T, alignment: T) Error!T {
 
 /// Bytes past the previous multiple of `alignment`. Equal to
 /// `value - alignDown(value, alignment)`. Cannot overflow.
-pub fn alignDownDelta(comptime T: type, value: T, alignment: T) Error!T {
+pub fn alignDownDelta(comptime T: type, value: T, alignment: T) AlignError!T {
     try validate(T, alignment);
     return value & (alignment - 1);
 }

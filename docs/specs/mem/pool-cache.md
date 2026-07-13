@@ -127,7 +127,7 @@ pub const Self = struct {
     pub const Slot = Pool.Bounded(T).Slot;
 
     pub const Error = error{ OutOfMemory };
-    pub const RefillError = RegionSource.Error || Error;
+    pub const RefillError = RegionSource.Error;
 
     pub const slots_per_region: usize = /* comptime derived */;
 
@@ -246,12 +246,8 @@ Logic:
 5. Increment `region_count`.
 
 `refill` propagates the exact error returned by `source.acquire` under
-`RefillError = RegionSource.Error || error{ OutOfMemory }`. When
-`RegionSource.Error` already contains `OutOfMemory`, the merged set
-collapses that case; otherwise `error.OutOfMemory` in `RefillError`
-signals a cache-side pre-check failure. This spec does not define such a
-pre-check today; the extra variant is reserved so implementations that
-add one later do not widen the error set.
+`RefillError = RegionSource.Error`. Cache-side exhaustion is reported by
+`acquire`, not by `refill`.
 
 ## `drain()` semantics
 
@@ -399,9 +395,6 @@ outstanding acquisitions.
   unchanged.
 - `refill` propagates `RegionSource.Error` on source failure. Cache
   state unchanged.
-- `refill` may return `error.OutOfMemory` from `RefillError` for
-  cache-side pre-check failures introduced by future extensions. State
-  unchanged.
 - `release`, `drain`, and `contains` do not return errors; misuse is a
   programmer error caught by `assertValid` where practical.
 - zero-sized `T` is a compile error.

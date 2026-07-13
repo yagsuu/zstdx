@@ -173,7 +173,6 @@ pub const Root = struct {
     cache_disable: bool = false,
 
     pub const Error = error{
-        Misaligned,
         ReservedBits,
         PhysicalAddressTooWide,
         InvalidPhysicalWidth,
@@ -186,7 +185,7 @@ pub const Root = struct {
 
         if (config.features.pcid) {
             return .{
-                .frame = Phys4K.Frame.fromAddressInt(frame_raw) catch return error.Misaligned,
+                .frame = Phys4K.Frame.fromAddressInt(frame_raw) catch unreachable,
                 .pcid = @truncate(raw & Phys4K.Size.mask),
             };
         }
@@ -194,7 +193,7 @@ pub const Root = struct {
         const low = raw & Phys4K.Size.mask;
         if ((low & ~@as(u64, 0b11000)) != 0) return error.ReservedBits;
         return .{
-            .frame = Phys4K.Frame.fromAddressInt(frame_raw) catch return error.Misaligned,
+            .frame = Phys4K.Frame.fromAddressInt(frame_raw) catch unreachable,
             .write_through = (raw & bit(3)) != 0,
             .cache_disable = (raw & bit(4)) != 0,
         };
@@ -221,9 +220,6 @@ pub const Entry = enum(u64) {
         NotPresent,
         WrongKind,
         ReservedBits,
-        Misaligned,
-        PhysicalAddressTooWide,
-        UnsupportedPageSize,
         InvalidPhysicalWidth,
     };
 
@@ -360,8 +356,8 @@ pub const table = struct {
         if (entry_value.kind(level) != .table) return error.WrongKind;
         if (entry_value.hasReserved(level, config)) return error.ReservedBits;
         const frame_raw = entry_value.raw() & physicalFieldMask();
-        requirePhysicalAddress(frame_raw, config.physical_bits) catch return error.PhysicalAddressTooWide;
-        return Phys4K.Frame.fromAddressInt(frame_raw) catch return error.Misaligned;
+        requirePhysicalAddress(frame_raw, config.physical_bits) catch unreachable;
+        return Phys4K.Frame.fromAddressInt(frame_raw) catch unreachable;
     }
 };
 
@@ -499,12 +495,12 @@ pub const leaf = struct {
         if (entry_value.kind(level) != .leaf) return error.WrongKind;
         if (entry_value.hasReserved(level, config)) return error.ReservedBits;
         const base = entry_value.raw() & leafAddressMask(level);
-        requirePhysicalAddress(base, config.physical_bits) catch return error.PhysicalAddressTooWide;
+        requirePhysicalAddress(base, config.physical_bits) catch unreachable;
         return switch (level) {
-            .pt => .{ .page4kib = Phys4K.Frame.fromAddressInt(base) catch return error.Misaligned },
-            .pd => .{ .page2mib = Phys2M.Frame.fromAddressInt(base) catch return error.Misaligned },
-            .pdpt => .{ .page1gib = Phys1G.Frame.fromAddressInt(base) catch return error.Misaligned },
-            .pml4, .pml5 => error.UnsupportedPageSize,
+            .pt => .{ .page4kib = Phys4K.Frame.fromAddressInt(base) catch unreachable },
+            .pd => .{ .page2mib = Phys2M.Frame.fromAddressInt(base) catch unreachable },
+            .pdpt => .{ .page1gib = Phys1G.Frame.fromAddressInt(base) catch unreachable },
+            .pml4, .pml5 => unreachable,
         };
     }
 };
@@ -622,7 +618,6 @@ fn walkerError(comptime Reader: type) type {
     const ReaderDecl = readerDecl(Reader);
     return ReaderDecl.Error || Entry.Error || error{
         NonCanonical,
-        InvalidConfig,
     };
 }
 
@@ -769,7 +764,7 @@ fn leafAddressMask(level: Level) u64 {
     };
 }
 
-fn requirePhysicalAddress(raw: u64, physical_bits: u8) Root.Error!void {
+fn requirePhysicalAddress(raw: u64, physical_bits: u8) error{ PhysicalAddressTooWide, InvalidPhysicalWidth }!void {
     if (physical_bits < 32 or physical_bits > 52) return error.InvalidPhysicalWidth;
     if ((raw >> @intCast(physical_bits)) != 0) return error.PhysicalAddressTooWide;
 }

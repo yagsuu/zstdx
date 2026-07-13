@@ -98,6 +98,7 @@ pub const Self = struct {
     };
 
     pub const Error = error{ Full, InvalidRange, Overlap };
+    pub const UpdateError = error{ Full, InvalidRange };
     pub const entry_capacity = capacity_entries;
 
     pub fn init() Self;
@@ -113,8 +114,8 @@ pub const Self = struct {
     pub fn clearRetainingCapacity(self: *Self) void;
 
     pub fn insert(self: *Self, range: Range, value: V) Error!void;
-    pub fn assign(self: *Self, range: Range, value: V) Error!void;
-    pub fn remove(self: *Self, range: Range) Error!void;
+    pub fn assign(self: *Self, range: Range, value: V) UpdateError!void;
+    pub fn remove(self: *Self, range: Range) UpdateError!void;
 
     pub fn coalesceAdjacent(
         self: *Self,
@@ -150,6 +151,7 @@ pub const Self = struct {
     };
 
     pub const Error = error{ Full, InvalidRange, Overlap };
+    pub const UpdateError = error{ Full, InvalidRange };
 
     pub fn wrap(buffer: []Entry) Self;
 
@@ -164,8 +166,8 @@ pub const Self = struct {
     pub fn clearRetainingCapacity(self: *Self) void;
 
     pub fn insert(self: *Self, range: Range, value: V) Error!void;
-    pub fn assign(self: *Self, range: Range, value: V) Error!void;
-    pub fn remove(self: *Self, range: Range) Error!void;
+    pub fn assign(self: *Self, range: Range, value: V) UpdateError!void;
+    pub fn remove(self: *Self, range: Range) UpdateError!void;
 
     pub fn coalesceAdjacent(
         self: *Self,

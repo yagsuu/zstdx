@@ -40,6 +40,9 @@ pub const BitmapAllocator = struct {
 
             /// Error set shared with `BitmapAllocator.Bounded`.
             pub const Error = BitmapAllocator.Bounded.Error;
+            pub const AllocError = BitmapAllocator.Bounded.AllocError;
+            pub const ReserveError = BitmapAllocator.Bounded.ReserveError;
+            pub const FreeError = BitmapAllocator.Bounded.FreeError;
 
             /// Empty allocator.
             pub fn init() Self {
@@ -87,20 +90,20 @@ pub const BitmapAllocator = struct {
             }
 
             /// Lowest free unit index, or `error.OutOfMemory` when full.
-            pub fn allocOne(self: *Self) Error!usize {
+            pub fn allocOne(self: *Self) AllocError!usize {
                 return allocOneImpl(self.words[0..], unit_capacity);
             }
 
             /// Lowest contiguous first-fit range of `count` free units.
             /// `count == 0` returns `Range.empty(0)` without mutating.
-            pub fn allocRange(self: *Self, count: usize) Error!Range {
+            pub fn allocRange(self: *Self, count: usize) AllocError!Range {
                 return allocRangeImpl(self.words[0..], unit_capacity, count);
             }
 
             /// `error.OutOfBounds`: `index >= capacity()`.
             /// `error.AlreadyAllocated`: unit is already allocated.
             /// Error leaves allocator unchanged.
-            pub fn reserveOne(self: *Self, index: usize) Error!void {
+            pub fn reserveOne(self: *Self, index: usize) ReserveError!void {
                 return reserveOneImpl(self.words[0..], unit_capacity, index);
             }
 
@@ -108,11 +111,11 @@ pub const BitmapAllocator = struct {
             /// `error.OutOfBounds`: `range.end > capacity()`.
             /// `error.AlreadyAllocated`: any unit is already allocated.
             /// Empty range is a no-op. Error leaves allocator unchanged.
-            pub fn reserveRange(self: *Self, range: Range) Error!void {
+            pub fn reserveRange(self: *Self, range: Range) ReserveError!void {
                 return reserveRangeImpl(self.words[0..], unit_capacity, range);
             }
 
-            pub fn freeOne(self: *Self, index: usize) Error!void {
+            pub fn freeOne(self: *Self, index: usize) FreeError!void {
                 return freeOneImpl(self.words[0..], unit_capacity, index);
             }
 
@@ -120,7 +123,7 @@ pub const BitmapAllocator = struct {
             /// `error.OutOfBounds`: `range.end > capacity()`.
             /// `error.NotAllocated`: any unit is already free.
             /// Empty range is a no-op. Error leaves allocator unchanged.
-            pub fn freeRange(self: *Self, range: Range) Error!void {
+            pub fn freeRange(self: *Self, range: Range) FreeError!void {
                 return freeRangeImpl(self.words[0..], unit_capacity, range);
             }
 
@@ -158,16 +161,15 @@ pub const BitmapAllocator = struct {
         ///   outside the allocator's unit space.
         /// `AlreadyAllocated`: reserve would overlap an allocated unit.
         /// `NotAllocated`: free would overlap a free unit.
-        pub const Error = error{
-            OutOfMemory,
-            OutOfBounds,
-            AlreadyAllocated,
-            NotAllocated,
-        };
+        pub const WrapError = error{OutOfBounds};
+        pub const AllocError = error{OutOfMemory};
+        pub const ReserveError = error{ OutOfBounds, AlreadyAllocated };
+        pub const FreeError = error{ OutOfBounds, NotAllocated };
+        pub const Error = WrapError || AllocError || ReserveError || FreeError;
 
         /// Borrowed words are zeroed only on success.
         /// `error.OutOfBounds`: `unit_capacity` exceeds word storage; unchanged on error.
-        pub fn wrap(words: []Word, unit_capacity: usize) Error!Bounded {
+        pub fn wrap(words: []Word, unit_capacity: usize) WrapError!Bounded {
             if (word.count(Word, unit_capacity) > words.len) return error.OutOfBounds;
             for (words) |*w| w.* = 0;
             return .{ .words = words, .unit_capacity = unit_capacity };
@@ -206,18 +208,18 @@ pub const BitmapAllocator = struct {
             return !bitIsSet(self.words, self.unit_capacity, index);
         }
 
-        pub fn allocOne(self: *Bounded) Error!usize {
+        pub fn allocOne(self: *Bounded) AllocError!usize {
             return allocOneImpl(self.words, self.unit_capacity);
         }
 
-        pub fn allocRange(self: *Bounded, count: usize) Error!Range {
+        pub fn allocRange(self: *Bounded, count: usize) AllocError!Range {
             return allocRangeImpl(self.words, self.unit_capacity, count);
         }
 
         /// `error.OutOfBounds`: `index >= capacity()`.
         /// `error.AlreadyAllocated`: unit is already allocated.
         /// Error leaves allocator unchanged.
-        pub fn reserveOne(self: *Bounded, index: usize) Error!void {
+        pub fn reserveOne(self: *Bounded, index: usize) ReserveError!void {
             return reserveOneImpl(self.words, self.unit_capacity, index);
         }
 
@@ -225,11 +227,11 @@ pub const BitmapAllocator = struct {
         /// `error.OutOfBounds`: `range.end > capacity()`.
         /// `error.AlreadyAllocated`: any unit is already allocated.
         /// Empty range is a no-op. Error leaves allocator unchanged.
-        pub fn reserveRange(self: *Bounded, range: Range) Error!void {
+        pub fn reserveRange(self: *Bounded, range: Range) ReserveError!void {
             return reserveRangeImpl(self.words, self.unit_capacity, range);
         }
 
-        pub fn freeOne(self: *Bounded, index: usize) Error!void {
+        pub fn freeOne(self: *Bounded, index: usize) FreeError!void {
             return freeOneImpl(self.words, self.unit_capacity, index);
         }
 
@@ -237,7 +239,7 @@ pub const BitmapAllocator = struct {
         /// `error.OutOfBounds`: `range.end > capacity()`.
         /// `error.NotAllocated`: any unit is already free.
         /// Empty range is a no-op. Error leaves allocator unchanged.
-        pub fn freeRange(self: *Bounded, range: Range) Error!void {
+        pub fn freeRange(self: *Bounded, range: Range) FreeError!void {
             return freeRangeImpl(self.words, self.unit_capacity, range);
         }
 
@@ -258,7 +260,9 @@ pub const BitmapAllocator = struct {
 // so that errors leave storage untouched.
 const BitmapWord = u64;
 const bitmap_word_bits = @bitSizeOf(BitmapWord);
-const BitmapError = BitmapAllocator.Bounded.Error;
+const BitmapAllocError = BitmapAllocator.Bounded.AllocError;
+const BitmapReserveError = BitmapAllocator.Bounded.ReserveError;
+const BitmapFreeError = BitmapAllocator.Bounded.FreeError;
 const Shift = std.math.Log2Int(BitmapWord);
 
 fn logicalWordCount(unit_capacity: usize) usize {
@@ -339,13 +343,13 @@ fn anyBitClear(words: []const BitmapWord, start: usize, end: usize) bool {
     return false;
 }
 
-fn allocOneImpl(words: []BitmapWord, unit_capacity: usize) BitmapError!usize {
+fn allocOneImpl(words: []BitmapWord, unit_capacity: usize) BitmapAllocError!usize {
     const index = findFirstFree(words, unit_capacity) orelse return error.OutOfMemory;
     word.set(BitmapWord, words, index);
     return index;
 }
 
-fn allocRangeImpl(words: []BitmapWord, unit_capacity: usize, count: usize) BitmapError!RangeUsize {
+fn allocRangeImpl(words: []BitmapWord, unit_capacity: usize, count: usize) BitmapAllocError!RangeUsize {
     if (count == 0) return RangeUsize.empty(0);
     if (count > unit_capacity) return error.OutOfMemory;
 
@@ -354,14 +358,14 @@ fn allocRangeImpl(words: []BitmapWord, unit_capacity: usize, count: usize) Bitma
     return RangeUsize.fromBounds(start, start + count) catch unreachable;
 }
 
-fn reserveOneImpl(words: []BitmapWord, unit_capacity: usize, index: usize) BitmapError!void {
+fn reserveOneImpl(words: []BitmapWord, unit_capacity: usize, index: usize) BitmapReserveError!void {
     if (index >= unit_capacity) return error.OutOfBounds;
 
     if (word.isSet(BitmapWord, words, index)) return error.AlreadyAllocated;
     word.set(BitmapWord, words, index);
 }
 
-fn reserveRangeImpl(words: []BitmapWord, unit_capacity: usize, range: RangeUsize) BitmapError!void {
+fn reserveRangeImpl(words: []BitmapWord, unit_capacity: usize, range: RangeUsize) BitmapReserveError!void {
     range.assertValid();
 
     if (range.isEmpty()) {
@@ -375,14 +379,14 @@ fn reserveRangeImpl(words: []BitmapWord, unit_capacity: usize, range: RangeUsize
     setBits(words, range.start, range.end);
 }
 
-fn freeOneImpl(words: []BitmapWord, unit_capacity: usize, index: usize) BitmapError!void {
+fn freeOneImpl(words: []BitmapWord, unit_capacity: usize, index: usize) BitmapFreeError!void {
     if (index >= unit_capacity) return error.OutOfBounds;
 
     if (!word.isSet(BitmapWord, words, index)) return error.NotAllocated;
     word.clear(BitmapWord, words, index);
 }
 
-fn freeRangeImpl(words: []BitmapWord, unit_capacity: usize, range: RangeUsize) BitmapError!void {
+fn freeRangeImpl(words: []BitmapWord, unit_capacity: usize, range: RangeUsize) BitmapFreeError!void {
     range.assertValid();
 
     if (range.isEmpty()) {
