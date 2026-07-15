@@ -1,18 +1,24 @@
 # Spec writing
 
-This guide defines how zstdx specs under `docs/specs/` are written and
-reviewed. Approved specs are normative for public API, behavior, ownership, and
-implementation tests.
+Approved specs under `docs/specs/` define production contracts for public API,
+behavior, ownership, representation, implementation constraints, and required
+tests.
 
 ## Authority
 
+Value: Essential.
+
+Rules:
+
 - Approved specs under `docs/specs/` define contracts.
-- Planning documents under `docs/planning/` guide queued work but are not
-  authoritative for landed code.
+- Planning documents under `docs/planning/` do not define landed-code contracts.
 - Source module headers cite the owning spec path.
 - A public module without an approved owning spec does not land.
+- Implementation work lands only from `Approved` specs.
 
 ## Status values
+
+Value: Essential.
 
 Each spec starts with exactly one status line after the title:
 
@@ -22,72 +28,123 @@ Status: Approved.
 Status: Superseded by <path>.
 ```
 
-`Draft` specs are review material. Implementation work lands only from
-`Approved` specs.
+Rules:
+
+- `Draft` specs are review material.
+- `Approved` specs are implementation contracts.
+- `Superseded` specs name the replacement path.
 
 ## Language
 
-Spec language is normative. Use direct contract statements and RFC 2119 terms
-when a requirement is mandatory. Avoid narration, rationale, history, meeting
-context, approval context, and references that require knowledge outside the
-repository. A reader must be able to implement and test the spec from the spec
-text and linked repository paths alone.
+Value: Essential.
 
-Do not include ephemeral phrases such as \"as discussed\", \"for now\", \"future
-work\", \"until a consumer appears\", or \"the approved proposal\". Keep decision
-history outside approved specs.
+Rules:
+
+- Use normative, testable contract statements.
+- Use RFC 2119 terms when a requirement is mandatory.
+- Prefer direct statements over explanation.
+- State observable behavior, ownership, lifetime, invalidation, ordering,
+  allocation, waiting, errors, and concurrency effects.
+- Omit rationale, decision history, meeting context, approval context,
+  implementation diary, and proposal language.
+- Omit references that require knowledge outside the repository.
+- Omit speculative future work unless the spec explicitly excludes that scope.
+- Omit marketing, tutorials, filler, and narration.
+- Do not include phrases such as `as discussed`, `for now`, `future work`,
+  `until a consumer appears`, `the approved proposal`, `recommended`, or
+  `where practical`.
+- Replace vague debug behavior with exact conditions, such as
+  `core.debug.checksEnabled(.build_mode)`.
+- A reader must be able to implement and test the primitive from the spec text
+  and linked repository paths alone.
+
+## Section value model
+
+Use the smallest section set that preserves production contracts.
+
+Value levels:
+
+- Essential: required for every approved spec unless explicitly impossible.
+- High: required when the primitive has the corresponding contract surface.
+- Conditional: include only when it removes ambiguity or prevents misuse.
+- Medium: optional; keep only when it clarifies composition.
 
 ## Standard section order
 
-New and substantially revised specs under `docs/specs/` use this section order
-unless a section is irrelevant to the primitive being specified:
+New and substantially revised specs under `docs/specs/` use this order. Omit
+irrelevant conditional sections.
 
-1. `# <Spec title>`
-2. `Status: Draft.`, `Status: Approved.`, or `Status: Superseded by <path>.`
-3. short description;
-4. `## What this spec is`;
-5. `## What this spec is not`;
-6. `## Terminology`, when the spec uses terms that need fixed meanings;
-7. `## Public namespace and source ownership`;
-8. `## Cross-spec relationships`;
-9. `## Data structures and representation`;
-10. `## Global invariants`;
-11. `## API`;
-12. per-operation sections for non-trivial public functions;
-13. `## Implementation constraints`;
-14. `## Testing`;
-15. `## Usage examples`, when examples clarify composition.
+1. `# <Spec title>` — Essential.
+2. `Status: Draft.`, `Status: Approved.`, or `Status: Superseded by <path>.` — Essential.
+3. Short description — Essential.
+4. `## What this spec is` — Essential.
+5. `## What this spec is not` — Essential.
+6. `## Terminology` — Conditional.
+7. `## Public namespace and source ownership` — Essential.
+8. `## Cross-spec relationships` — High.
+9. `## Data structures and representation` — High when state or layout matters.
+10. `## Global invariants` — Essential.
+11. `## API` — Essential.
+12. Per-operation sections — High for non-trivial public operations.
+13. `## Implementation constraints` — High.
+14. `## Testing` — Essential.
+15. `## Usage examples` — Medium.
 
-Existing approved specs do not need format-only rewrites. Apply this format when
-creating a new spec or making a substantial behavioral revision.
+Existing approved specs do not need format-only rewrites. Apply this order when
+creating a spec or making a substantial behavioral revision.
 
 ## Section rules
 
 ### Short description
 
-The short description is one paragraph. It states what the public primitive is
-and the concrete job it performs. It is not rationale, marketing, or a tutorial.
+Value: Essential.
+
+Rules:
+
+- Use one paragraph.
+- State the primitive and its concrete job.
+- Do not include rationale, marketing, tutorial text, or consumer history.
 
 ### What this spec is
 
-This section owns scope. List the public namespace, types, operations, storage,
-state transitions, ordering, invalidation, and required tests that the spec
-controls.
+Value: Essential.
+
+Rules:
+
+- List owned public namespace, types, operations, storage, state transitions,
+  ordering, invalidation, and required tests.
+- Include only scope this spec controls.
+- Do not include motivation or proposed implementation strategy.
 
 ### What this spec is not
 
-This section lists non-goals and deferred siblings. It must exclude adjacent
-policy domains explicitly enough that implementations do not absorb them by
-accident.
+Value: Essential.
+
+Rules:
+
+- Exclude adjacent policy domains explicitly.
+- Exclude scheduler, allocation, blocking, callback, ownership, hardware, or
+  runtime policy when the primitive does not own them.
+- Name sibling specs when they own excluded behavior.
+- Do not use this section for rationale.
 
 ### Terminology
 
-Include this section when terms are easy to misuse or have domain-specific
-meaning. Definitions are normative when later API sections rely on them.
+Value: Conditional.
+
+Include only terms used by later contracts, invariants, APIs, or tests.
+
+Rules:
+
+- Define terms with fixed meanings.
+- Do not define common English words.
+- Do not include glossary entries that no contract uses.
 
 ### Public namespace and source ownership
 
-This section states:
+Value: Essential.
+
+State:
 
 - public import paths;
 - root promotions, when the spec adds declarations to `src/stdx.zig`;
@@ -95,93 +152,150 @@ This section states:
 - implementation source files;
 - required test files.
 
-Omit root-promotion discussion when the public paths listed by the spec are the
-entire public surface. State explicit non-promotion only when it prevents a
-likely ambiguity, such as a name collision with an existing root export.
+Rules:
 
-Domain facades stay thin. They may import, re-export, and alias approved public
-surfaces; they must not contain implementation logic.
+- Omit root-promotion discussion when the public paths are unambiguous.
+- State explicit non-promotion when it prevents ambiguity or root namespace
+  collisions.
+- Domain facades stay thin. They may import, re-export, and alias approved
+  public surfaces. They must not contain implementation logic.
 
 ### Cross-spec relationships
 
-List required dependencies and intentional composition points. Distinguish
-"depends on" from "composes with but does not own".
+Value: High.
+
+Rules:
+
+- List required dependencies.
+- List intentional composition points.
+- Distinguish `depends on` from `composes with but does not own`.
+- Do not use speculative sibling references unless the spec excludes that scope
+  or the sibling spec exists.
+- Do not duplicate another spec's contract.
 
 ### Data structures and representation
 
-Distinguish conceptual representation from required implementation
-representation.
+Value: High when representation affects behavior. Conditional otherwise.
 
-If layout, ABI, wire format, packing, padding, or field names are guaranteed,
-say exactly what is guaranteed. If they are not guaranteed, say so.
+Rules:
+
+- State the conceptual model when it controls behavior.
+- State required representation only when observable behavior, ABI, layout,
+  safety, complexity, or tests depend on it.
+- State exact layout, ABI, wire format, packing, padding, and field-name
+  guarantees when they exist.
+- State explicit non-guarantees when callers might otherwise depend on layout or
+  encoding.
+- Do not include `typical representation` sketches.
+- Do not constrain private implementation strategy without contract value.
 
 ### Global invariants
 
-List invariants that every operation preserves. Prefer testable statements:
-fixed capacity, monotonic counters, exclusive ownership, no allocation, no
-waiting, pointer stability, state-machine restrictions, and no-mutation-on-error
-rules.
+Value: Essential.
+
+Rules:
+
+- List invariants every operation preserves.
+- Prefer testable statements.
+- Cover capacity, ordering, ownership, lifetime, invalidation, allocation,
+  waiting, pointer stability, state-machine restrictions, and
+  no-mutation-on-error rules when applicable.
+- Do not list implementation details unless representation is normative.
 
 ### API
 
-Show the approved public surface in Zig snippets. Public signatures in this
-section are normative. Keep private helper names out unless their shape is part
-of the public contract.
+Value: Essential.
 
-Per-operation sections are required for public functions that mutate state,
-perform atomics, can fail, can wait, can allocate, affect lifetime, invalidate
-handles or pointers, or define concurrency/order semantics.
+Rules:
 
-Use these subsections where applicable and omit irrelevant ones:
+- Show the approved public surface in Zig snippets.
+- Public signatures in this section are normative.
+- Include associated public types and constants.
+- Exclude private helpers unless their shape is part of the public contract.
+- State absent methods when omission prevents misuse.
 
-- `Contract` for preconditions, postconditions, and caller responsibilities;
-- `Invariants` for operation-local invariants not covered globally;
-- `State transitions` for before/after state changes;
-- `Errors and fault behavior` for returned errors, no-mutation-on-error,
-  caller-contract violations, assertions, traps, and release-mode behavior;
-- `Locking and waiting` for locks, backend calls, spinning, yielding, parking,
-  or an explicit `never`;
-- `Allocation behavior` for allocation, freeing, borrowing, or an explicit
-  `never`;
-- `NMI/interrupt safety` for execution-context safety and the reason;
-- `Memory ordering` for atomic orderings and happens-before edges;
-- `Concurrency effects` for legal concurrent callers and external
-  serialization requirements;
-- `Invalidation and lifetime` for handles, pointers, borrowed storage, copying,
-  moving, and deinitialization effects;
-- `Complexity/progress` for operation cost, boundedness, lock-freedom,
-  wait-freedom, blocking, and retry behavior.
+### Per-operation sections
 
-Trivial accessors may be grouped when their contracts are identical.
+Value: High for public operations that mutate state, fail, wait, allocate,
+perform atomics, affect lifetime, invalidate handles or pointers, or define
+ordering/concurrency semantics.
+
+Use these subsections where applicable:
+
+- `Contract` — preconditions, postconditions, caller responsibilities.
+- `Invariants` — operation-local invariants not covered globally.
+- `State transitions` — before/after state changes.
+- `Errors and fault behavior` — returned errors, no-mutation-on-error,
+  caller-contract violations, assertions, traps, release-mode behavior.
+- `Locking and waiting` — locks, backend calls, spinning, yielding, parking, or
+  `never`.
+- `Allocation behavior` — allocation, freeing, borrowing, allocator calls, or
+  `never`.
+- `NMI/interrupt safety` — safe contexts and caller obligations.
+- `Memory ordering` — atomic orderings and happens-before edges.
+- `Concurrency effects` — legal concurrent callers and external serialization.
+- `Invalidation and lifetime` — handles, pointers, borrowed storage, copying,
+  moving, deinitialization.
+- `Complexity/progress` — cost, boundedness, lock-freedom, wait-freedom,
+  blocking, retry behavior.
+
+Rules:
+
+- Group trivial accessors when their contracts are identical.
+- Always state no-mutation-on-error for mutating fallible operations.
+- Always state invalidation effects for handles, pointers, borrowed storage, and
+  returned entries.
+- Always state whether the operation allocates, waits, reads clocks, invokes
+  callbacks, touches hidden globals, or calls scheduler/backend APIs when those
+  effects are plausible.
 
 ### Implementation constraints
 
-Use this section for normative implementation requirements that are not obvious
-from signatures: one-CAS publication, cache-line padding, no hidden globals, no
-callbacks, no allocator, no scheduler calls, exact field names, or required
-algorithm shape.
+Value: High.
+
+Rules:
+
+- Include constraints required to preserve public contracts.
+- Include no hidden globals, no callbacks, no allocator, no syscalls, no
+  scheduler calls, exact field names, cache-line padding, atomic publication, or
+  algorithm shape only when contract-relevant.
+- Do not include implementation preference, rationale, or examples.
 
 ### Testing
 
-The testing section states required tests. Split tests by purpose where
-applicable:
+Value: Essential.
 
-- required positive tests;
-- required negative tests;
-- edge cases;
-- error and fault behavior;
-- concurrency, model, and stress tests;
-- memory-ordering tests;
-- layout and representation tests.
+Rules:
 
-Tests should enforce invariants and contracts, not mirror implementation
-mechanics unless representation is itself normative.
+- State required tests.
+- Test contracts, invariants, errors, boundaries, transitions, ordering,
+  invalidation, concurrency, and representation guarantees.
+- Do not test incidental implementation mechanics unless representation is
+  normative.
+- Split tests by purpose when applicable:
+  - construction and capacity;
+  - positive behavior;
+  - negative/error behavior;
+  - edge cases;
+  - ordering;
+  - invalidation and lifetime;
+  - concurrency, model, and stress behavior;
+  - memory ordering;
+  - layout and representation.
 
 ### Usage examples
 
-Usage examples are optional and illustrative unless they explicitly state a
-normative requirement. Keep examples short and focused on composition boundaries.
-Do not put long tutorials in specs.
+Value: Medium.
+
+Rules:
+
+- Include examples only when they clarify composition boundaries or prevent
+  misuse.
+- Keep examples short.
+- Examples are illustrative unless they explicitly state a normative
+  requirement.
+- Do not include tutorials.
+- Do not duplicate API contracts already stated above.
 
 ## Template
 
@@ -198,28 +312,29 @@ Status: Draft.
 
 ## What this spec is not
 
-<Non-goals and deferred siblings.>
+<Non-goals and excluded policy domains.>
 
 ## Terminology
 
-<Optional fixed terms.>
+<Only fixed terms used by contracts. Omit if unnecessary.>
 
 ## Public namespace and source ownership
 
-<Public paths, root promotion, facade exports, source files, test files.>
+<Public paths, root promotion/non-promotion if needed, facade exports, source
+files, test files.>
 
 ## Cross-spec relationships
 
-<Required dependencies and intentional composition points.>
+<Dependencies and composition points.>
 
 ## Data structures and representation
 
-<Conceptual model. Required representation/layout if any. Invalid states. ABI
-or layout guarantees, or explicit non-guarantees.>
+<Conceptual model, required representation/layout, invalid states, guarantees,
+and non-guarantees.>
 
 ## Global invariants
 
-<System-wide invariants every operation preserves.>
+<Invariants every operation preserves.>
 
 ## API
 
@@ -253,7 +368,7 @@ or layout guarantees, or explicit non-guarantees.>
 
 #### NMI/interrupt safety
 
-<Safe/unsafe and why.>
+<Safe contexts and caller obligations.>
 
 #### Memory ordering
 
@@ -261,7 +376,7 @@ or layout guarantees, or explicit non-guarantees.>
 
 #### Concurrency effects
 
-<Who may call concurrently, what races are legal, who owns serialization.>
+<Concurrent callers and serialization ownership.>
 
 #### Invalidation and lifetime
 
@@ -273,25 +388,13 @@ or layout guarantees, or explicit non-guarantees.>
 
 ## Implementation constraints
 
-<Normative implementation constraints.>
+<Contract-relevant implementation constraints.>
 
 ## Testing
 
-### Required positive tests
-
-### Required negative tests
-
-### Edge cases
-
-### Error and fault behavior
-
-### Concurrency, model, and stress tests
-
-### Memory-ordering tests
-
-### Layout and representation tests
+<Required contract tests.>
 
 ## Usage examples
 
-<Optional illustrative examples.>
+<Short illustrative examples. Omit if unnecessary.>
 ```
