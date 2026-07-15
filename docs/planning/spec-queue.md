@@ -127,6 +127,8 @@ and the required tests from the spec land in `test/`.
 ### Approved, implementation pending
 
 - `docs/specs/sync/latch.md`
+- `docs/specs/time/deadline-queue.md`
+- `docs/specs/time/timer-wheel.md`
 
 ## Queue
 
@@ -273,6 +275,16 @@ strict ordering dependency):
 - `docs/specs/mem/deferred-free-list.md` — grace-period-safe deferred free,
   pairs with `concurrent/qsbr.md`. Distinct value: `std` has no primitive
   with this contract.
+- `docs/specs/heaps/indexed-heap.md` — indexed priority queue substrate
+  promoted from allocation/collection follow-up. Family shape
+  `Heap.Indexed.Static` and `Heap.Indexed.Bounded`; supports update, remove,
+  and reprioritize by dense key. Proposal must decide:
+  - key domain and invalid-key behavior;
+  - priority relation via `core.traits.LessThan` unless the heap spec
+    approves a narrower comparator shape;
+  - exact operation names for insert, peek, pop, update, remove, and
+    reprioritize;
+  - no scheduler, priority-inversion, wake, or fairness policy.
 
 ### Task-system primitives — relationship to `std.Io`
 
@@ -293,6 +305,9 @@ Every task-system spec below must declare which of those two lanes it
 serves. Primitives already provided by `std.Io` are not eligible for a
 zstdx spec unless a concrete freestanding or backend-implementation use
 demonstrates a gap.
+
+No task-system mechanism candidates remain in `Queue`; `DeadlineQueue` and
+`TimerWheel` are approved with implementation pending.
 
 ### High-value follow-up — distinct primitive contracts
 
@@ -320,9 +335,6 @@ demonstrates a gap.
 - `docs/specs/heaps/binary-heap.md` — family shape
   `Heap.Binary.Static` and `Heap.Binary.Bounded`, with dynamic variants later
   under `Heap.Binary.Managed` and `Heap.Binary.Unmanaged`.
-- `docs/specs/heaps/indexed-heap.md` — family shape
-  `Heap.Indexed.Static` and `Heap.Indexed.Bounded`; supports update, remove,
-  and reprioritize by dense key.
 - `docs/specs/collections/priority-buckets.md` — family shape
   `PriorityBuckets.Static` and `PriorityBuckets.Bounded`; mechanism for
   MLFQ-style downstream schedulers without owning scheduling policy.
