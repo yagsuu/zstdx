@@ -45,6 +45,8 @@ comptime {
     _ = @import("dma/scatter_gather_test.zig");
     _ = @import("mem/cache_test.zig");
     _ = @import("time/deadline_test.zig");
+    _ = @import("time/deadline_queue_test.zig");
+    _ = @import("time/timer_wheel_test.zig");
     _ = @import("time/backoff_test.zig");
     _ = @import("time/rate_counter_test.zig");
     _ = @import("sync/spin_test.zig");
