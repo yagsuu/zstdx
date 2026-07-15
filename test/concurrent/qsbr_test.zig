@@ -499,14 +499,14 @@ fn runReferenceModel(comptime participant_count: usize) !void {
     var periods: [64]GracePeriod = undefined;
     var period_count: usize = 0;
     var model_generation: u64 = 0;
-    var random_state: u64 = 0xA51C_0FFE_EE12_3456;
+    var prng = std.Random.Xoshiro256.init(0xA51C_0FFE_EE12_3456);
+    const random = prng.random();
 
     var step: usize = 0;
     while (step < 512) : (step += 1) {
-        const participant_count_u64 = @as(u64, @intCast(participant_count));
-        const participant_index: usize = @intCast(nextRandom(&random_state) % participant_count_u64);
+        const participant_index = random.uintLessThan(usize, participant_count);
         const participant = domain.participant(participant_index);
-        switch (nextRandom(&random_state) % 5) {
+        switch (random.uintLessThan(u8, 5)) {
             0 => {
                 domain.online(participant);
                 online[participant_index] = true;
@@ -574,9 +574,4 @@ fn expectSlotOnlineGeneration(slot: anytype, expected_generation: u64) !void {
 
 fn distance(a: usize, b: usize) usize {
     return if (a > b) a - b else b - a;
-}
-
-fn nextRandom(state: *u64) u64 {
-    state.* = state.* *% 6364136223846793005 +% 1442695040888963407;
-    return state.*;
 }

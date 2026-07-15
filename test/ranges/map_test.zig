@@ -219,24 +219,23 @@ test "model: RangeMap matches optional array over small domain" {
     const Range = Map.Range;
     var map = Map.init();
     var model = [_]?Kind{null} ** 32;
-    var seed: u32 = 0x87654321;
+    var prng = std.Random.Xoshiro256.init(0x87654321);
+    const random = prng.random();
 
     var step: usize = 0;
     while (step < 180) : (step += 1) {
-        seed = seed *% 1103515245 +% 12345;
-        const a: u8 = @intCast(seed & 31);
-        seed = seed *% 1103515245 +% 12345;
-        const b: u8 = @intCast(seed & 31);
+        const a = random.uintLessThan(u8, 32);
+        const b = random.uintLessThan(u8, 32);
         const start = @min(a, b);
         const end = @max(a, b);
         const range = try r(Range, start, end);
-        const value: Kind = switch ((seed >> 8) % 3) {
+        const value: Kind = switch (random.uintLessThan(u8, 3)) {
             0 => .a,
             1 => .b,
             else => .c,
         };
 
-        switch ((seed >> 16) % 4) {
+        switch (random.uintLessThan(u8, 4)) {
             0 => if (map.insert(range, value)) {
                 for (model[start..end]) |*slot| slot.* = value;
             } else |err| switch (err) {
@@ -252,7 +251,7 @@ test "model: RangeMap matches optional array over small domain" {
                 for (model[start..end]) |*slot| slot.* = null;
             },
         }
-        if ((seed & 0x80000000) != 0) map.coalesceAdjacent({}, eqlKind);
+        if (random.boolean()) map.coalesceAdjacent({}, eqlKind);
 
         for (model, 0..) |slot, index| {
             const got = map.get(@intCast(index));

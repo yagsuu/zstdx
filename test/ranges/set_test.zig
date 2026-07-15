@@ -141,19 +141,18 @@ test "model: RangeSet matches bitset over small domain" {
     const Range = Set.Range;
     var set = Set.init();
     var model = [_]bool{false} ** 32;
-    var seed: u32 = 0x12345678;
+    var prng = std.Random.Xoshiro256.init(0x12345678);
+    const random = prng.random();
 
     var step: usize = 0;
     while (step < 160) : (step += 1) {
-        seed = seed *% 1664525 +% 1013904223;
-        const a: u8 = @intCast(seed & 31);
-        seed = seed *% 1664525 +% 1013904223;
-        const b: u8 = @intCast(seed & 31);
+        const a = random.uintLessThan(u8, 32);
+        const b = random.uintLessThan(u8, 32);
         const start = @min(a, b);
         const end = @max(a, b);
         const range = try r(Range, start, end);
 
-        if ((seed & 1) == 0) {
+        if (random.boolean()) {
             try set.insert(range);
             for (model[start..end]) |*bit| bit.* = true;
         } else {
