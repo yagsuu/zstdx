@@ -158,7 +158,7 @@ pub const tlb = struct {
 
 - `halt`: `#GP` when called outside the privilege conditions required by the CPU.
 - `breakpoint`: raises `#BP` by design.
-- `tsc.read`: `#GP` at CPL > 0 when `register.control.cr4.TSD` is set.
+- `tsc.read`: `#GP` at CPL > 0 when `registers.cr4.CR4.time_stamp_disable` is set.
 - `tsc.readSerializing`: `#GP` at CPL > 0 when TSD is set; `#UD` when `RDTSCP` is unsupported.
 - `tlb.invalidatePage`: `#GP` at CPL > 0.
 - `tlb.invalidatePcid`: `#GP` at CPL > 0; `#UD` when `INVPCID` is unsupported.

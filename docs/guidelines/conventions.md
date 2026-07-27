@@ -121,11 +121,11 @@ zstdx names encode ownership and capacity.
 zstdx public names use the baseline Zig naming rules with these package terms:
 
 - namespaces, modules, and operation families are lower-case domain names: `bits`, `addr`, `mem`, `layout`,
-  `bytes`, `intrusive`, `barrier.mmio`, `arch.x86_64.register.control`;
+  `bytes`, `intrusive`, `barrier.mmio`, `arch.x86_64.registers.cr0`;
 - type names, type families, and type factories are PascalCase: `List`, `BitSet`, `Address`, `BitFlags`,
   `Mmio`, `ScatterGather`, `Page`, `Clock.Monotonic`;
 - the split is by declaration role, not by ownership: `Entry`, `Root`, `Result`, and `Mode` are PascalCase
-  even when they own no memory; `cpu.tlb`, `register.control.cr3`, and `barrier.dma` are lower-case even
+  even when they own no memory; `cpu.tlb`, `registers.cr0`, and `barrier.dma` are lower-case even
   when they access or mutate architectural state;
 - a `struct` used only to group operations is a namespace and uses lower-case. A PascalCase `struct`
   must be a type, type family, or type factory that callers may name as a value shape or generic parameter;

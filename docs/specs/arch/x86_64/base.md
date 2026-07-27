@@ -23,7 +23,7 @@ This spec owns:
 These x86_64 APIs are owned by sibling specs:
 
 - `cpuid` — `docs/specs/arch/x86_64/cpuid.md`;
-- `register` — `docs/specs/arch/x86_64/register.md`;
+- `registers` — `docs/specs/arch/x86_64/register.md`;
 - `cpu` — `docs/specs/arch/x86_64/cpu.md`;
 - `vmx` — `docs/specs/arch/x86_64/vmx.md`;
 - `svm` — `docs/specs/arch/x86_64/svm.md`;
@@ -60,7 +60,7 @@ Delegated submodules also appear under `stdx.arch.x86_64`:
 
 ```zig
 stdx.arch.x86_64.cpuid
-stdx.arch.x86_64.register
+stdx.arch.x86_64.registers
 stdx.arch.x86_64.cpu
 stdx.arch.x86_64.vmx
 stdx.arch.x86_64.svm
@@ -107,7 +107,7 @@ pub const fence = @import("x86_64/fence.zig");
 pub const cache = @import("x86_64/cache.zig");
 
 pub const cpuid = @import("x86_64/cpuid.zig");
-pub const register = @import("x86_64/register.zig");
+pub const registers = @import("x86_64/registers.zig");
 pub const cpu = @import("x86_64/cpu.zig");
 pub const vmx = @import("x86_64/vmx.zig");
 pub const svm = @import("x86_64/svm.zig");
