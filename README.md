@@ -59,7 +59,7 @@ In scope:
 - static, bounded, intrusive, and caller-owned storage patterns;
 - explicit allocation, waiting, capacity, ownership, invalidation, and ordering
   contracts;
-- strong address, page, tag, time, and descriptor-facing value types;
+- strong address, page, tag, time, and descriptor-facing value types and queues;
 - generic synchronization and concurrent structures with explicit platform
   requirements;
 - target-gated architecture, barrier, MMIO, and DMA primitives.
@@ -139,6 +139,22 @@ const Page4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
 const frame = try Page4K.Frame.fromAddressInt(0x1000);
 ```
 
+### Deadline queue
+
+```zig
+const stdx = @import("stdx");
+
+const Queue = stdx.time.DeadlineQueue.Static(u32, 16);
+var queue = Queue.init();
+
+_ = try queue.insert(
+    stdx.time.Deadline.at(stdx.time.Instant.fromNanos(1_000)),
+    42,
+);
+
+_ = queue.popExpired(stdx.time.Instant.fromNanos(1_000));
+```
+
 ### Target-gated primitive
 
 ```zig
@@ -170,10 +186,10 @@ if (x86.supported) {
 | `stdx.diag` | Primitive diagnostics | `Diagnostics`, `PanicLog` |
 | `stdx.sync` | Synchronization primitives | `Signal`, `AtomicCell`, `RawSpinLock`, `Once`, `Rendezvous` |
 | `stdx.concurrent` | Concurrent rings | `mpsc.Ring`, `spsc.Ring` |
-| `stdx.cpu` | CPU-local storage | `PerCpu` |
-| `stdx.time` | Time values and helpers | `Instant`, `Duration`, `Clock`, `Deadline`, `Backoff`, `RateCounter` |
+| `stdx.cpu` | CPU-local storage | `PerCPU` |
+| `stdx.time` | Time values, deadlines, retry timing, and timer queues | `Instant`, `Duration`, `Clock`, `Deadline`, `Backoff`, `RateCounter`, `DeadlineQueue`, `TimerWheel` |
 | `stdx.barrier` | Compiler, MMIO, and DMA fences | `compiler`, `mmio`, `dma` |
-| `stdx.io` | MMIO and polling helpers | `Mmio`, `poll` |
+| `stdx.io` | MMIO and polling helpers | `MMIO`, `poll` |
 | `stdx.dma` | DMA-visible value types | `Buffer`, `ScatterGather` |
 | `stdx.func` | Function wrappers | `Callback`, `Closure` |
 
@@ -213,6 +229,7 @@ See the behavior documentation policy in
 | --- | --- |
 | [`docs/specs/project/scope.md`](docs/specs/project/scope.md) | Project scope, naming policy, behavior-documentation rules. |
 | [`docs/specs/root-exports.md`](docs/specs/root-exports.md) | Root facade and root promotion rules. |
+| [`docs/guidelines/spec-writing.md`](docs/guidelines/spec-writing.md) | Production spec structure, section value, and normative language rules. |
 | [`docs/specs/`](docs/specs/) | Normative per-primitive specs. |
 | [`docs/project-decisions.md`](docs/project-decisions.md) | Approved project facts and status labels. |
 
