@@ -7,5 +7,5 @@ pub const pages = @import("addr/pages.zig");
 pub const Address = address.Address;
 pub const PhysAddr = address.PhysAddr;
 pub const VirtAddr = address.VirtAddr;
-pub const DmaAddr = address.DmaAddr;
+pub const DMAAddr = address.DMAAddr;
 pub const Page = pages.Page;

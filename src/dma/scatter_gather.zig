@@ -7,22 +7,22 @@ const address = @import("../addr/address.zig");
 const bits = @import("../bits.zig");
 const buffer = @import("buffer.zig");
 
-const DmaAddr = address.DmaAddr;
-const DmaRaw = DmaAddr.Raw;
+const DMAAddr = address.DMAAddr;
+const DMARaw = DMAAddr.Raw;
 
 /// A segment describes an untyped device-visible byte range.
 pub const Segment = struct {
-    addr: DmaAddr,
-    len_bytes: DmaRaw,
+    addr: DMAAddr,
+    len_bytes: DMARaw,
 
-    pub const Address = DmaAddr;
+    pub const Address = DMAAddr;
 
     /// `Overflow`: `addr.raw() + len_bytes` exceeds `Address.Raw`.
     pub const Error = error{Overflow};
 
     /// Creates a validated `[addr, addr + len_bytes)` segment.
-    pub fn init(addr: DmaAddr, len_bytes: DmaRaw) Error!Segment {
-        _ = std.math.add(DmaRaw, addr.raw(), len_bytes) catch return error.Overflow;
+    pub fn init(addr: DMAAddr, len_bytes: DMARaw) Error!Segment {
+        _ = std.math.add(DMARaw, addr.raw(), len_bytes) catch return error.Overflow;
         return .{ .addr = addr, .len_bytes = len_bytes };
     }
 
@@ -31,7 +31,7 @@ pub const Segment = struct {
         return .{ .addr = buf.dmaAddr(), .len_bytes = buf.byteLen() };
     }
 
-    pub fn byteLen(self: Segment) DmaRaw {
+    pub fn byteLen(self: Segment) DMARaw {
         return self.len_bytes;
     }
 
@@ -40,23 +40,23 @@ pub const Segment = struct {
     }
 
     /// Returns the one-past-the-end device address. Hand-built segments are revalidated.
-    pub fn endAddr(self: Segment) Error!DmaAddr {
-        const raw = std.math.add(DmaRaw, self.addr.raw(), self.len_bytes) catch return error.Overflow;
-        return DmaAddr.fromInt(raw);
+    pub fn endAddr(self: Segment) Error!DMAAddr {
+        const raw = std.math.add(DMARaw, self.addr.raw(), self.len_bytes) catch return error.Overflow;
+        return DMAAddr.fromInt(raw);
     }
 
     /// Returns true iff both `addr` and `len_bytes` are aligned. Invalid
     /// alignment returns `false`.
-    pub fn isAligned(self: Segment, alignment: DmaRaw) bool {
+    pub fn isAligned(self: Segment, alignment: DMARaw) bool {
         if (alignment == 0) return false;
-        if (!bits.isPowerOfTwo(DmaRaw, alignment)) return false;
+        if (!bits.isPowerOfTwo(DMARaw, alignment)) return false;
         const mask = alignment - 1;
         if ((self.addr.raw() & mask) != 0) return false;
         return (self.len_bytes & mask) == 0;
     }
 
     pub fn assertValid(self: Segment) void {
-        _ = std.math.add(DmaRaw, self.addr.raw(), self.len_bytes) catch unreachable;
+        _ = std.math.add(DMARaw, self.addr.raw(), self.len_bytes) catch unreachable;
     }
 };
 
@@ -145,7 +145,7 @@ pub const List = struct {
             }
 
             /// Sums `len_bytes`. Returns `error.Overflow` on `Address.Raw` wrap.
-            pub fn totalByteLen(self: *const Self) error{Overflow}!DmaRaw {
+            pub fn totalByteLen(self: *const Self) error{Overflow}!DMARaw {
                 return sumSegmentLens(self.asConstSlice());
             }
 
@@ -232,7 +232,7 @@ pub const List = struct {
             return &self.buffer[index];
         }
 
-        pub fn totalByteLen(self: *const Bounded) error{Overflow}!DmaRaw {
+        pub fn totalByteLen(self: *const Bounded) error{Overflow}!DMARaw {
             return sumSegmentLens(self.asConstSlice());
         }
 
@@ -243,15 +243,15 @@ pub const List = struct {
     };
 };
 
-fn requireAlignment(comptime alignment: DmaRaw) void {
+fn requireAlignment(comptime alignment: DMARaw) void {
     if (alignment == 0) @compileError("Builder alignment must be non-zero");
-    if (!bits.isPowerOfTwo(DmaRaw, alignment)) @compileError("Builder alignment must be a power of two");
+    if (!bits.isPowerOfTwo(DMARaw, alignment)) @compileError("Builder alignment must be a power of two");
 }
 
 /// Builders enforce uniform per-segment alignment on append.
 pub const Builder = struct {
     /// Builds over inline segment storage.
-    pub fn Static(comptime capacity_segments: usize, comptime alignment: DmaRaw) type {
+    pub fn Static(comptime capacity_segments: usize, comptime alignment: DMARaw) type {
         comptime requireAlignment(alignment);
         return struct {
             list: List.Static(capacity_segments) = .{},
@@ -329,7 +329,7 @@ pub const Builder = struct {
     }
 
     /// Builds over borrowed segment storage.
-    pub fn Bounded(comptime alignment: DmaRaw) type {
+    pub fn Bounded(comptime alignment: DMARaw) type {
         comptime requireAlignment(alignment);
         return struct {
             list: List.Bounded,
@@ -406,10 +406,10 @@ pub const Builder = struct {
     }
 };
 
-fn sumSegmentLens(segments: []const Segment) error{Overflow}!DmaRaw {
-    var total: DmaRaw = 0;
+fn sumSegmentLens(segments: []const Segment) error{Overflow}!DMARaw {
+    var total: DMARaw = 0;
     for (segments) |segment| {
-        total = std.math.add(DmaRaw, total, segment.len_bytes) catch return error.Overflow;
+        total = std.math.add(DMARaw, total, segment.len_bytes) catch return error.Overflow;
     }
     return total;
 }

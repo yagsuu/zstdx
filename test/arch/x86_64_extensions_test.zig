@@ -17,23 +17,23 @@ const testing = std.testing;
 // shape. Privileged operations stay signature-only in the host suite.
 
 comptime {
-    // cpu.tlb.InvpcidDescriptor: exactly 16 bytes, 16-byte aligned, pcid at 0,
-    // linear_address at 8. Spec §Cpu.Tlb.
-    std.debug.assert(@sizeOf(cpu.tlb.InvpcidDescriptor) == 16);
-    std.debug.assert(@alignOf(cpu.tlb.InvpcidDescriptor) == 16);
-    std.debug.assert(@offsetOf(cpu.tlb.InvpcidDescriptor, "pcid") == 0);
-    std.debug.assert(@offsetOf(cpu.tlb.InvpcidDescriptor, "linear_address") == 8);
-    std.debug.assert(cpu.tlb.InvpcidDescriptor.alignment == 16);
+    // cpu.tlb.INVPCIDDescriptor: exactly 16 bytes, 16-byte aligned, PCID at 0,
+    // linear_address at 8. Spec §CPU.TLB.
+    std.debug.assert(@sizeOf(cpu.tlb.INVPCIDDescriptor) == 16);
+    std.debug.assert(@alignOf(cpu.tlb.INVPCIDDescriptor) == 16);
+    std.debug.assert(@offsetOf(cpu.tlb.INVPCIDDescriptor, "pcid") == 0);
+    std.debug.assert(@offsetOf(cpu.tlb.INVPCIDDescriptor, "linear_address") == 8);
+    std.debug.assert(cpu.tlb.INVPCIDDescriptor.alignment == 16);
 
-    // cpu.tlb.InvpcidKind: four tags with backing values 0..3 in enum-declaration
-    // order matching the spec table. Spec §Cpu.Tlb "InvpcidKind values".
-    const kind_info = @typeInfo(cpu.tlb.InvpcidKind).@"enum";
+    // cpu.tlb.INVPCIDKind: four tags with backing values 0..3 in enum-declaration
+    // order matching the spec table. Spec §CPU.TLB "INVPCIDKind values".
+    const kind_info = @typeInfo(cpu.tlb.INVPCIDKind).@"enum";
     std.debug.assert(kind_info.fields.len == 4);
     std.debug.assert(kind_info.tag_type == u2);
-    std.debug.assert(@intFromEnum(cpu.tlb.InvpcidKind.individual_address) == 0);
-    std.debug.assert(@intFromEnum(cpu.tlb.InvpcidKind.single_context) == 1);
-    std.debug.assert(@intFromEnum(cpu.tlb.InvpcidKind.all_including_globals) == 2);
-    std.debug.assert(@intFromEnum(cpu.tlb.InvpcidKind.all_excluding_globals) == 3);
+    std.debug.assert(@intFromEnum(cpu.tlb.INVPCIDKind.individual_address) == 0);
+    std.debug.assert(@intFromEnum(cpu.tlb.INVPCIDKind.single_context) == 1);
+    std.debug.assert(@intFromEnum(cpu.tlb.INVPCIDKind.all_including_globals) == 2);
+    std.debug.assert(@intFromEnum(cpu.tlb.INVPCIDKind.all_excluding_globals) == 3);
 
     // cpu.tsc.Reading: fields are exactly u64 (tsc) and u32 (aux). Spec
     // §Cpu.Tsc Reading.
@@ -74,10 +74,10 @@ test "contract: cpu.tsc read/readSerializing instantiate" {
     expectFn(fn () cpu.tsc.Reading, cpu.tsc.readSerializing);
 }
 
-test "contract: cpu.tlb invalidatePage/invalidatePcid instantiate" {
+test "contract: cpu.tlb invalidatePage/invalidatePCID instantiate" {
     if (!x86.supported) return;
     expectFn(fn (usize) void, cpu.tlb.invalidatePage);
-    expectFn(fn (cpu.tlb.InvpcidKind, *const cpu.tlb.InvpcidDescriptor) void, cpu.tlb.invalidatePcid);
+    expectFn(fn (cpu.tlb.INVPCIDKind, *const cpu.tlb.INVPCIDDescriptor) void, cpu.tlb.invalidatePCID);
 }
 
 test "contract: register.debug dr0..dr7 read/write instantiate" {

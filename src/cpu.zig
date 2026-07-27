@@ -2,4 +2,4 @@
 
 pub const per_cpu = @import("cpu/per_cpu.zig");
 
-pub const PerCpu = per_cpu.PerCpu;
+pub const PerCPU = per_cpu.PerCPU;

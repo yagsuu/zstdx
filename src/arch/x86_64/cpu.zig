@@ -84,7 +84,7 @@ pub const tsc = struct {
 pub const tlb = struct {
     /// `invpcid` invalidation kind. Backing values match the immediate
     /// value the CPU expects in the type register.
-    pub const InvpcidKind = enum(u2) {
+    pub const INVPCIDKind = enum(u2) {
         individual_address = 0,
         single_context = 1,
         all_including_globals = 2,
@@ -95,7 +95,7 @@ pub const tlb = struct {
     /// instruction's operand-alignment requirement; reserved fields
     /// default to zero because Intel documents non-zero reserved bits
     /// as producing `#GP`.
-    pub const InvpcidDescriptor = extern struct {
+    pub const INVPCIDDescriptor = extern struct {
         pcid: u16 align(16),
         _reserved_pcid_high: u16 = 0,
         _reserved: u32 = 0,
@@ -129,7 +129,7 @@ pub const tlb = struct {
     /// Requirements: `INVPCID` support.
     /// Faults: `#GP` at CPL > 0; `#UD` when unsupported.
     /// Clobbers: `memory`.
-    pub fn invalidatePcid(kind: InvpcidKind, descriptor: *const InvpcidDescriptor) void {
+    pub fn invalidatePCID(kind: INVPCIDKind, descriptor: *const INVPCIDDescriptor) void {
         if (!supported) @compileError(wrong_target);
         asm volatile ("invpcid (%%rdx), %%rax"
             :

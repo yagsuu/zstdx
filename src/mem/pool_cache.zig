@@ -78,11 +78,11 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
         /// Per-region intrusive metadata. Lives at region offset zero.
         pub const RegionHeader = struct {
             next: ?*RegionHeader,
-            list: ListId,
+            list: ListID,
             inner: InnerPool,
             region_ptr: [*]align(region_align) u8,
 
-            const ListId = enum(u8) { empty, partial, full };
+            const ListID = enum(u8) { empty, partial, full };
         };
 
         /// Refill propagates the source's error set unchanged.
@@ -226,7 +226,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             std.debug.assert(self.isValid());
         }
 
-        fn acquireFromRegion(self: *Self, header: *RegionHeader, from: RegionHeader.ListId) Error!*T {
+        fn acquireFromRegion(self: *Self, header: *RegionHeader, from: RegionHeader.ListID) Error!*T {
             const item = header.inner.acquire() catch |err| switch (err) {
                 error.OutOfMemory => unreachable, // partial/empty region always has slots
             };
@@ -235,7 +235,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             const post_live = header.inner.len();
 
             if (from == .empty) {
-                const dest: RegionHeader.ListId = if (post_live == slots_per_region) .full else .partial;
+                const dest: RegionHeader.ListID = if (post_live == slots_per_region) .full else .partial;
                 self.moveHeader(header, .empty, dest);
             } else if (post_live == slots_per_region) {
                 self.moveHeader(header, .partial, .full);
@@ -247,8 +247,8 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
         fn moveHeader(
             self: *Self,
             header: *RegionHeader,
-            from: RegionHeader.ListId,
-            to: RegionHeader.ListId,
+            from: RegionHeader.ListID,
+            to: RegionHeader.ListID,
         ) void {
             std.debug.assert(header.list == from);
             self.unlinkFromList(header, from);
@@ -256,7 +256,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             header.list = to;
         }
 
-        fn listHead(self: *Self, list: RegionHeader.ListId) *?*RegionHeader {
+        fn listHead(self: *Self, list: RegionHeader.ListID) *?*RegionHeader {
             return switch (list) {
                 .empty => &self.empty_head,
                 .partial => &self.partial_head,
@@ -269,7 +269,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             head.* = header;
         }
 
-        fn unlinkFromList(self: *Self, target: *RegionHeader, list: RegionHeader.ListId) void {
+        fn unlinkFromList(self: *Self, target: *RegionHeader, list: RegionHeader.ListID) void {
             const head = self.listHead(list);
             var prev: ?*RegionHeader = null;
             var current = head.*;
@@ -320,7 +320,7 @@ fn checkValid(self: anytype) bool {
     var live: usize = 0;
     const lists = [_]struct {
         head: ?*Self.RegionHeader,
-        expected: Self.RegionHeader.ListId,
+        expected: Self.RegionHeader.ListID,
     }{
         .{ .head = self.empty_head, .expected = .empty },
         .{ .head = self.partial_head, .expected = .partial },

@@ -11,13 +11,13 @@ const CachePad = cache.CachePad;
 /// inline `[N]CachePad(T)` storage; `Bounded` borrows a caller-provided
 /// `[]CachePad(T)` slice. Neither variant discovers CPUs, orders accesses
 /// across slots, or enforces affinity; routing is caller policy.
-pub const PerCpu = struct {
+pub const PerCPU = struct {
     /// Inline `[N]CachePad(T)` per-CPU storage indexed by caller-supplied CPU
     /// index. `Static(T, 0)` is a compile error: a zero-capacity per-CPU
     /// array has no valid consumer.
     pub fn Static(comptime T: type, comptime N: usize) type {
         if (N == 0) {
-            @compileError("PerCpu.Static: capacity N must be > 0");
+            @compileError("PerCPU.Static: capacity N must be > 0");
         }
 
         return struct {

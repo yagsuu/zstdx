@@ -33,31 +33,31 @@ test "unit: Port instances remain distinct across constructions" {
     try testing.expect(a.raw() != b.raw());
 }
 
-test "unit: Msr.fromInt and raw round-trip at boundaries" {
-    try testing.expectEqual(@as(u32, 0), x86.Msr.fromInt(0).raw());
-    try testing.expectEqual(@as(u32, 0x1b), x86.Msr.fromInt(0x1b).raw());
-    try testing.expectEqual(@as(u32, 0xffff_ffff), x86.Msr.fromInt(0xffff_ffff).raw());
+test "unit: MSR.fromInt and raw round-trip at boundaries" {
+    try testing.expectEqual(@as(u32, 0), x86.MSR.fromInt(0).raw());
+    try testing.expectEqual(@as(u32, 0x1b), x86.MSR.fromInt(0x1b).raw());
+    try testing.expectEqual(@as(u32, 0xffff_ffff), x86.MSR.fromInt(0xffff_ffff).raw());
 }
 
-test "unit: Msr named tags match architectural addresses" {
-    try testing.expectEqual(@as(u32, 0x0000_0010), x86.Msr.tsc.raw());
-    try testing.expectEqual(@as(u32, 0x0000_001b), x86.Msr.apic_base.raw());
-    try testing.expectEqual(@as(u32, 0x0000_003a), x86.Msr.feature_control.raw());
-    try testing.expectEqual(@as(u32, 0x0000_0277), x86.Msr.pat.raw());
-    try testing.expectEqual(@as(u32, 0x0000_0480), x86.Msr.vmx_basic.raw());
-    try testing.expectEqual(@as(u32, 0x0000_0481), x86.Msr.vmx_pinbased_ctls.raw());
-    try testing.expectEqual(@as(u32, 0x0000_0482), x86.Msr.vmx_procbased_ctls.raw());
-    try testing.expectEqual(@as(u32, 0x0000_0483), x86.Msr.vmx_exit_ctls.raw());
-    try testing.expectEqual(@as(u32, 0x0000_0484), x86.Msr.vmx_entry_ctls.raw());
-    try testing.expectEqual(@as(u32, 0xc000_0080), x86.Msr.efer.raw());
-    try testing.expectEqual(@as(u32, 0xc000_0081), x86.Msr.star.raw());
-    try testing.expectEqual(@as(u32, 0xc000_0082), x86.Msr.lstar.raw());
-    try testing.expectEqual(@as(u32, 0xc000_0084), x86.Msr.fmask.raw());
-    try testing.expectEqual(@as(u32, 0xc000_0100), x86.Msr.fs_base.raw());
-    try testing.expectEqual(@as(u32, 0xc000_0101), x86.Msr.gs_base.raw());
-    try testing.expectEqual(@as(u32, 0xc000_0102), x86.Msr.kernel_gs_base.raw());
-    try testing.expectEqual(@as(u32, 0xc000_0103), x86.Msr.tsc_aux.raw());
-    try testing.expectEqual(@as(u32, 0xc001_0117), x86.Msr.vm_hsave_pa.raw());
+test "unit: MSR named tags match architectural addresses" {
+    try testing.expectEqual(@as(u32, 0x0000_0010), x86.MSR.tsc.raw());
+    try testing.expectEqual(@as(u32, 0x0000_001b), x86.MSR.apic_base.raw());
+    try testing.expectEqual(@as(u32, 0x0000_003a), x86.MSR.feature_control.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0277), x86.MSR.pat.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0480), x86.MSR.vmx_basic.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0481), x86.MSR.vmx_pinbased_ctls.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0482), x86.MSR.vmx_procbased_ctls.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0483), x86.MSR.vmx_exit_ctls.raw());
+    try testing.expectEqual(@as(u32, 0x0000_0484), x86.MSR.vmx_entry_ctls.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0080), x86.MSR.efer.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0081), x86.MSR.star.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0082), x86.MSR.lstar.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0084), x86.MSR.fmask.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0100), x86.MSR.fs_base.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0101), x86.MSR.gs_base.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0102), x86.MSR.kernel_gs_base.raw());
+    try testing.expectEqual(@as(u32, 0xc000_0103), x86.MSR.tsc_aux.raw());
+    try testing.expectEqual(@as(u32, 0xc001_0117), x86.MSR.vm_hsave_pa.raw());
 }
 
 test "unit: supported matches the build target" {
@@ -105,10 +105,10 @@ test "compile: cpuid family instantiates" {
     expectFn(fn () u32, cpuid.maxExtendedLeaf);
 }
 
-test "compile: Msr read/write instantiate" {
+test "compile: MSR read/write instantiate" {
     if (!x86.supported) return;
-    expectFn(fn (x86.Msr) u64, x86.Msr.read);
-    expectFn(fn (x86.Msr, u64) void, x86.Msr.write);
+    expectFn(fn (x86.MSR) u64, x86.MSR.read);
+    expectFn(fn (x86.MSR, u64) void, x86.MSR.write);
 }
 
 test "compile: register.control family instantiates" {

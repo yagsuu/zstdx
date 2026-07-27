@@ -36,24 +36,24 @@ fn requireRegisterType(comptime T: type) void {
     if (isAllowedEndianInt(T)) return;
     if (isAllowedPackedStruct(T)) return;
     @compileError(
-        "Mmio.Register requires u8/u16/u32/u64, layout.Le/Be over those widths, " ++
+        "MMIO.Register requires u8/u16/u32/u64, layout.Le/Be over those widths, " ++
             "or packed struct(uN) with N in {8,16,32,64}",
     );
 }
 
 fn requireWindowAlign(comptime bytes: usize) void {
     if (bytes == 0) {
-        @compileError("Mmio.Window min_align_bytes must be at least 1");
+        @compileError("MMIO.Window min_align_bytes must be at least 1");
     }
     if (!std.math.isPowerOfTwo(bytes)) {
-        @compileError("Mmio.Window min_align_bytes must be a power of two");
+        @compileError("MMIO.Window min_align_bytes must be a power of two");
     }
 }
 
 /// MMIO family namespace. Access provides only compiler ordering; hardware
 /// ordering against DMA payloads or other MMIO accesses is the caller's job
 /// via `stdx.barrier.mmio` and `stdx.barrier.dma`.
-pub const Mmio = struct {
+pub const MMIO = struct {
     /// Default `min_align_bytes` for the `Window64` alias — the alignment
     /// guarantee callers get from a page-aligned or canonical NVMe register
     /// block.
@@ -169,7 +169,7 @@ pub const Mmio = struct {
                 comptime {
                     if (!@hasField(Layout, field_name)) {
                         @compileError(
-                            "Mmio.Window.field: layout '" ++ @typeName(Layout) ++
+                            "MMIO.Window.field: layout '" ++ @typeName(Layout) ++
                                 "' has no field '" ++ field_name ++ "'",
                         );
                     }
@@ -177,7 +177,7 @@ pub const Mmio = struct {
                     const field_end = @offsetOf(Layout, field_name) + @sizeOf(FieldT);
                     if (field_end > @sizeOf(Layout)) {
                         @compileError(
-                            "Mmio.Window.field: field '" ++ field_name ++
+                            "MMIO.Window.field: field '" ++ field_name ++
                                 "' extends past @sizeOf(" ++ @typeName(Layout) ++ ")",
                         );
                     }

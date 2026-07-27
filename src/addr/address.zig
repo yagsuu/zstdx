@@ -103,11 +103,11 @@ pub const PhysTag = opaque {};
 /// Tag identifying virtual address domains.
 pub const VirtTag = opaque {};
 
-/// Tag identifying device-visible DMA address domains. `DmaAddr` values are
+/// Tag identifying device-visible DMA address domains. `DMAAddr` values are
 /// what the device receives in a descriptor; how they map back to physical
 /// memory (identity-map, IOMMU IOVA, bounce buffer) is caller policy owned
 /// outside this library.
-pub const DmaTag = opaque {};
+pub const DMATag = opaque {};
 
 pub const PhysAddr = Address(PhysTag, u64);
 
@@ -115,4 +115,4 @@ pub const VirtAddr = Address(VirtTag, usize);
 
 /// DMA addresses are domain-separated from physical addresses even when both use
 /// `u64`. Conversion between them is an explicit caller decision.
-pub const DmaAddr = Address(DmaTag, u64);
+pub const DMAAddr = Address(DMATag, u64);

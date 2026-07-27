@@ -14,18 +14,18 @@ comptime {
     const err_info = @typeInfo(vmx.Error).error_set.?;
     std.debug.assert(err_info.len == 2);
 
-    std.debug.assert(@sizeOf(vmx.VmxonRegion) == 4096);
-    std.debug.assert(@alignOf(vmx.VmxonRegion) == 4096);
-    std.debug.assert(vmx.VmxonRegion.alignment == 4096);
-    std.debug.assert(@offsetOf(vmx.VmxonRegion, "revision_id") == 0);
-    std.debug.assert(@offsetOf(vmx.VmxonRegion, "_reserved") == 4);
+    std.debug.assert(@sizeOf(vmx.VMXONRegion) == 4096);
+    std.debug.assert(@alignOf(vmx.VMXONRegion) == 4096);
+    std.debug.assert(vmx.VMXONRegion.alignment == 4096);
+    std.debug.assert(@offsetOf(vmx.VMXONRegion, "revision_id") == 0);
+    std.debug.assert(@offsetOf(vmx.VMXONRegion, "_reserved") == 4);
 
-    std.debug.assert(@sizeOf(vmx.Vmcs) == 4096);
-    std.debug.assert(@alignOf(vmx.Vmcs) == 4096);
-    std.debug.assert(vmx.Vmcs.alignment == 4096);
-    std.debug.assert(@offsetOf(vmx.Vmcs, "revision_id") == 0);
-    std.debug.assert(@offsetOf(vmx.Vmcs, "abort_indicator") == 4);
-    std.debug.assert(@offsetOf(vmx.Vmcs, "_reserved") == 8);
+    std.debug.assert(@sizeOf(vmx.VMCS) == 4096);
+    std.debug.assert(@alignOf(vmx.VMCS) == 4096);
+    std.debug.assert(vmx.VMCS.alignment == 4096);
+    std.debug.assert(@offsetOf(vmx.VMCS, "revision_id") == 0);
+    std.debug.assert(@offsetOf(vmx.VMCS, "abort_indicator") == 4);
+    std.debug.assert(@offsetOf(vmx.VMCS, "_reserved") == 8);
 
     std.debug.assert(@sizeOf(vmx.InveptDescriptor) == 16);
     std.debug.assert(@alignOf(vmx.InveptDescriptor) == 16);

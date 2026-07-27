@@ -28,23 +28,23 @@ pub const PhysAddr = enum(u64) {
 /// 4 KiB VMXON region per SDM Vol.3 §24.11. The `_reserved` byte array
 /// is the VMXON body — CPU-implementation-defined and MUST NOT be
 /// accessed through ordinary loads or stores.
-pub const VmxonRegion = extern struct {
+pub const VMXONRegion = extern struct {
     revision_id: u32 align(4096) = 0,
     _reserved: [4092]u8 = @splat(0),
 
     pub const alignment: usize = 4096;
 
     comptime {
-        std.debug.assert(@sizeOf(VmxonRegion) == 4096);
-        std.debug.assert(@alignOf(VmxonRegion) == 4096);
-        std.debug.assert(@offsetOf(VmxonRegion, "revision_id") == 0);
-        std.debug.assert(@offsetOf(VmxonRegion, "_reserved") == 4);
+        std.debug.assert(@sizeOf(VMXONRegion) == 4096);
+        std.debug.assert(@alignOf(VMXONRegion) == 4096);
+        std.debug.assert(@offsetOf(VMXONRegion, "revision_id") == 0);
+        std.debug.assert(@offsetOf(VMXONRegion, "_reserved") == 4);
     }
 };
 
 /// 4 KiB VMCS region per SDM Vol.3 §24.2 / §24.11. The `_reserved` byte
 /// array is the VMCS data area — accessible only via `vmread`/`vmwrite`.
-pub const Vmcs = extern struct {
+pub const VMCS = extern struct {
     revision_id: u32 align(4096) = 0,
     abort_indicator: u32 = 0,
     _reserved: [4088]u8 = @splat(0),
@@ -52,11 +52,11 @@ pub const Vmcs = extern struct {
     pub const alignment: usize = 4096;
 
     comptime {
-        std.debug.assert(@sizeOf(Vmcs) == 4096);
-        std.debug.assert(@alignOf(Vmcs) == 4096);
-        std.debug.assert(@offsetOf(Vmcs, "revision_id") == 0);
-        std.debug.assert(@offsetOf(Vmcs, "abort_indicator") == 4);
-        std.debug.assert(@offsetOf(Vmcs, "_reserved") == 8);
+        std.debug.assert(@sizeOf(VMCS) == 4096);
+        std.debug.assert(@alignOf(VMCS) == 4096);
+        std.debug.assert(@offsetOf(VMCS, "revision_id") == 0);
+        std.debug.assert(@offsetOf(VMCS, "abort_indicator") == 4);
+        std.debug.assert(@offsetOf(VMCS, "_reserved") == 8);
     }
 };
 

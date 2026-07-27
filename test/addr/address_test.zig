@@ -12,7 +12,7 @@ const A = addr.Address(TagA, u8);
 const B = addr.Address(TagB, u8);
 const PhysAddr = addr.PhysAddr;
 const VirtAddr = addr.VirtAddr;
-const DmaAddr = addr.DmaAddr;
+const DMAAddr = addr.DMAAddr;
 
 const testing = std.testing;
 
@@ -58,13 +58,13 @@ test "unit: built-in PhysAddr and VirtAddr aliases have expected raw widths" {
     try testing.expectEqual(@sizeOf(usize), @sizeOf(VirtAddr.Raw));
 }
 
-test "unit: DmaAddr is distinct from PhysAddr even at identical u64 width" {
+test "unit: DMAAddr is distinct from PhysAddr even at identical u64 width" {
     const pa = PhysAddr.fromInt(0x1000);
-    const dma = DmaAddr.fromInt(pa.raw());
+    const dma = DMAAddr.fromInt(pa.raw());
     try testing.expect(@TypeOf(pa) != @TypeOf(dma));
     try testing.expectEqual(pa.raw(), dma.raw());
 }
 
-test "unit: DmaAddr Raw width is u64" {
-    try testing.expectEqual(@as(usize, 8), @sizeOf(DmaAddr.Raw));
+test "unit: DMAAddr Raw width is u64" {
+    try testing.expectEqual(@as(usize, 8), @sizeOf(DMAAddr.Raw));
 }

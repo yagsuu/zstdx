@@ -13,8 +13,8 @@ test "unit: Forest.Static(0) is empty and rejects node ids" {
 
     try testing.expectEqual(@as(usize, 0), forest.capacity());
     try testing.expect(forest.isEmpty());
-    try testing.expectEqual(@as(?F.NodeId, null), forest.firstRoot());
-    try testing.expectEqual(@as(?F.NodeId, null), forest.lastRoot());
+    try testing.expectEqual(@as(?F.NodeID, null), forest.firstRoot());
+    try testing.expectEqual(@as(?F.NodeID, null), forest.lastRoot());
     try testing.expectError(error.OutOfBounds, forest.nodeId(0));
     forest.assertValid();
 }
@@ -30,10 +30,10 @@ test "unit: Forest.Static appends roots in insertion order" {
 
     try testing.expectEqual(@as(usize, 4), forest.capacity());
     try testing.expect(!forest.isEmpty());
-    try testing.expectEqual(@as(?F.NodeId, n0), forest.firstRoot());
-    try testing.expectEqual(@as(?F.NodeId, n1), try forest.nextSibling(n0));
-    try testing.expectEqual(@as(?F.NodeId, n1), forest.lastRoot());
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.parent(n0));
+    try testing.expectEqual(@as(?F.NodeID, n0), forest.firstRoot());
+    try testing.expectEqual(@as(?F.NodeID, n1), try forest.nextSibling(n0));
+    try testing.expectEqual(@as(?F.NodeID, n1), forest.lastRoot());
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.parent(n0));
     forest.assertValid();
 }
 
@@ -48,17 +48,17 @@ test "unit: Forest.Static appends children and removes leaves" {
     try forest.appendChild(parent, child_a);
     try forest.appendChild(parent, child_b);
 
-    try testing.expectEqual(@as(?F.NodeId, child_a), try forest.firstChild(parent));
-    try testing.expectEqual(@as(?F.NodeId, child_b), try forest.nextSibling(child_a));
-    try testing.expectEqual(@as(?F.NodeId, child_b), try forest.lastChild(parent));
-    try testing.expectEqual(@as(?F.NodeId, parent), try forest.parent(child_b));
+    try testing.expectEqual(@as(?F.NodeID, child_a), try forest.firstChild(parent));
+    try testing.expectEqual(@as(?F.NodeID, child_b), try forest.nextSibling(child_a));
+    try testing.expectEqual(@as(?F.NodeID, child_b), try forest.lastChild(parent));
+    try testing.expectEqual(@as(?F.NodeID, parent), try forest.parent(child_b));
 
     try forest.remove(child_a);
 
-    try testing.expectEqual(@as(?F.NodeId, child_b), try forest.firstChild(parent));
-    try testing.expectEqual(@as(?F.NodeId, child_b), try forest.lastChild(parent));
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.parent(child_a));
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.nextSibling(child_a));
+    try testing.expectEqual(@as(?F.NodeID, child_b), try forest.firstChild(parent));
+    try testing.expectEqual(@as(?F.NodeID, child_b), try forest.lastChild(parent));
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.parent(child_a));
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.nextSibling(child_a));
     forest.assertValid();
 }
 
@@ -74,12 +74,12 @@ test "unit: Forest.Static detaches a subtree without clearing descendants" {
     try forest.appendChild(child, grandchild);
     try forest.remove(child);
 
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.firstChild(root));
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.lastChild(root));
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.parent(child));
-    try testing.expectEqual(@as(?F.NodeId, grandchild), try forest.firstChild(child));
-    try testing.expectEqual(@as(?F.NodeId, grandchild), try forest.lastChild(child));
-    try testing.expectEqual(@as(?F.NodeId, child), try forest.parent(grandchild));
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.firstChild(root));
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.lastChild(root));
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.parent(child));
+    try testing.expectEqual(@as(?F.NodeID, grandchild), try forest.firstChild(child));
+    try testing.expectEqual(@as(?F.NodeID, grandchild), try forest.lastChild(child));
+    try testing.expectEqual(@as(?F.NodeID, child), try forest.parent(grandchild));
     forest.assertValid();
 }
 
@@ -88,7 +88,7 @@ test "unit: Forest.Static invalid operations do not mutate" {
     var forest = F.init();
     const n0 = try forest.nodeId(0);
     const n1 = try forest.nodeId(1);
-    const bad: F.NodeId = @enumFromInt(2);
+    const bad: F.NodeID = @enumFromInt(2);
 
     try forest.appendRoot(n0);
     try testing.expectError(error.AlreadyLinked, forest.appendRoot(n0));
@@ -96,9 +96,9 @@ test "unit: Forest.Static invalid operations do not mutate" {
     try testing.expectError(error.OutOfBounds, forest.appendRoot(bad));
     try testing.expectError(error.NotLinked, forest.remove(n1));
 
-    try testing.expectEqual(@as(?F.NodeId, n0), forest.firstRoot());
-    try testing.expectEqual(@as(?F.NodeId, n0), forest.lastRoot());
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.nextSibling(n0));
+    try testing.expectEqual(@as(?F.NodeID, n0), forest.firstRoot());
+    try testing.expectEqual(@as(?F.NodeID, n0), forest.lastRoot());
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.nextSibling(n0));
     forest.assertValid();
 }
 
@@ -113,10 +113,10 @@ test "unit: Forest.Static clearRetainingCapacity clears topology" {
     forest.clearRetainingCapacity();
 
     try testing.expect(forest.isEmpty());
-    try testing.expectEqual(@as(?F.NodeId, null), forest.lastRoot());
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.parent(child));
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.firstChild(root));
-    try testing.expectEqual(@as(?F.NodeId, null), try forest.lastChild(root));
+    try testing.expectEqual(@as(?F.NodeID, null), forest.lastRoot());
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.parent(child));
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.firstChild(root));
+    try testing.expectEqual(@as(?F.NodeID, null), try forest.lastChild(root));
     forest.assertValid();
 }
 
@@ -162,12 +162,12 @@ test "unit: Forest.Bounded mirrors Static topology operations" {
     try forest.appendRoot(root_b);
     try forest.appendChild(root_a, child);
 
-    try testing.expectEqual(@as(?F.NodeId, root_a), forest.firstRoot());
-    try testing.expectEqual(@as(?F.NodeId, root_b), try forest.nextSibling(root_a));
-    try testing.expectEqual(@as(?F.NodeId, root_b), forest.lastRoot());
-    try testing.expectEqual(@as(?F.NodeId, child), try forest.firstChild(root_a));
-    try testing.expectEqual(@as(?F.NodeId, child), try forest.lastChild(root_a));
-    try testing.expectEqual(@as(?F.NodeId, root_a), try forest.parent(child));
+    try testing.expectEqual(@as(?F.NodeID, root_a), forest.firstRoot());
+    try testing.expectEqual(@as(?F.NodeID, root_b), try forest.nextSibling(root_a));
+    try testing.expectEqual(@as(?F.NodeID, root_b), forest.lastRoot());
+    try testing.expectEqual(@as(?F.NodeID, child), try forest.firstChild(root_a));
+    try testing.expectEqual(@as(?F.NodeID, child), try forest.lastChild(root_a));
+    try testing.expectEqual(@as(?F.NodeID, root_a), try forest.parent(child));
     forest.assertValid();
 }
 

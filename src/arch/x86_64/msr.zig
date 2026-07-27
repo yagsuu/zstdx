@@ -5,7 +5,7 @@ const target = @import("target.zig");
 const supported = target.supported;
 const wrong_target = target.wrong_target;
 
-pub const Msr = enum(u32) {
+pub const MSR = enum(u32) {
     /// IA32_TSC, time-stamp counter.
     tsc = 0x0000_0010,
     /// IA32_APIC_BASE, local APIC base and enable state.
@@ -45,11 +45,11 @@ pub const Msr = enum(u32) {
 
     _,
 
-    pub fn fromInt(value: u32) Msr {
+    pub fn fromInt(value: u32) MSR {
         return @enumFromInt(value);
     }
 
-    pub fn raw(self: Msr) u32 {
+    pub fn raw(self: MSR) u32 {
         return @intFromEnum(self);
     }
 
@@ -57,7 +57,7 @@ pub const Msr = enum(u32) {
     /// Privilege: CPL 0.
     /// Faults: `#GP` on unimplemented MSRs.
     /// Clobbers: `memory`.
-    pub fn read(self: Msr) u64 {
+    pub fn read(self: MSR) u64 {
         if (!supported) @compileError(wrong_target);
         var lo: u32 = undefined;
         var hi: u32 = undefined;
@@ -73,7 +73,7 @@ pub const Msr = enum(u32) {
     /// Privilege: CPL 0.
     /// Faults: `#GP` on unimplemented MSRs or reserved-bit violations.
     /// Clobbers: `memory`.
-    pub fn write(self: Msr, value: u64) void {
+    pub fn write(self: MSR, value: u64) void {
         if (!supported) @compileError(wrong_target);
         const lo: u32 = @truncate(value);
         const hi: u32 = @truncate(value >> 32);

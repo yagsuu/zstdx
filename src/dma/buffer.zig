@@ -6,7 +6,7 @@ const std = @import("std");
 const address = @import("../addr/address.zig");
 const bits = @import("../bits.zig");
 
-const DmaAddr = address.DmaAddr;
+const DMAAddr = address.DMAAddr;
 
 fn requireRuntimeValue(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("Buffer element type must have nonzero size");
@@ -17,12 +17,12 @@ pub fn Buffer(comptime T: type) type {
     comptime requireRuntimeValue(T);
     return struct {
         virt: []T,
-        dma: DmaAddr,
+        dma: DMAAddr,
 
         const Self = @This();
 
         pub const Item = T;
-        pub const Address = DmaAddr;
+        pub const Address = DMAAddr;
 
         /// `Misaligned`: invalid address or requested alignment.
         /// `Overflow`: byte length, end address, or sub-range sum overflows.
