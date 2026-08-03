@@ -4,15 +4,12 @@ const std = @import("std");
 
 const target = @import("target.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 /// Execute `hlt`.
 /// Privilege: CPL 0.
 /// Effects: halts the CPU until the next interrupt.
 /// Clobbers: `memory`.
 pub fn halt() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("hlt" ::: .{ .memory = true });
 }
 
@@ -20,7 +17,7 @@ pub fn halt() void {
 /// Privilege: unprivileged.
 /// Clobbers: `memory`.
 pub fn pause() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("pause" ::: .{ .memory = true });
 }
 
@@ -29,7 +26,7 @@ pub fn pause() void {
 /// Faults: raises `#BP`; behavior depends on the installed handler.
 /// Clobbers: `memory`.
 pub fn breakpoint() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("int3" ::: .{ .memory = true });
 }
 
@@ -49,13 +46,15 @@ pub const tsc = struct {
     /// Ordering: not serializing.
     /// Clobbers: registers only.
     pub fn read() u64 {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
+
         var lo: u32 = undefined;
         var hi: u32 = undefined;
         asm volatile ("rdtsc"
             : [lo] "={eax}" (lo),
               [hi] "={edx}" (hi),
         );
+
         return (@as(u64, hi) << 32) | @as(u64, lo);
     }
 
@@ -66,7 +65,8 @@ pub const tsc = struct {
     /// Ordering: partially serializing on prior instructions.
     /// Clobbers: `eax`, `ecx`, `edx`.
     pub fn readSerializing() Reading {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
+
         var lo: u32 = undefined;
         var hi: u32 = undefined;
         var aux: u32 = undefined;
@@ -75,6 +75,7 @@ pub const tsc = struct {
               [hi] "={edx}" (hi),
               [aux] "={ecx}" (aux),
         );
+
         return .{ .tsc = (@as(u64, hi) << 32) | @as(u64, lo), .aux = aux };
     }
 };
@@ -116,7 +117,7 @@ pub const tlb = struct {
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
     pub fn invalidatePage(addr: usize) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("invlpg (%[addr])"
             :
             : [addr] "r" (addr),
@@ -130,7 +131,7 @@ pub const tlb = struct {
     /// Faults: `#GP` at CPL > 0; `#UD` when unsupported.
     /// Clobbers: `memory`.
     pub fn invalidatePCID(kind: INVPCIDKind, descriptor: *const INVPCIDDescriptor) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("invpcid (%%rdx), %%rax"
             :
             : [kind] "{rax}" (@as(u64, @intFromEnum(kind))),

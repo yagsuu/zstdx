@@ -2,9 +2,6 @@
 
 const target = @import("target.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 pub const MSR = enum(u32) {
     /// IA32_TSC, time-stamp counter.
     tsc = 0x0000_0010,
@@ -58,7 +55,8 @@ pub const MSR = enum(u32) {
     /// Faults: `#GP` on unimplemented MSRs.
     /// Clobbers: `memory`.
     pub fn read(self: MSR) u64 {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
+
         var lo: u32 = undefined;
         var hi: u32 = undefined;
         asm volatile ("rdmsr"
@@ -66,6 +64,7 @@ pub const MSR = enum(u32) {
               [hi] "={edx}" (hi),
             : [idx] "{ecx}" (@intFromEnum(self)),
             : .{ .memory = true });
+
         return (@as(u64, hi) << 32) | @as(u64, lo);
     }
 
@@ -74,7 +73,8 @@ pub const MSR = enum(u32) {
     /// Faults: `#GP` on unimplemented MSRs or reserved-bit violations.
     /// Clobbers: `memory`.
     pub fn write(self: MSR, value: u64) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
+
         const lo: u32 = @truncate(value);
         const hi: u32 = @truncate(value >> 32);
         asm volatile ("wrmsr"

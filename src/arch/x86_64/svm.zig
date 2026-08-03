@@ -4,9 +4,6 @@ const std = @import("std");
 
 const target = @import("target.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 /// Strong physical-address value type covering the full 64-bit
 /// physical-address space. Distinct from `Vmx.PhysAddr`.
 pub const PhysAddr = enum(u64) {
@@ -25,17 +22,17 @@ pub const PhysAddr = enum(u64) {
 /// architectural boundary between the control area (0x000-0x3FF) and
 /// the state save area (0x400-0xFFF); field layouts inside each area
 /// are downstream policy.
-pub const Vmcb = extern struct {
+pub const VMCB = extern struct {
     control: [1024]u8 align(4096),
     state: [3072]u8,
 
     pub const alignment: usize = 4096;
 
     comptime {
-        std.debug.assert(@sizeOf(Vmcb) == 4096);
-        std.debug.assert(@alignOf(Vmcb) == 4096);
-        std.debug.assert(@offsetOf(Vmcb, "control") == 0);
-        std.debug.assert(@offsetOf(Vmcb, "state") == 0x400);
+        std.debug.assert(@sizeOf(VMCB) == 4096);
+        std.debug.assert(@alignOf(VMCB) == 4096);
+        std.debug.assert(@offsetOf(VMCB, "control") == 0);
+        std.debug.assert(@offsetOf(VMCB, "state") == 0x400);
     }
 };
 
@@ -45,7 +42,7 @@ pub const Vmcb = extern struct {
 /// Faults: may `#GP` or `#UD`.
 /// Clobbers: `memory`.
 pub fn vmrun(vmcb: PhysAddr) void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("vmrun"
         :
         : [vmcb] "{rax}" (@intFromEnum(vmcb)),
@@ -57,7 +54,7 @@ pub fn vmrun(vmcb: PhysAddr) void {
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn vmload(vmcb: PhysAddr) void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("vmload"
         :
         : [vmcb] "{rax}" (@intFromEnum(vmcb)),
@@ -69,7 +66,7 @@ pub fn vmload(vmcb: PhysAddr) void {
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn vmsave(vmcb: PhysAddr) void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("vmsave"
         :
         : [vmcb] "{rax}" (@intFromEnum(vmcb)),
@@ -82,7 +79,7 @@ pub fn vmsave(vmcb: PhysAddr) void {
 /// Requirements: `EFER.SVME = 1`.
 /// Clobbers: `memory`.
 pub fn stgi() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("stgi" ::: .{ .memory = true });
 }
 
@@ -93,7 +90,7 @@ pub fn stgi() void {
 /// Requirements: `EFER.SVME = 1`.
 /// Clobbers: `memory`.
 pub fn clgi() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("clgi" ::: .{ .memory = true });
 }
 
@@ -102,7 +99,8 @@ pub fn clgi() void {
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn invlpga(virt_addr: u64, asid: u32) void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     asm volatile ("invlpga"
         :
         : [addr] "{rax}" (virt_addr),
@@ -116,10 +114,12 @@ pub fn invlpga(virt_addr: u64, asid: u32) void {
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn skinit(base: u32) noreturn {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     asm volatile ("skinit"
         :
         : [base] "{eax}" (base),
         : .{ .memory = true });
+
     unreachable;
 }

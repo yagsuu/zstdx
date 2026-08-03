@@ -35,9 +35,6 @@ fn selector(comptime kind: SelectorKind) type {
 
 const target = @import("../target.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 pub const gdtr = struct {
     pub const GDTR = extern struct {
         limit: u16,
@@ -63,7 +60,7 @@ pub const gdtr = struct {
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
     pub fn write(value: GDTR) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("lgdt %[ptr]"
             :
             : [ptr] "*m" (&value),
@@ -74,7 +71,7 @@ pub const gdtr = struct {
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: `memory`.
     pub fn read() GDTR {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
 
         var value: GDTR = undefined;
         asm volatile ("sgdt %[ptr]"
@@ -111,7 +108,7 @@ pub const idtr = struct {
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
     pub fn write(value: IDTR) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("lidt %[ptr]"
             :
             : [ptr] "*m" (&value),
@@ -122,7 +119,7 @@ pub const idtr = struct {
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: `memory`.
     pub fn read() IDTR {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
 
         var value: IDTR = undefined;
         asm volatile ("sidt %[ptr]"
@@ -141,7 +138,7 @@ pub const tr = struct {
     /// Faults: `#GP` at CPL > 0 or invalid selector state.
     /// Clobbers: `memory`.
     pub fn write(value: TR) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("ltr %[sel]"
             :
             : [sel] "r" (value.raw()),
@@ -151,7 +148,7 @@ pub const tr = struct {
     /// Execute `str` and return the current task-register selector.
     /// Privilege: CPU/OS policy at CPL > 0.
     pub fn read() TR {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return TR.fromInt(asm volatile ("str %[ret]"
             : [ret] "=r" (-> u16),
         ));
@@ -165,7 +162,7 @@ pub const ldtr = struct {
     /// Faults: `#GP` at CPL > 0 or invalid/non-present LDT descriptor.
     /// Clobbers: `memory`.
     pub fn write(value: LDTR) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("lldt %[sel]"
             :
             : [sel] "r" (value.raw()),
@@ -176,7 +173,7 @@ pub const ldtr = struct {
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: registers only.
     pub fn read() LDTR {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return LDTR.fromInt(asm volatile ("sldt %[ret]"
             : [ret] "=r" (-> u16),
         ));

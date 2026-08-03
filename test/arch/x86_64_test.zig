@@ -37,11 +37,11 @@ test "unit: supported matches the build target" {
 
 test "model: register scalar representations preserve every bit" {
     const scalar_types = [_]type{
-        registers.cr0.CR0,        registers.cr2.CR2,   registers.cr3.CR3,       registers.cr4.CR4,
-        registers.cr8.CR8,        registers.xcr0.XCR0, registers.rflags.RFLAGS, registers.fs_base.FSBase,
-        registers.gs_base.GSBase, registers.dr0.DR0,   registers.dr1.DR1,       registers.dr2.DR2,
-        registers.dr3.DR3,        registers.dr4.DR4,   registers.dr5.DR5,       registers.dr6.DR6,
-        registers.dr7.DR7,
+        registers.cr0.CR0,        registers.cr2.CR2,        registers.cr3.CR3,       registers.cr4.CR4,
+        registers.cr8.CR8,        registers.xcr0.XCR0,      registers.rflags.RFLAGS, registers.efer.EFER,
+        registers.fs_base.FSBase, registers.gs_base.GSBase, registers.dr0.DR0,       registers.dr1.DR1,
+        registers.dr2.DR2,        registers.dr3.DR3,        registers.dr4.DR4,       registers.dr5.DR5,
+        registers.dr6.DR6,        registers.dr7.DR7,
     };
 
     inline for (scalar_types) |T| {
@@ -51,7 +51,16 @@ test "model: register scalar representations preserve every bit" {
 }
 
 test "model: selector representations preserve every bit" {
-    const selector_types = [_]type{ registers.cs.CS, registers.ds.DS, registers.es.ES, registers.fs.FS, registers.gs.GS, registers.ss.SS, registers.tr.TR, registers.ldtr.LDTR };
+    const selector_types = [_]type{
+        registers.cs.CS,
+        registers.ds.DS,
+        registers.es.ES,
+        registers.fs.FS,
+        registers.gs.GS,
+        registers.ss.SS,
+        registers.tr.TR,
+        registers.ldtr.LDTR,
+    };
 
     inline for (selector_types) |T| {
         try testing.expectEqual(@as(usize, 2), @sizeOf(T));
@@ -76,6 +85,7 @@ test "model: register initialization sets canonical defaults" {
     try testing.expectEqual(@as(u64, 0), registers.cr8.CR8.init().raw());
     try testing.expectEqual(@as(u64, 1), registers.xcr0.XCR0.init().raw());
     try testing.expectEqual(@as(u64, 0b10), registers.rflags.RFLAGS.init().raw());
+    try testing.expectEqual(@as(u64, 0), registers.efer.EFER.init().raw());
     try testing.expectEqual(@as(u64, 1 << 10), registers.dr7.DR7.init().raw());
     try testing.expectEqual(@as(u16, 0), registers.cs.CS.init().raw());
     try testing.expectEqual(@as(u64, 0), registers.fs_base.FSBase.init().raw());
@@ -83,11 +93,15 @@ test "model: register initialization sets canonical defaults" {
     try testing.expectEqual(@as(u64, 0), registers.gdtr.GDTR.init().base);
 }
 
-test "model: CR0 and CR4 fields match architectural bit positions" {
+test "model: CR0, CR3, CR4, and EFER fields match architectural bit positions" {
     try testing.expect(registers.cr0.CR0.fromInt(1 << 0).protection_enable);
     try testing.expect(registers.cr0.CR0.fromInt(1 << 31).paging);
+    try testing.expect(registers.cr3.CR3.fromInt(1 << 61).lam_u57);
+    try testing.expect(registers.cr3.CR3.fromInt(1 << 62).lam_u48);
     try testing.expect(registers.cr4.CR4.fromInt(1 << 5).physical_address_extension);
     try testing.expect(registers.cr4.CR4.fromInt(1 << 18).osxsave);
+    try testing.expect(registers.cr4.CR4.fromInt(1 << 28).lam_supervisor);
+    try testing.expect(registers.efer.EFER.fromInt(1 << 11).execute_disable_enable);
 }
 
 test "model: RFLAGS and DR6 fields match architectural bit positions" {
@@ -95,6 +109,52 @@ test "model: RFLAGS and DR6 fields match architectural bit positions" {
     try testing.expect(registers.dr6.DR6.fromInt(1 << 15).task_switch);
     try testing.expectEqual(@as(u2, 3), registers.dr7.DR7.fromInt(3 << 16).br0.condition);
     try testing.expectEqual(@as(u2, 3), registers.dr7.DR7.fromInt(3 << 18).br0.length);
+}
+
+test "unit: CR3 interprets root, low-bit, LAM, and no-flush fields" {
+    const CR3 = registers.cr3.CR3;
+    const value = CR3.fromInt(0x0000_0001_1234_5018);
+
+    try testing.expectEqual(@as(u64, 0x0000_0001_1234_5000), (try value.tableBaseAddress(52)).raw());
+    try testing.expectEqual(@as(u12, 0x18), (try value.low(true)).pcid);
+    const cache_controls = (try value.low(false)).cache;
+    try testing.expect(cache_controls.write_through);
+    try testing.expect(cache_controls.cache_disable);
+
+    try testing.expectError(error.InvalidPhysicalAddressWidth, value.tableBaseAddress(31));
+    try testing.expectError(error.PhysicalAddressTooWide, value.tableBaseAddress(32));
+    try testing.expectError(
+        error.ReservedBits,
+        CR3.fromInt(1 << 52).tableBaseAddress(52),
+    );
+    try testing.expectError(
+        error.ReservedLowBits,
+        CR3.fromInt(1).low(false),
+    );
+
+    const lam_u48 = CR3.fromInt(1 << 62);
+    const lam_u57 = CR3.fromInt(1 << 61);
+    const both_lam = CR3.fromInt((1 << 62) | (1 << 61));
+    try testing.expectEqual(.u48, try lam_u48.userLAM(true));
+    try testing.expectEqual(.u57, try lam_u57.userLAM(true));
+    try testing.expectEqual(.u57, try both_lam.userLAM(true));
+    try testing.expectError(error.UnsupportedLAM, lam_u48.userLAM(false));
+
+    try testing.expect(CR3.fromInt(1 << 63).no_flush);
+}
+
+test "unit: CR4 and EFER validate paging controls against capabilities" {
+    const cr4_value = registers.cr4.CR4.fromInt((1 << 12) | (1 << 17) | (1 << 28));
+    try testing.expect(try cr4_value.pcidEnabled(true));
+    try testing.expect(try cr4_value.level5Enabled(true));
+    try testing.expectEqual(.u57, try cr4_value.supervisorLAM(true));
+    try testing.expectError(error.UnsupportedPCID, cr4_value.pcidEnabled(false));
+    try testing.expectError(error.UnsupportedFiveLevelPaging, cr4_value.level5Enabled(false));
+    try testing.expectError(error.UnsupportedLAM, cr4_value.supervisorLAM(false));
+
+    const efer_value = registers.efer.EFER.fromInt(1 << 11);
+    try testing.expect(try efer_value.executeDisableEnabled(true));
+    try testing.expectError(error.UnsupportedExecuteDisable, efer_value.executeDisableEnabled(false));
 }
 
 test "model: selector fields and types remain distinct" {
@@ -160,6 +220,8 @@ test "compile: register flags and segment families instantiate" {
     if (!x86.supported) return;
     expectFn(fn () registers.rflags.RFLAGS, registers.rflags.read);
     expectFn(fn (registers.rflags.RFLAGS) void, registers.rflags.write);
+    expectFn(fn () registers.efer.EFER, registers.efer.read);
+    expectFn(fn (registers.efer.EFER) void, registers.efer.write);
     expectFn(fn () registers.cs.CS, registers.cs.read);
     expectFn(fn (registers.cs.CS) void, registers.cs.writeFarReturn);
     expectFn(fn () registers.ds.DS, registers.ds.read);

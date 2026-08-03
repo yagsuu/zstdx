@@ -2,10 +2,8 @@
 
 const std = @import("std");
 
+const addr = @import("../../../addr.zig");
 const target = @import("../target.zig");
-
-const supported = target.supported;
-const wrong_target = target.wrong_target;
 
 /// `CR0` access (`mov rNN, cr0` / `mov cr0, rNN`).
 /// Privilege: CPL 0.
@@ -46,10 +44,11 @@ pub const cr0 = struct {
             std.debug.assert(@sizeOf(Self) == 8);
         }
     };
+
     /// Execute `mov rNN, cr0` and return the value.
     /// Privilege: CPL 0.
     pub fn read() CR0 {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return CR0.fromInt(asm volatile ("mov %%cr0, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -59,7 +58,7 @@ pub const cr0 = struct {
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR0) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%cr0"
             :
             : [v] "r" (value.raw()),
@@ -92,10 +91,11 @@ pub const cr2 = struct {
             std.debug.assert(@sizeOf(Self) == 8);
         }
     };
+
     /// Execute `mov rNN, cr2` and return the page-fault linear address.
     /// Privilege: CPL 0.
     pub fn read() CR2 {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return CR2.fromInt(asm volatile ("mov %%cr2, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -105,7 +105,7 @@ pub const cr2 = struct {
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR2) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%cr2"
             :
             : [v] "r" (value.raw()),
@@ -127,6 +127,31 @@ pub const cr3 = struct {
 
         const Self = @This();
 
+        pub const TableBaseError = error{
+            InvalidPhysicalAddressWidth,
+            PhysicalAddressTooWide,
+            ReservedBits,
+        };
+
+        pub const LowError = error{ReservedLowBits};
+        pub const LAMError = error{UnsupportedLAM};
+
+        pub const LAMMode = enum {
+            disabled,
+            u48,
+            u57,
+        };
+
+        pub const Cache = struct {
+            write_through: bool,
+            cache_disable: bool,
+        };
+
+        pub const Low = union(enum) {
+            pcid: u12,
+            cache: Cache,
+        };
+
         pub fn init() Self {
             return fromInt(0);
         }
@@ -139,15 +164,55 @@ pub const cr3 = struct {
             return @bitCast(self);
         }
 
+        pub fn tableBaseAddress(
+            self: Self,
+            physical_address_bits: u8,
+        ) TableBaseError!addr.PhysAddr {
+            if (physical_address_bits < 32 or physical_address_bits > 52) {
+                return error.InvalidPhysicalAddressWidth;
+            }
+            if (self._reserved0 != 0) return error.ReservedBits;
+
+            const base = @as(u64, self.page_table_base) << @ctz(@as(u64, addr.pages._4kib));
+            if ((base >> @intCast(physical_address_bits)) != 0) {
+                return error.PhysicalAddressTooWide;
+            }
+
+            return addr.PhysAddr.fromInt(base);
+        }
+
+        pub fn low(self: Self, pcid_enabled: bool) LowError!Low {
+            if (pcid_enabled) return .{ .pcid = self.low_bits };
+            if ((self.low_bits & ~@as(u12, 0b1_1000)) != 0) return error.ReservedLowBits;
+
+            return .{ .cache = .{
+                .write_through = (self.low_bits & (1 << 3)) != 0,
+                .cache_disable = (self.low_bits & (1 << 4)) != 0,
+            } };
+        }
+
+        pub fn userLAM(self: Self, lam_supported: bool) LAMError!LAMMode {
+            const mode: LAMMode = if (self.lam_u57)
+                .u57
+            else if (self.lam_u48)
+                .u48
+            else
+                .disabled;
+
+            if (mode != .disabled and !lam_supported) return error.UnsupportedLAM;
+            return mode;
+        }
+
         comptime {
             std.debug.assert(@bitSizeOf(Self) == 64);
             std.debug.assert(@sizeOf(Self) == 8);
         }
     };
+
     /// Execute `mov rNN, cr3` and return the value.
     /// Privilege: CPL 0.
     pub fn read() CR3 {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return CR3.fromInt(asm volatile ("mov %%cr3, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -158,7 +223,7 @@ pub const cr3 = struct {
     /// Notes: may invalidate TLB entries per architectural rules.
     /// Clobbers: `memory`.
     pub fn write(value: CR3) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%cr3"
             :
             : [v] "r" (value.raw()),
@@ -169,6 +234,10 @@ pub const cr3 = struct {
 /// `CR4` access (architectural feature enables).
 /// Privilege: CPL 0.
 pub const cr4 = struct {
+    pub const PCIDError = error{UnsupportedPCID};
+    pub const Level5Error = error{UnsupportedFiveLevelPaging};
+    pub const SupervisorLAMError = error{UnsupportedLAM};
+
     pub const CR4 = packed struct(u64) {
         virtual_8086_mode_extensions: bool,
         protected_mode_virtual_interrupts: bool,
@@ -215,15 +284,35 @@ pub const cr4 = struct {
             return @bitCast(self);
         }
 
+        pub fn pcidEnabled(self: Self, pcid_supported: bool) PCIDError!bool {
+            if (self.pcid_enable and !pcid_supported) return error.UnsupportedPCID;
+            return self.pcid_enable;
+        }
+
+        pub fn level5Enabled(self: Self, level5_supported: bool) Level5Error!bool {
+            if (self.la57 and !level5_supported) return error.UnsupportedFiveLevelPaging;
+            return self.la57;
+        }
+
+        pub fn supervisorLAM(
+            self: Self,
+            lam_supported: bool,
+        ) SupervisorLAMError!cr3.CR3.LAMMode {
+            if (!self.lam_supervisor) return .disabled;
+            if (!lam_supported) return error.UnsupportedLAM;
+            return if (self.la57) .u57 else .u48;
+        }
+
         comptime {
             std.debug.assert(@bitSizeOf(Self) == 64);
             std.debug.assert(@sizeOf(Self) == 8);
         }
     };
+
     /// Execute `mov rNN, cr4` and return the value.
     /// Privilege: CPL 0.
     pub fn read() CR4 {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return CR4.fromInt(asm volatile ("mov %%cr4, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -234,7 +323,7 @@ pub const cr4 = struct {
     /// Faults: `#GP` on reserved-bit violations.
     /// Clobbers: `memory`.
     pub fn write(value: CR4) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%cr4"
             :
             : [v] "r" (value.raw()),
@@ -268,10 +357,11 @@ pub const cr8 = struct {
             std.debug.assert(@sizeOf(Self) == 8);
         }
     };
+
     /// Execute `mov rNN, cr8` and return the value.
     /// Privilege: CPL 0.
     pub fn read() CR8 {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return CR8.fromInt(asm volatile ("mov %%cr8, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -281,7 +371,7 @@ pub const cr8 = struct {
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR8) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%cr8"
             :
             : [v] "r" (value.raw()),
@@ -329,10 +419,11 @@ pub const xcr0 = struct {
             std.debug.assert(@sizeOf(Self) == 8);
         }
     };
+
     /// Execute `xgetbv` with `ecx = 0` and return the combined `edx:eax` as `u64`.
     /// Requirements: `CR4.osxsave`.
     pub fn read() XCR0 {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
 
         var lo: u32 = undefined;
         var hi: u32 = undefined;
@@ -352,7 +443,7 @@ pub const xcr0 = struct {
     /// Faults: `#GP` when bits violate CPU support.
     /// Clobbers: `memory`.
     pub fn write(value: XCR0) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
 
         const lo: u32 = @truncate(value.raw());
         const hi: u32 = @truncate(value.raw() >> 32);

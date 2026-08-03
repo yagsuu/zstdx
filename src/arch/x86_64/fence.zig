@@ -2,15 +2,12 @@
 
 const target = @import("target.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 /// Execute `lfence`.
 /// Privilege: unprivileged.
 /// Ordering: architectural load fence.
 /// Clobbers: `memory`.
 pub fn lfence() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("lfence" ::: .{ .memory = true });
 }
 
@@ -19,7 +16,7 @@ pub fn lfence() void {
 /// Ordering: architectural store fence.
 /// Clobbers: `memory`.
 pub fn sfence() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("sfence" ::: .{ .memory = true });
 }
 
@@ -28,6 +25,6 @@ pub fn sfence() void {
 /// Ordering: architectural full memory fence.
 /// Clobbers: `memory`.
 pub fn mfence() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("mfence" ::: .{ .memory = true });
 }

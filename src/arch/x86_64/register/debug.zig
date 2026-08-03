@@ -4,9 +4,6 @@ const std = @import("std");
 
 const target = @import("../target.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 const DebugAddress = struct {
     fn forIndex(comptime index: u3) type {
         return packed struct(u64) {
@@ -227,14 +224,14 @@ pub const dr7 = struct {
 };
 
 fn readDebug(comptime T: type, comptime name: []const u8) T {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     return T.fromInt(asm volatile ("mov %%" ++ name ++ ", %[ret]"
         : [ret] "=r" (-> u64),
     ));
 }
 
 fn writeDebug(comptime T: type, comptime name: []const u8, value: T) void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("mov %[v], %%" ++ name
         :
         : [v] "r" (value.raw()),

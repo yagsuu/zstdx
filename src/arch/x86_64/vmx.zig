@@ -4,9 +4,6 @@ const std = @import("std");
 
 const target = @import("target.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 /// RFLAGS-mapped error set common to every VMX wrapper per Intel SDM
 /// Vol.3 §30.2.
 pub const Error = error{ VMfailInvalid, VMfailValid };
@@ -127,7 +124,7 @@ inline fn mapRflags(rflags: u64) Error!void {
 /// Faults: may `#GP` or `#UD`.
 /// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmxon(region: *const PhysAddr) Error!void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     var rflags: u64 = undefined;
     asm volatile (
         \\vmxon %[region]
@@ -144,7 +141,7 @@ pub fn vmxon(region: *const PhysAddr) Error!void {
 /// Requirements: VMX root operation.
 /// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmxoff() Error!void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     var rflags: u64 = undefined;
     asm volatile (
         \\vmxoff
@@ -161,7 +158,7 @@ pub fn vmxoff() Error!void {
 /// Privilege: CPL 0.
 /// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmclear(vmcs: *const PhysAddr) Error!void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     var rflags: u64 = undefined;
     asm volatile (
         \\vmclear %[vmcs]
@@ -178,7 +175,8 @@ pub fn vmclear(vmcs: *const PhysAddr) Error!void {
 /// Privilege: CPL 0.
 /// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     var rflags: u64 = undefined;
     asm volatile (
         \\vmptrld %[vmcs]
@@ -187,6 +185,7 @@ pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
         : [rflags] "=r" (rflags),
         : [vmcs] "*m" (vmcs),
         : .{ .memory = true, .cc = true });
+
     return mapRflags(rflags);
 }
 
@@ -195,7 +194,8 @@ pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
 /// Privilege: CPL 0.
 /// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmptrst(out: *PhysAddr) Error!void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     var rflags: u64 = undefined;
     asm volatile (
         \\vmptrst (%[out])
@@ -204,6 +204,7 @@ pub fn vmptrst(out: *PhysAddr) Error!void {
         : [rflags] "=r" (rflags),
         : [out] "r" (out),
         : .{ .memory = true, .cc = true });
+
     return mapRflags(rflags);
 }
 
@@ -212,7 +213,8 @@ pub fn vmptrst(out: *PhysAddr) Error!void {
 /// Privilege: CPL 0.
 /// Returns: only RFLAGS-visible failure paths return, as `Error`.
 pub fn vmlaunch() Error!noreturn {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     var rflags: u64 = undefined;
     asm volatile (
         \\vmlaunch
@@ -221,6 +223,7 @@ pub fn vmlaunch() Error!noreturn {
         : [rflags] "=r" (rflags),
         :
         : .{ .memory = true, .cc = true });
+
     try mapRflags(rflags);
     unreachable;
 }
@@ -230,7 +233,8 @@ pub fn vmlaunch() Error!noreturn {
 /// Privilege: CPL 0.
 /// Returns: only RFLAGS-visible failure paths return, as `Error`.
 pub fn vmresume() Error!noreturn {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     var rflags: u64 = undefined;
     asm volatile (
         \\vmresume
@@ -239,6 +243,7 @@ pub fn vmresume() Error!noreturn {
         : [rflags] "=r" (rflags),
         :
         : .{ .memory = true, .cc = true });
+
     try mapRflags(rflags);
     unreachable;
 }
@@ -248,7 +253,8 @@ pub fn vmresume() Error!noreturn {
 /// Privilege: CPL 0.
 /// Notes: on failure, the returned value is unspecified.
 pub fn vmread(encoding: u32) Error!u64 {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     var value: u64 = undefined;
     var rflags: u64 = undefined;
     asm volatile (
@@ -259,6 +265,7 @@ pub fn vmread(encoding: u32) Error!u64 {
           [rflags] "=r" (rflags),
         : [enc] "r" (@as(u64, encoding)),
         : .{ .memory = true, .cc = true });
+
     try mapRflags(rflags);
     return value;
 }
@@ -267,7 +274,8 @@ pub fn vmread(encoding: u32) Error!u64 {
 /// Operands: fields narrower than 64 bits are still exchanged as `u64`.
 /// Privilege: CPL 0.
 pub fn vmwrite(encoding: u32, value: u64) Error!void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     var rflags: u64 = undefined;
     asm volatile (
         \\vmwrite %[val], %[enc]
@@ -277,6 +285,7 @@ pub fn vmwrite(encoding: u32, value: u64) Error!void {
         : [enc] "r" (@as(u64, encoding)),
           [val] "r" (value),
         : .{ .memory = true, .cc = true });
+
     return mapRflags(rflags);
 }
 
@@ -285,7 +294,8 @@ pub fn vmwrite(encoding: u32, value: u64) Error!void {
 /// Privilege: CPL 0.
 /// Returns: `Error!void` mapped from RFLAGS.
 pub fn invept(kind: InveptKind, descriptor: *const InveptDescriptor) Error!void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     var rflags: u64 = undefined;
     asm volatile (
         \\invept %[desc], %[kind]
@@ -303,7 +313,8 @@ pub fn invept(kind: InveptKind, descriptor: *const InveptDescriptor) Error!void 
 /// Privilege: CPL 0.
 /// Returns: `Error!void` mapped from RFLAGS.
 pub fn invvpid(kind: InvvpidKind, descriptor: *const InvvpidDescriptor) Error!void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
+
     var rflags: u64 = undefined;
     asm volatile (
         \\invvpid %[desc], %[kind]
@@ -313,5 +324,6 @@ pub fn invvpid(kind: InvvpidKind, descriptor: *const InvvpidDescriptor) Error!vo
         : [kind] "r" (@as(u64, @intFromEnum(kind))),
           [desc] "*m" (descriptor),
         : .{ .memory = true, .cc = true });
+
     return mapRflags(rflags);
 }

@@ -48,13 +48,10 @@ pub const RFLAGS = packed struct(u64) {
 
 const target = @import("../target.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 /// Execute `pushfq; pop rNN` and return RFLAGS.
 /// Privilege: unprivileged.
 pub fn read() RFLAGS {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     return RFLAGS.fromInt(asm volatile (
         \\pushfq
         \\popq %[ret]
@@ -67,7 +64,7 @@ pub fn read() RFLAGS {
 /// Notes: bits the caller cannot modify at the current CPL are silently ignored.
 /// Clobbers: `memory`, `cc`.
 pub fn write(value: RFLAGS) void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile (
         \\pushq %[v]
         \\popfq

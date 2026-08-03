@@ -1,6 +1,7 @@
 //! x86_64 segment-register access. Spec: docs/specs/arch/x86_64/register.md.
 
 const std = @import("std");
+const target = @import("../target.zig");
 
 const Table = enum(u1) {
     gdt,
@@ -22,7 +23,7 @@ const SelectorKind = enum {
     ldtr,
 };
 
-fn selector(comptime kind: SelectorKind) type {
+fn Selector(comptime kind: SelectorKind) type {
     return packed struct(u16) {
         rpl: u2,
         table: Table,
@@ -50,17 +51,13 @@ fn selector(comptime kind: SelectorKind) type {
     };
 }
 
-const target = @import("../target.zig");
-
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 pub const cs = struct {
-    pub const CS = selector(.cs);
+    pub const CS = Selector(.cs);
+
     /// Execute `mov rNN, cs` and return the current selector.
     /// Privilege: unprivileged.
     pub fn read() CS {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return CS.fromInt(asm volatile ("mov %%cs, %[ret]"
             : [ret] "=r" (-> u16),
         ));
@@ -70,7 +67,7 @@ pub const cs = struct {
     /// Effects: pushes selector and next-instruction RIP; `lretq` consumes both.
     /// Clobbers: `memory`.
     pub fn writeFarReturn(value: CS) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         _ = asm volatile (
             \\pushq %[sel]
             \\leaq 1f(%%rip), %[tmp]
@@ -84,11 +81,12 @@ pub const cs = struct {
 };
 
 pub const ds = struct {
-    pub const DS = selector(.ds);
+    pub const DS = Selector(.ds);
+
     /// Execute `mov rNN, ds` and return the current selector.
     /// Privilege: unprivileged.
     pub fn read() DS {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return DS.fromInt(asm volatile ("mov %%ds, %[ret]"
             : [ret] "=r" (-> u16),
         ));
@@ -99,7 +97,7 @@ pub const ds = struct {
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
     pub fn write(value: DS) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%ds"
             :
             : [v] "r" (value.raw()),
@@ -108,11 +106,12 @@ pub const ds = struct {
 };
 
 pub const es = struct {
-    pub const ES = selector(.es);
+    pub const ES = Selector(.es);
+
     /// Execute `mov rNN, es` and return the current selector.
     /// Privilege: unprivileged.
     pub fn read() ES {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return ES.fromInt(asm volatile ("mov %%es, %[ret]"
             : [ret] "=r" (-> u16),
         ));
@@ -123,7 +122,7 @@ pub const es = struct {
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
     pub fn write(value: ES) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%es"
             :
             : [v] "r" (value.raw()),
@@ -132,11 +131,12 @@ pub const es = struct {
 };
 
 pub const fs = struct {
-    pub const FS = selector(.fs);
+    pub const FS = Selector(.fs);
+
     /// Execute `mov rNN, fs` and return the current selector.
     /// Privilege: unprivileged.
     pub fn read() FS {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return FS.fromInt(asm volatile ("mov %%fs, %[ret]"
             : [ret] "=r" (-> u16),
         ));
@@ -147,7 +147,7 @@ pub const fs = struct {
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
     pub fn write(value: FS) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%fs"
             :
             : [v] "r" (value.raw()),
@@ -156,11 +156,12 @@ pub const fs = struct {
 };
 
 pub const gs = struct {
-    pub const GS = selector(.gs);
+    pub const GS = Selector(.gs);
+
     /// Execute `mov rNN, gs` and return the current selector.
     /// Privilege: unprivileged.
     pub fn read() GS {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return GS.fromInt(asm volatile ("mov %%gs, %[ret]"
             : [ret] "=r" (-> u16),
         ));
@@ -171,7 +172,7 @@ pub const gs = struct {
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
     pub fn write(value: GS) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%gs"
             :
             : [v] "r" (value.raw()),
@@ -180,11 +181,12 @@ pub const gs = struct {
 };
 
 pub const ss = struct {
-    pub const SS = selector(.ss);
+    pub const SS = Selector(.ss);
+
     /// Execute `mov rNN, ss` and return the current selector.
     /// Privilege: unprivileged.
     pub fn read() SS {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return SS.fromInt(asm volatile ("mov %%ss, %[ret]"
             : [ret] "=r" (-> u16),
         ));
@@ -195,7 +197,7 @@ pub const ss = struct {
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
     pub fn write(value: SS) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("mov %[v], %%ss"
             :
             : [v] "r" (value.raw()),
@@ -231,7 +233,7 @@ pub const fs_base = struct {
     };
     /// Read the current FS base with `rdfsbase`.
     pub fn read() FSBase {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return FSBase.fromInt(asm volatile ("rdfsbase %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -240,7 +242,7 @@ pub const fs_base = struct {
     /// Write the FS base with `wrfsbase`.
     /// Clobbers: `memory`.
     pub fn write(value: FSBase) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("wrfsbase %[v]"
             :
             : [v] "r" (value.raw()),
@@ -276,7 +278,7 @@ pub const gs_base = struct {
     };
     /// Read the current GS base with `rdgsbase`.
     pub fn read() GSBase {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         return GSBase.fromInt(asm volatile ("rdgsbase %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -285,7 +287,7 @@ pub const gs_base = struct {
     /// Write the GS base with `wrgsbase`.
     /// Clobbers: `memory`.
     pub fn write(value: GSBase) void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("wrgsbase %[v]"
             :
             : [v] "r" (value.raw()),
@@ -297,7 +299,7 @@ pub const gs_base = struct {
     /// Effects: exchanges `GS.base` with `IA32_KERNEL_GS_BASE`.
     /// Clobbers: `memory`.
     pub fn swap() void {
-        if (!supported) @compileError(wrong_target);
+        target.ensureSupported();
         asm volatile ("swapgs" ::: .{ .memory = true });
     }
 };

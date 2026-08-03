@@ -3,15 +3,12 @@
 const target = @import("target.zig");
 const rflags = @import("register/rflags.zig");
 
-const supported = target.supported;
-const wrong_target = target.wrong_target;
-
 /// Execute `sti`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
 pub fn enable() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("sti" ::: .{ .memory = true });
 }
 
@@ -20,13 +17,13 @@ pub fn enable() void {
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
 pub fn disable() void {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     asm volatile ("cli" ::: .{ .memory = true });
 }
 
 /// Return whether the `IF` bit in `RFLAGS` is set.
 /// Privilege: unprivileged.
 pub fn enabled() bool {
-    if (!supported) @compileError(wrong_target);
+    target.ensureSupported();
     return (rflags.read() & (1 << 9)) != 0;
 }

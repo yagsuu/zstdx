@@ -1,6 +1,7 @@
 //! x86_64 register access facade. Spec: docs/specs/arch/x86_64/register.md.
 
 const control = @import("register/control.zig");
+const efer_module = @import("register/efer.zig");
 const rflags_module = @import("register/rflags.zig");
 const segment = @import("register/segment.zig");
 const descriptor = @import("register/descriptor.zig");
@@ -13,6 +14,7 @@ pub const cr4 = control.cr4;
 pub const cr8 = control.cr8;
 pub const xcr0 = control.xcr0;
 pub const rflags = rflags_module;
+pub const efer = efer_module;
 pub const cs = segment.cs;
 pub const ds = segment.ds;
 pub const es = segment.es;

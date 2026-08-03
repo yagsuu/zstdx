@@ -12,11 +12,11 @@ const svm = x86.svm;
 const testing = std.testing;
 
 comptime {
-    std.debug.assert(@sizeOf(svm.Vmcb) == 4096);
-    std.debug.assert(@alignOf(svm.Vmcb) == 4096);
-    std.debug.assert(svm.Vmcb.alignment == 4096);
-    std.debug.assert(@offsetOf(svm.Vmcb, "control") == 0x000);
-    std.debug.assert(@offsetOf(svm.Vmcb, "state") == 0x400);
+    std.debug.assert(@sizeOf(svm.VMCB) == 4096);
+    std.debug.assert(@alignOf(svm.VMCB) == 4096);
+    std.debug.assert(svm.VMCB.alignment == 4096);
+    std.debug.assert(@offsetOf(svm.VMCB, "control") == 0x000);
+    std.debug.assert(@offsetOf(svm.VMCB, "state") == 0x400);
 }
 
 test "unit: svm.PhysAddr.fromInt/raw round-trip at boundaries" {
