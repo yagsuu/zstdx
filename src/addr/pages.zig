@@ -14,10 +14,12 @@ fn requireAddress(comptime Addr: type) void {
     if (!@hasDecl(Addr, "Raw")) @compileError("Page requires an Address-compatible type with Raw");
     if (!@hasDecl(Addr, "fromInt")) @compileError("Page requires an Address-compatible type with fromInt");
     if (!@hasDecl(Addr, "raw")) @compileError("Page requires an Address-compatible type with raw");
+
     const info = @typeInfo(Addr.Raw);
     if (info != .int or info.int.signedness != .unsigned) {
         @compileError("Page requires Address.Raw to be an unsigned integer type");
     }
+
     const zero: Addr = Addr.fromInt(0);
     const raw_value: Addr.Raw = zero.raw();
     _ = raw_value;

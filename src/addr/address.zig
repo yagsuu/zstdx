@@ -6,12 +6,13 @@ const std = @import("std");
 
 const bits = @import("../bits.zig");
 
-fn requireUnsignedInt(comptime T: type) void {
-    const info = @typeInfo(T);
-    if (info != .int or info.int.signedness != .unsigned) {
-        @compileError("Address requires an unsigned integer type");
-    }
-}
+pub const PhysTag = opaque {};
+pub const VirtTag = opaque {};
+pub const DMATag = opaque {};
+
+pub const PhysAddr = Address(PhysTag, u64);
+pub const VirtAddr = Address(VirtTag, usize);
+pub const DMAAddr = Address(DMATag, u64);
 
 /// Strong address type identified by `Tag` and backed by unsigned integer
 /// `Int`. Two `Address(Tag, Int)` instantiations with different tags are
@@ -97,22 +98,9 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
     };
 }
 
-/// Tag identifying physical address domains.
-pub const PhysTag = opaque {};
-
-/// Tag identifying virtual address domains.
-pub const VirtTag = opaque {};
-
-/// Tag identifying device-visible DMA address domains. `DMAAddr` values are
-/// what the device receives in a descriptor; how they map back to physical
-/// memory (identity-map, IOMMU IOVA, bounce buffer) is caller policy owned
-/// outside this library.
-pub const DMATag = opaque {};
-
-pub const PhysAddr = Address(PhysTag, u64);
-
-pub const VirtAddr = Address(VirtTag, usize);
-
-/// DMA addresses are domain-separated from physical addresses even when both use
-/// `u64`. Conversion between them is an explicit caller decision.
-pub const DMAAddr = Address(DMATag, u64);
+fn requireUnsignedInt(comptime T: type) void {
+    const info = @typeInfo(T);
+    if (info != .int or info.int.signedness != .unsigned) {
+        @compileError("Address requires an unsigned integer type");
+    }
+}
