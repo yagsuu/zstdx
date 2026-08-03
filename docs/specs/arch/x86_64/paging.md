@@ -2,107 +2,128 @@
 
 Status: Approved.
 
-`stdx.arch.x86_64.paging` owns the architectural data formats and read-only
-walker for ordinary IA-32e paging. It covers CR3-backed 4-level and 5-level
-translation, page-table entries, canonical linear-address checks, table/leaf
-entry construction, reserved-bit validation, and deterministic page walks over a
-caller-supplied physical-memory reader.
+`stdx.arch.x86_64.paging` owns architectural data formats, exact producer types,
+and a read-only walker for ordinary IA-32e paging. It covers 4-level and 5-level
+paging geometry, canonical linear addresses, caller-owned paging-structure
+memory, typed entry construction, reserved-bit validation, and deterministic
+translation through a caller-supplied physical-memory reader.
 
-The primitive is an ISA data-format and algorithm surface. It is not an address
-space manager: it does not allocate tables, install CR3, modify accessed/dirty
-bits, invalidate TLBs, handle traps, or decide memory ownership policy.
+The paging surface is an ISA data-format and algorithm primitive. It is not an
+address-space manager. It does not allocate paging structures, install CR3,
+modify accessed or dirty bits, invalidate TLB entries, handle traps, or select
+memory-ownership policy.
 
 ## Owned scope
 
 This spec owns:
 
 - the `stdx.arch.x86_64.paging` namespace;
-- `paging.Mode` for active 4-level vs 5-level ordinary paging;
-- `paging.Level`, `paging.Index`, and `paging.Indices`;
-- x86 paging address aliases: `LinearAddr`, `PhysAddr`, `Phys4K`, `Phys2M`,
-  and `Phys1G`;
-- `paging.linear` canonical-address and index helpers;
-- `paging.table` page-table storage types, table-entry flags, table-entry
-  construction, and table-frame extraction;
-- `paging.leaf` mapped-page flags, leaf frame values, leaf-size helpers,
-  and leaf-entry construction/extraction;
-- `paging.Root` CR3 root decoding and encoding;
-- `paging.Entry` raw-preserving page-table entry values, structural
-  classification, and reserved-bit inspection;
-- `paging.walk` access, mapping, fault, and result types;
-- `paging.Walker(Reader)` read-only page-table walker;
+- `Mode` for active 4-level or 5-level ordinary paging;
+- `Level`, `Index`, and `Indices` for paging geometry;
+- `LinearAddress` for architectural 64-bit linear addresses;
+- `PhysicalAddressWidth` for validated x86 physical-address widths;
+- `PML5`, `PML4`, `PDPT`, `PD`, and `PT` as exact producer types;
+- one exact nested `Entry` and `Memory` type under each producer type;
+- `PagingStructureEntry` as the level-unqualified raw reader boundary;
+- `TableEntryFlags` and `PageFlags` for typed construction;
+- `PageFrame`, `PageAttributes`, and walk results;
+- `walk.Access`, `walk.EffectivePermissions`, `walk.Step`,
+  `walk.MappedPage`, `walk.Fault`, and `walk.Result`;
+- `Walker(Reader)` with explicit and current-CPU construction;
 - required tests.
 
 ## Deferred scope and non-goals
 
 This spec does not own:
 
-- SLAT, EPT, or NPT. Future second-level translation families live under the
-  deferred namespaces `stdx.arch.x86_64.paging.slat.ept` and
-  `stdx.arch.x86_64.paging.slat.npt`;
-- VMX or SVM invalidation instructions. `invept`, `invvpid`, and `invlpga`
-  remain owned by their VMX/SVM specs;
 - page-table allocation, growth, reclamation, or ownership;
 - virtual-address-space layout policy;
 - `map`, `unmap`, `protect`, copy-on-write, or region-management APIs;
-- physical-memory-map ownership or address classification such as RAM,
-  reserved, MMIO, DMA, encrypted, or shared/private memory;
-- direct physical-address dereferencing. Walkers read entries only through the
-  caller-provided `Reader`;
-- reading the current CR3, writing CR3, or installing a page table;
-- TLB invalidation, PCID lifetime, cross-CPU shootdown, or preemption policy;
-- page-fault handler installation, trap recovery, or exception dispatch;
-- accessed/dirty bit writeback or any mutating walker;
-- PAT/MTRR final memory-type resolution. The walker reports raw paging cache
-  attributes but does not compute the effective memory type;
-- protection-key, shadow-stack, SGX, SMAP, SMEP, or CET permission checks;
-- root promotion.
+- physical-memory-map ownership or address classification;
+- direct physical-address dereferencing outside a caller-supplied reader;
+- CR3 installation or page-table activation;
+- PCID lifetime or TLB tagging policy;
+- TLB invalidation or cross-CPU shootdown;
+- compiler fences, CPU fences, or cache maintenance for entry publication;
+- accessed or dirty-bit writeback;
+- page-fault handler installation or trap dispatch;
+- segmentation, Intel LAM, AMD UAI, or other address preprocessing;
+- final PAT/MTRR memory-type resolution;
+- protection keys, SMEP, SMAP, CET, SGX, or shadow-stack checks;
+- EPT, NPT, or another second-level translation family.
+
+Future second-level translation families remain under the deferred namespaces
+`stdx.arch.x86_64.paging.slat.ept` and
+`stdx.arch.x86_64.paging.slat.npt`.
 
 ## Public namespace
 
-Paging primitives live under the lower-case `stdx.arch.x86_64.paging`
-namespace:
-
-```zig
-stdx.arch.x86_64.paging
-stdx.arch.x86_64.paging.Mode
-stdx.arch.x86_64.paging.Level
-stdx.arch.x86_64.paging.Index
-stdx.arch.x86_64.paging.Indices
-stdx.arch.x86_64.paging.LinearAddr
-stdx.arch.x86_64.paging.PhysAddr
-stdx.arch.x86_64.paging.Phys4K
-stdx.arch.x86_64.paging.Phys2M
-stdx.arch.x86_64.paging.Phys1G
-stdx.arch.x86_64.paging.linear
-stdx.arch.x86_64.paging.table
-stdx.arch.x86_64.paging.leaf
-stdx.arch.x86_64.paging.Root
-stdx.arch.x86_64.paging.Entry
-stdx.arch.x86_64.paging.walk
-stdx.arch.x86_64.paging.Walker
-```
-
-It is not root-promoted:
-
-```zig
-stdx.paging // not exported
-stdx.arch.paging // not exported
-stdx.arch.x86_64.Paging // not exported
-```
-
-Architecture code reaches paging only through:
+Paging is available only through the lower-case architecture namespace:
 
 ```zig
 const paging = stdx.arch.x86_64.paging;
 ```
 
-## Source ownership
+The public declarations are:
+
+```zig
+paging.Mode
+paging.Level
+paging.Index
+paging.Indices
+paging.LinearAddress
+paging.PhysicalAddressWidth
+
+paging.PhysAddr
+paging.Phys4K
+paging.Phys2M
+paging.Phys1G
+
+paging.PML5
+paging.PML4
+paging.PDPT
+paging.PD
+paging.PT
+
+paging.PagingStructureEntry
+paging.TableEntryFlags
+paging.PageFlags
+paging.PageFrame
+paging.PageAttributes
+
+paging.walk.Access
+paging.walk.EffectivePermissions
+paging.walk.Step
+paging.walk.MappedPage
+paging.walk.Fault
+paging.walk.Result
+
+paging.Walker
+```
+
+Paging is not root-promoted:
+
+```zig
+stdx.paging                 // not exported
+stdx.arch.paging            // not exported
+stdx.arch.x86_64.Paging     // not exported
+```
+
+The public surface does not contain a level-erased producer type, a generic
+producer memory type, or a public entry decoder.
+
+## Source and test ownership
 
 ```text
 src/arch/x86_64.zig
 src/arch/x86_64/paging.zig
-test/arch/x86_64_paging_test.zig
+src/arch/x86_64/paging/address.zig
+src/arch/x86_64/paging/table.zig
+src/arch/x86_64/paging/walk.zig
+
+test/arch/x86_64/paging/address_test.zig
+test/arch/x86_64/paging/table_test.zig
+test/arch/x86_64/paging/walk_test.zig
 ```
 
 `src/arch/x86_64.zig` re-exports:
@@ -111,29 +132,43 @@ test/arch/x86_64_paging_test.zig
 pub const paging = @import("x86_64/paging.zig");
 ```
 
-`src/arch/x86_64/paging.zig` owns the implementation. It contains no inline
-assembly and compiles on every target.
+`paging.zig` is an alias-only facade.
 
-## Address aliases
+`paging/address.zig` owns `Mode`, `LinearAddress`, and physical page aliases.
+
+`paging/table.zig` owns paging geometry, physical-address widths, exact producer
+types, exact entry and memory types, construction flags, page frames, and
+private entry interpretation.
+
+`paging/walk.zig` owns the reader contract, walker state, requested access,
+effective permissions, translation results, and faults.
+
+`address_test.zig`, `table_test.zig`, and `walk_test.zig` test the declarations
+owned by their matching source files. `test/all.zig` imports all three test files
+directly. No flat or umbrella paging test file is part of the approved layout.
+
+## Physical address aliases
 
 ```zig
-pub const LinearTag = opaque {};
-pub const LinearAddr = stdx.addr.Address(LinearTag, u64);
-
 pub const PhysAddr = stdx.addr.PhysAddr;
 
-pub const Phys4K = stdx.addr.Page(PhysAddr, stdx.addr.pages._4kib);
-pub const Phys2M = stdx.addr.Page(PhysAddr, stdx.addr.pages._2mib);
-pub const Phys1G = stdx.addr.Page(PhysAddr, stdx.addr.pages._1gib);
+pub const Phys4K = stdx.addr.Page(
+    PhysAddr,
+    stdx.addr.pages._4kib,
+);
+pub const Phys2M = stdx.addr.Page(
+    PhysAddr,
+    stdx.addr.pages._2mib,
+);
+pub const Phys1G = stdx.addr.Page(
+    PhysAddr,
+    stdx.addr.pages._1gib,
+);
 ```
 
-`LinearAddr` is distinct from `stdx.addr.VirtAddr`. A walked x86 linear address
-is an architectural 64-bit value and may describe guest or crash-dump state that
-is unrelated to the host process pointer width.
-
-`PhysAddr` is the physical-address vocabulary spoken by the supplied reader. For
-host page-table walks it is host physical. For guest CR3 walks it is guest
-physical relative to the reader backend.
+`PhysAddr` names the physical-address domain used by the supplied reader. It can
+represent host physical memory, guest physical memory, emulator memory, or an
+offline memory image. The reader defines the meaning of the address.
 
 ## `Mode`
 
@@ -147,15 +182,8 @@ pub const Mode = enum {
 };
 ```
 
-Semantics:
-
-- `.level4` is ordinary 4-level IA-32e paging. Root level is `.pml4` and
-  canonical linear width is 48 bits.
-- `.level5` is ordinary 5-level paging. Root level is `.pml5` and canonical
-  linear width is 57 bits.
-
-`Mode` names the active paging mode, not the CPU's maximum supported linear
-width. Callers decide the active mode from their own CR4/guest-state policy.
+`.level4` uses a PML4 root and 48 canonical linear-address bits. `.level5` uses
+a PML5 root and 57 canonical linear-address bits.
 
 ## `Level`
 
@@ -169,13 +197,15 @@ pub const Level = enum(u3) {
 
     pub fn indexShift(self: Level) u6;
     pub fn next(self: Level) ?Level;
+    pub fn pageOffsetBits(self: Level) ?u6;
+    pub fn pageSizeBytes(self: Level) ?u64;
+    pub fn pageOffsetMask(self: Level) ?u64;
 };
 ```
 
-`indexShift` returns the bit offset of the 9-bit paging-structure index for
-that level:
+`indexShift` returns the bit offset of the 9-bit index:
 
-| Level | `indexShift()` |
+| Level | Shift |
 | --- | ---: |
 | `.pt` | 12 |
 | `.pd` | 21 |
@@ -183,7 +213,10 @@ that level:
 | `.pml4` | 39 |
 | `.pml5` | 48 |
 
-`next` returns the next lower level, or `null` for `.pt`.
+`next` returns the next lower level. It returns `null` for `.pt`.
+
+The page geometry operations return values for `.pt`, `.pd`, and `.pdpt`. They
+return `null` for `.pml4` and `.pml5`.
 
 ## `Index` and `Indices`
 
@@ -201,726 +234,970 @@ pub const Indices = struct {
     pdpt: Index,
     pd: Index,
     pt: Index,
-    offset_4kib: u12,
 
     pub fn at(self: Indices, level: Level) Index;
 };
 ```
 
-`pml5` is zero for `.level4` addresses. `at(level)` returns the index belonging
-to the requested level.
+`Indices.pml5` is zero for `.level4`. `at` returns the index for the selected
+level.
 
-`offset_4kib` is always the low 12 bits of the linear address. Larger leaf
-mappings use `leaf.offsetMask(level)` to derive their effective page offset.
-
-## `linear` namespace
+## `LinearAddress`
 
 ```zig
-pub const linear = struct {
+pub const LinearAddress = enum(u64) {
+    _,
+
     pub const Error = error{NonCanonical};
 
-    pub fn isCanonical(raw: u64, mode: Mode) bool;
-    pub fn fromCanonical(raw: u64, mode: Mode) Error!LinearAddr;
-    pub fn signExtend(raw: u64, mode: Mode) LinearAddr;
-    pub fn indices(addr: LinearAddr, mode: Mode) Error!Indices;
-};
-```
-
-`isCanonical(raw, mode)` returns whether `raw` is sign-extended from the active
-mode's high implemented linear-address bit.
-
-`fromCanonical(raw, mode)` validates the input and wraps it as `LinearAddr`.
-It does not modify non-canonical values.
-
-`signExtend(raw, mode)` sign-extends the low implemented linear-address bits and
-returns a `LinearAddr`. It does not reject inputs with non-canonical high bits;
-it constructs the canonical value implied by the low bits.
-
-`indices(addr, mode)` rejects non-canonical addresses with `error.NonCanonical`
-and then extracts every paging-structure index.
-
-`canonicalize` is intentionally not part of the API because it is ambiguous
-between validation and sign extension.
-
-## `Config` and `Features`
-
-```zig
-pub const Features = struct {
-    pcid: bool = false,
-    no_execute: bool = false,
-    page_1gib: bool = false,
-    supervisor_write_protect: bool = true,
-};
-
-pub const Config = struct {
-    mode: Mode,
-    physical_bits: u8,
-    features: Features = .{},
-
-    pub const Error = error{InvalidPhysicalWidth};
-
-    pub fn fromAddressSizes(
+    pub fn fromInt(raw_address: u64) LinearAddress;
+    pub fn raw(self: LinearAddress) u64;
+    pub fn fromCanonical(
+        raw_address: u64,
         mode: Mode,
-        sizes: stdx.arch.x86_64.cpuid.AddressSizes,
-        features: Features,
-    ) Config;
-
-    pub fn linearBits(self: Config) u8;
-    pub fn validate(self: Config) Error!void;
-    pub fn assertValid(self: Config) void;
+    ) Error!LinearAddress;
+    pub fn signExtend(
+        raw_address: u64,
+        mode: Mode,
+    ) LinearAddress;
+    pub fn isCanonical(
+        self: LinearAddress,
+        mode: Mode,
+    ) bool;
+    pub fn indices(
+        self: LinearAddress,
+        mode: Mode,
+    ) Indices;
 };
 ```
 
-`physical_bits` is the active physical-address width used for reserved-bit
-validation. It must be in the inclusive range `[32, 52]`.
+`LinearAddress` is an architectural 64-bit value. It is distinct from
+`stdx.addr.VirtAddr` and can represent guest or offline state unrelated to the
+host process pointer width.
 
-`features.pcid` controls CR3 low-bit decoding in `Root.fromCr3` and
-`Root.toCr3`.
+`fromInt` preserves all input bits. `fromCanonical` returns
+`error.NonCanonical` when the value is not sign-extended from the active high
+implemented linear-address bit. `signExtend` transforms the low implemented
+bits without first validating the high bits.
 
-`features.no_execute` controls whether bit 63 is interpreted as execute-disable
-or as a reserved bit.
+`indices` requires a canonical address for the selected mode. It asserts this
+precondition under safety checks.
 
-`features.page_1gib` controls whether a `.pdpt` leaf is legal. A 1 GiB leaf when
-this feature is false is a reserved-bit fault during walking.
+The API does not contain `canonicalize`. That name does not distinguish
+validation from sign extension.
 
-`features.supervisor_write_protect` models CR0.WP for supervisor writes. When
-false, supervisor writes do not fault solely because effective R/W is false.
-User writes always require effective R/W.
-
-Protection-key, shadow-stack, SGX, SMAP, and SMEP checks are not modeled by this
-spec.
-
-## `Root`
+## `PhysicalAddressWidth`
 
 ```zig
-pub const Root = struct {
-    frame: Phys4K.Frame,
-    pcid: u12 = 0,
-    write_through: bool = false,
-    cache_disable: bool = false,
+pub const PhysicalAddressWidth = enum(u8) {
+    bits_32 = 32,
+    bits_36 = 36,
+    bits_39 = 39,
+    bits_40 = 40,
+    bits_46 = 46,
+    bits_48 = 48,
+    bits_52 = 52,
 
     pub const Error = error{
-        ReservedBits,
-        PhysicalAddressTooWide,
-        InvalidPhysicalWidth,
+        UnsupportedPhysicalAddressWidth,
     };
 
-    pub fn fromCr3(raw: u64, config: Config) Error!Root;
-    pub fn toCr3(self: Root, config: Config) Error!u64;
+    pub fn fromBits(
+        physical_address_bits: u8,
+    ) Error!PhysicalAddressWidth;
+    pub fn bits(self: PhysicalAddressWidth) u6;
 };
 ```
 
-`frame` is the 4 KiB-aligned physical frame containing the root table.
+The type contains the physical-address widths supported by this paging
+primitive. Raw CPUID fields remain integers until `fromBits` validates them.
+Normalized paging state uses `PhysicalAddressWidth`.
 
-When `config.features.pcid` is true, CR3 bits 11:0 are decoded as `pcid` and
-`write_through` / `cache_disable` are false.
+## Exact paging-structure producer types
 
-When `config.features.pcid` is false, CR3 bit 3 is `write_through`, bit 4 is
-`cache_disable`, and the remaining low bits must be zero.
+The producer surface uses the five enum-backed strong types `PML5`, `PML4`,
+`PDPT`, `PD`, and `PT`.
 
-`fromCr3` and `toCr3` validate that the root physical address fits within
-`config.physical_bits` and is 4 KiB aligned.
+Each type owns `InitError`, `Entry`, and `Memory`. Each `InitError` is:
 
-CR3 write-operand bit 63 for no-flush behavior is not part of `Root`; it is
-write policy, not root identity. A future `RootWrite` value may model it if a
-consumer needs it.
+```zig
+pub const InitError = error{
+    PhysicalAddressTooWide,
+};
+```
 
-## `Entry`
+Each type owns these operations:
+
+```zig
+pub fn init(
+    base_frame: Phys4K.Frame,
+) InitError!Producer;
+pub fn base(self: Producer) Phys4K.Frame;
+pub fn entryAddress(
+    self: Producer,
+    index: Index,
+) PhysAddr;
+```
+
+`Producer` denotes the applicable exact producer type. `init` returns
+`error.PhysicalAddressTooWide` when bit 52 or a higher bit is set in
+`base_frame`. The returned producer stores the validated frame address.
+
+`base` returns the frame supplied to `init`.
+
+`entryAddress` returns `base().address() + index * 8`. The result stays within
+the 4096-byte paging structure.
+
+The exact `Entry` and `Memory` declarations are specified in their owning
+sections below.
+
+The exact types expose only architecturally valid construction operations:
+
+| Type | Operation | Exact parameter | Return |
+| --- | --- | --- | --- |
+| `PML5` | `tableEntry` | `child: PML4`, `flags: TableEntryFlags` | `PML5.Entry` |
+| `PML4` | `tableEntry` | `child: PDPT`, `flags: TableEntryFlags` | `PML4.Entry` |
+| `PDPT` | `tableEntry` | `child: PD`, `flags: TableEntryFlags` | `PDPT.Entry` |
+| `PDPT` | `pageEntry` | `frame: Phys1G.Frame`, `flags: PageFlags` | `PDPT.PageEntryError!PDPT.Entry` |
+| `PD` | `tableEntry` | `child: PT`, `flags: TableEntryFlags` | `PD.Entry` |
+| `PD` | `pageEntry` | `frame: Phys2M.Frame`, `flags: PageFlags` | `PD.PageEntryError!PD.Entry` |
+| `PT` | `pageEntry` | `frame: Phys4K.Frame`, `flags: PageFlags` | `PT.PageEntryError!PT.Entry` |
+
+`PDPT`, `PD`, and `PT` each own:
+
+```zig
+pub const PageEntryError = error{
+    PhysicalAddressTooWide,
+};
+```
+
+A page-entry operation returns `error.PhysicalAddressTooWide` when bit 52 or a
+higher bit is set in the mapped frame address.
+
+The exact child and frame parameter types make invalid level transitions
+unrepresentable. Entry construction does not return a runtime level-validation
+error.
+
+Entry construction does not receive a memory pointer. It returns a complete
+entry value before the caller publishes the value.
+
+## Exact nested `Entry` types
+
+These types are distinct:
+
+```zig
+PML5.Entry
+PML4.Entry
+PDPT.Entry
+PD.Entry
+PT.Entry
+```
+
+Each exact entry type has this API:
 
 ```zig
 pub const Entry = enum(u64) {
     _,
 
-    pub const Error = error{
-        NotPresent,
-        WrongKind,
-        ReservedBits,
-        InvalidPhysicalWidth,
-    };
-
-    pub const Kind = enum {
-        not_present,
-        table,
-        leaf,
-    };
-
-    pub const ReservedBits = struct {
-        mask: u64,
-
-        pub fn any(self: ReservedBits) bool;
-    };
+    pub const TagType = PML5;
+    pub const Raw = u64;
+    pub const NonPresentError = error{Present};
 
     pub fn empty() Entry;
-    pub fn fromRaw(raw: u64) Entry;
-    pub fn raw(self: Entry) u64;
-
-    pub fn isPresent(self: Entry) bool;
-    pub fn kind(self: Entry, level: Level) Kind;
-    pub fn isLeaf(self: Entry, level: Level) bool;
-
-    pub fn reservedBits(self: Entry, level: Level, config: Config) ReservedBits;
-    pub fn hasReserved(self: Entry, level: Level, config: Config) bool;
+    pub fn nonPresent(
+        raw_entry: Raw,
+    ) NonPresentError!Entry;
+    pub fn raw(self: Entry) Raw;
 };
 ```
 
-`Entry` is raw-preserving. It does not use one packed struct because bit meaning
-changes by level: bit 7 is a large-page selector at `.pd` and `.pdpt`, a PAT bit
-at `.pt`, and reserved at `.pml4` / `.pml5`.
+The snippet shows `PML5.Entry`. Each other exact entry type sets `TagType` to
+its owning producer type. `Raw` is `u64` for every exact entry type.
 
-`kind(level)` is structural:
+`empty` returns an entry with every bit clear.
 
-- returns `.not_present` when bit 0 is clear;
-- returns `.leaf` for present `.pt` entries;
-- returns `.leaf` for present `.pd` / `.pdpt` entries with bit 7 set;
-- returns `.table` for other present entries.
+`nonPresent` requires bit 0 to be clear. It returns `error.Present` when bit 0
+is set. For a non-present entry, the remaining bits are caller-owned metadata.
 
-`kind` does not validate reserved bits, physical-address width, or access
-permissions.
+The exact entry types do not expose unrestricted `fromRaw`. Present entries are
+created only by `tableEntry` and `pageEntry`.
 
-`isLeaf(level)` is exact sugar for `kind(level) == .leaf`.
+## Exact nested `Memory` types
 
-`reservedBits` returns a mask of set bits that would be architecturally reserved
-for a present entry at `level` under `config`. It returns zero for not-present
-entries because the walker reports not-present before reserved-bit faults.
-
-Reserved-bit validation includes:
-
-- physical address bits above `config.physical_bits`;
-- bit 7 set at `.pml4` or `.pml5`;
-- `.pdpt` leaf when `config.features.page_1gib` is false;
-- large-page address bits below the leaf size;
-- bit 63 set when `config.features.no_execute` is false.
-
-## `table` namespace
+These types are distinct:
 
 ```zig
-pub const table = struct {
-    pub const index_bits: u8 = 9;
-    pub const index_mask: u64 = 0x1ff;
-    pub const entry_count: usize = 512;
-    pub const alignment: usize = stdx.addr.pages._4kib;
-
-    pub const Flags = struct {
-        present: bool = true,
-        writable: bool = false,
-        user: bool = false,
-        write_through: bool = false,
-        cache_disable: bool = false,
-        accessed: bool = false,
-        no_execute: bool = false,
-        available_low: u3 = 0,
-        available_high: u11 = 0,
-    };
-
-    pub fn Type(comptime level: Level) type;
-
-    pub const Pml5 = Type(.pml5);
-    pub const Pml4 = Type(.pml4);
-    pub const Pdpt = Type(.pdpt);
-    pub const Pd = Type(.pd);
-    pub const Pt = Type(.pt);
-
-    pub fn entry(frame: Phys4K.Frame, flags: Flags) Entry;
-    pub fn frame(entry_value: Entry, level: Level, config: Config) Entry.Error!Phys4K.Frame;
-};
+PML5.Memory
+PML4.Memory
+PDPT.Memory
+PD.Memory
+PT.Memory
 ```
 
-`Type(level)` returns a 4 KiB extern table type with 512 `Entry` values:
+Each `Memory` type is the exact hardware-visible memory layout for its owning
+paging-structure type:
 
 ```zig
-pub fn Type(comptime level: Level) type {
-    return extern struct {
-        entries: [entry_count]Entry,
+pub const Memory = extern struct {
+    entries: [512]Entry align(4096),
 
-        pub const table_level = level;
-
-        pub fn init() @This();
-        pub fn get(self: *const @This(), index: Index) Entry;
-        pub fn set(self: *@This(), index: Index, entry_value: Entry) void;
-        pub fn clear(self: *@This(), index: Index) void;
-    };
-}
-```
-
-`init()` returns a table whose entries are all `Entry.empty()`.
-
-`set` and `clear` are plain stores into caller-owned memory. They perform no
-barriers, no atomic operations, no accessed/dirty maintenance, and no TLB
-invalidation. Callers own synchronization and invalidation for reachable tables.
-
-`table.entry(frame, flags)` constructs an entry pointing to another 4 KiB page
-table.
-
-`table.frame(entry_value, level, config)` validates that `entry_value` is
-present, structurally a table at `level`, has no reserved bits under `config`,
-and names a 4 KiB-aligned physical frame within `config.physical_bits`.
-
-## `leaf` namespace
-
-```zig
-pub const leaf = struct {
-    pub const Flags = struct {
-        present: bool = true,
-        writable: bool = false,
-        user: bool = false,
-        write_through: bool = false,
-        cache_disable: bool = false,
-        accessed: bool = false,
-        dirty: bool = false,
-        global: bool = false,
-        pat: bool = false,
-        no_execute: bool = false,
-        available_low: u3 = 0,
-        available_high: u11 = 0,
-    };
-
-    pub const Frame = union(enum) {
-        page4kib: Phys4K.Frame,
-        page2mib: Phys2M.Frame,
-        page1gib: Phys1G.Frame,
-
-        pub fn level(self: Frame) Level;
-        pub fn address(self: Frame) PhysAddr;
-        pub fn addressInt(self: Frame) u64;
-        pub fn sizeBytes(self: Frame) u64;
-        pub fn offsetBits(self: Frame) u6;
-        pub fn offsetMask(self: Frame) u64;
-    };
-
-    pub const Mapping = struct {
-        level: Level,
-        frame: Frame,
-        entry_address: PhysAddr,
-        entry: Entry,
-
-        pub fn base(self: Mapping) PhysAddr;
-        pub fn sizeBytes(self: Mapping) u64;
-        pub fn offsetBits(self: Mapping) u6;
-        pub fn offsetMask(self: Mapping) u64;
-    };
-
-    pub fn offsetBits(level: Level) ?u6;
-    pub fn sizeBytes(level: Level) ?u64;
-    pub fn offsetMask(level: Level) ?u64;
-
-    pub fn entry(frame: Frame, flags: Flags) Entry;
-    pub fn page4kib(frame: Phys4K.Frame, flags: Flags) Entry;
-    pub fn page2mib(frame: Phys2M.Frame, flags: Flags) Entry;
-    pub fn page1gib(frame: Phys1G.Frame, flags: Flags) Entry;
-
-    pub fn frame(entry_value: Entry, level: Level, config: Config) Entry.Error!Frame;
-};
-```
-
-`offsetBits(level)` returns:
-
-| Level | `offsetBits` | `sizeBytes` |
-| --- | ---: | ---: |
-| `.pt` | 12 | 4 KiB |
-| `.pd` | 21 | 2 MiB |
-| `.pdpt` | 30 | 1 GiB |
-| `.pml4` | null | null |
-| `.pml5` | null | null |
-
-`offsetMask(level)` is `(1 << offsetBits) - 1` when the level can be a leaf.
-
-`leaf.entry(frame, flags)` dispatches to the size-specific constructor matching
-`frame`.
-
-`leaf.page4kib`, `leaf.page2mib`, and `leaf.page1gib` construct leaf entries for
-known frame sizes. The typed frame argument enforces alignment before entry
-construction.
-
-`leaf.frame(entry_value, level, config)` validates that `entry_value` is present,
-structurally a leaf at `level`, has no reserved bits under `config`, names a
-physical base within `config.physical_bits`, and is aligned to the leaf size.
-
-## `walk` namespace
-
-```zig
-pub const walk = struct {
-    pub const Access = struct {
-        operation: Operation,
-        privilege: Privilege,
-
-        pub const Operation = enum {
-            read,
-            write,
-            execute,
-        };
-
-        pub const Privilege = enum {
-            supervisor,
-            user,
-        };
-
-        pub fn read(privilege: Privilege) Access;
-        pub fn write(privilege: Privilege) Access;
-        pub fn execute(privilege: Privilege) Access;
-    };
-
-    pub const Attributes = struct {
-        writable: bool,
-        user: bool,
-        executable: bool,
-        global: bool,
-        write_through: bool,
-        cache_disable: bool,
-        pat: bool,
-    };
-
-    pub const Step = struct {
-        level: Level,
+    pub fn init() Memory;
+    pub fn get(
+        self: *const Memory,
         index: Index,
-        entry_address: PhysAddr,
+    ) Entry;
+    pub fn set(
+        self: *Memory,
+        index: Index,
         entry: Entry,
-    };
-
-    pub const Mapping = struct {
-        linear: LinearAddr,
-        physical: PhysAddr,
-        leaf: leaf.Mapping,
-        attributes: Attributes,
-    };
-
-    pub const Fault = struct {
-        reason: Reason,
-        code: Code,
-        step: Step,
-
-        pub const Reason = enum {
-            not_present,
-            reserved_bits,
-            write_to_read_only,
-            user_to_supervisor,
-            execute_disabled,
-        };
-
-        pub const Code = packed struct(u16) {
-            present: bool,
-            write: bool,
-            user: bool,
-            reserved: bool,
-            instruction_fetch: bool,
-            _reserved_5_15: u11 = 0,
-        };
-    };
-
-    pub const Result = union(enum) {
-        mapped: Mapping,
-        fault: Fault,
-    };
+    ) void;
+    pub fn clear(
+        self: *Memory,
+        index: Index,
+    ) void;
 };
 ```
 
-`Access.read(.user)`, `Access.write(.supervisor)`, and
-`Access.execute(.user)` construct access descriptors without exposing raw page
-fault bits to callers.
+Each `Memory` type is exactly 4096 bytes and has 4096-byte alignment. `init`
+sets all 512 entries to `Entry.empty()`.
 
-`Fault.Code` models the low architectural page-fault error-code bits this spec
-checks. Protection-key, shadow-stack, and SGX bits are outside this spec and are
-zero.
+`get`, `set`, and `clear` access only the selected index. `clear` stores
+`Entry.empty()`.
 
-`Fault.step` identifies the entry that caused the fault.
+A `Memory` value does not own a physical frame. The caller establishes and
+maintains the relationship between a producer type's `base()` result and a
+pointer to the matching `Memory` type. The paging library does not allocate,
+map, retain, or release that memory.
 
-`Mapping.physical` is the final translated physical address including the leaf
-offset. `Mapping.leaf.base()` is the physical base of the mapped page.
+Copying a `Memory` value copies 4096 bytes. Operations other than initialization
+use pointers.
+
+The exact entry parameter prevents cross-level insertion. For example,
+`PT.Memory.set` accepts only `PT.Entry`.
+
+## Level-unqualified raw entries
+
+```zig
+pub const PagingStructureEntry = packed struct(u64) {
+    present: bool,
+    writable: bool,
+    user: bool,
+    write_through: bool,
+    cache_disable: bool,
+    accessed: bool,
+    dirty: bool,
+    page_size_or_pat: bool,
+    global_or_ignored: bool,
+    available_low: u3,
+    physical_address_bits: u40,
+    available_high: u11,
+    no_execute: bool,
+
+    pub fn empty() PagingStructureEntry;
+    pub fn fromRaw(
+        raw_entry: u64,
+    ) PagingStructureEntry;
+    pub fn raw(self: PagingStructureEntry) u64;
+};
+```
+
+`PagingStructureEntry` is a packed structural representation of a raw 64-bit
+PML5E, PML4E, PDPTE, PDE, or PTE. `fromRaw` preserves arbitrary reader bits.
+The fields identify their architectural bit positions. Context determines
+field meaning:
+
+- `page_size_or_pat` is PS at PDPT and PD, PAT at PT, and reserved at PML5 and
+  PML4;
+- `global_or_ignored` is G for a mapped page and ignored for an entry that
+  references a next-level table;
+- `dirty` is defined for a mapped page and ignored for an entry that references
+  a next-level table;
+- `physical_address_bits` contains raw bits 12 through 51. Large-page PAT and
+  large-page reserved bits occur within this field.
+
+The type does not classify, validate, construct, or decode a level-dependent
+present entry. The private walker knows the containing level and owns
+contextual interpretation.
+
+## Construction flags
+
+```zig
+pub const TableEntryFlags = struct {
+    writable: bool = false,
+    user: bool = false,
+    write_through: bool = false,
+    cache_disable: bool = false,
+    accessed: bool = false,
+    no_execute: bool = false,
+    available_low: u3 = 0,
+    available_high: u11 = 0,
+};
+
+pub const PageFlags = struct {
+    writable: bool = false,
+    user: bool = false,
+    write_through: bool = false,
+    cache_disable: bool = false,
+    accessed: bool = false,
+    dirty: bool = false,
+    global: bool = false,
+    pat: bool = false,
+    no_execute: bool = false,
+    available_low: u3 = 0,
+    available_high: u11 = 0,
+};
+```
+
+`TableEntryFlags` applies to an entry that references the next paging
+structure. `PageFlags` applies to an entry that maps a page.
+
+All entry-construction operations set the present bit.
+
+`PDPT.pageEntry` and `PD.pageEntry` set PS. `PT.pageEntry` treats bit 7 as PAT.
+The large-page operations place PAT at bit 12.
+
+Construction encodes the requested architectural bits. It does not probe the
+current CPU or validate target capability state. The caller must not publish an
+entry that the target cannot interpret. The walker validates raw entries against
+its configured physical width and capability flags.
+
+## `PageFrame`
+
+```zig
+pub const PageFrame = union(enum) {
+    page4kib: Phys4K.Frame,
+    page2mib: Phys2M.Frame,
+    page1gib: Phys1G.Frame,
+
+    pub fn level(self: PageFrame) Level;
+    pub fn address(self: PageFrame) PhysAddr;
+    pub fn addressInt(self: PageFrame) u64;
+    pub fn sizeBytes(self: PageFrame) u64;
+    pub fn offsetBits(self: PageFrame) u6;
+    pub fn offsetMask(self: PageFrame) u64;
+};
+```
+
+`PageFrame` is the runtime mapped-frame union returned by translation.
+Producer page-entry operations accept exact frame types instead of `PageFrame`.
+
+## Page attributes and effective permissions
+
+```zig
+pub const PageAttributes = struct {
+    accessed: bool,
+    dirty: bool,
+    global: bool,
+    write_through: bool,
+    cache_disable: bool,
+    pat: bool,
+};
+```
+
+`PageAttributes` contains accessed, dirty, global, write-through, cache-disable,
+and PAT values from the mapped-page entry. It does not contain permissions
+accumulated from parent entries. Translation reports accessed and dirty state
+without modifying either bit.
+
+```zig
+pub const EffectivePermissions = struct {
+    writable: bool,
+    user: bool,
+    executable: bool,
+};
+```
+
+`walk.EffectivePermissions` contains the R/W, U/S, and execute state accumulated
+across all present entries in one translation path.
+
+## `walk.Access`
+
+```zig
+pub const Access = struct {
+    operation: Operation,
+    privilege: Privilege,
+
+    pub const Operation = enum {
+        read,
+        write,
+        execute,
+    };
+
+    pub const Privilege = enum {
+        supervisor,
+        user,
+    };
+
+    pub fn read(privilege: Privilege) Access;
+    pub fn write(privilege: Privilege) Access;
+    pub fn execute(privilege: Privilege) Access;
+};
+```
+
+The constructors set the selected operation and preserve the supplied
+privilege.
+
+## Walk steps, mapped pages, and faults
+
+```zig
+pub const Step = struct {
+    level: Level,
+    index: Index,
+    entry_address: PhysAddr,
+    entry: PagingStructureEntry,
+};
+```
+
+A step identifies one successfully loaded raw entry.
+
+```zig
+pub const MappedPage = struct {
+    linear: LinearAddress,
+    physical: PhysAddr,
+    frame: PageFrame,
+    attributes: PageAttributes,
+    permissions: EffectivePermissions,
+    step: Step,
+};
+```
+
+`physical` contains the mapped frame base plus the page offset from `linear`.
+`step` is the mapped-page step.
+
+`walk.MappedPage` is the public successful translation type.
+
+```zig
+pub const Fault = struct {
+    reason: Reason,
+    code: Code,
+    step: Step,
+
+    pub const Reason = enum {
+        not_present,
+        reserved_bits,
+        write_to_read_only,
+        user_to_supervisor,
+        execute_disabled,
+    };
+
+    pub const Code = packed struct(u16) {
+        present: bool,
+        write: bool,
+        user: bool,
+        reserved: bool,
+        instruction_fetch: bool,
+        _reserved_5_15: u11 = 0,
+    };
+};
+
+pub const Result = union(enum) {
+    mapped: MappedPage,
+    fault: Fault,
+};
+```
+
+`Fault.Code` models these architectural page-fault error-code fields:
+
+- `present` is clear for `.not_present` and set for other modeled faults;
+- `write` is set for write accesses;
+- `user` is set for user accesses;
+- `reserved` is set only for `.reserved_bits`;
+- `instruction_fetch` is set for execute accesses only when execute-disable is
+  enabled;
+- bits 5 through 15 are zero.
+
+A fault is data. It does not imply that the library installed, raised, or
+handled a CPU exception.
 
 ## Reader interface
 
-`Walker(Reader)` is comptime-duck-typed. `Reader` is the exact field type stored
-inside the walker; callers usually pass a pointer type such as
-`*DirectMapReader`.
-
-Every conforming reader must expose `Error` and support this method-call shape:
+`Walker(Reader)` stores a caller-owned `*Reader`. A conforming reader exposes an
+`Error` set and this method:
 
 ```zig
-pub const Error = error{...};
-
-pub fn readEntry(self: *Self, address: paging.PhysAddr) Error!paging.Entry;
+pub fn readEntry(
+    self: *Reader,
+    address: paging.PhysAddr,
+) Error!paging.PagingStructureEntry;
 ```
 
-When `Reader` is a pointer type, Zig pointer method-call syntax may satisfy the
-contract through the pointee's `readEntry` method.
+`address` is the physical byte address of the 8-byte entry to load. The reader
+owns bounds checks, physical-memory availability, and little-endian conversion.
 
-`address` is the physical byte address of the 8-byte page-table entry to load.
-The reader owns how that address is interpreted: direct map, guest-physical
-memory, emulator memory, crash dump, or test buffer.
-
-The reader must return an `Entry` value whose raw bits match the architectural
-little-endian entry stored at `address`. Endianness conversion, bounds checks,
-and physical-memory availability are reader policy.
+The reader can use a direct map, guest-memory backend, emulator, crash dump, or
+test model. The reader must return the raw bits stored at `address`.
 
 ## `Walker(Reader)`
 
 ```zig
 pub fn Walker(comptime Reader: type) type {
     return struct {
-        config: Config,
-        reader: Reader,
+        root_table_base: Phys4K.Frame,
+        mode: Mode,
+        physical_address_width: PhysicalAddressWidth,
+        flags: Flags,
+        reader: *Reader,
 
-        pub const Error = Reader.Error || Entry.Error || error{
-            NonCanonical,
+        pub const Flags = packed struct(u3) {
+            page_1gib_supported: bool = false,
+            supervisor_write_protect: bool = false,
+            execute_disable_enabled: bool = false,
         };
 
-        pub fn init(config: Config, reader: Reader) @This();
+        pub const Input = struct {
+            root_table_base: PhysAddr,
+            mode: Mode,
+            physical_address_width: PhysicalAddressWidth,
+            flags: Flags = .{},
+        };
 
-        pub fn walk(
-            self: *@This(),
-            root: Root,
-            linear_addr: LinearAddr,
-            access: walk.Access,
-        ) Error!walk.Result;
+        pub const InitError = error{
+            Misaligned,
+            PhysicalAddressTooWide,
+        };
 
-        pub fn walkRaw(
+        pub const InitCurrentCPUError =
+            InitError ||
+            PhysicalAddressWidth.Error ||
+            stdx.arch.x86_64.registers.cr3.CR3.LowError ||
+            stdx.arch.x86_64.registers.cr4.PCIDError ||
+            stdx.arch.x86_64.registers.cr4.Level5Error ||
+            stdx.arch.x86_64.registers.efer.Error ||
+            error{
+                InvalidLinearWidth,
+                InvalidNoFlush,
+                InvalidPagingState,
+                ReservedBits,
+            };
+
+        pub fn init(
+            input: Input,
+            reader: *Reader,
+        ) InitError!@This();
+
+        pub fn initCurrentCPU(
+            reader: *Reader,
+        ) InitCurrentCPUError!@This();
+
+        pub fn updateRootTable(
             self: *@This(),
-            root: Root,
-            raw_linear: u64,
+            root_table_base: PhysAddr,
+        ) InitError!void;
+
+        pub fn translate(
+            self: *const @This(),
+            linear_address: LinearAddress,
             access: walk.Access,
-        ) Error!walk.Result;
+        ) Reader.Error!walk.Result;
     };
 }
 ```
 
-`init` stores `config` and `reader` by value and asserts `config.assertValid()`
-under debug checks.
+`Flags` belongs to the walker because the fields control entry validation and
+access checks. `Input` only transports constructor values.
 
-`walk` validates `linear_addr` canonicality under `self.config.mode`; a
-non-canonical linear address returns `error.NonCanonical`. It is not returned as
-a page fault.
+The all-zero `Flags` value has these semantics:
 
-`walkRaw` wraps `raw_linear` and delegates to `walk`. It exists for common CR2,
-VM-exit, emulator, debugger, and test call sites that naturally receive raw
-integer linear addresses.
+- 1 GiB pages are unsupported;
+- supervisor writes ignore effective R/W;
+- bit 63 is reserved instead of NX.
 
-`walk` performs at most five reader calls. It does not allocate, wait, spin,
-write entries, update accessed/dirty bits, issue fences, or invalidate TLBs.
+`init` converts `root_table_base` to a 4 KiB frame. It returns
+`error.Misaligned` for an unaligned address. It returns
+`error.PhysicalAddressTooWide` when the root does not fit the selected physical
+width.
 
-## Walk semantics
+`updateRootTable` validates a complete replacement before mutation. It changes
+only `root_table_base`. It does not write CR3 or invalidate a TLB entry.
 
-For each level from `config.mode.rootLevel()` down:
+## Current-CPU construction
 
-1. Compute the level index from the linear address.
-2. Compute the physical byte address of the table entry:
-   `table_frame.addressInt() + index.raw() * @sizeOf(Entry)`.
-3. Load the entry through `reader.readEntry`.
-4. If `entry.isPresent()` is false, return `walk.Result{ .fault = ... }` with
-   reason `.not_present`.
-5. If `entry.hasReserved(level, config)` is true, return a fault with reason
-   `.reserved_bits`.
-6. Classify `entry.kind(level)`.
-7. For `.table`, extract the next table frame through `table.frame` and continue
-   to `level.next().?`.
-8. For `.leaf`, extract the leaf frame through `leaf.frame`, combine its base
-   with the linear-address offset selected by `leaf.offsetMask(level)`, compute
-   effective attributes, check `access`, and return either `.mapped` or a
-   permission fault.
+`initCurrentCPU` reads CPUID, CR0, CR3, CR4, and EFER. It validates active
+protected-mode, physical-address-extension, and IA-32e paging state. It derives:
 
-Effective attributes:
+- the root table base from CR3;
+- the mode from CR4.LA57;
+- the physical-address width from CPUID;
+- 1 GiB-page support from CPUID;
+- supervisor write-protect behavior from CR0.WP;
+- execute-disable behavior from CPUID and EFER.NXE.
 
-- `writable` is the logical AND of the R/W bit across every present entry in the
-  path through the leaf;
-- `user` is the logical AND of the U/S bit across every present entry in the
-  path through the leaf;
-- `executable` is true when `config.features.no_execute` is false, or when no
-  present entry in the path has bit 63 set;
-- `global`, `pat`, `write_through`, and `cache_disable` are reported from the
-  architectural bits that affect the selected leaf mapping. Final PAT/MTRR
-  memory-type resolution is not performed.
+The method converts these values to the same semantic state accepted by `init`.
+It does not retain raw register values.
 
-Permission checks:
+`initCurrentCPU` requires CPL 0. The caller must prevent migration and
+paging-state replacement during capture. The method does not disable interrupts
+or preemption.
 
-- user accesses fault with `.user_to_supervisor` when effective `user` is false;
-- write accesses fault with `.write_to_read_only` when effective `writable` is
-  false and either the access is user or `config.features.supervisor_write_protect`
-  is true;
-- execute accesses fault with `.execute_disabled` when effective `executable` is
-  false.
+A privilege violation causes the architectural fault associated with a
+privileged register or MSR read. It is not a Zig error.
 
-## Behavior contract
+The current-CPU constructor is a snapshot. Later CPU-state changes do not mutate
+the walker.
 
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `linear.isCanonical` | none | never | O(1) | none | value-only | none |
-| `linear.fromCanonical` | none | never | O(1) | none | value-only | none |
-| `linear.signExtend` | none | never | O(1) | none | value-only | none |
-| `linear.indices` | none | never | O(1) | none | value-only | none |
-| `Config.validate` | none | never | O(1) | none | value-only | none |
-| `Root.fromCr3`, `Root.toCr3` | none | never | O(1) | none | value-only | none |
-| `Entry.*` | none | never | O(1) | none | value-only | none |
-| `table.Type(level).init` | none | never | O(entries) | all entries empty | caller-owned value | plain stores |
-| `table.Type(level).get` | none | never | O(1) | none | caller-owned memory | plain load |
-| `table.Type(level).set` | none | never | O(1) | stored entry | caller-owned memory | plain store |
-| `table.Type(level).clear` | none | never | O(1) | cleared entry | caller-owned memory | plain store |
-| `table.entry`, `leaf.entry`, `leaf.page*` | none | never | O(1) | none | value-only | none |
-| `table.frame`, `leaf.frame` | none | never | O(1) | none | value-only | none |
-| `Walker.init` | none | never | O(1) | none | caller-owned value | stores reader/config |
-| `Walker.walk` | none | never by itself | O(5 reader calls) | none | reader-defined | reader-defined |
-| `Walker.walkRaw` | none | never by itself | O(5 reader calls) | none | reader-defined | reader-defined |
+## Translation boundary
 
-`paging` performs no heap allocation, sleeping, blocking, scheduler calls,
-atomics, inline assembly, hidden global access, or runtime target probing.
+`translate` requires `linear_address` to be canonical under `mode`. The caller
+must apply segmentation, Intel LAM, AMD UAI, and other architectural address
+preprocessing before the call.
 
-## Ordering and mutation contract
+The walker asserts canonicality under safety checks. It does not return
+`error.NonCanonical`. x86 rejects a non-canonical address before an ordinary
+page walk.
 
-`paging` does not issue compiler fences, CPU fences, TLB invalidations, or cache
-maintenance instructions.
+A crash-dump or mapping-inspection consumer can request
+`walk.Access.read(.supervisor)`. Within this spec's non-goals, supervisor read
+is not restricted by R/W, U/S, or NX. The successful result still reports all
+effective permissions.
 
-`table.set` and `table.clear` are plain memory stores. If a caller modifies a
-reachable paging structure, the caller owns every ordering and invalidation step
-required by the execution environment.
+## Private resolution model
 
-`Walker` is read-only. It never sets accessed or dirty bits. It never writes a
-page-table entry even when hardware would set A/D bits during a real walk.
+The walker uses one private runtime descriptor:
+
+```zig
+const WalkTable = struct {
+    base: Phys4K.Frame,
+    level: Level,
+
+    fn nextTable(
+        self: WalkTable,
+        entry: PagingStructureEntry,
+    ) ?WalkTable;
+};
+```
+
+`WalkTable` keeps a typed 4 KiB table base and level together. `nextTable`
+returns the referenced child table when a validated present entry references
+one. It returns `null` when the entry maps a page. `WalkTable` does not contain
+permissions or memory ownership state.
+
+`translate` keeps the requested access and accumulated writable, user, and
+executable state in local values. The walker configuration remains immutable
+during translation.
+
+The walk loop is bounded by the numeric root level. A 4-level walk performs at
+most four iterations. A 5-level walk performs at most five iterations. Each
+iteration:
+
+1. computes the entry address;
+2. calls `Reader.readEntry`;
+3. returns a not-present fault when P is clear;
+4. validates the present encoding;
+5. intersects R/W, U/S, and execute state with
+   `EffectivePermissions.intersect`;
+6. calls `WalkTable.nextTable` or processes a mapped page.
+
+Mapped-page processing checks permissions before it decodes the page frame and
+attributes. It then returns a permission fault or constructs `MappedPage`.
+
+Private operations exist only for non-trivial semantic boundaries:
+
+- walker configuration determines whether a present entry has reserved bits;
+- `EffectivePermissions` intersects path permissions with a present entry;
+- `Flags` applies permission-fault precedence and constructs a permission
+  `Fault`;
+- `Fault` constructs a consistent reason, error code, and step;
+- `ResolvedPage` converts a validated mapped-page entry into a `PageFrame` and
+  `PageAttributes`;
+- `MappedPage` combines the resolved page, linear address, permissions, and
+  terminal step into the successful result.
+
+The private implementation does not expose `decodeEntry`, `Decoded`,
+`DecodeContext`, or a generic `Context` type. It does not use private
+translation-state or intermediate target-result types.
+
+## Reserved-bit validation
+
+For a present entry, the walker validates:
+
+- physical-address bits above `physical_address_width`;
+- PS at PML5 or PML4;
+- a PDPT page mapping when 1 GiB pages are unsupported;
+- reserved address bits in 2 MiB and 1 GiB page entries;
+- NX when execute-disable is not enabled.
+
+Not-present detection occurs before reserved-bit validation. Other bits in a
+non-present entry do not produce a reserved-bit fault.
+
+A reserved encoding produces `walk.Fault.Reason.reserved_bits`. It is not a Zig
+error.
+
+## Permission accumulation and checks
+
+Effective permissions start with `writable`, `user`, and `executable` set. For
+every present entry, `EffectivePermissions.intersect` performs these explicit
+intersections:
+
+```zig
+writable = writable and entry.writable();
+user = user and entry.userAccessible();
+executable = executable and entry.executable();
+```
+
+No permission state is stored in a producer type, exact `Entry`, `Memory`,
+private `WalkTable`, or private resolved-page value.
+
+Permission checks occur after the mapped-page entry updates the accumulated
+state. Fault precedence is:
+
+1. `.user_to_supervisor`;
+2. `.write_to_read_only`;
+3. `.execute_disabled`.
+
+A user access faults when effective `user` is false.
+
+A write access faults when effective `writable` is false and either the access
+is user or `supervisor_write_protect` is true.
+
+An execute access faults when effective `executable` is false.
+
+## Allocation, waiting, capacity, and bounds
+
+| Operation | Allocation | Waiting | Bound |
+| --- | --- | --- | --- |
+| Address and geometry operations | none | never | O(1) |
+| Exact producer `init` | none | never | O(1) |
+| `tableEntry` and `pageEntry` | none | never | O(1) |
+| `Memory.init` | none | never | exactly 512 entries |
+| `Memory.get`, `set`, and `clear` | none | never | O(1) |
+| `Walker.init` | none | never | O(1) |
+| `Walker.initCurrentCPU` | none | never by paging code | O(1) |
+| `Walker.updateRootTable` | none | never | O(1) |
+| 4-level `Walker.translate` | none | reader-defined | at most 4 reader calls |
+| 5-level `Walker.translate` | none | reader-defined | at most 5 reader calls |
+
+The paging implementation does not allocate, sleep, block, spin, call a
+scheduler, or probe the current CPU except through `initCurrentCPU`. A reader
+can have a stronger waiting or allocation behavior; that behavior belongs to
+the reader contract.
+
+## Mutation, concurrency, ordering, and invalidation
+
+Exact entry construction is value-only. A construction error cannot mutate a
+`Memory` value because construction does not receive a memory pointer.
+
+`Memory.set` and `Memory.clear` use plain stores. The caller owns synchronization
+for concurrent access.
+
+Concurrent calls to `translate` are permitted only when the reader supports
+concurrent reads and no caller mutates walker state. `updateRootTable` requires
+exclusive mutation of the walker.
+
+A caller that modifies a reachable paging structure owns:
+
+- compiler and CPU ordering;
+- synchronization with software walkers and hardware page walks;
+- TLB invalidation;
+- cross-CPU shootdown;
+- reclamation of replaced memory and mapped frames.
+
+The paging implementation does not issue fences, invalidation instructions, or
+cache-maintenance instructions.
+
+A translation never writes a paging-structure entry. It does not set accessed
+or dirty bits.
 
 ## Error and fault distinction
 
-Walker reader failures are Zig errors from `Reader.Error`.
+Producer validation, walker initialization, and reader failures are Zig errors.
 
-Non-canonical linear addresses are `error.NonCanonical` because ordinary x86
-execution raises `#GP` or `#SS`, not `#PF`, before a page walk.
+Raw page-walk failures after a successful reader call are `walk.Result.fault`
+values.
 
-Page-walk failures after a canonical address and successful entry read are
-returned as `walk.Result.fault`.
+A reader error propagates unchanged. The walker does not convert it to a page
+fault.
 
-`walk.Result.fault` is data. It does not imply this library installed or handled
-a CPU exception.
+A non-canonical input violates the `translate` precondition. It is not a page
+fault because the processor rejects the address before the page walk.
 
 ## Target gating
 
-The paging module contains no inline assembly. It compiles on any target.
+Address, producer, memory-layout, and explicit-walker declarations compile on
+every target. They contain no inline assembly.
 
-Code that reads CR3, writes CR3, invalidates TLBs, or interacts with VMX/SVM
-state is owned by other x86_64 specs and may be target-gated there.
+`initCurrentCPU` references target-gated x86_64 CPUID and register operations.
+Referencing it on an unsupported target is a compile error.
 
-## Examples
+## Producer example
 
-Walk a raw CR2-like linear address through a caller-supplied reader:
+Construct and connect a PML4 and PDPT:
 
 ```zig
-const stdx = @import("stdx");
-const x86 = stdx.arch.x86_64;
-const paging = x86.paging;
+const pml4 = try paging.PML4.init(pml4_frame);
+const pdpt = try paging.PDPT.init(pdpt_frame);
 
-const sizes = x86.cpuid.addressSizes();
-const config = paging.Config.fromAddressSizes(.level4, sizes, .{
-    .pcid = true,
-    .no_execute = true,
-    .page_1gib = true,
-    .supervisor_write_protect = true,
-});
+const pml4_memory: *paging.PML4.Memory =
+    directMapFrame(pml4.base());
+const pdpt_memory: *paging.PDPT.Memory =
+    directMapFrame(pdpt.base());
 
-const root = try paging.Root.fromCr3(raw_cr3, config);
+pml4_memory.* = .init();
+pdpt_memory.* = .init();
 
-var reader = DirectMapReader.init(physmap_base);
-var walker = paging.Walker(*DirectMapReader).init(config, &reader);
+pml4_memory.set(
+    pml4_index,
+    paging.PML4.tableEntry(
+        pdpt,
+        .{
+            .writable = true,
+            .user = true,
+        },
+    ),
+);
+```
 
-switch (try walker.walkRaw(root, raw_linear, paging.walk.Access.read(.supervisor))) {
-    .mapped => |mapping| {
-        const phys = mapping.physical;
-        const size = mapping.leaf.sizeBytes();
-        _ = phys;
-        _ = size;
+Map a 1 GiB frame:
+
+```zig
+pdpt_memory.set(
+    pdpt_index,
+    try paging.PDPT.pageEntry(
+        frame_1gib,
+        .{
+            .writable = true,
+            .global = true,
+            .pat = true,
+        },
+    ),
+);
+```
+
+Construct and publish a live replacement explicitly:
+
+```zig
+const replacement = try paging.PT.pageEntry(
+    replacement_frame,
+    replacement_flags,
+);
+
+const prior = pt_memory.get(index);
+pt_memory.set(index, replacement);
+
+publishPageTableChange();
+invalidateTranslation(linear_address);
+retirePriorMapping(prior);
+```
+
+The publication, invalidation, and retirement operations are caller policy.
+
+## Translation examples
+
+Construct an explicit guest walker:
+
+```zig
+const GuestWalker = paging.Walker(GuestReader);
+
+var reader = GuestReader.init(guest_memory);
+const walker = try GuestWalker.init(.{
+    .root_table_base = guest_root,
+    .mode = .level5,
+    .physical_address_width = .bits_48,
+    .flags = .{
+        .page_1gib_supported = true,
+        .supervisor_write_protect = true,
+        .execute_disable_enabled = true,
+    },
+}, &reader);
+```
+
+Translate a caller-validated canonical address:
+
+```zig
+const address = try paging.LinearAddress.fromCanonical(
+    raw_linear_address,
+    walker.mode,
+);
+
+const access = paging.walk.Access.write(.user);
+
+switch (try walker.translate(address, access)) {
+    .mapped => |mapped| {
+        use(mapped.physical);
+        inspect(mapped.frame);
+        inspect(mapped.attributes);
+        inspect(mapped.permissions);
     },
     .fault => |fault| {
-        logFault(fault.code, fault.step.level, fault.step.entry.raw());
+        report(fault.reason, fault.code, fault.step);
     },
 }
 ```
 
-Build table entries in caller-owned memory:
+Construct a current-host walker at CPL 0:
 
 ```zig
-var pml4: paging.table.Pml4 align(paging.table.alignment) = .init();
-var pdpt: paging.table.Pdpt align(paging.table.alignment) = .init();
+const HostWalker = paging.Walker(DirectMapReader);
 
-pml4.set(
-    paging.Index.fromInt(0),
-    paging.table.entry(pdpt_frame, .{ .writable = true }),
-);
-
-pdpt.set(
-    paging.Index.fromInt(0),
-    paging.leaf.page1gib(frame_1gib, .{
-        .writable = true,
-        .global = true,
-    }),
-);
-```
-
-Dump an entry by level:
-
-```zig
-switch (entry.kind(level)) {
-    .not_present => log.info("not present raw=0x{x}", .{entry.raw()}),
-    .table => {
-        const frame = paging.table.frame(entry, level, config) catch |err| {
-            log.warn("bad table entry: {s} raw=0x{x}", .{ @errorName(err), entry.raw() });
-            return;
-        };
-        log.info("table frame=0x{x}", .{frame.addressInt()});
-    },
-    .leaf => {
-        const frame = paging.leaf.frame(entry, level, config) catch |err| {
-            log.warn("bad leaf entry: {s} raw=0x{x}", .{ @errorName(err), entry.raw() });
-            return;
-        };
-        log.info("leaf size={d} base=0x{x}", .{ frame.sizeBytes(), frame.addressInt() });
-    },
-}
+var reader = DirectMapReader.init(physmap_base);
+const walker = try HostWalker.initCurrentCPU(&reader);
 ```
 
 ## Required tests
 
-Required unit/model tests:
+### `address_test.zig`
 
-- `Mode.level4.rootLevel() == .pml4` and `linearBits() == 48`;
-- `Mode.level5.rootLevel() == .pml5` and `linearBits() == 57`;
-- `Level.indexShift` returns 12, 21, 30, 39, and 48 for PT through PML5;
-- `linear.isCanonical` accepts low and high canonical 48-bit addresses;
-- `linear.isCanonical` rejects non-canonical 48-bit addresses;
-- `linear.isCanonical` accepts valid 57-bit canonical addresses in `.level5`;
-- `linear.fromCanonical` returns `error.NonCanonical` for non-canonical input;
-- `linear.signExtend` sign-extends from the active high implemented bit;
-- `linear.indices` extracts every index for known 4-level and 5-level addresses;
-- `Config.validate` rejects physical widths below 32 and above 52;
-- `Root.fromCr3` decodes PCID and non-PCID low bits correctly;
-- `Root.fromCr3` rejects reserved low bits in non-PCID mode;
-- `Root.fromCr3` rejects roots above `physical_bits`;
-- `Root.toCr3` round-trips valid roots in PCID and non-PCID modes;
-- `Entry.fromRaw` / `raw` round-trip arbitrary `u64` values;
-- `Entry.kind` distinguishes not-present, table, and leaf forms at every level;
-- `Entry.reservedBits` ignores not-present entries;
-- `Entry.reservedBits` catches bit 7 set at PML4/PML5;
-- `Entry.reservedBits` catches NX when `features.no_execute == false`;
-- `Entry.reservedBits` catches physical address bits above `physical_bits`;
-- `Entry.reservedBits` catches misaligned 2 MiB and 1 GiB leaf bases;
-- `Entry.reservedBits` catches 1 GiB leaves when `features.page_1gib == false`;
-- `table.Pml4`, `table.Pdpt`, `table.Pd`, and `table.Pt` are exactly 4096
-  bytes and contain 512 entries;
-- `table.Type(level).init` fills every entry with `Entry.empty()`;
-- `table.get`, `set`, and `clear` operate on the selected index only;
-- `table.entry` and `table.frame` round-trip a `Phys4K.Frame`;
-- `leaf.page4kib`, `leaf.page2mib`, `leaf.page1gib`, and `leaf.frame`
-  round-trip typed frames;
-- `leaf.offsetBits`, `sizeBytes`, and `offsetMask` match 4 KiB, 2 MiB, and
-  1 GiB leaves;
-- `leaf.Frame` and `leaf.Mapping` methods report base, size, offset bits, and
-  offset mask correctly;
-- `Walker.walkRaw` translates a 4 KiB mapping;
-- `Walker.walkRaw` translates a 2 MiB mapping;
-- `Walker.walkRaw` translates a 1 GiB mapping when enabled;
-- `Walker.walkRaw` returns `error.NonCanonical` for non-canonical input;
-- `Walker.walkRaw` returns not-present faults at each level;
-- `Walker.walkRaw` returns reserved-bit faults;
-- `Walker.walkRaw` returns write faults for read-only mappings;
-- `Walker.walkRaw` returns user faults for supervisor mappings;
-- `Walker.walkRaw` returns execute faults for NX mappings;
-- `Walker.walkRaw` honors `supervisor_write_protect == false` for supervisor
-  writes;
-- reader errors propagate as Zig errors and are not converted to page faults;
-- the module imports and layout-only declarations compile on non-x86_64 targets.
+Required tests:
 
-## Amendments
+- `Mode.rootLevel` and `Mode.linearBits` for both modes;
+- every `Level.indexShift` value;
+- page geometry for PT, PD, and PDPT;
+- low and high canonical 48-bit addresses;
+- rejection of non-canonical 48-bit addresses;
+- canonical 57-bit addresses;
+- `fromCanonical` error behavior;
+- sign extension for both modes;
+- complete 4-level and 5-level index extraction.
 
-None.
+### `table_test.zig`
+
+Required tests:
+
+- every supported `PhysicalAddressWidth` value;
+- rejection of every unsupported physical width used by model tests;
+- distinct `Entry` types for PML5, PML4, PDPT, PD, and PT;
+- distinct `Memory` types for PML5, PML4, PDPT, PD, and PT;
+- 4096-byte size and alignment for every `Memory` type;
+- 512-entry capacity for every `Memory` type;
+- zero initialization for every `Memory` type;
+- selected-index behavior for `get`, `set`, and `clear`;
+- `Entry.empty`, `Entry.nonPresent`, and `Entry.raw`;
+- rejection of a present value by `Entry.nonPresent`;
+- arbitrary raw round trips through `PagingStructureEntry`;
+- exact PML5-to-PML4, PML4-to-PDPT, PDPT-to-PD, and PD-to-PT encoding;
+- exact 4 KiB, 2 MiB, and 1 GiB page encoding;
+- PS and PAT placement for every applicable page size;
+- every construction flag bit position;
+- physical-address overflow during producer initialization and page construction;
+- unchanged memory after a page-entry construction error;
+- entry-address calculation at index 0 and index 511.
+
+Runtime invalid-level tests are not part of the contract. Exact child and frame
+parameter types make those calls compile-time type errors.
+
+### `walk_test.zig`
+
+Required tests:
+
+- explicit walker initialization with default and non-default flags;
+- root alignment and physical-width validation;
+- transactional `updateRootTable`;
+- 4-level and 5-level translation;
+- 4 KiB, 2 MiB, and enabled 1 GiB mappings;
+- the 4-call and 5-call reader bounds;
+- permission accumulation at every level;
+- supervisor write behavior with CR0.WP semantics enabled and disabled;
+- deterministic permission-fault precedence;
+- not-present precedence over reserved-bit validation;
+- PS at PML5 and PML4;
+- unsupported 1 GiB pages;
+- physical bits above the selected width;
+- reserved 2 MiB and 1 GiB address bits;
+- NX with execute-disable disabled;
+- every modeled page-fault code field;
+- reader-error propagation;
+- mapping-inspection through supervisor read;
+- no paging-structure mutation during translation;
+- explicit-path compilation on a non-x86_64 target;
+- current-CPU constructor target gating;
+- a CPL 0 current-CPU integration test when the environment supplies that
+  prerequisite.
