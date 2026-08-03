@@ -20,7 +20,7 @@ This spec owns:
 
 This spec does not own:
 
-- `mem.Arena.Bounded` (owned by `docs/specs/mem/arena-bounded.md`);
+- `mem.Arena.Bounded` (owned by `docs/specs/mem/arena/bounded.md`);
 - growable arenas;
 - heap fallback or page allocation;
 - per-allocation free, compaction, or transfer of ownership;
@@ -54,7 +54,7 @@ test/mem/arena_test.zig
 
 ```zig
 pub const Arena = struct {
-    pub const Bounded = …; // see arena-bounded.md
+    pub const Bounded = …; // see bounded.md
 
     pub fn Static(comptime capacity_bytes: usize) type {
         return struct {

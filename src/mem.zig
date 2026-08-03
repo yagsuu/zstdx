@@ -1,5 +1,5 @@
 //! Memory primitives: alignment, arenas, allocators, pools, frames, and cache layout.
-//! Specs: docs/specs/mem/alignment.md, docs/specs/mem/arena-static.md, docs/specs/mem/arena-bounded.md,
+//! Specs: docs/specs/mem/alignment.md, docs/specs/mem/arena/static.md, docs/specs/mem/arena/bounded.md,
 //! plus allocator, pool, frame, and cache specs under docs/specs/mem/.
 
 pub const alignment = @import("mem/alignment.zig");

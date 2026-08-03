@@ -1,6 +1,6 @@
 //! Bump arena family. `Static(N)` owns inline storage; `Bounded` borrows
-//! caller `[]u8`. See docs/specs/mem/arena-bounded.md and
-//! docs/specs/mem/arena-static.md.
+//! caller `[]u8`. See docs/specs/mem/arena/bounded.md and
+//! docs/specs/mem/arena/static.md.
 
 const std = @import("std");
 

@@ -1,6 +1,6 @@
 //! Fixed-capacity sequences with initialized-prefix tracking.
 //! `Static` owns inline storage; `Bounded` borrows caller-provided storage.
-//! Specs: docs/specs/collections/list-static.md and docs/specs/collections/list-bounded.md.
+//! Specs: docs/specs/collections/list/static.md and docs/specs/collections/list/bounded.md.
 
 const std = @import("std");
 

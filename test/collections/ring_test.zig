@@ -1,5 +1,5 @@
 //! Ring contract tests.
-//! Specs: docs/specs/collections/ring-static.md and docs/specs/collections/ring-bounded.md.
+//! Specs: docs/specs/collections/ring/static.md and docs/specs/collections/ring/bounded.md.
 
 const std = @import("std");
 

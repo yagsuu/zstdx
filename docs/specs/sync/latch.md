@@ -159,7 +159,7 @@ pub const Bounded = struct {
 ```
 
 `Static(0)` is a compile-time error, matching the `BitSet.Static(0)` rule in
-`docs/specs/bits/bitset-static.md` and the `Rendezvous.Static(0)` rule in
+`docs/specs/bits/bitset/static.md` and the `Rendezvous.Static(0)` rule in
 `docs/specs/sync/rendezvous.md`. `Static(capacity)` with
 `capacity > std.math.maxInt(u32)` is a compile-time error.
 `Bounded.init(0, backend)` is a caller-contract violation and traps under

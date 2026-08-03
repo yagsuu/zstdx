@@ -1,5 +1,5 @@
-//! Arena contract tests. Specs: docs/specs/mem/arena-bounded.md and
-//! docs/specs/mem/arena-static.md.
+//! Arena contract tests. Specs: docs/specs/mem/arena/bounded.md and
+//! docs/specs/mem/arena/static.md.
 
 const std = @import("std");
 

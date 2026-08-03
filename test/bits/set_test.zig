@@ -1,4 +1,4 @@
-//! Static bit set contract tests. Spec: docs/specs/bits/bitset-static.md.
+//! Static bit set contract tests. Spec: docs/specs/bits/bitset/static.md.
 
 const std = @import("std");
 

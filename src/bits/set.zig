@@ -1,6 +1,6 @@
 //! Fixed-capacity bit sets used for slot occupancy, free-index tracking,
 //! resource masks, and small bounded integer domains. See
-//! docs/specs/bits/bitset-static.md.
+//! docs/specs/bits/bitset/static.md.
 
 const std = @import("std");
 

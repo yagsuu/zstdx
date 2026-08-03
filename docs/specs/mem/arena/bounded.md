@@ -25,7 +25,7 @@ This spec owns:
 
 This spec does not own:
 
-- `mem.Arena.Static` (owned by `docs/specs/mem/arena-static.md`);
+- `mem.Arena.Static` (owned by `docs/specs/mem/arena/static.md`);
 - growable arenas;
 - heap fallback or page allocation;
 - individual free, compaction, or ownership transfer;

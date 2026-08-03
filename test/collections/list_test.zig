@@ -1,5 +1,5 @@
 //! List contract tests.
-//! Specs: docs/specs/collections/list-static.md and docs/specs/collections/list-bounded.md.
+//! Specs: docs/specs/collections/list/static.md and docs/specs/collections/list/bounded.md.
 
 const std = @import("std");
 
