@@ -1,112 +1,28 @@
 # zstdx
 
-`zstdx` is a domain-neutral Zig primitive library for low-level systems code.
-It provides freestanding-first primitives with explicit contracts for storage,
-external allocation, waiting, capacity, ownership, invalidation, errors,
-concurrency, and ordering.
+`zstdx` is a freestanding-first, domain-neutral Zig library of low-level
+primitives. Its public contracts explicitly state allocation, waiting, capacity,
+ownership, invalidation, concurrency, and ordering behavior.
 
 | Field | Value |
 | --- | --- |
 | Package | `zstdx` |
 | Import name | `stdx` |
-| Public facade | `src/stdx.zig` |
 | Minimum Zig | `0.16.0` |
-| Normative specs | `docs/specs/` |
-
-## Status
-
-`zstdx` is early-stage and spec-driven. Public modules land only after their
-owning specs are approved. README examples and summaries are non-normative;
-owning specs define API contracts.
-
-## Build
-
-```sh
-zig build test --summary all
-```
-
-The host-side test suite is aggregated by `test/all.zig`.
 
 ## Import
+
+The package build defines the `stdx` module from
+[`src/stdx.zig`](src/stdx.zig).
 
 ```zig
 const stdx = @import("stdx");
 ```
 
-Common root-promoted families:
+## Use
 
-```zig
-const List = stdx.List;
-const Ring = stdx.Ring;
-```
-
-Domain-specific and policy-heavy APIs stay namespaced:
-
-```zig
-const mem = stdx.mem;
-const addr = stdx.addr;
-const x86 = stdx.arch.x86_64;
-```
-
-## Scope
-
-`zstdx` owns reusable primitives whose behavior can be specified without
-application, protocol, platform, or device policy.
-
-In scope:
-
-- freestanding-first low-level mechanisms;
-- static, bounded, intrusive, and caller-owned storage patterns;
-- explicit allocation, waiting, capacity, ownership, invalidation, and ordering
-  contracts;
-- strong address, page, tag, time, and descriptor-facing value types and queues;
-- generic synchronization and concurrent structures with explicit platform
-  requirements;
-- target-gated architecture, barrier, MMIO, and DMA primitives.
-
-Out of scope:
-
-- kernels, firmware frameworks, driver stacks, filesystems, and hypervisor
-  control planes;
-- PCI enumeration, ACPI/AML, UEFI protocol wrappers, NVMe controllers, IOMMU
-  policy, block layers, scheduler policy, and VM-exit dispatch;
-- replacements for `std` primitives when `std` already owns the exact contract.
-
-See [`docs/specs/project/scope.md`](docs/specs/project/scope.md).
-
-## Design principles
-
-### Freestanding first
-
-Primitives compile and work without an OS, heap, threading runtime, or `std.Io`
-implementation.
-
-### No hidden allocation or waiting
-
-If an operation allocates, sleeps, spins, blocks, performs volatile access,
-emits a barrier, or executes a target instruction, the public contract says so.
-
-### Caller-owned storage
-
-Fixed-capacity storage is explicit: inline for `Static`, caller-provided for
-`Bounded`, and embedded in parent objects for intrusive structures.
-
-### Compile-time composition
-
-Backends such as clocks, wait/wake mechanisms, and MMIO surfaces compose through
-generic type parameters instead of hot-path vtables.
-
-### Contracts are API surface
-
-Allocation, waiting, concurrency, ordering, invalidation, errors, and
-mutation-on-error are part of each primitive contract.
-
-### Domain identity through types
-
-Physical, virtual, DMA, page, tag, and time domains use strong types instead of
-bare integers where accidental mixing would be a bug.
-
-## Examples
+`zstdx` makes storage and execution behavior explicit in each primitive
+contract.
 
 ### Fixed-capacity FIFO
 
@@ -130,7 +46,7 @@ var arena = stdx.mem.Arena.Bounded.wrap(&backing);
 const bytes = try arena.allocSlice(u8, 128);
 ```
 
-### Strong page/frame algebra
+### Strong page and frame types
 
 ```zig
 const stdx = @import("stdx");
@@ -139,98 +55,44 @@ const Page4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
 const frame = try Page4K.Frame.fromAddressInt(0x1000);
 ```
 
-### Deadline queue
+## Guarantees
 
-```zig
-const stdx = @import("stdx");
+- **Freestanding first.** Primitives compile and work without an OS, heap,
+  threading runtime, or `std.Io` implementation.
+- **No implicit effects.** Public contracts state allocation, sleeping,
+  spinning, blocking, volatile access, barriers, and target instructions.
+- **Explicit storage.** `Static` uses inline compile-time fixed capacity;
+  `Bounded` uses caller-provided fixed storage; intrusive structures embed
+  their nodes in parent objects.
+- **Domain-safe composition.** Strong types distinguish address, page, tag,
+  and time domains. Generic parameters compose clocks, wait/wake mechanisms,
+  and MMIO surfaces without hot-path vtables.
 
-const Queue = stdx.time.DeadlineQueue.Static(u32, 16);
-var queue = Queue.init();
+## Scope
 
-_ = try queue.insert(
-    stdx.time.Deadline.at(stdx.time.Instant.fromNanos(1_000)),
-    42,
-);
+| Use `zstdx` for | Do not use `zstdx` for |
+| --- | --- |
+| Generic, reusable low-level mechanisms: fixed-capacity and intrusive storage, strong address and page types, synchronization, concurrent structures, barriers, MMIO, and DMA primitives. | Domain policy and systems: kernels, firmware frameworks, drivers, filesystems, hardware enumeration, storage stacks, hypervisor control planes, and protocol implementations. |
 
-_ = queue.popExpired(stdx.time.Instant.fromNanos(1_000));
+[`docs/specs/project/scope.md`](docs/specs/project/scope.md) defines the
+authoritative scope, non-goals, naming policy, and storage terminology.
+
+## Validate
+
+```sh
+zig build test --summary all
 ```
 
-### Target-gated primitive
+This command runs the aggregated test suite and target-compile fixtures.
 
-```zig
-const stdx = @import("stdx");
+## API and documentation
 
-const x86 = stdx.arch.x86_64;
-if (x86.supported) {
-    x86.cpu.pause();
-}
-```
-
-## Public surface
-
-| Namespace | Purpose | Key families |
-| --- | --- | --- |
-| `stdx.core` | Shared contracts and callback traits | `SafetyMode`, `Range(T)` |
-| `stdx.bits` | Bit and word helpers | `BitSet`, `word` |
-| `stdx.addr` | Strong address and page algebra | `Address`, `PhysAddr`, `VirtAddr`, `DmaAddr`, `Page` |
-| `stdx.layout` | Endian field types | `EndianInt`, `Le`, `Be` |
-| `stdx.bytes` | Byte-slice access | unaligned access, checked offset access, `Cursor` |
-| `stdx.mem` | Fixed-storage memory primitives | `Arena`, `Pool`, `PoolCache`, bitmap/buddy/frame allocators, cache padding |
-| `stdx.collections` | Non-intrusive fixed-capacity containers | `List`, `Ring` |
-| `stdx.intrusive` | Embedded-node collections | `List`, `Queue`, `Stack` |
-| `stdx.ranges` | Interval sets and maps | `RangeSet`, `RangeMap` |
-| `stdx.graph` | Topology primitives | `Forest` |
-| `stdx.algo` | Stateless algorithms | allocation placement, buddy arithmetic |
-| `stdx.tags` | Strong identifiers | `Tag`, `TagAllocator` |
-| `stdx.arch` | Target-gated architecture primitives | `x86_64` |
-| `stdx.diag` | Primitive diagnostics | `Diagnostics`, `PanicLog` |
-| `stdx.sync` | Synchronization primitives | `Signal`, `AtomicCell`, `RawSpinLock`, `Once`, `Rendezvous` |
-| `stdx.concurrent` | Concurrent rings | `mpsc.Ring`, `spsc.Ring` |
-| `stdx.cpu` | CPU-local storage | `PerCPU` |
-| `stdx.time` | Time values, deadlines, retry timing, and timer queues | `Instant`, `Duration`, `Clock`, `Deadline`, `Backoff`, `RateCounter`, `DeadlineQueue`, `TimerWheel` |
-| `stdx.barrier` | Compiler, MMIO, and DMA fences | `compiler`, `mmio`, `dma` |
-| `stdx.io` | MMIO and polling helpers | `MMIO`, `poll` |
-| `stdx.dma` | DMA-visible value types | `Buffer`, `ScatterGather` |
-| `stdx.func` | Function wrappers | `Callback`, `Closure` |
-
-Root-promoted families:
-
-| Root export | Canonical home |
+| Resource | Purpose |
 | --- | --- |
-| `stdx.List` | `stdx.collections.List` |
-| `stdx.Ring` | `stdx.collections.Ring` |
-
-Root promotion rules live in
-[`docs/specs/root-exports.md`](docs/specs/root-exports.md).
-
-## Contract vocabulary
-
-Primitive specs use these fields:
-
-| Field | Meaning |
-| --- | --- |
-| Storage | Where primitive state or backing storage lives. |
-| External allocation | Whether operations call an allocator, heap, syscall, runtime API, or backing-resource provider. |
-| Waiting | Whether operations block, sleep, spin, wait on I/O, or synchronize. |
-| Concurrency | Access contract and synchronization requirements. |
-| Performance | Hot-path and maintenance-path complexity. |
-| Errors | Public error set, `null` behavior, and programmer-error preconditions. |
-| Mutation on error | Whether fallible operations leave logical state unchanged. |
-| Invalidation | Which pointers, slices, indexes, handles, ranges, or memberships become invalid. |
-| Ordering | FIFO, LIFO, sorted, insertion order, target-instruction order, or none. |
-| Why not std.*? | Closest `std` or Zig feature and the axis where `zstdx` differs. |
-
-See the behavior documentation policy in
-[`docs/specs/project/scope.md`](docs/specs/project/scope.md).
-
-## Documentation
-
-| Document | Purpose |
-| --- | --- |
-| [`docs/specs/project/scope.md`](docs/specs/project/scope.md) | Project scope, naming policy, behavior-documentation rules. |
-| [`docs/specs/root-exports.md`](docs/specs/root-exports.md) | Root facade and root promotion rules. |
-| [`docs/guidelines/spec-writing.md`](docs/guidelines/spec-writing.md) | Production spec structure, section value, and normative language rules. |
-| [`docs/specs/`](docs/specs/) | Normative per-primitive specs. |
-| [`docs/project-decisions.md`](docs/project-decisions.md) | Approved project facts and status labels. |
-
-A public module lands only with an approved owning spec.
+| Root exports: `stdx.List`, `stdx.Ring` | Common fixed-capacity collection families. |
+| `stdx.addr`, `stdx.mem`, `stdx.collections`, `stdx.intrusive` | Address/page types and storage primitives. |
+| `stdx.sync`, `stdx.concurrent`, `stdx.arch`, `stdx.time` | Synchronization, target-gated primitives, and time-based primitives. |
+| [`src/stdx.zig`](src/stdx.zig) | Complete public facade. |
+| [`docs/specs/`](docs/specs/) | Normative per-primitive specifications. |
+| [`docs/specs/project/scope.md`](docs/specs/project/scope.md) | Scope, naming, behavior-documentation rules. |
+| [`docs/guidelines/spec-writing.md`](docs/guidelines/spec-writing.md) | Specification structure and normative-language rules. |
