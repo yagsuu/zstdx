@@ -1,4 +1,4 @@
-//! Fixed-tick, fixed-capacity timer wheel. Spec: docs/specs/time/timer-wheel.md.
+//! Fixed-tick, fixed-capacity timer wheel. See `docs/specs/time/timer-wheel.md`.
 
 const std = @import("std");
 
@@ -26,7 +26,10 @@ pub const TimerWheel = struct {
         comptime capacity_items: usize,
         comptime config: Config,
     ) type {
-        comptime validateConfig(config);
+        comptime {
+            if (capacity_items == 0) @compileError("TimerWheel.Static capacity_items must be non-zero");
+            validateConfig(config);
+        }
 
         return struct {
             pub const item_capacity = capacity_items;

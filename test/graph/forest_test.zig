@@ -1,4 +1,4 @@
-//! Forest topology tests. Spec: docs/specs/graph/forest.md.
+//! Forest topology tests. See `docs/specs/graph/forest.md`.
 
 const std = @import("std");
 const stdx = @import("stdx");
@@ -6,18 +6,6 @@ const stdx = @import("stdx");
 const Forest = stdx.graph.Forest;
 
 const testing = std.testing;
-
-test "unit: Forest.Static(0) is empty and rejects node ids" {
-    const F = Forest.Static(0);
-    var forest = F.init();
-
-    try testing.expectEqual(@as(usize, 0), forest.capacity());
-    try testing.expect(forest.isEmpty());
-    try testing.expectEqual(@as(?F.NodeID, null), forest.firstRoot());
-    try testing.expectEqual(@as(?F.NodeID, null), forest.lastRoot());
-    try testing.expectError(error.OutOfBounds, forest.nodeId(0));
-    forest.assertValid();
-}
 
 test "unit: Forest.Static appends roots in insertion order" {
     const F = Forest.Static(4);

@@ -1,4 +1,4 @@
-//! BitmapAllocator contract tests. Spec: docs/specs/mem/bitmap-allocator.md.
+//! BitmapAllocator contract tests. See `docs/specs/mem/bitmap-allocator.md`.
 
 const std = @import("std");
 
@@ -27,15 +27,6 @@ test "unit: default Static struct literal is empty" {
     try testing.expectEqual(@as(usize, 65), bm.capacity());
     try testing.expect(bm.isEmpty());
     bm.assertValid();
-}
-
-test "unit: Static(0) is both empty and full" {
-    var bm = BitmapAllocator.Static(0).init();
-    try testing.expectEqual(@as(usize, 0), bm.capacity());
-    try testing.expect(bm.isEmpty());
-    try testing.expect(bm.isFull());
-    bm.assertValid();
-    try testing.expectError(error.OutOfMemory, bm.allocOne());
 }
 
 test "unit: Static(1) basic invariants" {
@@ -372,10 +363,6 @@ test "unit: allocated/remaining/isEmpty/isFull cover state spectrum" {
     try bm.reserveRange(try Range.fromBounds(64, 129));
     try testing.expect(bm.isFull());
     try testing.expect(!bm.isEmpty());
-
-    var zero = BitmapAllocator.Static(0).init();
-    try testing.expect(zero.isEmpty());
-    try testing.expect(zero.isFull());
 }
 
 test "unit: clearRetainingCapacity clears all units" {

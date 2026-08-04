@@ -1,5 +1,5 @@
 //! Ring contract tests.
-//! Specs: docs/specs/collections/ring/static.md and docs/specs/collections/ring/bounded.md.
+//! See `docs/specs/collections/ring/static.md` and `docs/specs/collections/ring/bounded.md`.
 
 const std = @import("std");
 
@@ -8,14 +8,6 @@ const stdx = @import("stdx");
 const Ring = stdx.Ring;
 
 const testing = std.testing;
-
-test "unit: Ring.Static(T, 0) reports full and returns input from overwriteOldest" {
-    var zero = Ring.Static(u8, 0).init();
-    try testing.expect(zero.isFull());
-    try testing.expectError(error.Full, zero.pushBack(1));
-    try testing.expectEqual(@as(?u8, 1), zero.pushBackOverwriteOldest(1));
-    try testing.expectEqual(@as(?*u8, null), zero.front());
-}
 
 test "unit: Ring.Static enforces FIFO and reports error.Full" {
     var ring = Ring.Static(u8, 3).init();

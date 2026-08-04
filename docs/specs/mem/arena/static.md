@@ -110,9 +110,7 @@ equality may permit such cross-arena calls at compile time depending on Zig
 anonymous-struct deduplication; runtime assertions catch out-of-range marks
 inside `restore`.
 
-`Static(0)` is valid. Every non-zero allocation against `Static(0)`
-returns `error.OutOfMemory`. Zero-length byte allocations succeed
-without advancing.
+`Static(0)` is a compile error. `Static(N)` requires `N > 0`.
 
 ## Invariant
 
@@ -260,7 +258,7 @@ try std.testing.expectError(error.OutOfMemory, arena.allocBytes(1));
 - `init()` starts with `used() == 0`;
 - `capacity()` equals `byte_capacity`;
 - `remaining()` equals `byte_capacity` at initialization;
-- `Static(0).init()` is valid and reports `capacity() == 0`.
+- `Static(0)` is a compile error.
 
 ### Byte allocations
 

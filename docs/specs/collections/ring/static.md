@@ -126,16 +126,14 @@ return null).*`.
 `T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
 are compile errors where practical.
 
-`capacity_items` is a comptime item count. `Static(T, 0)` is valid; it is both
-empty and full. On a zero-capacity ring, every `pushBack` returns `error.Full`,
-`pushBackOverwriteOldest` returns the input item unchanged, and every pointer
-accessor returns `null`.
+`capacity_items` is a comptime item count greater than zero. `Static(T, 0)`
+is a compile error.
 
 A valid ring satisfies:
 
 ```zig
 ring.count <= item_capacity
-ring.head < item_capacity  // when item_capacity > 0
+ring.head < item_capacity
 ```
 
 The live elements are the `count` slots starting at `head` and advancing forward
@@ -377,9 +375,9 @@ while (queue.remaining() != 0 and produce(&item)) {
 
 - default struct literal is empty with `head = 0` and `count = 0`;
 - `init()` is empty;
-- `Static(T, 0)` is both empty and full;
+- `Static(T, 0)` is a compile error;
 - `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,
-  full, and zero-capacity rings;
+  and full rings;
 - zero-sized `T` fails to compile where the compile-fail harness supports it.
 
 ### Enqueue

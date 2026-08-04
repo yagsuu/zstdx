@@ -1,4 +1,4 @@
-//! Fixed-capacity canonical range sets. See docs/specs/ranges/range-set.md.
+//! Fixed-capacity canonical range sets. See `docs/specs/ranges/range-set.md`.
 
 const std = @import("std");
 
@@ -6,6 +6,7 @@ const core = @import("../core.zig");
 
 pub const RangeSet = struct {
     pub fn Static(comptime T: type, comptime capacity_ranges: usize) type {
+        comptime if (capacity_ranges == 0) @compileError("RangeSet.Static capacity_ranges must be non-zero");
         return struct {
             buffer: [capacity_ranges]Range = undefined,
             count: usize = 0,
@@ -50,15 +51,15 @@ pub const RangeSet = struct {
             }
 
             /// `error.InvalidRange`: `range` is invalid.
-            /// `error.Full`: canonical result would exceed capacity.
-            /// Empty range is a no-op. Success invalidates prior slices; error leaves set unchanged.
+            /// `error.Full`: The canonical result would exceed capacity.
+            /// An empty range is a no-op. On success, prior slices are invalid. On error, the set is unchanged.
             pub fn insert(self: *Self, range: Range) Error!void {
                 try insertRange(Range, self.buffer[0..], &self.count, range);
             }
 
             /// `error.InvalidRange`: `range` is invalid.
-            /// `error.Full`: middle split needs a slot at capacity.
-            /// Empty/disjoint ranges are no-ops. Success invalidates prior slices; error leaves set unchanged.
+            /// `error.Full`: A middle split needs a slot at capacity.
+            /// Empty or disjoint ranges are no-ops. On success, prior slices are invalid. On error, the set is unchanged.
             pub fn remove(self: *Self, range: Range) Error!void {
                 try removeRange(Range, self.buffer[0..], &self.count, range);
             }
@@ -84,10 +85,9 @@ pub const RangeSet = struct {
             }
 
             /// Precondition: `range.isValid()`.
-            /// Returns the first ascending non-empty intersection, or `null` when no
-            /// stored range intersects. Empty ranges yield `null`.
-            /// The returned range is a value copy; mutation, move, or
-            /// `clearRetainingCapacity` cannot invalidate it.
+            /// Returns the first non-empty intersection in ascending order, or `null` if no stored range intersects.
+            /// Empty ranges yield `null`. The returned range is a value copy and remains valid after a mutation,
+            /// move, or `clearRetainingCapacity`.
             pub fn findIntersecting(self: *const Self, range: Range) ?Range {
                 return findIntersectingRange(Range, self.asConstSlice(), range);
             }
@@ -141,15 +141,15 @@ pub const RangeSet = struct {
             }
 
             /// `error.InvalidRange`: `range` is invalid.
-            /// `error.Full`: canonical result would exceed capacity.
-            /// Empty range is a no-op. Success invalidates prior slices; error leaves set unchanged.
+            /// `error.Full`: The canonical result would exceed capacity.
+            /// An empty range is a no-op. On success, prior slices are invalid. On error, the set is unchanged.
             pub fn insert(self: *Self, range: Range) Error!void {
                 try insertRange(Range, self.buffer, &self.count, range);
             }
 
             /// `error.InvalidRange`: `range` is invalid.
-            /// `error.Full`: middle split needs a slot at capacity.
-            /// Empty/disjoint ranges are no-ops. Success invalidates prior slices; error leaves set unchanged.
+            /// `error.Full`: A middle split needs a slot at capacity.
+            /// Empty or disjoint ranges are no-ops. On success, prior slices are invalid. On error, the set is unchanged.
             pub fn remove(self: *Self, range: Range) Error!void {
                 try removeRange(Range, self.buffer, &self.count, range);
             }
@@ -175,10 +175,9 @@ pub const RangeSet = struct {
             }
 
             /// Precondition: `range.isValid()`.
-            /// Returns the first ascending non-empty intersection, or `null` when no
-            /// stored range intersects. Empty ranges yield `null`.
-            /// The returned range is a value copy; mutation, move, or
-            /// `clearRetainingCapacity` cannot invalidate it.
+            /// Returns the first non-empty intersection in ascending order, or `null` if no stored range intersects.
+            /// Empty ranges yield `null`. The returned range is a value copy and remains valid after a mutation,
+            /// move, or `clearRetainingCapacity`.
             pub fn findIntersecting(self: *const Self, range: Range) ?Range {
                 return findIntersectingRange(Range, self.asConstSlice(), range);
             }

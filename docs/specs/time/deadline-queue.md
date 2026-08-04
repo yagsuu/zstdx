@@ -313,16 +313,17 @@ callback, `deinit`, `clearAndFree`, allocator-taking method, or root export.
 
 ## Initialization
 
-`Static(T, N).init()` returns an empty queue with capacity `N`.
+`Static(T, N).init()` returns an empty queue with capacity `N`. `N` must be
+greater than zero.
 
 `Bounded(T).wrap(slots, heap)` returns an empty queue with capacity
 `slots.len`. It initializes the queue's logical state over caller-provided
 storage. The caller must not read or write `slots` or `heap` while the queue may
 use them.
 
-Initialization performs no allocation and no clock read. For zero-capacity
-queues, initialization succeeds, `isFull()` and `isEmpty()` both return true,
-and every `insert` returns `error.Full` without mutation.
+Initialization performs no allocation and no clock read. A zero-capacity
+bounded queue is both empty and full, and every `insert` returns `error.Full`
+without mutation.
 
 ## Capacity and accessors
 
@@ -555,9 +556,7 @@ except through returned `Entry` values.
 ### Construction and capacity
 
 Required tests:
-
-- `Static(T, 0).init()` creates an empty full queue and `insert` returns
-  `error.Full` without mutation;
+- `Static(T, 0)` is a compile error;
 - `Static(T, N).init()` creates an empty queue with capacity `N`;
 - `Bounded(T).wrap(slots, heap)` uses `slots.len` as capacity;
 - `Bounded(T).wrap` traps when `core.debug.checksEnabled(.build_mode)` is true

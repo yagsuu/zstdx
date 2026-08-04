@@ -215,7 +215,8 @@ items[i].range.end <= items[i + 1].range.start
 
 Equality is allowed. Adjacent entries are valid and are not coalesced unless the caller explicitly requests coalescing.
 
-`capacity_entries == 0` and `Bounded.wrap(buffer[0..0])` are valid. A zero-capacity map is empty and full.
+`RangeMap.Static(T, V, 0)` is a compile error. `Bounded.wrap(buffer[0..0])`
+is valid; the zero-capacity map is empty and full.
 
 ## Value ownership and lifetime
 

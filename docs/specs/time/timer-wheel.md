@@ -376,16 +376,16 @@ cannot be represented in the `Instant` `u64` nanosecond domain.
 ## Initialization
 
 `Static(T, N, config).init(origin)` returns an empty wheel with entry capacity
-`N`, bucket count `config.slot_count`, and cursor tick `0` at `origin`.
+`N`, bucket count `config.slot_count`, and cursor tick `0` at `origin`. `N`
+must be greater than zero.
 
 `Bounded(T, config).wrap(slots, buckets, origin)` returns an empty wheel with
 entry capacity `slots.len`, bucket count `buckets.len`, and cursor tick `0` at
 `origin`.
 
-Initialization performs no allocation and no clock read. For zero-entry-capacity
-wheels, initialization succeeds, `isFull()` and `isEmpty()` both return true,
-and every `insert` returns `error.Full` unless the deadline is out of range, in
-which case it returns `error.OutOfRange` first.
+Initialization performs no allocation and no clock read. A zero-entry-capacity
+bounded wheel is both empty and full. `insert` returns `error.Full` unless an
+out-of-range deadline returns `error.OutOfRange` first.
 
 ## Capacity and accessors
 

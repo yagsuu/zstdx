@@ -1,4 +1,4 @@
-//! RangeSet contract tests. Spec: docs/specs/ranges/range-set.md.
+//! RangeSet contract tests. See `docs/specs/ranges/range-set.md`.
 
 const std = @import("std");
 
@@ -29,11 +29,6 @@ test "unit: RangeSet construction and capacity" {
     bounded.clearRetainingCapacity();
     try testing.expect(bounded.isEmpty());
     try testing.expectEqual(@as(usize, 3), bounded.capacity());
-
-    var zero_static = RangeSet.Static(u8, 0).init();
-    try testing.expect(zero_static.isEmpty());
-    try testing.expect(zero_static.isFull());
-    try testing.expectError(error.Full, zero_static.insert(try r(@TypeOf(zero_static).Range, 1, 2)));
 
     var zero_backing: [0]RangeSet.Bounded(u8).Range = .{};
     var zero_bounded = RangeSet.Bounded(u8).wrap(&zero_backing);

@@ -1,5 +1,5 @@
 //! DMA segment lists and aligned append builders.
-//! Spec: docs/specs/dma/scatter-gather.md.
+//! See `docs/specs/dma/scatter-gather.md`.
 
 const std = @import("std");
 
@@ -20,13 +20,12 @@ pub const Segment = struct {
     /// `Overflow`: `addr.raw() + len_bytes` exceeds `Address.Raw`.
     pub const Error = error{Overflow};
 
-    /// Creates a validated `[addr, addr + len_bytes)` segment.
+    /// Validates that `[addr, addr + len_bytes)` does not overflow.
     pub fn init(addr: DMAAddr, len_bytes: DMARaw) Error!Segment {
         _ = std.math.add(DMARaw, addr.raw(), len_bytes) catch return error.Overflow;
         return .{ .addr = addr, .len_bytes = len_bytes };
     }
 
-    /// Creates a segment covering the whole `Buffer(T)`.
     pub fn fromBuffer(comptime T: type, buf: buffer.Buffer(T)) Segment {
         return .{ .addr = buf.dmaAddr(), .len_bytes = buf.byteLen() };
     }
@@ -39,14 +38,13 @@ pub const Segment = struct {
         return self.len_bytes == 0;
     }
 
-    /// Returns the one-past-the-end device address. Hand-built segments are revalidated.
+    /// The returned address is one byte past the segment.
     pub fn endAddr(self: Segment) Error!DMAAddr {
         const raw = std.math.add(DMARaw, self.addr.raw(), self.len_bytes) catch return error.Overflow;
         return DMAAddr.fromInt(raw);
     }
 
-    /// Returns true iff both `addr` and `len_bytes` are aligned. Invalid
-    /// alignment returns `false`.
+    /// Returns `false` for zero or non-power-of-two alignment.
     pub fn isAligned(self: Segment, alignment: DMARaw) bool {
         if (alignment == 0) return false;
         if (!bits.isPowerOfTwo(DMARaw, alignment)) return false;
@@ -60,21 +58,21 @@ pub const Segment = struct {
     }
 };
 
-/// `Static(N)` owns segment-list storage. `Bounded` borrows storage.
+/// `Static` owns segment-list storage. `Bounded` borrows storage.
 pub const List = struct {
-    /// Provides inline segment storage. Zero capacity is valid.
     pub fn Static(comptime capacity_segments: usize) type {
+        comptime if (capacity_segments == 0) @compileError("dma.List.Static capacity_segments must be non-zero");
         return struct {
             buffer: [capacity_segments]Segment = undefined,
             count: usize = 0,
 
             const Self = @This();
 
-            /// `Full`: `append` at capacity.
-            /// `OutOfBounds`: index access at or past `count`.
+            /// `Full`: The list is at capacity.
+            /// `OutOfBounds`: The index is at or past `count`.
             pub const Error = error{ Full, OutOfBounds };
 
-            /// Comptime capacity in segments.
+            /// The compile-time capacity in segments.
             pub const segment_capacity = capacity_segments;
 
             pub fn init() Self {
@@ -144,7 +142,7 @@ pub const List = struct {
                 return &self.buffer[index];
             }
 
-            /// Sums `len_bytes`. Returns `error.Overflow` on `Address.Raw` wrap.
+            /// `error.Overflow` is returned if the sum exceeds `Address.Raw`.
             pub fn totalByteLen(self: *const Self) error{Overflow}!DMARaw {
                 return sumSegmentLens(self.asConstSlice());
             }
@@ -156,13 +154,13 @@ pub const List = struct {
         };
     }
 
-    /// Borrows segment storage. Capacity is `buffer.len`.
+    /// Bounded lists borrow storage. Their capacity is `buffer.len`.
     pub const Bounded = struct {
         buffer: []Segment,
         count: usize = 0,
 
-        /// `Full`: `append` at capacity.
-        /// `OutOfBounds`: index access at or past `count`.
+        /// `Full`: The list is at capacity.
+        /// `OutOfBounds`: The index is at or past `count`.
         pub const Error = error{ Full, OutOfBounds };
 
         pub fn wrap(buf: []Segment) Bounded {
@@ -248,10 +246,11 @@ fn requireAlignment(comptime alignment: DMARaw) void {
     if (!bits.isPowerOfTwo(DMARaw, alignment)) @compileError("Builder alignment must be a power of two");
 }
 
-/// Builders enforce uniform per-segment alignment on append.
+/// Builders require a uniform alignment for each appended segment.
 pub const Builder = struct {
-    /// Builds over inline segment storage.
+    /// Static builders own inline segment storage.
     pub fn Static(comptime capacity_segments: usize, comptime alignment: DMARaw) type {
+        comptime if (capacity_segments == 0) @compileError("dma.Builder.Static capacity_segments must be non-zero");
         comptime requireAlignment(alignment);
         return struct {
             list: List.Static(capacity_segments) = .{},
@@ -259,11 +258,11 @@ pub const Builder = struct {
             const Self = @This();
             const InnerList = List.Static(capacity_segments);
 
-            /// `Full`: underlying list at capacity.
-            /// `Misaligned`: segment fails `isAligned(alignment)`.
+            /// `Full`: The underlying list is at capacity.
+            /// `Misaligned`: The segment fails `isAligned(alignment)`.
             pub const Error = error{ Full, Misaligned };
 
-            /// Segments appended through this builder must meet this alignment.
+            /// Appended segments must meet this alignment.
             pub const segment_alignment = alignment;
 
             pub fn init() Self {
@@ -314,7 +313,7 @@ pub const Builder = struct {
                 return self.append(Segment.fromBuffer(T, buf));
             }
 
-            /// Returns a const list view. Mutation or moving the builder invalidates it.
+            /// Returns a const list view. Mutating or moving the builder invalidates the view.
             pub fn finish(self: *Self) *const InnerList {
                 return &self.list;
             }
@@ -328,7 +327,7 @@ pub const Builder = struct {
         };
     }
 
-    /// Builds over borrowed segment storage.
+    /// Bounded builders borrow segment storage.
     pub fn Bounded(comptime alignment: DMARaw) type {
         comptime requireAlignment(alignment);
         return struct {
@@ -336,11 +335,11 @@ pub const Builder = struct {
 
             const Self = @This();
 
-            /// `Full`: underlying list at capacity.
-            /// `Misaligned`: segment fails `isAligned(alignment)`.
+            /// `Full`: The underlying list is at capacity.
+            /// `Misaligned`: The segment fails `isAligned(alignment)`.
             pub const Error = error{ Full, Misaligned };
 
-            /// Segments appended through this builder must meet this alignment.
+            /// Appended segments must meet this alignment.
             pub const segment_alignment = alignment;
 
             pub fn wrap(buf: []Segment) Self {
@@ -391,7 +390,7 @@ pub const Builder = struct {
                 return self.append(Segment.fromBuffer(T, buf));
             }
 
-            /// Returns a const list view. Mutation or moving the builder invalidates it.
+            /// Returns a const list view. Mutating or moving the builder invalidates the view.
             pub fn finish(self: *Self) *const List.Bounded {
                 return &self.list;
             }

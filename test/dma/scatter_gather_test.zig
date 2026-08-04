@@ -1,5 +1,5 @@
 //! DMA scatter-gather contract tests.
-//! Spec: docs/specs/dma/scatter-gather.md.
+//! See `docs/specs/dma/scatter-gather.md`.
 
 const std = @import("std");
 
@@ -108,13 +108,6 @@ test "unit: List.Bounded exercises the same sequence over borrowed storage" {
     var storage: [3]Sg.Segment = undefined;
     var list = Sg.List.Bounded.wrap(&storage);
     try exerciseList(@TypeOf(list), &list);
-}
-
-test "unit: List.Static(0) is both empty and full" {
-    var zero = Sg.List.Static(0).init();
-    try testing.expect(zero.isEmpty());
-    try testing.expect(zero.isFull());
-    try testing.expectError(error.Full, zero.append(seg(0, 0)));
 }
 
 test "unit: List.Bounded with a zero-length backing slice is empty and full" {

@@ -1,5 +1,5 @@
 //! List contract tests.
-//! Specs: docs/specs/collections/list/static.md and docs/specs/collections/list/bounded.md.
+//! See `docs/specs/collections/list/static.md` and `docs/specs/collections/list/bounded.md`.
 
 const std = @import("std");
 
@@ -29,12 +29,6 @@ fn exerciseSequence(comptime L: type, list_ptr: *L) !void {
     try testing.expectEqual(@as(?u8, null), list_ptr.pop());
     list_ptr.clearRetainingCapacity();
     list_ptr.assertValid();
-}
-
-test "unit: List.Static(T, 0) is both empty and full" {
-    var zero = List.Static(u8, 0).init();
-    try testing.expect(zero.isFull());
-    try testing.expectError(error.Full, zero.append(1));
 }
 
 test "unit: List.Static runs the append/remove/insert sequence" {

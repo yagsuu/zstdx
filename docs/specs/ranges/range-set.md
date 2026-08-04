@@ -178,7 +178,8 @@ items[i].end < items[i + 1].start
 
 This strict inequality means stored ranges are sorted, non-overlapping, and non-adjacent. Adjacent inputs are coalesced because they represent one contiguous set of values.
 
-`capacity_ranges == 0` and `Bounded.wrap(buffer[0..0])` are valid. A zero-capacity set is empty and full.
+`RangeSet.Static(T, 0)` is a compile error. `Bounded.wrap(buffer[0..0])` is
+valid; the zero-capacity set is empty and full.
 
 ## Ownership and lifetime
 

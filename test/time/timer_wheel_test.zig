@@ -1,4 +1,4 @@
-//! TimerWheel behavioral tests. Spec: docs/specs/time/timer-wheel.md.
+//! TimerWheel behavioral tests. See `docs/specs/time/timer-wheel.md`.
 
 const std = @import("std");
 
@@ -118,16 +118,6 @@ test "contract: Bounded bucket mismatch is a debug-trap precondition" {
     var buckets: [test_config.slot_count]Wheel.Bucket = undefined;
     var wheel = Wheel.wrap(&slots, &buckets, instant(0));
     wheel.assertValid();
-}
-
-test "unit: zero capacity wheel is both empty and full" {
-    const Wheel = TestWheel(u8, 0);
-    var wheel = Wheel.init(instant(0));
-
-    try expectState(Wheel, &wheel, 0, 0);
-    try testing.expectError(error.Full, wheel.insert(deadline(0), 1));
-    try testing.expectError(error.OutOfRange, wheel.insert(deadline(test_config.slot_count * test_config.tick_ns), 1));
-    try expectState(Wheel, &wheel, 0, 0);
 }
 
 test "unit: insert tracks capacity and validates range before full" {

@@ -1,6 +1,6 @@
 //! Fixed-unit bitmap allocators over `u64`-word storage with lowest-index
 //! first-fit placement.
-//! Spec: docs/specs/mem/bitmap-allocator.md.
+//! See `docs/specs/mem/bitmap-allocator.md`.
 
 const std = @import("std");
 
@@ -17,6 +17,7 @@ pub const BitmapAllocator = struct {
     /// backing storage; a default struct literal and `init()` both yield
     /// an empty allocator.
     pub fn Static(comptime capacity_units: usize) type {
+        comptime if (capacity_units == 0) @compileError("BitmapAllocator.Static capacity_units must be non-zero");
         return struct {
             words: [word_count]Word = [_]Word{0} ** word_count,
 
@@ -49,7 +50,7 @@ pub const BitmapAllocator = struct {
                 return .{};
             }
 
-            /// Mark every unit free. Capacity and backing storage identity
+            /// Marks every unit free. Capacity and backing storage identity
             /// do not change.
             pub fn clearRetainingCapacity(self: *Self) void {
                 for (&self.words) |*w| w.* = 0;
@@ -127,10 +128,7 @@ pub const BitmapAllocator = struct {
                 return freeRangeImpl(self.words[0..], unit_capacity, range);
             }
 
-            /// True when structural invariants hold: unused high bits in
-            /// the final logical word are zero, and no trailing storage
-            /// is needed past the inline word count (always satisfied for
-            /// `Static`).
+            /// Returns true if unused high bits in the final logical word are zero.
             pub fn isValid(self: Self) bool {
                 return checkValid(self.words[0..], unit_capacity);
             }

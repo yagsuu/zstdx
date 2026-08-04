@@ -1,5 +1,5 @@
-//! Fixed-capacity FIFO ring buffers. Specs: docs/specs/collections/ring/static.md
-//! and docs/specs/collections/ring/bounded.md.
+//! Fixed-capacity FIFO ring buffers. See `docs/specs/collections/ring/static.md`
+//! and `docs/specs/collections/ring/bounded.md`.
 
 const std = @import("std");
 
@@ -7,14 +7,12 @@ fn requireRuntimeValue(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("ring element type must have nonzero size");
 }
 
-/// Family of fixed-capacity FIFO rings. The single approved variant
-/// `Static(T, N)` owns inline storage; never allocates and never waits.
+/// Family of fixed-capacity FIFO rings. `Static(T, N)` owns inline storage;
+/// `Bounded(T)` borrows caller-provided storage. Neither allocates nor waits.
 pub const Ring = struct {
-    /// Inline `[capacity_items]T` storage with head index and live count.
-    /// `Static(T, 0)` is valid; every `pushBack` returns `error.Full`, and
-    /// `pushBackOverwriteOldest` returns the input unchanged.
     pub fn Static(comptime T: type, comptime capacity_items: usize) type {
         comptime requireRuntimeValue(T);
+        comptime if (capacity_items == 0) @compileError("Ring.Static capacity_items must be non-zero");
         return struct {
             buffer: [capacity_items]T = undefined,
             head: usize = 0,
@@ -54,7 +52,7 @@ pub const Ring = struct {
                 return self.len() == item_capacity;
             }
 
-            /// Drop every live item without releasing storage. Leaves `head`
+            /// Drops every live item without releasing storage. Leaves `head`
             /// in place; the next `pushBack` enqueues at the current `head`.
             pub fn clearRetainingCapacity(self: *Self) void {
                 self.assertValid();
@@ -90,7 +88,7 @@ pub const Ring = struct {
                 self.pushBackAssumeCapacity(item);
             }
 
-            /// Append `item`; programmer error to call when full.
+            /// Requires spare capacity.
             pub fn pushBackAssumeCapacity(self: *Self, item: T) void {
                 std.debug.assert(!self.isFull());
                 if (item_capacity == 0) unreachable;
@@ -100,8 +98,8 @@ pub const Ring = struct {
                 self.count += 1;
             }
 
-            /// Append `item`. When full, evicts the front element and returns
-            /// it; otherwise returns `null`. On `Static(T, 0)` returns `item`
+            /// Appends `item`. When full, evicts and returns the front item;
+            /// otherwise, returns `null`. For `Static(T, 0)`, returns `item`
             /// unchanged.
             pub fn pushBackOverwriteOldest(self: *Self, item: T) ?T {
                 if (item_capacity == 0) return item;
@@ -157,7 +155,7 @@ pub const Ring = struct {
         };
     }
 
-    /// Borrowed `[]T` storage with head index and live count.
+    /// Borrows caller-provided storage.
     pub fn Bounded(comptime T: type) type {
         comptime requireRuntimeValue(T);
         return struct {

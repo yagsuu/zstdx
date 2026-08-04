@@ -1,4 +1,4 @@
-//! Structured diagnostic frame stack. Spec: docs/specs/diag/diagnostic.md.
+//! Structured diagnostic frame stack. See `docs/specs/diag/diagnostic.md`.
 
 const std = @import("std");
 
@@ -38,6 +38,9 @@ pub const Diagnostics = struct {
     pub fn Static(comptime config: StaticConfig) type {
         comptime if (config.frames == 0) {
             @compileError("Diagnostics.Static requires at least one frame");
+        };
+        comptime if (config.arena_bytes == 0) {
+            @compileError("Diagnostics.Static requires a non-zero arena");
         };
         const Arena = mem.Arena.Static(config.arena_bytes);
 

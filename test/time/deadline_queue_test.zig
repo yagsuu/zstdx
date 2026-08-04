@@ -1,4 +1,4 @@
-//! Deadline queue behavioral tests. Spec: docs/specs/time/deadline-queue.md.
+//! Deadline queue behavioral tests. See `docs/specs/time/deadline-queue.md`.
 
 const std = @import("std");
 const stdx = @import("stdx");
@@ -168,15 +168,7 @@ comptime {
     std.debug.assert(!@typeInfo(DeadlineQueue.Bounded(u8).Handle).@"enum".is_exhaustive);
 }
 
-test "unit: Static and Bounded construction expose capacity and zero-capacity fullness" {
-    const StaticZero = DeadlineQueue.Static(u8, 0);
-    var static_zero = StaticZero.init();
-    try expectAccessors(&static_zero, 0, 0);
-    try testing.expect(static_zero.peekDeadline() == null);
-    try testing.expectError(error.Full, static_zero.insert(deadline(1), 1));
-    try expectAccessors(&static_zero, 0, 0);
-    static_zero.assertValid();
-
+test "unit: Static and Bounded construction expose capacity" {
     const StaticThree = DeadlineQueue.Static(u8, 3);
     var static_three = StaticThree.init();
     try expectAccessors(&static_three, 0, 3);

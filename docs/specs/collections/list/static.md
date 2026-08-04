@@ -122,8 +122,8 @@ relative order matters and `swapRemove` when `O(1)` removal is more important.
 `T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
 are compile errors where practical.
 
-`capacity_items` is a comptime item count. `Static(T, 0)` is valid; it is both
-empty and full.
+`capacity_items` is a comptime item count greater than zero. `Static(T, 0)`
+is a compile error.
 
 A valid list satisfies:
 
@@ -334,9 +334,9 @@ _ = slot;
 
 - default struct literal is empty;
 - `init()` is empty;
-- `Static(T, 0)` is both empty and full;
+- `Static(T, 0)` is a compile error;
 - `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,
-  full, and zero-capacity lists;
+  and full lists;
 - zero-sized `T` fails to compile where the compile-fail harness supports it.
 
 ### Append and insert

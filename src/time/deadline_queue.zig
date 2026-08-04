@@ -1,4 +1,4 @@
-//! Fixed-capacity deadline priority queue. Spec: docs/specs/time/deadline-queue.md.
+//! Fixed-capacity deadline priority queue. See `docs/specs/time/deadline-queue.md`.
 
 const std = @import("std");
 
@@ -16,6 +16,8 @@ const invalid_index = std.math.maxInt(usize);
 /// allocate, wait, read a clock, or invoke callbacks.
 pub const DeadlineQueue = struct {
     pub fn Static(comptime T: type, comptime capacity_items: usize) type {
+        comptime if (capacity_items == 0) @compileError("DeadlineQueue.Static capacity_items must be non-zero");
+
         const SlotType = QueueSlot(T);
 
         return struct {
@@ -317,6 +319,7 @@ fn Common(comptime T: type, comptime Self: type) type {
             const slots = self.slotsSlice();
             const heap = self.heapSlice();
             const index = self.free_head;
+
             std.debug.assert(index != invalid_index);
             std.debug.assert(index < slots.len);
 
@@ -350,6 +353,7 @@ fn Common(comptime T: type, comptime Self: type) type {
             const heap = self.heapConstSlice();
             const index = heap[0];
             const dl = slots[index].deadline;
+
             if (!now.afterOrEq(dl.instant())) return null;
 
             return removeHeapPosition(self, 0);
@@ -374,11 +378,13 @@ fn Common(comptime T: type, comptime Self: type) type {
             const pos = slots[index].heap_pos;
 
             slots[index].deadline = dl;
+
             if (new_key < old_key) {
                 siftUp(self, pos);
             } else if (new_key > old_key) {
                 siftDown(self, pos);
             }
+
             return true;
         }
 
@@ -408,6 +414,7 @@ fn Common(comptime T: type, comptime Self: type) type {
                     std.debug.assert(slot.heap_pos == invalid_index);
                 }
             }
+
             std.debug.assert(occupied_count == self.count);
 
             for (heap[0..self.count], 0..) |index, pos| {
@@ -448,6 +455,7 @@ fn Common(comptime T: type, comptime Self: type) type {
                 std.debug.assert(free_count <= slots.len);
                 cursor = slots[cursor].next_free;
             }
+
             std.debug.assert(free_count + occupied_count == slots.len);
         }
 

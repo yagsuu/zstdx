@@ -171,8 +171,8 @@ A valid pool satisfies:
 self.live_count <= self.capacity()
 ```
 
-`Static(T, 0)` and `Bounded(T).wrap(&.{})` are valid; the pool is empty and
-full simultaneously.
+`Static(T, 0)` is a compile error. `Bounded(T).wrap(&.{})` is valid; the pool
+is empty and full.
 
 ## Ownership and lifetime
 
@@ -189,11 +189,11 @@ mutable copies over the same storage. Use one pool value per storage.
 
 ## Construction and clearing
 
-`Static.init()` returns an empty pool with all internal indices at zero. It
-does not pre-link any slots. `Static(T, 0)` is empty and full.
+`Static.init()` returns an empty pool with all internal indices at zero. It does
+not pre-link any slots. `Static(T, N)` requires `N > 0`.
 
-`Bounded.wrap(buffer)` returns an empty pool over `buffer`. It does not
-pre-link any slots. Empty `buffer` results in an empty-and-full pool.
+`Bounded.wrap(buffer)` returns an empty pool over `buffer`. It does not pre-link
+any slots. An empty `buffer` produces an empty-and-full pool.
 
 The pool maintains an internal bump cursor and an intrusive free list. New
 slots are carved off the bump cursor first (storage order). Released slots

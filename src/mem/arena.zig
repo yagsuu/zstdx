@@ -1,6 +1,6 @@
 //! Bump arena family. `Static(N)` owns inline storage; `Bounded` borrows
-//! caller `[]u8`. See docs/specs/mem/arena/bounded.md and
-//! docs/specs/mem/arena/static.md.
+//! caller `[]u8`. See `docs/specs/mem/arena/bounded.md` and
+//! `docs/specs/mem/arena/static.md`.
 
 const std = @import("std");
 
@@ -72,13 +72,13 @@ pub const Arena = struct {
             self.index = checkpoint.index;
         }
 
-        /// Reset to a fresh arena over the same buffer. Invalidates every
+        /// Resets to a fresh arena over the same buffer. Invalidates every
         /// previously returned allocation.
         pub fn reset(self: *Bounded) void {
             self.index = 0;
         }
 
-        /// Allocate `len` bytes with byte alignment 1.
+        /// Allocates `len` bytes with byte alignment 1.
         pub fn allocBytes(self: *Bounded, len: usize) ArenaAllocationError![]u8 {
             return allocBytesInto(self.buffer, &self.index, len, 1) catch |err| switch (err) {
                 error.InvalidAlignment => unreachable,
@@ -87,18 +87,18 @@ pub const Arena = struct {
             };
         }
 
-        /// Allocate `len` bytes aligned to `byte_alignment`. Failure paths
+        /// Allocates `len` bytes aligned to `byte_alignment`. Failure paths
         /// leave `index` unchanged. `len == 0` succeeds and does not advance.
         pub fn allocAlignedBytes(self: *Bounded, len: usize, byte_alignment: usize) ArenaError![]u8 {
             return allocBytesInto(self.buffer, &self.index, len, byte_alignment);
         }
 
-        /// Allocate one uninitialized `T` aligned to `@alignOf(T)`.
+        /// Allocates one uninitialized `T` aligned to `@alignOf(T)`.
         pub fn alloc(self: *Bounded, comptime T: type) ArenaAllocationError!*T {
             return allocOneInto(T, self.buffer, &self.index);
         }
 
-        /// Allocate `len` uninitialized `T` values contiguously. Returns
+        /// Allocates `len` uninitialized `T` values contiguously. Returns
         /// `error.Overflow` when `@sizeOf(T) * len` overflows.
         pub fn allocSlice(self: *Bounded, comptime T: type, len: usize) ArenaAllocationError![]T {
             return allocSliceInto(T, self.buffer, &self.index, len);
@@ -114,6 +114,7 @@ pub const Arena = struct {
     /// backing storage. The value must not move while any allocation is
     /// live.
     pub fn Static(comptime capacity_bytes: usize) type {
+        comptime if (capacity_bytes == 0) @compileError("Arena.Static capacity_bytes must be non-zero");
         return struct {
             buffer: [capacity_bytes]u8 = undefined,
             index: usize = 0,
@@ -167,15 +168,21 @@ pub const Arena = struct {
                 return .{ .index = self.index };
             }
 
+            /// Restore `index` to `checkpoint`. Allocations made after the mark
+            /// become undefined. A mark from another arena or a forward-shifted
+            /// index is a programmer error.
             pub fn restore(self: *Self, checkpoint: Mark) void {
                 std.debug.assert(checkpoint.index <= self.index);
                 self.index = checkpoint.index;
             }
 
+            /// Resets to a fresh arena over the same buffer. Invalidates every
+            /// previously returned allocation.
             pub fn reset(self: *Self) void {
                 self.index = 0;
             }
 
+            /// Allocates `len` bytes with byte alignment 1.
             pub fn allocBytes(self: *Self, len: usize) ArenaAllocationError![]u8 {
                 return allocBytesInto(self.buffer[0..], &self.index, len, 1) catch |err| switch (err) {
                     error.InvalidAlignment => unreachable,
@@ -184,14 +191,19 @@ pub const Arena = struct {
                 };
             }
 
+            /// Allocates `len` bytes aligned to `byte_alignment`. Failure paths
+            /// leave `index` unchanged. `len == 0` succeeds and does not advance.
             pub fn allocAlignedBytes(self: *Self, len: usize, byte_alignment: usize) ArenaError![]u8 {
                 return allocBytesInto(self.buffer[0..], &self.index, len, byte_alignment);
             }
 
+            /// Allocates one uninitialized `T` aligned to `@alignOf(T)`.
             pub fn alloc(self: *Self, comptime T: type) ArenaAllocationError!*T {
                 return allocOneInto(T, self.buffer[0..], &self.index);
             }
 
+            /// Allocates `len` uninitialized `T` values contiguously. Returns
+            /// `error.Overflow` when `@sizeOf(T) * len` overflows.
             pub fn allocSlice(self: *Self, comptime T: type, len: usize) ArenaAllocationError![]T {
                 return allocSliceInto(T, self.buffer[0..], &self.index, len);
             }
@@ -210,6 +222,7 @@ pub const Arena = struct {
                 .free = noopFree,
             };
 
+            /// `std.mem.Allocator` view backed by the same arena state.
             pub fn allocator(self: *Self) std.mem.Allocator {
                 return .{ .ptr = self, .vtable = &allocator_vtable };
             }

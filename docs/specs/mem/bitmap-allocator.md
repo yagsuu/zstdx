@@ -158,8 +158,8 @@ other fixed-size resource chosen by the caller.
 
 ## Storage model
 
-`Static(unit_capacity)` owns inline bitmap words. A default struct literal and
-`init()` both produce an empty allocator.
+`Static(unit_capacity)` owns inline bitmap words. `unit_capacity` must be
+greater than zero. A default struct literal and `init()` produce an empty allocator.
 
 `Bounded.wrap(words, unit_capacity)` borrows `words`, clears every borrowed word,
 and returns an empty allocator over the first `unit_capacity` units. It returns
@@ -186,7 +186,7 @@ allocated() + remaining() == capacity()
 
 `isFull()` returns `remaining() == 0`.
 
-For zero-capacity allocators, both `isEmpty()` and `isFull()` return `true`.
+For a zero-capacity `Bounded` allocator, `isEmpty()` and `isFull()` return `true`.
 
 `clearRetainingCapacity()` clears every allocated unit. Capacity and backing
 storage identity do not change.

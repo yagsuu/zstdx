@@ -188,10 +188,8 @@ pub const Self = struct {
 };
 ```
 
-`capacity` must satisfy `capacity <= std.math.maxInt(Int) + 1` at compile time.
-A capacity that does not fit in `Int` is a compile error.
-
-`capacity == 0` is supported; the allocator is permanently empty and full.
+`capacity` must satisfy `1 <= capacity <= std.math.maxInt(Int) + 1` at compile
+time. A capacity outside that range is a compile error.
 
 ### `Bounded(Domain, Int)` returned type
 

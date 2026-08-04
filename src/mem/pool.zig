@@ -1,5 +1,5 @@
-//! Typed, fixed-capacity intrusive-free-list object pool family. See
-//! docs/specs/mem/pool.md.
+//! Typed, fixed-capacity intrusive-free-list object pool family.
+//! See `docs/specs/mem/pool.md`.
 
 const std = @import("std");
 
@@ -17,6 +17,7 @@ pub const Pool = struct {
     /// backing storage; do not move the value while any pointer is live.
     pub fn Static(comptime T: type, comptime capacity_items: usize) type {
         comptime requireRuntimeValue(T);
+        comptime if (capacity_items == 0) @compileError("Pool.Static capacity_items must be non-zero");
         return struct {
             buffer: [capacity_items]Slot = undefined,
             free_head: ?*Slot = null,
@@ -63,7 +64,7 @@ pub const Pool = struct {
                 return self.live_count == item_capacity;
             }
 
-            /// Reset to a fresh empty pool. Invalidates every outstanding
+            /// Resets to a fresh empty pool. Invalidates every outstanding
             /// acquired pointer.
             pub fn clearRetainingCapacity(self: *Self) void {
                 self.free_head = null;
@@ -71,13 +72,13 @@ pub const Pool = struct {
                 self.live_count = 0;
             }
 
-            /// Acquire one uninitialized `T`. Returns `error.OutOfMemory`
+            /// Acquires one uninitialized `T`. Returns `error.OutOfMemory`
             /// when the pool is full.
             pub fn acquire(self: *Self) Error!*T {
                 return acquireSlot(Slot, T, self.buffer[0..], &self.free_head, &self.bump_index, &self.live_count);
             }
 
-            /// Return a previously acquired pointer to the free list. The
+            /// Releases a previously acquired pointer to the free list. The
             /// pointer must come from this pool and must not have been
             /// released already.
             pub fn release(self: *Self, item: *T) void {
@@ -162,12 +163,10 @@ pub const Pool = struct {
     }
 };
 
-// Bump-then-freelist hybrid: until a slot is released, allocations are
-// carved off the unused tail (`bump_index`). Released slots are linked
-// into a LIFO free list whose pointers reference live pool storage. The
-// eager-link `init()` design is unsafe because the free-list pointers
-// would outlive the return-by-value of `init()`; this design forms
-// internal pointers only after the pool's address is stable.
+// Slots are allocated sequentially until released slots form a LIFO free list.
+// The free-list pointers refer to stable pool storage and are initialized
+// lazily because pointers created by `init()` would become invalid when the
+// pool is returned by value.
 fn acquireSlot(
     comptime Slot: type,
     comptime T: type,

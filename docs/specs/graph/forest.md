@@ -263,8 +263,8 @@ const ItemForest = stdx.graph.Forest.Linked(Item, "node");
 `Static` and `Bounded` store topology in dense link tables. Payloads live in
 caller-owned side arrays indexed by `NodeId`.
 
-`Static(capacity)` owns inline `[capacity]Links` storage. `capacity == 0` is
-valid.
+`Static(capacity)` owns inline `[capacity]Links` storage. `capacity` must be
+greater than zero.
 
 `Bounded.wrap(links)` borrows `links`, clears every entry, and returns an empty
 forest with `links.len` capacity. A zero-length slice is valid.

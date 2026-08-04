@@ -130,10 +130,10 @@ pub fn Scope(comptime Diag: type, comptime Options: type) type {
 There is no public `ScopeOptions` type. Diagnostic entry points MUST accept a
 structural options value.
 
-`Diagnostics.Static(config)` returns a concrete diagnostics type with inline frame
-slots and inline detail-arena bytes. `config.frames` MUST be greater than zero;
-`Diagnostics.Static(.{ .frames = 0 })` is a compile error. `config.arena_bytes`
-may be zero; formatted details are omitted when no arena bytes are available.
+`Diagnostics.Static(config)` returns a concrete diagnostics type with inline
+frame slots and inline detail-arena bytes. `config.frames` and
+`config.arena_bytes` MUST both be greater than zero. A zero value for either
+field is a compile error.
 
 ## Options shape
 

@@ -1,6 +1,6 @@
 //! Fixed-capacity sequences with initialized-prefix tracking.
 //! `Static` owns inline storage; `Bounded` borrows caller-provided storage.
-//! Specs: docs/specs/collections/list/static.md and docs/specs/collections/list/bounded.md.
+//! See `docs/specs/collections/list/static.md` and `docs/specs/collections/list/bounded.md`.
 
 const std = @import("std");
 
@@ -8,22 +8,21 @@ fn requireRuntimeValue(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("list element type must have nonzero size");
 }
 
-/// Fixed-capacity list family. Both variants preserve insertion order, never
+/// Fixed-capacity list family. Both variants preserve insertion order, do not
 /// allocate, and leave the list unchanged on error.
 pub const List = struct {
-    /// Inline `[capacity_items]T` storage plus an initialized-prefix count.
-    /// `Static(T, 0)` is valid and is both empty and full.
     pub fn Static(comptime T: type, comptime capacity_items: usize) type {
         comptime requireRuntimeValue(T);
+        comptime if (capacity_items == 0) @compileError("List.Static capacity_items must be non-zero");
         return struct {
             buffer: [capacity_items]T = undefined,
             count: usize = 0,
 
             const Self = @This();
 
-            /// `Full`: append/insert at capacity.
-            /// `OutOfBounds`: index access at or past `count`, or insert at
-            ///   `index > count`.
+            /// `Full`: append or insert at capacity.
+            /// `OutOfBounds`: access at or past `count`, or insert with
+            /// `index > count`.
             pub const Error = error{ Full, OutOfBounds };
 
             /// Comptime capacity in items.
@@ -67,7 +66,7 @@ pub const List = struct {
                 return self.buffer[0..self.count];
             }
 
-            /// Drop every initialized item without releasing storage.
+            /// Discard initialized items but retain storage.
             pub fn clearRetainingCapacity(self: *Self) void {
                 self.count = 0;
             }
@@ -77,7 +76,7 @@ pub const List = struct {
                 self.appendAssumeCapacity(item);
             }
 
-            /// Append `item`; programmer error to call when full.
+            /// Requires spare capacity.
             pub fn appendAssumeCapacity(self: *Self, item: T) void {
                 std.debug.assert(!self.isFull());
                 if (capacity_items == 0) unreachable;
@@ -86,15 +85,15 @@ pub const List = struct {
                 self.count += 1;
             }
 
-            /// Append `items` in order. `error.Full` when the batch does not
-            /// fit; the list is unchanged.
+            /// Appends `items` in order. Returns `error.Full` and leaves the
+            /// list unchanged if the items do not fit.
             pub fn appendSlice(self: *Self, items: []const T) error{Full}!void {
                 if (items.len > self.remaining()) return error.Full;
                 @memcpy(self.buffer[self.count..][0..items.len], items);
                 self.count += items.len;
             }
 
-            /// Insert `item` at `index`; shifts later elements right.
+            /// Inserts `item` at `index` and shifts later items right.
             /// Checks `index` before capacity.
             pub fn insert(self: *Self, index: usize, item: T) Error!void {
                 if (index > self.count) return error.OutOfBounds;
@@ -105,7 +104,7 @@ pub const List = struct {
                 self.count += 1;
             }
 
-            /// Remove and return `buffer[index]`, shifting later items left.
+            /// Removes and returns `buffer[index]` while preserving order.
             pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
 
@@ -115,8 +114,8 @@ pub const List = struct {
                 return out;
             }
 
-            /// Remove and return `buffer[index]`; moves the last item into
-            /// the vacated slot.
+            /// Removes and returns `buffer[index]` by moving the last item
+            /// into the vacated slot.
             pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
 
@@ -132,8 +131,8 @@ pub const List = struct {
                 return self.buffer[self.count];
             }
 
-            /// Mutable pointer into `buffer[index]`. Invalidated by any
-            /// subsequent mutation that shifts elements.
+            /// Returns a mutable pointer into `buffer[index]`. Mutations that
+            /// shift elements invalidate the pointer.
             pub fn at(self: *Self, index: usize) error{OutOfBounds}!*T {
                 if (index >= self.count) return error.OutOfBounds;
                 return &self.buffer[index];
@@ -150,8 +149,7 @@ pub const List = struct {
         };
     }
 
-    /// Borrowed `[]T` storage plus an initialized-prefix count. Capacity is
-    /// the caller-provided slice length.
+    /// Borrows caller-provided storage. Capacity is the slice length.
     pub fn Bounded(comptime T: type) type {
         comptime requireRuntimeValue(T);
         return struct {
@@ -160,12 +158,12 @@ pub const List = struct {
 
             const Self = @This();
 
-            /// `Full`: append/insert at capacity.
-            /// `OutOfBounds`: index access at or past `count`, or insert at
-            ///   `index > count`.
+            /// `Full`: append or insert at capacity.
+            /// `OutOfBounds`: access at or past `count`, or insert with
+            /// `index > count`.
             pub const Error = error{ Full, OutOfBounds };
 
-            /// Wrap `buffer` as backing storage; capacity is `buffer.len`.
+            /// Wraps `buffer` as backing storage; capacity is `buffer.len`.
             pub fn wrap(buffer: []T) Self {
                 return .{ .buffer = buffer };
             }
@@ -204,7 +202,7 @@ pub const List = struct {
                 return self.buffer[0..self.count];
             }
 
-            /// Drop every initialized item without releasing storage.
+            /// Discard initialized items but retain storage.
             pub fn clearRetainingCapacity(self: *Self) void {
                 self.count = 0;
             }
@@ -214,7 +212,7 @@ pub const List = struct {
                 self.appendAssumeCapacity(item);
             }
 
-            /// Append `item`; programmer error to call when full.
+            /// Requires spare capacity.
             pub fn appendAssumeCapacity(self: *Self, item: T) void {
                 std.debug.assert(!self.isFull());
                 if (self.buffer.len == 0) unreachable;
@@ -223,15 +221,15 @@ pub const List = struct {
                 self.count += 1;
             }
 
-            /// Append `items` in order. `error.Full` when the batch does not
-            /// fit; the list is unchanged.
+            /// Appends `items` in order. Returns `error.Full` and leaves the
+            /// list unchanged if the items do not fit.
             pub fn appendSlice(self: *Self, items: []const T) error{Full}!void {
                 if (items.len > self.remaining()) return error.Full;
                 @memcpy(self.buffer[self.count..][0..items.len], items);
                 self.count += items.len;
             }
 
-            /// Insert `item` at `index`; shifts later elements right.
+            /// Inserts `item` at `index` and shifts later items right.
             /// Checks `index` before capacity.
             pub fn insert(self: *Self, index: usize, item: T) Error!void {
                 if (index > self.count) return error.OutOfBounds;
@@ -242,7 +240,7 @@ pub const List = struct {
                 self.count += 1;
             }
 
-            /// Remove and return `buffer[index]`, shifting later items left.
+            /// Removes and returns `buffer[index]` while preserving order.
             pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
 
@@ -252,8 +250,8 @@ pub const List = struct {
                 return out;
             }
 
-            /// Remove and return `buffer[index]`; moves the last item into
-            /// the vacated slot.
+            /// Removes and returns `buffer[index]` by moving the last item
+            /// into the vacated slot.
             pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T {
                 if (index >= self.count) return error.OutOfBounds;
 
@@ -269,8 +267,8 @@ pub const List = struct {
                 return self.buffer[self.count];
             }
 
-            /// Mutable pointer into `buffer[index]`. Invalidated by any
-            /// subsequent mutation that shifts elements.
+            /// Returns a mutable pointer into `buffer[index]`. Mutations that
+            /// shift elements invalidate the pointer.
             pub fn at(self: *Self, index: usize) error{OutOfBounds}!*T {
                 if (index >= self.count) return error.OutOfBounds;
                 return &self.buffer[index];

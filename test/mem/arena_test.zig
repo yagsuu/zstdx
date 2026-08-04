@@ -1,5 +1,5 @@
-//! Arena contract tests. Specs: docs/specs/mem/arena/bounded.md and
-//! docs/specs/mem/arena/static.md.
+//! Arena contract tests. See `docs/specs/mem/arena/bounded.md` and
+//! `docs/specs/mem/arena/static.md`.
 
 const std = @import("std");
 
@@ -83,15 +83,6 @@ test "unit: Arena.Static init reports byte_capacity and starts empty" {
     try testing.expectEqual(@as(usize, 64), arena.capacity());
     try testing.expectEqual(@as(usize, 0), arena.used());
     try testing.expectEqual(@as(usize, 64), arena.remaining());
-}
-
-test "unit: Arena.Static(0) reports OutOfMemory for any non-zero allocation" {
-    var arena = Arena.Static(0).init();
-    try testing.expectEqual(@as(usize, 0), arena.capacity());
-    const zero = try arena.allocBytes(0);
-    try testing.expectEqual(@as(usize, 0), zero.len);
-    try testing.expectError(error.OutOfMemory, arena.allocBytes(1));
-    try testing.expectError(error.OutOfMemory, arena.alloc(u32));
 }
 
 test "unit: Arena.Static bumps and rolls back through mark/restore/reset" {

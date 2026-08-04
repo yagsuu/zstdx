@@ -1,4 +1,4 @@
-//! TagAllocator contract tests. Spec: docs/specs/tags/tag-allocator.md.
+//! TagAllocator contract tests. See `docs/specs/tags/tag-allocator.md`.
 
 const std = @import("std");
 const stdx = @import("stdx");
@@ -135,16 +135,6 @@ test "unit: Static default struct literal is empty" {
     try testing.expectEqual(@as(usize, 65), a.capacity());
     try testing.expectEqual(@as(usize, 0), a.allocated());
     try testing.expect(a.isEmpty());
-    a.assertValid();
-}
-
-test "unit: Static(D, u16, 0) is both empty and full" {
-    const S = TagAllocator.Static(DomainA, u16, 0);
-    var a = S.init();
-    try testing.expectEqual(@as(usize, 0), a.capacity());
-    try testing.expect(a.isEmpty());
-    try testing.expect(a.isFull());
-    try testing.expectError(error.OutOfTags, a.allocOne());
     a.assertValid();
 }
 
@@ -410,14 +400,6 @@ test "unit: after freeOne(t), allocOne may return t.raw() again" {
 // ---------------------------------------------------------------- Counts / clearing / invariants
 
 test "unit: count queries across empty/partial/full/zero states" {
-    {
-        const S = TagAllocator.Static(DomainA, u16, 0);
-        var a = S.init();
-        try testing.expect(a.isEmpty());
-        try testing.expect(a.isFull());
-        try testing.expectEqual(@as(usize, 0), a.allocated());
-        try testing.expectEqual(@as(usize, 0), a.remaining());
-    }
     {
         const S = TagAllocator.Static(DomainA, u16, 8);
         var a = S.init();

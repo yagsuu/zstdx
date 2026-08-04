@@ -1,4 +1,4 @@
-//! RangeMap contract tests. Spec: docs/specs/ranges/range-map.md.
+//! RangeMap contract tests. See `docs/specs/ranges/range-map.md`.
 
 const std = @import("std");
 
@@ -39,11 +39,6 @@ test "unit: RangeMap construction and capacity" {
     bounded.clearRetainingCapacity();
     try testing.expect(bounded.isEmpty());
     try testing.expectEqual(@as(usize, 3), bounded.capacity());
-
-    var zero_static = RangeMap.Static(u8, Kind, 0).init();
-    try testing.expect(zero_static.isEmpty());
-    try testing.expect(zero_static.isFull());
-    try testing.expectError(error.Full, zero_static.insert(try r(@TypeOf(zero_static).Range, 1, 2), .a));
 
     var zero_backing: [0]RangeMap.Bounded(u8, Kind).Entry = .{};
     var zero_bounded = RangeMap.Bounded(u8, Kind).wrap(&zero_backing);

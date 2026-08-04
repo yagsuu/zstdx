@@ -1,5 +1,5 @@
 //! Forest topology families for dense node IDs and embedded linked nodes.
-//! Spec: docs/specs/graph/forest.md.
+//! See `docs/specs/graph/forest.md`.
 
 const std = @import("std");
 
@@ -7,6 +7,7 @@ const std = @import("std");
 /// linked variant stores topology in caller-owned embedded nodes.
 pub const Forest = struct {
     pub fn Static(comptime capacity_nodes: usize) type {
+        comptime if (capacity_nodes == 0) @compileError("Forest.Static capacity_nodes must be non-zero");
         return struct {
             roots: SiblingList = .{},
             links: [capacity_nodes]Links = [_]Links{.{}} ** capacity_nodes,
@@ -65,9 +66,8 @@ pub const Forest = struct {
                 return self.roots.tail;
             }
 
-            /// `error.OutOfBounds`: node id outside capacity.
-            /// `error.AlreadyLinked`: node is already linked as root or child.
-            /// Error leaves forest unchanged.
+            /// Faults: `error.OutOfBounds` if `item` is outside capacity; `error.AlreadyLinked` if `item` is already a root or child.
+            /// Effects: On error, this function does not change the forest.
             pub fn appendRoot(self: *Self, item: NodeID) AppendError!void {
                 const item_links = try self.link(item);
                 if (try self.isLinked(item, item_links)) return error.AlreadyLinked;
@@ -81,9 +81,8 @@ pub const Forest = struct {
                 self.roots.tail = item;
             }
 
-            /// `error.OutOfBounds`: either id outside capacity.
-            /// `error.AlreadyLinked`: self-link or already-linked child.
-            /// Error leaves forest unchanged.
+            /// Faults: `error.OutOfBounds` if `parent_item` or `child_item` is outside capacity; `error.AlreadyLinked` if the items are equal or `child_item` is linked.
+            /// Effects: On error, this function does not change the forest.
             pub fn appendChild(self: *Self, parent_item: NodeID, child_item: NodeID) AppendError!void {
                 const parent_links = try self.link(parent_item);
                 const child_links = try self.link(child_item);
@@ -100,10 +99,9 @@ pub const Forest = struct {
                 child_links.parent = parent_item;
             }
 
-            /// `error.OutOfBounds`: node id outside capacity.
-            /// `error.NotLinked`: node is not in its expected list.
-            /// Success clears parent/next-sibling links; descendants stay attached to `node`.
-            /// Cost is O(source-list length).
+            /// Faults: `error.OutOfBounds` if `item` is outside capacity; `error.NotLinked` if `item` is not in its expected list.
+            /// Effects: On success, this function clears `item`'s parent and next-sibling links. Its descendants remain attached to `item`.
+            /// Cost: O(source-list length).
             pub fn remove(self: *Self, item: NodeID) RemoveError!void {
                 const item_links = try self.link(item);
                 if (item_links.parent) |parent_item| {
@@ -117,12 +115,12 @@ pub const Forest = struct {
                 item_links.next_sibling = null;
             }
 
-            /// `error.OutOfBounds` when `indexOf(node) >= capacity()`.
+            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn parent(self: *const Self, item: NodeID) BoundsError!?NodeID {
                 return (try self.constLink(item)).parent;
             }
 
-            /// `error.OutOfBounds` when `indexOf(node) >= capacity()`.
+            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn firstChild(self: *const Self, item: NodeID) BoundsError!?NodeID {
                 return (try self.constLink(item)).children.head;
             }
@@ -131,7 +129,7 @@ pub const Forest = struct {
                 return (try self.constLink(item)).children.tail;
             }
 
-            /// `error.OutOfBounds` when `indexOf(node) >= capacity()`.
+            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn nextSibling(self: *const Self, item: NodeID) BoundsError!?NodeID {
                 return (try self.constLink(item)).next_sibling;
             }
@@ -299,9 +297,8 @@ pub const Forest = struct {
                 return self.roots.tail;
             }
 
-            /// `error.OutOfBounds`: node id outside capacity.
-            /// `error.AlreadyLinked`: node is already linked as root or child.
-            /// Error leaves forest unchanged.
+            /// Faults: `error.OutOfBounds` if `item` is outside capacity; `error.AlreadyLinked` if `item` is already a root or child.
+            /// Effects: On error, this function does not change the forest.
             pub fn appendRoot(self: *Self, item: NodeID) AppendError!void {
                 const item_links = try self.link(item);
                 if (try self.isLinked(item, item_links)) return error.AlreadyLinked;
@@ -315,9 +312,8 @@ pub const Forest = struct {
                 self.roots.tail = item;
             }
 
-            /// `error.OutOfBounds`: either id outside capacity.
-            /// `error.AlreadyLinked`: self-link or already-linked child.
-            /// Error leaves forest unchanged.
+            /// Faults: `error.OutOfBounds` if `parent_item` or `child_item` is outside capacity; `error.AlreadyLinked` if the items are equal or `child_item` is linked.
+            /// Effects: On error, this function does not change the forest.
             pub fn appendChild(self: *Self, parent_item: NodeID, child_item: NodeID) AppendError!void {
                 const parent_links = try self.link(parent_item);
                 const child_links = try self.link(child_item);
@@ -334,10 +330,9 @@ pub const Forest = struct {
                 child_links.parent = parent_item;
             }
 
-            /// `error.OutOfBounds`: node id outside capacity.
-            /// `error.NotLinked`: node is not in its expected list.
-            /// Success clears parent/next-sibling links; descendants stay attached to `node`.
-            /// Cost is O(source-list length).
+            /// Faults: `error.OutOfBounds` if `item` is outside capacity; `error.NotLinked` if `item` is not in its expected list.
+            /// Effects: On success, this function clears `item`'s parent and next-sibling links. Its descendants remain attached to `item`.
+            /// Cost: O(source-list length).
             pub fn remove(self: *Self, item: NodeID) RemoveError!void {
                 const item_links = try self.link(item);
                 if (item_links.parent) |parent_item| {
@@ -351,12 +346,12 @@ pub const Forest = struct {
                 item_links.next_sibling = null;
             }
 
-            /// `error.OutOfBounds` when `indexOf(node) >= capacity()`.
+            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn parent(self: *const Self, item: NodeID) BoundsError!?NodeID {
                 return (try self.constLink(item)).parent;
             }
 
-            /// `error.OutOfBounds` when `indexOf(node) >= capacity()`.
+            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn firstChild(self: *const Self, item: NodeID) BoundsError!?NodeID {
                 return (try self.constLink(item)).children.head;
             }
@@ -365,7 +360,7 @@ pub const Forest = struct {
                 return (try self.constLink(item)).children.tail;
             }
 
-            /// `error.OutOfBounds` when `indexOf(node) >= capacity()`.
+            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn nextSibling(self: *const Self, item: NodeID) BoundsError!?NodeID {
                 return (try self.constLink(item)).next_sibling;
             }

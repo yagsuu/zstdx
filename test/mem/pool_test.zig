@@ -1,4 +1,4 @@
-//! Pool contract tests. Spec: docs/specs/mem/pool.md.
+//! Pool contract tests. See `docs/specs/mem/pool.md`.
 
 const std = @import("std");
 
@@ -28,15 +28,6 @@ test "unit: Pool.Static reports capacity and starts empty" {
     try testing.expectEqual(@as(usize, 4), pool.remaining());
     try testing.expect(pool.isEmpty());
     try testing.expect(!pool.isFull());
-    pool.assertValid();
-}
-
-test "unit: Pool.Static(T, 0) is empty and full and exhausts immediately" {
-    var pool = Pool.Static(Frame, 0).init();
-    try testing.expectEqual(@as(usize, 0), pool.capacity());
-    try testing.expect(pool.isEmpty());
-    try testing.expect(pool.isFull());
-    try testing.expectError(error.OutOfMemory, pool.acquire());
     pool.assertValid();
 }
 

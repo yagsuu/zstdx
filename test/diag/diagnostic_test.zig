@@ -1,4 +1,4 @@
-//! Scoped diagnostics contract tests. Spec: docs/specs/diag/diagnostic.md.
+//! Scoped diagnostics contract tests. See `docs/specs/diag/diagnostic.md`.
 
 const std = @import("std");
 const stdx = @import("stdx");
@@ -87,7 +87,7 @@ fn successfulWithFormattedDetail(diag: anytype) !void {
 }
 
 test "unit: empty diagnostics render nothing" {
-    const Diag = Diagnostics.Static(.{ .frames = 1 });
+    const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
     var diag = Diag.init();
     defer diag.deinit();
 
@@ -106,7 +106,7 @@ test "unit: scope null adapter is a safe no-op" {
 }
 
 test "unit: single errdefer scoped unwind renders one frame" {
-    const Diag = Diagnostics.Static(.{ .frames = 1 });
+    const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
     var diag = Diag.init();
     defer diag.deinit();
 
@@ -117,7 +117,7 @@ test "unit: single errdefer scoped unwind renders one frame" {
 }
 
 test "unit: nested scoped unwinds render outer-to-inner chain" {
-    const Diag = Diagnostics.Static(.{ .frames = 3 });
+    const Diag = Diagnostics.Static(.{ .frames = 3, .arena_bytes = 1 });
     var diag = Diag.init();
     defer diag.deinit();
 
@@ -154,7 +154,7 @@ test "unit: successful scoped call does not consume arena bytes" {
 }
 
 test "unit: frame capacity exhaustion preserves originating error and omits excess frames" {
-    const Diag = Diagnostics.Static(.{ .frames = 1 });
+    const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
     var diag = Diag.init();
     defer diag.deinit();
 
@@ -174,7 +174,7 @@ test "unit: formatted detail arena exhaustion preserves error and omits detail" 
 }
 
 test "unit: successful scoped leaf is discarded" {
-    const Diag = Diagnostics.Static(.{ .frames = 1 });
+    const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
     var diag = Diag.init();
     defer diag.deinit();
 
@@ -186,7 +186,7 @@ test "unit: successful scoped leaf is discarded" {
 }
 
 test "unit: detail replacement latest wins" {
-    const Diag = Diagnostics.Static(.{ .frames = 1 });
+    const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
     var diag = Diag.init();
     defer diag.deinit();
 
@@ -262,7 +262,7 @@ test "unit: clear removes retained frames and resets arena usage" {
 }
 
 test "unit: source location renders when present and is omitted when absent" {
-    const Diag = Diagnostics.Static(.{ .frames = 2 });
+    const Diag = Diagnostics.Static(.{ .frames = 2, .arena_bytes = 1 });
     var diag = Diag.init();
     defer diag.deinit();
 
@@ -285,7 +285,7 @@ test "unit: source location renders when present and is omitted when absent" {
 }
 
 test "unit: label and detail bytes are escaped for logs" {
-    const Diag = Diagnostics.Static(.{ .frames = 1 });
+    const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
     var diag = Diag.init();
     defer diag.deinit();
 

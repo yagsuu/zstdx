@@ -197,7 +197,8 @@ pub const Self = struct {
 };
 ```
 
-`Static(0)` is valid; it is both empty and full.
+`List.Static(0)` is a compile error. An empty `List.Bounded` buffer is valid
+and produces an empty, full list.
 
 Only `buffer[0..count]` is initialized list content. Field mutation must
 preserve `count <= segment_capacity`.
