@@ -1,4 +1,4 @@
-//! Allocation-placement contract tests. Spec: docs/specs/algo/allocation.md.
+//! Allocation-placement contract tests. See `docs/specs/algo/allocation.md`.
 
 const std = @import("std");
 

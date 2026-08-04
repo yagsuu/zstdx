@@ -1,5 +1,5 @@
 //! x86_64 paging address and geometry contract tests.
-//! Spec: docs/specs/arch/x86_64/paging.md.
+//! See `docs/specs/arch/x86_64/paging.md`.
 
 const std = @import("std");
 const paging = @import("stdx").arch.x86_64.paging;

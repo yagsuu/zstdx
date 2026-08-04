@@ -1,4 +1,4 @@
-//! PoolCache contract tests. Spec: docs/specs/mem/pool-cache.md.
+//! PoolCache contract tests. See `docs/specs/mem/pool-cache.md`.
 
 const std = @import("std");
 

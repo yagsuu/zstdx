@@ -1,5 +1,5 @@
 //! x86_64 paging walker contract tests.
-//! Spec: docs/specs/arch/x86_64/paging.md.
+//! See `docs/specs/arch/x86_64/paging.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

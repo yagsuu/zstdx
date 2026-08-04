@@ -1,4 +1,4 @@
-//! Unaligned bytes access contract tests. Spec: docs/specs/bytes/unaligned.md.
+//! Unaligned byte-access contract tests. See `docs/specs/bytes/unaligned.md`.
 
 const std = @import("std");
 

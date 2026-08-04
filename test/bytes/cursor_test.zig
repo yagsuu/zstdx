@@ -1,4 +1,4 @@
-//! Byte cursor contract tests. Spec: docs/specs/bytes/cursor.md.
+//! Byte cursor contract tests. See `docs/specs/bytes/cursor.md`.
 
 const std = @import("std");
 

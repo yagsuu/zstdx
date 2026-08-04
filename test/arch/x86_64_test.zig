@@ -1,5 +1,5 @@
 //! x86_64 architecture primitives contract tests.
-//! Specs: docs/specs/arch/x86_64/base.md and register.md.
+//! See `docs/specs/arch/x86_64/base.md` and `docs/specs/arch/x86_64/register.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -1,4 +1,4 @@
-//! FrameAllocator contract tests. Spec: docs/specs/mem/frame-allocator.md.
+//! FrameAllocator contract tests. See `docs/specs/mem/frame-allocator.md`.
 
 const std = @import("std");
 

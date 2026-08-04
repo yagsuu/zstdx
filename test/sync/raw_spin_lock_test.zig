@@ -1,4 +1,4 @@
-//! Tests for `stdx.sync.RawSpinLock`. Spec: docs/specs/sync/raw-spin-lock.md.
+//! Tests for `stdx.sync.RawSpinLock`. See `docs/specs/sync/raw-spin-lock.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -275,9 +275,8 @@ test "stress: contended path — holder blocks waiters, each acquires in turn" {
     }
 
     // Yield a few times to give the waiters a chance to enter their
-    // spin loops. No observable pre-release state to poll on, so this
-    // is best-effort; the invariant below still holds if the yields do
-    // not actually deschedule.
+    // spin loops. No observable pre-release state is available to poll, so this
+    // is best-effort; the same invariant holds if the yields do not deschedule.
     var pump: usize = 0;
     while (pump < 32) : (pump += 1) {
         std.Thread.yield() catch {};

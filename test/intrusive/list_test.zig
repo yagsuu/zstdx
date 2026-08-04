@@ -1,4 +1,4 @@
-//! Intrusive List contract tests. Spec: docs/specs/intrusive/list.md.
+//! Intrusive List contract tests. See `docs/specs/intrusive/list.md`.
 
 const std = @import("std");
 

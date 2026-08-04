@@ -1,4 +1,4 @@
-//! Random byte access contract tests. Spec: docs/specs/bytes/access.md.
+//! Random byte access contract tests. See `docs/specs/bytes/access.md`.
 
 const std = @import("std");
 

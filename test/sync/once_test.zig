@@ -1,4 +1,4 @@
-//! Once contract tests. Spec: docs/specs/sync/once.md.
+//! Once contract tests. See `docs/specs/sync/once.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -428,5 +428,5 @@ test "stress: callChecked rollback releases waiters that re-race the claim" {
 //   - Backend.WaitError == anyerror (no explicit error set).
 //   - Backend missing `wait` decl.
 //   - Backend missing `wakeAll` decl.
-// Attempting `sync.Once(BadBackend)` for any of the above fails to
+// Attempting `sync.Once(BadBackend)` for any listed invalid backend fails to
 // compile with the corresponding `@compileError` message.

@@ -1,4 +1,4 @@
-//! Poll-until composition tests. Spec: docs/specs/io/poll-until.md.
+//! Poll-until composition tests. See `docs/specs/io/poll-until.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -249,7 +249,7 @@ test "ordering: recorded step sequence follows predicate, spin, spin, yield, sle
     // After spin×2, yield×1, sleep×N (each advances clock by 3 ns until
     // the deadline is exhausted at 1_000 ns), predicate is called between
     // each pair. The exact sleep count is (1000-0)/3 rounded down after
-    // the deadline check timing; assert on the observable log below.
+    // the deadline check timing; assert on the observable log.
     try testing.expect(clock.sleeps_len >= 2);
     for (clock.sleeps()) |d| {
         try testing.expectEqual(Duration.fromNanos(3), d);
@@ -462,9 +462,9 @@ test "contract: yield-null debug assertion compiles under Debug and never trips 
     // `backoff.policy.yield != null` immediately before unwrapping the
     // hook on a `.yield` step. We verify the assertion is compiled and
     // passes when the policy is legal (yield is non-null). Zig has no
-    // `expectPanic` primitive, so the negative trap case is documented
-    // in the trailing comment below and covered by the shared
-    // `checksEnabled(.build_mode)` policy assertion in `Backoff.next`.
+    // `expectPanic` primitive. The compile-only trap condition is documented
+    // separately and covered by the shared `checksEnabled(.build_mode)`
+    // policy assertion in `Backoff.next`.
     if (builtin.mode != .Debug) return;
 
     yield_calls = 0;
@@ -498,10 +498,9 @@ test "contract: yield-null debug assertion compiles under Debug and never trips 
 test "contract: module compiles regardless of host architecture" {
     // The spec's "Non-x86 build compiles the module" requirement: the
     // module reaches only `std.atomic.spinLoopHint`, `Backoff`, `Deadline`,
-    // and a caller-supplied clock, all of which are target-agnostic. Any
-    // successful invocation of `poll.until` on the host demonstrates the
-    // module compiles here; every runtime test above executes on the host
-    // target and doubles as this smoke check.
+    // and a caller-supplied clock, all of which are target-agnostic. A
+    // successful invocation of `poll.until` on the host demonstrates that
+    // the module compiles; every runtime test is also a host-target smoke check.
     var clock = FakeClock.init(0);
     var backoff = Backoff.init(samplePolicy(1, 0, null));
     var pred: PayloadOn = .{ .target = 1, .value = 1 };

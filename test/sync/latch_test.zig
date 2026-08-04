@@ -1,4 +1,4 @@
-//! Latch contract tests. Spec: docs/specs/sync/latch.md.
+//! Latch contract tests. See `docs/specs/sync/latch.md`.
 
 const std = @import("std");
 

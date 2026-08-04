@@ -1,4 +1,4 @@
-//! RateCounter projection tests. Spec: docs/specs/time/rate-counter.md.
+//! RateCounter projection tests. See `docs/specs/time/rate-counter.md`.
 
 const std = @import("std");
 
@@ -277,11 +277,8 @@ test "unit: assertValid accepts freshly-initialized value" {
 }
 
 test "unchecked: peek and sample tolerate now < base when checks disabled" {
-    // The spec's Required tests requires that under checksEnabled == false
-    // the primitive does not fault when given now < base. Under
-    // checksEnabled(.build_mode) the debug assert traps first — that path
-    // is documented as unreachable in the notes above. Here we cover the
-    // runtime-safe counterpart.
+    // In unchecked builds, `now < base` is outside the contract but must not trap.
+    // This test verifies that runtime-safe behavior.
     if (stdx.core.debug.checksEnabled(.build_mode)) return;
 
     var rc: RateCounter = .init(.{
@@ -368,6 +365,5 @@ test "unit: RateCounter compiles and executes on the host regardless of arch" {
 // Compile-only rejection: passing a clock whose `now` is missing, has the
 // wrong shape, or returns anything other than `Instant` is rejected by
 // `requireClock` inside `src/time/rate_counter.zig`. Zig cannot exercise
-// `@compileError` cases at test runtime; the positive comptime path is
-// pinned by every runtime test above, each of which passes a valid
+// `@compileError` cases at test runtime; runtime tests use a valid
 // `*FakeClock` through `RateCounter.peek`, `sample`, and `reset`.

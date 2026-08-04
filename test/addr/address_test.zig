@@ -1,4 +1,4 @@
-//! Address primitive contract tests. Spec: docs/specs/addr/address.md.
+//! Address primitive contract tests. See `docs/specs/addr/address.md`.
 
 const std = @import("std");
 

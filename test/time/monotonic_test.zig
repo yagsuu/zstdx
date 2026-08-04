@@ -1,4 +1,4 @@
-//! Monotonic clock and time value-type tests. Spec: docs/specs/time/monotonic.md.
+//! Monotonic clock and time value-type tests. See `docs/specs/time/monotonic.md`.
 
 const std = @import("std");
 

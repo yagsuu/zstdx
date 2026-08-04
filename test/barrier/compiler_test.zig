@@ -1,4 +1,4 @@
-//! Compiler reorder barrier tests. Spec: docs/specs/barrier/dma.md.
+//! Compiler reorder barrier tests. See `docs/specs/barrier/dma.md`.
 
 const std = @import("std");
 

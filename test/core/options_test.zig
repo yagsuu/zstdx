@@ -1,4 +1,4 @@
-//! Core option contract tests. Spec: docs/specs/core/options.md.
+//! Core option contract tests. See `docs/specs/core/options.md`.
 
 const std = @import("std");
 

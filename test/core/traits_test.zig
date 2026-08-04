@@ -1,4 +1,4 @@
-//! Core trait callback contract tests. Spec: docs/specs/core/traits.md.
+//! Core trait callback contract tests. See `docs/specs/core/traits.md`.
 
 const std = @import("std");
 

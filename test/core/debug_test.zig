@@ -1,4 +1,4 @@
-//! Debug policy contract tests. Spec: docs/specs/core/debug.md.
+//! Debug policy contract tests. See `docs/specs/core/debug.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

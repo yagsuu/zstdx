@@ -1,5 +1,5 @@
 //! x86_64 CPUID decoder contract tests.
-//! Spec: docs/specs/arch/x86_64/cpuid.md.
+//! See `docs/specs/arch/x86_64/cpuid.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

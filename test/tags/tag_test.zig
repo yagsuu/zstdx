@@ -1,4 +1,4 @@
-//! Tag value-type tests. Spec: docs/specs/tags/tag-allocator.md.
+//! Tag value-type tests. See `docs/specs/tags/tag-allocator.md`.
 
 const std = @import("std");
 const stdx = @import("stdx");
@@ -61,5 +61,5 @@ test "unit: Tag(D, u64) carries the widest unsigned width" {
 
 // Compile-error cases (declaring `Tag(D, i32)` or `Tag(D, f32)`) are
 // guarded by `@compileError` in `src/tags/tag.zig` and cannot be tested at
-// runtime in Zig; the comptime instantiations above pin the contract for
-// valid Int widths.
+// runtime in Zig. The comptime instantiations pin the contract for valid
+// Int widths.

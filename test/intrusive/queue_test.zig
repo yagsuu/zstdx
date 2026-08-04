@@ -1,4 +1,4 @@
-//! Intrusive Queue contract tests. Spec: docs/specs/intrusive/queue.md.
+//! Intrusive Queue contract tests. See `docs/specs/intrusive/queue.md`.
 
 const std = @import("std");
 

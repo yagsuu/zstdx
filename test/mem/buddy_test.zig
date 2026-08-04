@@ -1,4 +1,4 @@
-//! Buddy allocator contract tests. Spec: docs/specs/mem/buddy-allocator.md.
+//! Buddy allocator contract tests. See `docs/specs/mem/buddy-allocator.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -38,8 +38,8 @@ test "contract: Block type is stdx.algo.allocation.Buddy.Block" {
 // Compile-only rejection cases: `Static(0, 5)`, `Static(16, 0)`,
 // `Static(16, 33)`, and `Static(std.math.maxInt(usize), 5)` are guarded by
 // `@compileError` in `src/mem/buddy.zig` and cannot be exercised at runtime
-// in Zig; the positive comptime assertions above pin the contract for legal
-// parameter grids.
+// in Zig. Positive comptime assertions pin the contract for legal parameter
+// grids.
 
 // wrap
 
@@ -434,7 +434,7 @@ test "unit: clearRetainingCapacity restores fresh state" {
 
 // Debug-mode traps for `free` with unaligned start and double-free cannot be
 // exercised at test runtime in Zig; `std.debug.assert(false)` unconditionally
-// aborts the process. The release-mode error-return paths above pin the
+// aborts the process. Release-mode error-return paths pin the
 // `error.InvalidRequest` and `error.NotAllocated` contracts for Release
 // builds; the trap behavior is exercised by production panics only.
 

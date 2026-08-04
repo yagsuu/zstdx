@@ -1,4 +1,4 @@
-//! bits.word contract tests. Spec: docs/specs/bits/word.md.
+//! bits.word contract tests. See `docs/specs/bits/word.md`.
 
 const std = @import("std");
 

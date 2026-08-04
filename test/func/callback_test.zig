@@ -1,4 +1,4 @@
-//! Callback runtime dispatch tests. Spec: docs/specs/func/callback.md.
+//! Callback runtime dispatch tests. See `docs/specs/func/callback.md`.
 
 const std = @import("std");
 

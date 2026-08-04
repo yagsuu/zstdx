@@ -1,4 +1,4 @@
-//! Endian integer contract tests. Spec: docs/specs/layout/endian.md.
+//! Endian integer contract tests. See `docs/specs/layout/endian.md`.
 
 const std = @import("std");
 

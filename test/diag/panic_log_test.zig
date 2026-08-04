@@ -1,4 +1,4 @@
-//! Tests for `stdx.diag.PanicLog`. Spec: docs/specs/diag/panic-log.md.
+//! Tests for `stdx.diag.PanicLog`. See `docs/specs/diag/panic-log.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

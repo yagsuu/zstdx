@@ -1,4 +1,4 @@
-//! Signal contract tests. Spec: docs/specs/sync/signal.md.
+//! Signal contract tests. See `docs/specs/sync/signal.md`.
 
 const std = @import("std");
 

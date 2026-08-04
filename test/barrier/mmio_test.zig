@@ -1,4 +1,4 @@
-//! MMIO fence tests. Spec: docs/specs/barrier/dma.md.
+//! MMIO fence tests. See `docs/specs/barrier/dma.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

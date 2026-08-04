@@ -1,4 +1,4 @@
-//! MMIO register and window tests. Spec: docs/specs/io/mmio.md.
+//! MMIO register and window tests. See `docs/specs/io/mmio.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -1,4 +1,4 @@
-//! Range primitive contract tests. Spec: docs/specs/core/range.md.
+//! Range primitive contract tests. See `docs/specs/core/range.md`.
 
 const std = @import("std");
 

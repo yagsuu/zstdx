@@ -1,4 +1,4 @@
-//! MPSC ring contract tests. Spec: docs/specs/concurrent/mpsc-ring.md.
+//! MPSC ring contract tests. See `docs/specs/concurrent/mpsc-ring.md`.
 
 const std = @import("std");
 

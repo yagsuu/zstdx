@@ -1,5 +1,5 @@
 //! x86_64 SVM ISA wrapper contract tests.
-//! Spec: docs/specs/arch/x86_64/svm.md.
+//! See `docs/specs/arch/x86_64/svm.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

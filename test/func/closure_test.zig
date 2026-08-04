@@ -1,4 +1,4 @@
-//! Closure inline-storage tests. Spec: docs/specs/func/callback.md.
+//! Closure inline-storage tests. See `docs/specs/func/callback.md`.
 
 const std = @import("std");
 

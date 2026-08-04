@@ -1,4 +1,4 @@
-//! Page primitive contract tests. Spec: docs/specs/addr/pages.md.
+//! Page primitive contract tests. See `docs/specs/addr/pages.md`.
 
 const std = @import("std");
 

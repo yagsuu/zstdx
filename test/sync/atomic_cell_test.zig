@@ -1,4 +1,4 @@
-//! AtomicCell contract tests. Spec: docs/specs/sync/atomic-cell.md.
+//! AtomicCell contract tests. See `docs/specs/sync/atomic-cell.md`.
 
 const std = @import("std");
 
@@ -57,8 +57,8 @@ comptime {
 // defined on the returned struct); their bodies compile only when
 // referenced against an integer T. Referencing e.g. `AtomicCell(bool)
 // .fetchAddMonotonic(&cell, true)` fires the guard in `requireInt` at
-// src/sync/atomic_cell.zig, which is documented as compile-only-rejected
-// below.
+// src/sync/atomic_cell.zig. The `comptime` block documents the rejected
+// shape.
 
 // Rejected shapes covered by @compileError in src/sync/atomic_cell.zig:
 //   AtomicCell(f32)                                    -> "unsupported type category"
@@ -349,8 +349,8 @@ test "unit: fromStdConst observes stores written through the underlying std.atom
 }
 
 test "contract: layout matches std.atomic.Value at runtime" {
-    // Compile-time pins live above; this test surfaces the invariant in the
-    // runtime test list so a failure is legible in the test output.
+    // This test surfaces the compile-time layout invariant in the runtime
+    // test list so a failure is legible in test output.
     try testing.expectEqual(@sizeOf(std.atomic.Value(u32)), @sizeOf(AtomicCell(u32)));
     try testing.expectEqual(@sizeOf(std.atomic.Value(u64)), @sizeOf(AtomicCell(u64)));
     try testing.expectEqual(@sizeOf(std.atomic.Value(bool)), @sizeOf(AtomicCell(bool)));

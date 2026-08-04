@@ -1,4 +1,4 @@
-//! Backoff retry-delay generator tests. Spec: docs/specs/time/backoff.md.
+//! Backoff retry-delay generator tests. See `docs/specs/time/backoff.md`.
 
 const std = @import("std");
 
@@ -382,6 +382,5 @@ test "unit: Backoff compiles and executes on the host regardless of arch" {
 // Compile-only rejection: passing a clock whose `now` is missing, has the
 // wrong shape, or returns anything other than `Instant` is rejected by
 // `requireClock` inside `src/time/backoff.zig`. Zig cannot exercise
-// `@compileError` cases at test runtime; the positive comptime path is
-// pinned by every runtime test above, each of which passes a valid
+// `@compileError` cases at test runtime; runtime tests use a valid
 // `*FakeClock` through `Backoff.next`.

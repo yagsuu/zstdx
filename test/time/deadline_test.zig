@@ -1,4 +1,4 @@
-//! Deadline value-type tests. Spec: docs/specs/time/deadline.md.
+//! Deadline value-type tests. See `docs/specs/time/deadline.md`.
 
 const std = @import("std");
 

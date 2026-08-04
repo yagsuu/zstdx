@@ -1,4 +1,4 @@
-//! QSBR contract tests. Spec: docs/specs/concurrent/qsbr.md.
+//! QSBR contract tests. See `docs/specs/concurrent/qsbr.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -1,4 +1,4 @@
-//! bits.mask contract tests. Spec: docs/specs/bits/mask.md.
+//! bits.mask contract tests. See `docs/specs/bits/mask.md`.
 
 const std = @import("std");
 

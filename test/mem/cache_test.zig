@@ -1,4 +1,4 @@
-//! CachePad / CacheAlign contract tests. Spec: docs/specs/mem/cache.md.
+//! CachePad / CacheAlign contract tests. See `docs/specs/mem/cache.md`.
 
 const std = @import("std");
 
@@ -117,7 +117,7 @@ test "contract: adjacent CacheAlign(u32) values share stride at least @sizeOf(T)
     // `@sizeOf(T) < cache_line`, the returned struct's size is
     // `cache_line` (the aligned field forces trailing pad in a plain
     // struct to satisfy its own alignment). Two adjacent elements
-    // therefore MAY sit on adjacent cache lines but each element still
+    // therefore may sit on adjacent cache lines but each element still
     // starts on a cache-line boundary; assert only what the spec asserts.
     try testing.expectEqual(@as(usize, 0), @intFromPtr(&arr[0]) % cache_line);
     try testing.expectEqual(@as(usize, 0), @intFromPtr(&arr[1]) % cache_line);

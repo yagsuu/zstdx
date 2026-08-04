@@ -1,4 +1,4 @@
-//! Default host test suite aggregate. Spec: docs/specs/architecture.md.
+//! Default host test suite aggregate. See `docs/specs/architecture.md`.
 
 comptime {
     _ = @import("sync/signal_test.zig");

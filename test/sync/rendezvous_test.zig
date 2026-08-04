@@ -1,4 +1,4 @@
-//! Rendezvous contract tests. Spec: docs/specs/sync/rendezvous.md.
+//! Rendezvous contract tests. See `docs/specs/sync/rendezvous.md`.
 
 const std = @import("std");
 

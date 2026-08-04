@@ -1,4 +1,4 @@
-//! DMA buffer contract tests. Spec: docs/specs/dma/buffer.md.
+//! DMA buffer contract tests. See `docs/specs/dma/buffer.md`.
 
 const std = @import("std");
 

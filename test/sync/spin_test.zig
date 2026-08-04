@@ -1,4 +1,4 @@
-//! Tests for `stdx.sync.spin.Backend`. Spec: docs/specs/sync/spin.md.
+//! Tests for `stdx.sync.spin.Backend`. See `docs/specs/sync/spin.md`.
 
 const std = @import("std");
 const testing = std.testing;

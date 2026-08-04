@@ -1,4 +1,4 @@
-//! Intrusive Stack contract tests. Spec: docs/specs/intrusive/stack.md.
+//! Intrusive Stack contract tests. See `docs/specs/intrusive/stack.md`.
 
 const std = @import("std");
 

@@ -1,5 +1,5 @@
 //! x86_64 VMX ISA wrapper contract tests.
-//! Spec: docs/specs/arch/x86_64/vmx.md.
+//! See `docs/specs/arch/x86_64/vmx.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
