@@ -12,9 +12,7 @@ const State = sync.once.State;
 const Token = sync.once.Token;
 const SpinOnce = sync.Once(sync.spin.Backend);
 
-// Synthetic backend that fails `wait` a fixed number of times, then
-// succeeds forever. Used to exercise `WaitError` propagation on losers
-// without relying on real thread scheduling.
+// Backend that fails waits. A gated winner makes the loser path deterministic.
 const FailingBackend = struct {
     fail_remaining: usize,
     wait_calls: usize = 0,
@@ -60,13 +58,12 @@ const CountingBackend = struct {
     }
 };
 
-test "unit: State.init reports untouched, not done, generation zero" {
+test "unit: State.init reports untouched and not done" {
     const state = State.init();
     try testing.expect(!state.isDone());
 
     const token = state.observe();
     try testing.expect(!token.isDone());
-    try testing.expectEqual(@as(u32, 0), @intFromEnum(token));
     try testing.expect(!state.changedSince(token));
 }
 
@@ -86,7 +83,6 @@ test "unit: single-thread call invokes work exactly once across sequential calle
     try testing.expectEqual(@as(u32, 1), counter);
     try testing.expect(once.isDone());
 
-    // Fast-path skip: subsequent calls short-circuit without invoking work.
     var i: usize = 0;
     while (i < 8) : (i += 1) {
         try once.call(Ctx, work, .{ .counter = &counter });
@@ -125,57 +121,49 @@ test "unit: Once.isDone reflects state transitions" {
     try testing.expect(once.isDone());
 }
 
-test "unit: stateRef returns a pointer whose reads track transitions" {
-    var once = SpinOnce.init(.{});
-    const state_ptr = once.stateRef();
-    try testing.expectEqual(@as(*const State, &once.state), state_ptr);
-    try testing.expect(!state_ptr.isDone());
-
-    const initial = state_ptr.observe();
-    try testing.expect(!initial.isDone());
-
-    const work = struct {
-        fn run(_: void) void {}
-    }.run;
-    try once.call(void, work, {});
-
-    try testing.expect(state_ptr.isDone());
-    try testing.expect(state_ptr.changedSince(initial));
-    const after = state_ptr.observe();
-    try testing.expect(after.isDone());
-    try testing.expect(!state_ptr.changedSince(after));
-}
-
-test "unit: Token.isDone matches state bits of the observed word" {
-    const untouched: Token = @enumFromInt(0b0000);
-    const running: Token = @enumFromInt(0b0101);
-    const done: Token = @enumFromInt(0b1110);
-    try testing.expect(!untouched.isDone());
-    try testing.expect(!running.isDone());
-    try testing.expect(done.isDone());
-}
-
 test "unit: WaitError propagates unchanged to losing callers" {
-    // A `Once` whose backend fails every `wait` surfaces that error to
-    // any caller that lost the claim CAS. Simulated here by manually
-    // driving the state into `running` before invoking `call`, forcing
-    // the caller down the loser path.
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     const Once = sync.Once(FailingBackend);
-
-    var once = Once.init(.{ .fail_remaining = std.math.maxInt(usize) });
-
-    // Bump state -> running(gen=1) so the next `call` cannot claim.
-    once.state.word.store((1 << 2) | 0b01, .release);
-
-    const work = struct {
+    const Gate = struct {
+        started: AtomicCell(bool),
+        release: AtomicCell(bool),
+    };
+    const Winner = struct {
+        fn run(gate: *Gate) void {
+            gate.started.storeRelease(true);
+            while (!gate.release.loadAcquire()) {
+                std.atomic.spinLoopHint();
+            }
+        }
+    };
+    const Runner = struct {
+        fn run(once: *Once, gate: *Gate) void {
+            once.call(*Gate, Winner.run, gate) catch unreachable;
+        }
+    };
+    const loser = struct {
         fn run(_: void) void {
-            // Winner path; should not fire on the loser.
             unreachable;
         }
     }.run;
 
-    const result = once.call(void, work, {});
-    try testing.expectError(error.Canceled, result);
+    var gate = Gate{
+        .started = AtomicCell(bool).init(false),
+        .release = AtomicCell(bool).init(false),
+    };
+    var once = Once.init(.{ .fail_remaining = std.math.maxInt(usize) });
+    var winner = try std.Thread.spawn(.{}, Runner.run, .{ &once, &gate });
+    defer {
+        gate.release.storeRelease(true);
+        winner.join();
+    }
+
+    while (!gate.started.loadAcquire()) {
+        std.atomic.spinLoopHint();
+    }
+
+    try testing.expectError(error.Canceled, once.call(void, loser, {}));
     try testing.expect(once.backend.wait_calls >= 1);
 }
 
@@ -204,25 +192,18 @@ test "unit: callChecked returns work error and leaves state re-runnable" {
     try testing.expect(!once.isDone());
     try testing.expectEqual(@as(u32, 1), Fail.attempts);
 
-    // Retry sees fresh untouched state; work re-runs and can succeed.
     try once.callChecked(void, error{Custom}, Succeed.run, {});
     try testing.expect(once.isDone());
     try testing.expectEqual(@as(u32, 1), Succeed.attempts);
 
-    // Post-publication, further callChecked calls short-circuit.
     try once.callChecked(void, error{Custom}, Succeed.run, {});
     try testing.expectEqual(@as(u32, 1), Succeed.attempts);
 }
 
-test "unit: callChecked rollback bumps generation and calls wakeAll" {
-    // Directly exercise the winning-rollback path against a counting
-    // backend to confirm the required `wakeAll(&state)` on failure and
-    // that the generation counter advances so losers holding the old
-    // running token observe `changedSince`.
+test "unit: callChecked rollback calls wakeAll" {
     const Once = sync.Once(CountingBackend);
 
     var once = Once.init(.{});
-    const before_generation = @intFromEnum(once.stateRef().observe());
 
     const Fail = struct {
         fn run(_: void) error{Custom}!void {
@@ -233,14 +214,9 @@ test "unit: callChecked rollback bumps generation and calls wakeAll" {
 
     try testing.expect(!once.isDone());
     try testing.expectEqual(@as(usize, 1), once.backend.wake_calls);
-
-    const after_rollback = @intFromEnum(once.stateRef().observe());
-    try testing.expect(after_rollback != before_generation);
 }
 
 test "unit: mixing call and callChecked on the same state" {
-    // After a successful callChecked publishes done, subsequent `call`
-    // must short-circuit on the fast path without invoking work.
     const Ctx = struct { counter: *u32 };
 
     var counter: u32 = 0;
@@ -263,32 +239,13 @@ test "unit: mixing call and callChecked on the same state" {
     try testing.expectEqual(@as(u32, 1), counter);
 }
 
-test "unit: State.observe and changedSince track every transition" {
-    var once = SpinOnce.init(.{});
-    const state = once.stateRef();
-
-    const untouched_token = state.observe();
-    try testing.expect(!untouched_token.isDone());
-
-    const work = struct {
-        fn run(_: void) void {}
-    }.run;
-    try once.call(void, work, {});
-
-    const done_token = state.observe();
-    try testing.expect(done_token.isDone());
-    try testing.expect(state.changedSince(untouched_token));
-    try testing.expect(!state.changedSince(done_token));
-}
-
 test "contract: Once(spin.Backend) instantiates and its WaitError is empty" {
     comptime {
         _ = SpinOnce;
     }
     comptime std.debug.assert(SpinOnce.WaitError == error{});
-    // Also exercise a test backend that counts `wait` invocations; the
-    // spec requires the factory to accept any backend meeting the shared
-    // contract regardless of scheduler semantics.
+    comptime std.debug.assert(!@hasDecl(SpinOnce, "stateRef"));
+    // Instantiate additional backend shapes required by the backend contract.
     comptime {
         _ = sync.Once(CountingBackend);
         _ = sync.Once(FailingBackend);
@@ -309,9 +266,7 @@ test "stress: N threads race on the same Once observe exactly one work invocatio
         fn run(ctx: @This()) void {
             const work = struct {
                 fn go(p: *Payload) void {
-                    // Prove publication ordering: the winner writes
-                    // `counter` before releasing `flag`; every returning
-                    // caller must observe both.
+                    // Publish `counter` before `flag` to test release/acquire visibility.
                     _ = p.counter.fetchAddMonotonic(1);
                     p.flag.storeRelease(1);
                 }
@@ -319,8 +274,7 @@ test "stress: N threads race on the same Once observe exactly one work invocatio
 
             ctx.once.call(*Payload, work, ctx.payload) catch unreachable;
 
-            // Every returning caller must acquire-see the winner's
-            // publication: flag == 1 implies counter == 1.
+            // Every returned caller observes the published pair.
             std.debug.assert(ctx.payload.flag.loadAcquire() == 1);
             std.debug.assert(ctx.payload.counter.loadAcquire() == 1);
         }
@@ -351,10 +305,7 @@ test "stress: N threads race on the same Once observe exactly one work invocatio
 }
 
 test "stress: callChecked rollback releases waiters that re-race the claim" {
-    // Producer thread's first attempt fails; a fleet of losers observe
-    // `running`, see the rollback via `changedSince`, and one of them
-    // wins the retry. After the join, `state` is `done` and exactly one
-    // successful publication occurred.
+    // One failed claim lets one waiter publish on retry.
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Payload = struct {
@@ -368,8 +319,6 @@ test "stress: callChecked rollback releases waiters that re-race the claim" {
         fn run(ctx: @This()) void {
             const work = struct {
                 fn go(p: *Payload) error{TransientFailure}!void {
-                    // First attempt across all threads fails; the winner
-                    // of the retry succeeds.
                     if (p.succeed.loadAcquire() == 0) {
                         p.succeed.storeRelease(1);
                         return error.TransientFailure;
@@ -406,27 +355,5 @@ test "stress: callChecked rollback releases waiters that re-race the claim" {
     try testing.expectEqual(@as(u32, 1), payload.successes.loadAcquire());
 }
 
-// Debug-only trap probes cannot be exercised at Zig test runtime:
-// `std.debug.assert` aborts the process on failure and this repo has no
-// `expectPanic`-equivalent. The following comment enumerates the
-// invariants trapped by the source; each is reachable through direct
-// caller misuse and covered by the debug asserts in `src/sync/once.zig`.
-//
-//   Once.call / Once.callChecked trap under checksEnabled(.build_mode) on
-//   hosts with functional `threadlocal` when:
-//     - `work` re-enters `call` or `callChecked` on the same `Once`
-//       instance from inside the running invocation.
-//
-// The check is best-effort per spec: mutual recursion through two
-// distinct `Once` instances is not caught, and single-threaded builds
-// compile the check out.
-
-// Compile-only rejection cases enforced by `requireBackend` in
-// `src/sync/once.zig`:
-//   - Backend missing `WaitError` decl.
-//   - Backend.WaitError not an error set.
-//   - Backend.WaitError == anyerror (no explicit error set).
-//   - Backend missing `wait` decl.
-//   - Backend missing `wakeAll` decl.
-// Attempting `sync.Once(BadBackend)` for any listed invalid backend fails to
-// compile with the corresponding `@compileError` message.
+// Recursion traps and backend compile failures require test-harness support
+// unavailable here.

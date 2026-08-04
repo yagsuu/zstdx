@@ -97,7 +97,7 @@ test "unit: Latch.Static(1) single arrive releases and wait fast-paths" {
     try testing.expectEqual(@as(u32, 0), l.pending());
     try testing.expect(l.isReleased());
     try testing.expectEqual(@as(usize, 1), l.backend.wake_calls);
-    try testing.expectEqual(l.stateRef(), l.backend.last_wake_state.?);
+    try testing.expectEqual(@as(*const State, &l.state), l.backend.last_wake_state.?);
 
     try l.wait();
     try testing.expectEqual(@as(usize, 0), l.backend.wait_calls);
@@ -139,7 +139,7 @@ test "unit: Latch.Static last arrival releases, wakes, and stays released" {
     try testing.expectEqual(@as(u32, 0), l.pending());
     try testing.expect(l.isReleased());
     try testing.expectEqual(@as(usize, 1), l.backend.wake_calls);
-    try testing.expectEqual(l.stateRef(), l.backend.last_wake_state.?);
+    try testing.expectEqual(@as(*const State, &l.state), l.backend.last_wake_state.?);
 
     // Sticky release: subsequent wait must fast-path.
     try testing.expect(l.isReleased());
@@ -203,7 +203,7 @@ test "unit: Latch.Bounded mirrors Static semantics for the same capacity" {
     try testing.expectEqual(@as(u32, 0), l.pending());
     try testing.expect(l.isReleased());
     try testing.expectEqual(@as(usize, 1), l.backend.wake_calls);
-    try testing.expectEqual(l.stateRef(), l.backend.last_wake_state.?);
+    try testing.expectEqual(@as(*const State, &l.state), l.backend.last_wake_state.?);
 }
 
 test "unit: Latch.Bounded wait fast-paths after release" {
@@ -220,11 +220,11 @@ test "unit: backend recheck observes release between token capture and wait" {
     const L = Latch(TestBackend).Static(2);
     var l = L.init(.{});
 
-    const observed = l.stateRef().observe();
+    const observed = l.state.observe();
     try testing.expectEqual(@as(u32, 2), observed.remaining());
 
     l.state.word.store(0, .release);
-    try l.backend.wait(l.stateRef(), observed);
+    try l.backend.wait(&l.state, observed);
 
     try testing.expect(l.isReleased());
     try testing.expectEqual(@as(usize, 1), l.backend.wait_calls);
@@ -233,6 +233,10 @@ test "unit: backend recheck observes release between token capture and wait" {
 test "contract: Latch(spin.Backend) instantiates for Static and Bounded" {
     _ = Latch(SpinBackend).Static(4);
     _ = Latch(SpinBackend).Bounded;
+    comptime {
+        std.debug.assert(!@hasDecl(Latch(SpinBackend).Static(4), "stateRef"));
+        std.debug.assert(!@hasDecl(Latch(SpinBackend).Bounded, "stateRef"));
+    }
 }
 
 test "unit: Latch(spin.Backend).Static releases after N arrivals" {

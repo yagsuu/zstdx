@@ -16,8 +16,7 @@ This spec owns:
 - `sync.Latch(Backend)`, the wait-capable one-shot countdown-latch family;
 - `sync.Latch(Backend).Static(N)` and `sync.Latch(Backend).Bounded` storage
   variants;
-- `arrive`, `wait`, `pending`, `capacity`, `isReleased`, and `stateRef`
-  semantics;
+- `arrive`, `wait`, `pending`, `capacity`, and `isReleased` semantics;
 - backend requirements delegated to the shared wait/wake contract defined in
   `docs/specs/sync/spin.md`;
 - lost-wakeup prevention via token comparison and backend recheck;
@@ -133,7 +132,6 @@ pub const Self = struct {
     pub fn pending(self: *const Self) u32;
     pub fn capacity(self: *const Self) u32;
     pub fn isReleased(self: *const Self) bool;
-    pub fn stateRef(self: *const Self) *const State;
 };
 ```
 
@@ -154,9 +152,11 @@ pub const Bounded = struct {
     pub fn pending(self: *const Bounded) u32;
     pub fn capacity(self: *const Bounded) u32;
     pub fn isReleased(self: *const Bounded) bool;
-    pub fn stateRef(self: *const Bounded) *const State;
 };
 ```
+
+`State` and `Token` support `Backend` implementations. Normal callers use
+`Static` or `Bounded` operations.
 
 `Static(0)` is a compile-time error, matching the `BitSet.Static(0)` rule in
 `docs/specs/bits/bitset/static.md` and the `Rendezvous.Static(0)` rule in
@@ -369,7 +369,7 @@ latch. Any number of contexts may call `wait` concurrently against the
 same latch. Arrivers and waiters may share the same context; the primitive
 does not distinguish caller identity.
 
-`pending`, `capacity`, `isReleased`, `stateRef`, and `State.observe` /
+`pending`, `capacity`, `isReleased`, and `State.observe` /
 `State.changedSince` / `State.remaining` / `State.isReleased` are
 non-mutating and may be called concurrently with any other operation.
 
@@ -418,14 +418,13 @@ atomics or barriers on those structures.
 | `pending` | never | never | O(1) | reader | acquire | infallible |
 | `capacity` | never | never | O(1) | reader | none | infallible |
 | `isReleased` | never | never | O(1) | reader | acquire | infallible |
-| `stateRef` | never | never | O(1) | reader | none | infallible |
 
 The latch layer performs no heap allocation, I/O, MMIO, volatile access,
 target probing, or hidden global scheduler access.
 
 ## Error behavior
 
-`arrive`, `pending`, `capacity`, `isReleased`, `stateRef`, `State.observe`,
+`arrive`, `pending`, `capacity`, `isReleased`, `State.observe`,
 `State.changedSince`, `State.remaining`, and `State.isReleased` are
 infallible.
 
@@ -544,6 +543,7 @@ Required unit tests:
 - `Static(N)` last arrival transitions `pending()` to zero, sets
   `isReleased()` to true, and invokes `wakeAll` with `&self.state`
   exactly once;
+- neither `Static(N)` nor `Bounded` exposes `stateRef`;
 - `wait` post-release returns on the fast path without invoking
   `Backend.wait`;
 - `Bounded.init(N, backend)` mirrors `Static(N)` semantics for the same N;

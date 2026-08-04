@@ -12,7 +12,7 @@ pre-runtime contexts.
 This spec owns:
 
 - `sync.once.State`, the atomic sticky init-state word;
-- `sync.once.Token`, an observed state/generation snapshot;
+- `sync.once.Token`, an opaque observed-word identity snapshot;
 - `sync.Once(Backend)`, the wait-capable one-shot init family;
 - `call` and `callChecked` semantics;
 - ordering contract for publication of writes performed by the initializer;
@@ -86,8 +86,6 @@ and aliasing.
 
 ```zig
 pub const State = struct {
-    word: std.atomic.Value(u32),
-
     pub fn init() State;
     pub fn isDone(self: *const State) bool;
     pub fn observe(self: *const State) Token;
@@ -130,10 +128,11 @@ pub const Self = struct {
         comptime work: fn (ctx: Ctx) E!void,
         ctx: Ctx,
     ) (E || WaitError)!void;
-
-    pub fn stateRef(self: *const Self) *const State;
 };
 ```
+
+`State` and `Token` support `Backend` implementations. Normal callers use
+only `Once.init`, `Once.isDone`, `Once.call`, and `Once.callChecked`.
 
 There is no `reset`, `retry`, `poison`, `waitOnly`, `waitFor`, or `Manual`
 alias in this spec. There is no operation that runs an initializer on `State`
@@ -182,47 +181,48 @@ otherwise make those waiters return.
 
 ## State and token representation
 
-`sync.once.State` contains one atomic `u32` word.
-
-Conceptually:
+`sync.once.State` contains one private atomic `Word` with a `u32` backing
+integer. Its packed fields are:
 
 ```text
-bits 0..1  init state:
-             0b00 = untouched (no claimer)
-             0b01 = running   (a claimer is executing work)
-             0b10 = done      (work published)
-bits 2..31 generation counter
+phase:      bits 0..1
+generation: bits 2..31
 ```
 
-`sync.once.Token` is a strong snapshot of that word.
+`phase` has the values `untouched`, `running`, and `done`. The fourth `u2`
+value is reserved. The private layout makes the bit allocation explicit
+without masks or shifts in state-transition code.
 
-`Token.isDone()` returns whether the token's state bits equal `0b10`.
+`sync.once.Token` is an opaque identity snapshot of `Word`. Backends use
+`Token` only with `State.changedSince`. `Token.isDone()` reports whether the
+snapshot observed `done`.
 
-`State.observe()` acquire-loads the current word and returns it as a token.
-
+`State.observe()` acquire-loads the current word and returns a token.
 `State.changedSince(token)` acquire-loads the current word and compares it
-with `token`. It returns true when any state transition changed the word,
-including rollback transitions from `callChecked`.
+with `token`. It returns true when a state transition occurred after the
+token was observed, including a rollback from `callChecked`.
 
-`State.isDone()` acquire-loads the current word and returns whether the
-state bits equal `0b10`.
+`State.isDone()` acquire-loads the current word and reports whether its phase
+is `done`.
 
-Every transition (claim, publish, rollback) bumps the generation counter.
-Publish is a one-way transition; a state observed with `done` bits never
-transitions to any other state. Rollback (running → untouched, only
-performed by `callChecked` on error) still bumps the generation so that
-losers spinning on an earlier `running` token observe the change.
+Every transition advances `generation`. Publish is a one-way transition; a
+state with phase `done` never transitions again. Rollback (`running` →
+`untouched`, only from `callChecked` on error) advances `generation` so that
+losers holding an earlier `running` token observe the change.
 
-Generation wrap while a waiter holds an old token is outside the
-primitive's practical test envelope. Implementations use the full 30-bit
-generation space above the state bits to make wrap unreachable in ordinary
-operation.
+A successful claim creates a private capability containing the exact
+`running` word. `publish` and `rollback` consume that capability with a
+strong release CAS. If either CAS fails, the implementation panics rather
+than overwrite an unexpected state in any build mode.
+
+Generation wrap while a waiter holds an old token is outside the primitive's
+practical test envelope. The full 30-bit generation space makes wrap
+unreachable in ordinary operation.
 
 ## Construction
 
-`Once(Backend).init(backend)` returns a `Self` with a fresh `State` (word
-zero, state bits `untouched`, generation zero) and the supplied backend
-stored by value.
+`Once(Backend).init(backend)` returns a `Self` with a fresh `State` (phase
+`untouched`, generation zero) and the supplied backend stored by value.
 
 After initialization, copying a `Once` is outside the primitive's contract.
 Once any pointer to a `Once` is shared with another execution context,
@@ -236,25 +236,21 @@ Required algorithm shape:
 
 ```zig
 pub fn call(self: *Self, comptime Ctx: type, comptime work: fn (Ctx) void, ctx: Ctx) WaitError!void {
-    // Fast path.
     if (self.state.isDone()) return;
 
-    // Debug-only recursion check.
     checkNotRecursive(&self.state);
 
-    // Try to claim: untouched (with any generation) -> running (new generation).
-    if (self.state.tryClaim()) {
+    if (self.state.tryClaim()) |claim| {
         enterClaim(&self.state);
         defer leaveClaim(&self.state);
 
         work(ctx);
 
-        self.state.publish();       // running -> done, release
+        self.state.publish(claim);  // running -> done, release CAS
         self.backend.wakeAll(&self.state);
         return;
     }
 
-    // Loser: wait until done.
     while (true) {
         const token = self.state.observe();
         if (token.isDone()) return;
@@ -268,7 +264,8 @@ Required behavior:
 - if `state` is already `done`, return immediately without invoking `work`;
 - otherwise, at most one caller wins the CAS from `untouched` to `running`
   and invokes `work`;
-- after `work` returns, release-publish `done` and call `backend.wakeAll(&state)`;
+- after `work` returns, publish `done` with a release CAS and call
+  `backend.wakeAll(&state)`;
 - every losing caller returns only after observing `done`;
 - every returning caller synchronizes-with the writes `work` performed
   under acquire semantics on state observation;
@@ -295,17 +292,17 @@ pub fn callChecked(
 
     checkNotRecursive(&self.state);
 
-    if (self.state.tryClaim()) {
+    if (self.state.tryClaim()) |claim| {
         enterClaim(&self.state);
 
         work(ctx) catch |err| {
-            self.state.rollback();  // running -> untouched, new generation, release
+            self.state.rollback(claim);  // running -> untouched, new generation, release CAS
             self.backend.wakeAll(&self.state);
             leaveClaim(&self.state);
             return err;
         };
 
-        self.state.publish();       // running -> done, release
+        self.state.publish(claim);       // running -> done, release CAS
         self.backend.wakeAll(&self.state);
         leaveClaim(&self.state);
         return;
@@ -321,9 +318,9 @@ pub fn callChecked(
 
 Required behavior:
 
-- rollback restores the visible state bits to `untouched` and bumps
-  generation so that any loser holding a `running` token observes the
-  change on its post-registration recheck;
+- rollback restores the phase to `untouched` and bumps generation so that
+  any loser holding a `running` token observes the change on its
+  post-registration recheck;
 - after rollback, `wakeAll(&state)` is called so waiters can return from
   `Backend.wait`, re-observe `untouched`, and try to claim themselves;
 - rollback preserves the no-mutation-on-error convention: a caller observing
@@ -360,25 +357,26 @@ for `Once`.
 Any number of contexts may call `call` or `callChecked` concurrently against
 the same `Once`. Exactly one wins the claim CAS on any given generation.
 
-`isDone` and `stateRef` are non-mutating and may be called concurrently
-with any other operation.
+`Once.isDone`, `State.isDone`, `State.observe`, and `State.changedSince` do
+not mutate state and may execute concurrently with any other operation.
 
 `init` must be called before any concurrent use.
 
 Publication ordering:
 
-- the CAS that transitions `untouched → running` is a release store on the
-  running state;
-- the store that transitions `running → done` is a release store on the
-  done state, sequenced-after every write performed inside `work`;
+- the CAS that transitions `untouched → running` is a release operation on
+  the running state;
+- the strong CAS that transitions `running → done` is a release operation on
+  the done state, sequenced-after every write performed inside `work`;
 - every observer that reads `done` under acquire semantics synchronizes-with
   the `work` writes.
 
 Rollback ordering (checked variant only):
 
-- the store that transitions `running → untouched` is a release store; it
-  does not synchronize-with `work` writes because `work` returned an error
-  and its partial writes are not observable through this primitive.
+- the strong CAS that transitions `running → untouched` is a release
+  operation; it does not synchronize-with `work` writes because `work`
+  returned an error and its partial writes are not observable through this
+  primitive.
 
 ## Panicking-callback contract
 
@@ -449,8 +447,8 @@ notices.
 - acquire semantics on every state observation, including the fast-path
   short-circuit;
 - release semantics on the `untouched → running` claim CAS;
-- release semantics on the `running → done` publish store;
-- release semantics on the `running → untouched` rollback store.
+- release semantics on the `running → done` publish CAS;
+- release semantics on the `running → untouched` rollback CAS.
 
 The primitive does not order accesses outside `work`'s own writes. Data
 visibility for buffers, rings, or other structures published as part of
@@ -467,7 +465,6 @@ atomics or barriers on those structures.
 | `State.changedSince` | never | never | O(1) | reader | acquire | infallible |
 | `Once.init` | never | never | O(1) | single-owner | none | infallible |
 | `Once.isDone` | never | never | O(1) | reader | acquire | infallible |
-| `Once.stateRef` | never | never | O(1) | reader | none | infallible |
 | `Once.call` | never | may wait via backend | O(1) + work + wait | many callers | acquire on observation, release on transitions | propagates `WaitError` |
 | `Once.callChecked` | never | may wait via backend | O(1) + work + wait | many callers | as above; rollback is release | propagates `E` or `WaitError` |
 
@@ -559,7 +556,7 @@ Required tests:
 - single-thread `call` publication: writes performed inside `work` are
   observable after `call` returns;
 - `Once.isDone` reflects state transitions;
-- `stateRef` returns a pointer whose reads track state transitions;
+- `Once` does not expose a `stateRef` escape hatch;
 - concurrent-caller model test against `sync.spin.Backend`: `N` threads
   racing on the same `Once` observe exactly one `work` invocation and all
   return after publication;

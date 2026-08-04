@@ -5,100 +5,211 @@ const builtin = @import("builtin");
 
 const debug = @import("../core/debug.zig");
 
-// State word encoding: bits 0..1 hold the init state; bits 2..31 hold a
-// generation counter that advances on every claim, publish, and rollback so
-// that losers observing an old token see the transition on their
-// post-registration recheck.
-const state_mask: u32 = 0b11;
-const generation_step: u32 = 0b100;
-const untouched_bits: u32 = 0b00;
-const running_bits: u32 = 0b01;
-const done_bits: u32 = 0b10;
+/// Wait-capable one-shot initializer.
+/// Requirements: `Backend` provides `WaitError`, `wait`, and `wakeAll`.
+pub fn Once(comptime Backend: type) type {
+    comptime requireBackend(Backend);
 
-/// One-shot init state substrate. One atomic `u32` encodes both the sticky
-/// init state and a generation counter; every reader uses acquire loads and
-/// every transition uses a release store.
+    return struct {
+        state: State,
+        backend: Backend,
+
+        const Self = @This();
+
+        pub const WaitError = Backend.WaitError;
+
+        /// Requirements: Initialize before sharing. Do not copy or move after sharing.
+        pub fn init(backend: Backend) Self {
+            return .{ .state = State.init(), .backend = backend };
+        }
+
+        /// Returns whether initialization published. Uses acquire.
+        pub fn isDone(self: *const Self) bool {
+            return self.state.isDone();
+        }
+
+        /// Runs `work(ctx)` at most once; losers wait until publication.
+        /// Effects: Wakes waiters after publication. Never allocates.
+        pub fn call(
+            self: *Self,
+            comptime Ctx: type,
+            comptime work: fn (ctx: Ctx) void,
+            ctx: Ctx,
+        ) WaitError!void {
+            if (self.state.isDone()) return;
+
+            checkNotRecursive(&self.state);
+
+            if (self.state.tryClaim()) |claim| {
+                enterClaim(&self.state);
+                defer leaveClaim(&self.state);
+
+                work(ctx);
+
+                self.state.publish(claim);
+                self.backend.wakeAll(&self.state);
+                return;
+            }
+
+            while (true) {
+                const token = self.state.observe();
+                if (token.isDone()) return;
+                try self.backend.wait(&self.state, token);
+            }
+        }
+
+        /// Runs `work(ctx)` until one invocation succeeds.
+        /// Effects: On error, rolls back, wakes waiters, and propagates the error.
+        /// Never allocates.
+        pub fn callChecked(
+            self: *Self,
+            comptime Ctx: type,
+            comptime E: type,
+            comptime work: fn (ctx: Ctx) E!void,
+            ctx: Ctx,
+        ) (E || WaitError)!void {
+            if (self.state.isDone()) return;
+
+            checkNotRecursive(&self.state);
+
+            // Retry after rollback instead of waiting on a stale token.
+            while (true) {
+                if (self.state.isDone()) return;
+
+                if (self.state.tryClaim()) |claim| {
+                    enterClaim(&self.state);
+                    defer leaveClaim(&self.state);
+
+                    work(ctx) catch |err| {
+                        self.state.rollback(claim);
+                        self.backend.wakeAll(&self.state);
+                        return err;
+                    };
+
+                    self.state.publish(claim);
+                    self.backend.wakeAll(&self.state);
+                    return;
+                }
+
+                const token = self.state.observe();
+                if (token.isDone()) return;
+
+                // Rollback can restore `untouched` after the failed claim.
+                if (wordFromToken(token).phase == .untouched) continue;
+                try self.backend.wait(&self.state, token);
+            }
+        }
+    };
+}
+
+/// Atomic once state. Reads use acquire; transitions use release.
 pub const State = struct {
-    word: std.atomic.Value(u32),
+    word: std.atomic.Value(Word),
 
-    /// Returns a fresh state: `untouched` bits, generation zero.
+    /// Returns untouched state at generation zero.
     pub fn init() State {
-        return .{ .word = std.atomic.Value(u32).init(0) };
+        return .{ .word = std.atomic.Value(Word).init(.{
+            .phase = .untouched,
+            .generation = 0,
+        }) };
     }
 
-    /// Acquire-loads the word and reports whether the state bits equal
-    /// `done` (`0b10`).
+    /// Returns whether initialization published. Uses acquire.
     pub fn isDone(self: *const State) bool {
-        return (self.word.load(.acquire) & state_mask) == done_bits;
+        return self.word.load(.acquire).phase == .done;
     }
 
-    /// Acquire-loads the word into a `Token` snapshot used to arm a
-    /// lost-wakeup-safe wait.
+    /// Returns an acquire snapshot for backend rechecks.
     pub fn observe(self: *const State) Token {
-        return @enumFromInt(self.word.load(.acquire));
+        return tokenFromWord(self.word.load(.acquire));
     }
 
-    /// Acquire-loads the word and reports whether any claim, publish, or
-    /// rollback transition has occurred since `token` was observed.
+    /// Returns whether state changed after `token`. Uses acquire.
     pub fn changedSince(self: *const State, token: Token) bool {
-        return self.word.load(.acquire) != @intFromEnum(token);
+        return self.word.load(.acquire) != wordFromToken(token);
     }
 
-    // A successful release CAS publishes `running`; acquire observers
-    // synchronize with it.
-    fn tryClaim(self: *State) bool {
+    fn advance(current: Word, phase: Phase) Word {
+        return .{
+            .phase = phase,
+            .generation = current.generation +% 1,
+        };
+    }
+
+    // The release claim synchronizes with later acquire observers.
+    fn tryClaim(self: *State) ?Claim {
         var current = self.word.load(.acquire);
         while (true) {
-            if ((current & state_mask) != untouched_bits) return false;
+            if (current.phase != .untouched) return null;
 
-            const gen_next = (current & ~state_mask) +% generation_step;
-            const next = gen_next | running_bits;
-            if (self.word.cmpxchgWeak(current, next, .release, .acquire)) |observed| {
+            const running = advance(current, .running);
+            if (self.word.cmpxchgWeak(current, running, .release, .acquire)) |observed| {
                 current = observed;
                 continue;
             }
 
-            return true;
+            return .{ .running = running };
         }
     }
 
-    // Only the winning claimer calls this release store. Acquire observers
-    // synchronize with the completed work.
-    fn publish(self: *State) void {
-        const current = self.word.load(.monotonic);
-        std.debug.assert((current & state_mask) == running_bits);
-        const gen_next = (current & ~state_mask) +% generation_step;
-        self.word.store(gen_next | done_bits, .release);
+    // Trap rather than overwrite a state that no longer matches the claim.
+    fn publish(self: *State, claim: Claim) void {
+        const done = advance(claim.running, .done);
+        if (self.word.cmpxchgStrong(claim.running, done, .release, .monotonic) != null) {
+            @panic("Once: claim changed before publication");
+        }
     }
 
-    // Only the winning claimer of a failed `callChecked` calls this release
-    // store. The new generation makes the rollback visible to losers that
-    // hold the earlier `running` token.
-    fn rollback(self: *State) void {
-        const current = self.word.load(.monotonic);
-        std.debug.assert((current & state_mask) == running_bits);
-        const gen_next = (current & ~state_mask) +% generation_step;
-        self.word.store(gen_next | untouched_bits, .release);
+    // Advance generation so stale wait tokens observe rollback.
+    fn rollback(self: *State, claim: Claim) void {
+        const untouched = advance(claim.running, .untouched);
+        if (self.word.cmpxchgStrong(claim.running, untouched, .release, .monotonic) != null) {
+            @panic("Once: claim changed before rollback");
+        }
     }
 };
 
-/// Observed snapshot of a `State` word. Compares by identity for
-/// `changedSince`; carries both the state bits and the generation counter.
+/// Opaque state snapshot for backend rechecks.
 pub const Token = enum(u32) {
     _,
 
-    /// True if the token's state bits equal `done` (`0b10`).
+    /// True if this snapshot observed the published state.
     pub fn isDone(self: Token) bool {
-        return (@intFromEnum(self) & state_mask) == done_bits;
+        return wordFromToken(self).phase == .done;
     }
 };
 
-// Recursion-detection substrate. `current_claim` is a threadlocal typed
-// pointer to the state currently owned by this thread's `work` invocation;
-// `null` when not inside a claim. The helpers no-op when
-// `checksEnabled(.build_mode)` is off or when the target is
-// `single_threaded` — hosted-freestanding maps `threadlocal` onto shared
-// storage in that case, which would produce cross-thread false positives.
+// State word encoding: `phase` occupies bits 0..1; `generation` occupies
+// bits 2..31. Every transition advances `generation` so that losers holding
+// an earlier token observe claim, publication, or rollback.
+const Phase = enum(u2) {
+    untouched,
+    running,
+    done,
+    _,
+};
+
+const Word = packed struct(u32) {
+    phase: Phase,
+    generation: u30,
+};
+
+// A claim owns this exact `running` word until publication or rollback.
+const Claim = struct {
+    running: Word,
+};
+
+fn wordFromToken(token: Token) Word {
+    const bits = @intFromEnum(token);
+    return @bitCast(bits);
+}
+
+fn tokenFromWord(word: Word) Token {
+    const bits: u32 = @bitCast(word);
+    return @enumFromInt(bits);
+}
+
+// Disable recursive-use assertions where `threadlocal` storage is shared.
 threadlocal var current_claim: ?*const State = null;
 
 fn checkNotRecursive(state: *const State) void {
@@ -119,135 +230,25 @@ fn leaveClaim(state: *const State) void {
     if (current_claim == state) current_claim = null;
 }
 
-/// Wait-capable one-shot init family parameterized on `Backend`. `Backend`
-/// must expose `WaitError`, `fn wait(*Backend, *const State, Token) WaitError!void`,
-/// and `fn wakeAll(*Backend, *const State) void`. `Backend` is stored by value.
-pub fn Once(comptime Backend: type) type {
-    comptime requireBackend(Backend);
-
-    return struct {
-        state: State,
-        backend: Backend,
-
-        const Self = @This();
-
-        /// Backend-provided error set for `wait`.
-        pub const WaitError = Backend.WaitError;
-
-        /// Returns a `Once` with a fresh state and the supplied backend
-        /// stored by value. Must complete before any concurrent use;
-        /// copying or moving the `Once` after any pointer to it is shared
-        /// is outside the primitive's contract.
-        pub fn init(backend: Backend) Self {
-            return .{ .state = State.init(), .backend = backend };
-        }
-
-        /// Acquire-loads the state and reports whether `work` has published.
-        pub fn isDone(self: *const Self) bool {
-            return self.state.isDone();
-        }
-
-        /// Borrows the underlying `State` for backend enrollment or
-        /// external `changedSince` recheck.
-        pub fn stateRef(self: *const Self) *const State {
-            return &self.state;
-        }
-
-        /// Run `work(ctx)` at most once against `self.state`. Winners
-        /// publish `done` and call `backend.wakeAll(&state)`; losers wait
-        /// via the backend and return only after observing `done`. On the
-        /// fast path (already `done`), returns immediately without
-        /// invoking `work`. Never allocates.
-        pub fn call(
-            self: *Self,
-            comptime Ctx: type,
-            comptime work: fn (ctx: Ctx) void,
-            ctx: Ctx,
-        ) WaitError!void {
-            if (self.state.isDone()) return;
-
-            checkNotRecursive(&self.state);
-
-            if (self.state.tryClaim()) {
-                enterClaim(&self.state);
-                defer leaveClaim(&self.state);
-
-                work(ctx);
-
-                self.state.publish();
-                self.backend.wakeAll(&self.state);
-                return;
-            }
-
-            while (true) {
-                const token = self.state.observe();
-                if (token.isDone()) return;
-                try self.backend.wait(&self.state, token);
-            }
-        }
-
-        /// Run `work(ctx)` at most once until one invocation succeeds. On
-        /// a work error, roll back to `untouched` (bumping the
-        /// generation), wake all waiters, and return the error unchanged;
-        /// subsequent callers may re-race the claim. On success, publish
-        /// `done` and call `backend.wakeAll(&state)`. Never allocates.
-        pub fn callChecked(
-            self: *Self,
-            comptime Ctx: type,
-            comptime E: type,
-            comptime work: fn (ctx: Ctx) E!void,
-            ctx: Ctx,
-        ) (E || WaitError)!void {
-            if (self.state.isDone()) return;
-
-            checkNotRecursive(&self.state);
-
-            // A rollback wakes losers to retry the claim instead of waiting on a
-            // stale token.
-            while (true) {
-                if (self.state.isDone()) return;
-
-                if (self.state.tryClaim()) {
-                    enterClaim(&self.state);
-                    defer leaveClaim(&self.state);
-
-                    work(ctx) catch |err| {
-                        self.state.rollback();
-                        self.backend.wakeAll(&self.state);
-                        return err;
-                    };
-
-                    self.state.publish();
-                    self.backend.wakeAll(&self.state);
-                    return;
-                }
-
-                const token = self.state.observe();
-                if (token.isDone()) return;
-                // The state can become `untouched` between `tryClaim` and
-                // `observe` when another caller rolls back. Retry the claim.
-                if ((@intFromEnum(token) & state_mask) == untouched_bits) continue;
-                try self.backend.wait(&self.state, token);
-            }
-        }
-    };
-}
-
 fn requireBackend(comptime Backend: type) void {
     if (!@hasDecl(Backend, "WaitError")) {
         @compileError("Once(Backend): Backend must declare pub const WaitError");
     }
+
     const WaitError = Backend.WaitError;
     const info = @typeInfo(WaitError);
     if (info != .error_set) {
         @compileError("Once(Backend): Backend.WaitError must be an error set");
     }
+
     if (info.error_set == null) {
         @compileError("Once(Backend): Backend.WaitError must be an explicit error set; anyerror is not approved");
     }
+
     if (!@hasDecl(Backend, "wait")) {
         @compileError("Once(Backend): Backend must declare pub fn wait(*Backend, *const State, Token) WaitError!void");
     }
+
     if (!@hasDecl(Backend, "wakeAll")) {
         @compileError("Once(Backend): Backend must declare pub fn wakeAll(*Backend, *const State) void");
     }
