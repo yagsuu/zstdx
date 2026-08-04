@@ -1,6 +1,5 @@
-//! Byte-stable endian integer wrappers. `extern struct { bytes: [N]u8 }` with
-//! alignment 1, exact-byte storage, and host-independent conversion. See
-//! docs/specs/layout/endian.md.
+//! Endian integer wrappers use exact-byte storage and host-independent conversion.
+//! See `docs/specs/layout/endian.md`.
 
 const std = @import("std");
 
@@ -23,37 +22,30 @@ fn requireEndianInt(comptime T: type) void {
     }
 }
 
-/// Wrapper around an unsigned byte-aligned integer `T` (8..128 bits, exact
-/// multiples of 8; `usize`/`isize` rejected) that stores it as a fixed-size
-/// byte array in the chosen endianness. The returned type is an
-/// `extern struct` with `@sizeOf == count_bytes` and `@alignOf == 1`.
-pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) type {
+/// Returns a wrapper that stores an unsigned byte-aligned integer `T` from 8
+/// through 128 bits in `endian` byte order. `usize` and `isize` are not
+/// supported. The wrapper size is `@bitSizeOf(T) / 8`; its alignment is 1.
+pub fn EndianInt(comptime T: type, comptime endian: std.builtin.Endian) type {
     comptime requireEndianInt(T);
+
     const bits = @bitSizeOf(T);
     const bytes_len = @divExact(bits, 8);
     return extern struct {
         bytes: [bytes_len]u8,
 
-        const Self = @This();
-
-        /// Native integer type the wrapper carries.
         pub const Native = T;
-
-        /// Byte order encoded in `bytes`.
-        pub const byte_order = endian_value;
-
-        /// Bit width of `Native`.
+        pub const byte_order = endian;
         pub const count_bits = bits;
-
-        /// Storage width in bytes.
         pub const count_bytes = bytes_len;
 
-        /// Encode `value` into the wrapper's byte order.
+        const Self = @This();
+
+        /// Returns `value` encoded in the wrapper's byte order.
         pub fn fromNative(value: T) Self {
             var self: Self = .{ .bytes = [_]u8{0} ** bytes_len };
             var i: usize = 0;
             while (i < bytes_len) : (i += 1) {
-                const source_index = switch (endian_value) {
+                const source_index = switch (endian) {
                     .little => i,
                     .big => bytes_len - 1 - i,
                 };
@@ -65,12 +57,12 @@ pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) ty
             return self;
         }
 
-        /// Decode the wrapper's bytes into the native integer.
+        /// Returns the native integer decoded from the wrapper's bytes.
         pub fn native(self: Self) T {
             var value: T = 0;
             var i: usize = 0;
             while (i < bytes_len) : (i += 1) {
-                const dest_index = switch (endian_value) {
+                const dest_index = switch (endian) {
                     .little => i,
                     .big => bytes_len - 1 - i,
                 };
@@ -83,12 +75,10 @@ pub fn EndianInt(comptime T: type, comptime endian_value: std.builtin.Endian) ty
     };
 }
 
-/// Little-endian convenience factory: `Le(T) == EndianInt(T, .little)`.
 pub fn Le(comptime T: type) type {
     return EndianInt(T, .little);
 }
 
-/// Big-endian convenience factory: `Be(T) == EndianInt(T, .big)`.
 pub fn Be(comptime T: type) type {
     return EndianInt(T, .big);
 }
