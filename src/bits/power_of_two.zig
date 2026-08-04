@@ -1,10 +1,10 @@
 //! Power-of-two integer helpers used by alignment, ring capacities, and
-//! bitsets. See docs/specs/bits/power-of-two.md.
+//! bitsets. See `docs/specs/bits/power-of-two.md`.
 
 const std = @import("std");
 
-/// `Overflow`: `nextPowerOfTwo` would round past the largest representable
-/// power of two for `T`.
+/// `Overflow` occurs when `nextPowerOfTwo` would round past the largest
+/// representable power of two for `T`.
 pub const Error = error{Overflow};
 
 fn requireUnsignedInt(comptime T: type) void {
@@ -14,7 +14,7 @@ fn requireUnsignedInt(comptime T: type) void {
     }
 }
 
-/// True if `value` is a non-zero power of two; `0` returns false.
+/// Returns `true` if `value` is a non-zero power of two; `0` returns `false`.
 pub fn isPowerOfTwo(comptime T: type, value: T) bool {
     comptime requireUnsignedInt(T);
     return value != 0 and (value & (value - 1)) == 0;

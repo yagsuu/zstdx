@@ -1,4 +1,4 @@
-//! Deadline anchor for poll loops. Spec: docs/specs/time/deadline.md.
+//! Deadline anchor for poll loops. See `docs/specs/time/deadline.md`.
 
 const std = @import("std");
 
@@ -7,67 +7,53 @@ const monotonic = @import("monotonic.zig");
 const Duration = monotonic.Duration;
 const Instant = monotonic.Instant;
 
-/// Monotonic-nanosecond deadline anchor. A value type that composes with any
-/// clock exposing `pub fn now(*Self) Instant`. `Deadline` never sleeps,
-/// parks, or touches the backend beyond calling `Backend.now()`.
+/// Monotonic-nanosecond deadline value. It only reads the supplied clock
+/// through `now`.
 pub const Deadline = enum(u64) {
     _,
 
-    /// Underlying unsigned nanosecond representation.
     pub const Raw = u64;
 
-    /// `Overflow`: `Deadline.now` addition of `delta` would push past
-    /// `maxInt(u64)` or below `0`.
     pub const OverflowError = error{Overflow};
 
-    /// `Timeout`: `Deadline.expireBy` observed the deadline already reached.
     pub const TimeoutError = error{Timeout};
 
-    /// Sentinel meaning "never expires". Represented as `maxInt(u64)` so
-    /// `expired` naturally reports `false` against any clock reading in the
-    /// practical domain.
+    /// Represents no expiry. It uses `maxInt(u64)`, so `expired` is false
+    /// unless the clock returns `maxInt(u64)`.
     pub const never: Deadline = @enumFromInt(std.math.maxInt(u64));
 
-    /// Anchor at an explicit instant. Infallible.
     pub fn at(instant_value: Instant) Deadline {
         return @enumFromInt(instant_value.nanos());
     }
 
-    /// Anchor at `clock.now() + delta`. Propagates `error.Overflow` from
-    /// `Instant.add`.
     pub fn now(clock: anytype, delta: Duration) OverflowError!Deadline {
         comptime requireClock(@TypeOf(clock));
         const target = try clock.now().add(delta);
         return @enumFromInt(target.nanos());
     }
 
-    /// Project back to the underlying `Instant`. Infallible.
     pub fn instant(self: Deadline) Instant {
         return Instant.fromNanos(@intFromEnum(self));
     }
 
-    /// True when `self` is the `never` sentinel.
     pub fn isNever(self: Deadline) bool {
         return @intFromEnum(self) == std.math.maxInt(u64);
     }
 
-    /// True when `clock.now() >= self.instant()`. Boundary: at equality
-    /// returns `true`.
+    /// Reports true at or after the deadline.
     pub fn expired(self: Deadline, clock: anytype) bool {
         comptime requireClock(@TypeOf(clock));
         return clock.now().afterOrEq(self.instant());
     }
 
-    /// Signed remaining duration. Positive before the deadline, zero at the
-    /// exact boundary, negative after. `never` saturates at `maxInt(i64)`.
+    /// Returns a signed duration: positive before, zero at, and negative
+    /// after the deadline. `never` returns `maxInt(i64)`.
     pub fn remaining(self: Deadline, clock: anytype) Duration {
         comptime requireClock(@TypeOf(clock));
         if (self.isNever()) return Duration.fromNanos(std.math.maxInt(i64));
         return self.instant().since(clock.now());
     }
 
-    /// `error.Timeout` when the deadline is expired against `clock`, else
-    /// `void`. The composition point for bounded poll loops.
     pub fn expireBy(self: Deadline, clock: anytype) TimeoutError!void {
         comptime requireClock(@TypeOf(clock));
         if (self.expired(clock)) return error.Timeout;
@@ -78,9 +64,8 @@ pub const Deadline = enum(u64) {
     }
 };
 
-/// Compile-time signature check for the `clock: anytype` seam. Accepts a
-/// value type `C` or a single-pointer wrapper `*C`. Rejects: missing `now`,
-/// wrong arity, non-`*Self` receiver, and `anyerror` / error-union returns.
+/// Validates the compile-time `clock: anytype` seam. Accepts `C` or `*C`;
+/// rejects a missing or incompatible `now` method and error-union returns.
 fn requireClock(comptime C: type) void {
     const T = switch (@typeInfo(C)) {
         .pointer => |p| p.child,

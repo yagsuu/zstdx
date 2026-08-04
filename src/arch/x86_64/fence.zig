@@ -1,8 +1,8 @@
-//! x86_64 raw fence instructions. Spec: docs/specs/arch/x86_64/base.md.
+//! x86_64 raw fence instructions. See `docs/specs/arch/x86_64/base.md`.
 
 const target = @import("target.zig");
 
-/// Execute `lfence`.
+/// Executes `lfence`.
 /// Privilege: unprivileged.
 /// Ordering: architectural load fence.
 /// Clobbers: `memory`.
@@ -11,7 +11,7 @@ pub fn lfence() void {
     asm volatile ("lfence" ::: .{ .memory = true });
 }
 
-/// Execute `sfence`.
+/// Executes `sfence`.
 /// Privilege: unprivileged.
 /// Ordering: architectural store fence.
 /// Clobbers: `memory`.
@@ -20,7 +20,7 @@ pub fn sfence() void {
     asm volatile ("sfence" ::: .{ .memory = true });
 }
 
-/// Execute `mfence`.
+/// Executes `mfence`.
 /// Privilege: unprivileged.
 /// Ordering: architectural full memory fence.
 /// Clobbers: `memory`.

@@ -1,4 +1,4 @@
-//! x86_64 port I/O primitives. Spec: docs/specs/arch/x86_64/base.md.
+//! x86_64 port I/O primitives. See `docs/specs/arch/x86_64/base.md`.
 
 const target = @import("target.zig");
 
@@ -13,7 +13,7 @@ pub const Port = enum(u16) {
         return @intFromEnum(self);
     }
 
-    /// Execute `in al, dx` and return the byte.
+    /// Executes `in al, dx` and returns the byte.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -26,7 +26,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Execute `in ax, dx` and return the word.
+    /// Executes `in ax, dx` and returns the word.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -39,7 +39,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Execute `in eax, dx` and return the dword.
+    /// Executes `in eax, dx` and returns the dword.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -52,7 +52,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Execute `out dx, al` writing `value`.
+    /// Executes `out dx, al` writing `value`.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -66,7 +66,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Execute `out dx, ax` writing `value`.
+    /// Executes `out dx, ax` writing `value`.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -80,7 +80,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Execute `out dx, eax` writing `value`.
+    /// Executes `out dx, eax` writing `value`.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -94,7 +94,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Execute `rep insb` reading `dst.len` bytes from the port into `dst`.
+    /// Executes `rep insb` reading `dst.len` bytes from the port into `dst`.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice8(self: Port, dst: []u8) void {
@@ -108,7 +108,7 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
-    /// Execute `rep insw` reading `dst.len` 16-bit words into `dst`.
+    /// Executes `rep insw` reading `dst.len` 16-bit words into `dst`.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice16(self: Port, dst: []u16) void {
@@ -122,7 +122,7 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
-    /// Execute `rep insd` reading `dst.len` 32-bit dwords into `dst`.
+    /// Executes `rep insd` reading `dst.len` 32-bit dwords into `dst`.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice32(self: Port, dst: []u32) void {
@@ -136,7 +136,7 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
-    /// Execute `rep outsb` writing `src.len` bytes to the port.
+    /// Executes `rep outsb` writing `src.len` bytes to the port.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice8(self: Port, src: []const u8) void {
@@ -150,7 +150,7 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rsi = true, .memory = true });
     }
 
-    /// Execute `rep outsw` writing `src.len` 16-bit words.
+    /// Executes `rep outsw` writing `src.len` 16-bit words.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice16(self: Port, src: []const u16) void {
@@ -164,7 +164,7 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rsi = true, .memory = true });
     }
 
-    /// Execute `rep outsd` writing `src.len` 32-bit dwords.
+    /// Executes `rep outsd` writing `src.len` 32-bit dwords.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice32(self: Port, src: []const u32) void {
@@ -179,7 +179,7 @@ pub const Port = enum(u16) {
     }
 };
 
-/// Execute a legacy I/O delay by writing zero to port `0x80`.
+/// Executes a legacy I/O delay by writing zero to port `0x80`.
 /// Privilege: IOPL/TSS I/O bitmap permits access.
 /// Faults: `#GP` when access is denied.
 /// Clobbers: `memory`.

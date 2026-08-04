@@ -1,4 +1,4 @@
-//! x86_64 MSR primitive. Spec: docs/specs/arch/x86_64/base.md.
+//! x86_64 MSR primitive. See `docs/specs/arch/x86_64/base.md`.
 
 const target = @import("target.zig");
 
@@ -50,7 +50,7 @@ pub const MSR = enum(u32) {
         return @intFromEnum(self);
     }
 
-    /// Execute `rdmsr` against `self` and return the combined `edx:eax` as `u64`.
+    /// Executes `rdmsr` against `self` and returns the combined `edx:eax` as `u64`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` on unimplemented MSRs.
     /// Clobbers: `memory`.
@@ -68,7 +68,7 @@ pub const MSR = enum(u32) {
         return (@as(u64, hi) << 32) | @as(u64, lo);
     }
 
-    /// Execute `wrmsr` against `self` with `edx:eax` split from `value`.
+    /// Executes `wrmsr` against `self` with `edx:eax` split from `value`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` on unimplemented MSRs or reserved-bit violations.
     /// Clobbers: `memory`.

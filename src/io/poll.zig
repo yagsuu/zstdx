@@ -1,4 +1,4 @@
-//! Wait-for-value poll loop composition. Spec: docs/specs/io/poll-until.md.
+//! Wait-for-value poll-loop composition. See `docs/specs/io/poll-until.md`.
 
 const std = @import("std");
 
@@ -27,8 +27,8 @@ pub fn PollReturnType(comptime Predicate: type) type {
 /// advances the backoff.
 /// Deadline: `Backoff.next` owns the deadline check per
 /// `docs/specs/time/backoff.md`.
-/// Effects: Never allocates, never locks, and never touches the clock or
-/// backoff outside their public contracts. The caller owns `*Backoff`.
+/// Effects: Does not allocate or lock. It accesses the clock and backoff only
+/// through their public contracts. The caller owns `*Backoff`.
 pub fn until(
     clock: anytype,
     dl: Deadline,

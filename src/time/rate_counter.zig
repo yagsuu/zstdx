@@ -1,5 +1,5 @@
-//! Fixed-rate counter projection of `Instant` with wrap-edge detection.
-//! Spec: docs/specs/time/rate-counter.md.
+//! Fixed-rate projection of `Instant`; detects wrap edges below 64 bits.
+//! See `docs/specs/time/rate-counter.md`.
 
 const std = @import("std");
 
@@ -10,20 +10,19 @@ const Instant = monotonic.Instant;
 
 const nanos_per_second: u128 = 1_000_000_000;
 
-/// Projects a monotonic-clock reading into a fixed-rate integer counter of
-/// configurable bit width, tracking wrap events across `sample` calls.
-/// Never allocates, never touches the clock beyond `Backend.now()`.
-/// Single-owner value type; concurrent callers serialize externally.
+/// Projects monotonic-clock readings into a fixed-rate, configurable-width
+/// integer counter. For widths below 64, it tracks wrap events. This
+/// single-owner value type neither allocates nor reads time except through the
+/// supplied clock's `now` method; concurrent callers serialize externally.
 pub const RateCounter = struct {
-    /// Identity of a `RateCounter`: anchor instant, tick rate, counter
-    /// width. Callers who want to change any field discard the value and
-    /// construct a fresh `RateCounter`.
+    /// Defines a `RateCounter`'s base, rate, and width. To change any of
+    /// these fields, construct a new `RateCounter`.
     pub const Config = struct {
         base: Instant,
         rate_hz: u64,
         width_bits: u7,
 
-        /// Assert `rate_hz > 0` and `width_bits` in `1..=64`. Runs
+        /// Asserts `rate_hz > 0` and `width_bits` in `1..=64`. Runs
         /// unconditionally.
         pub fn assertValid(self: Config) void {
             std.debug.assert(self.rate_hz > 0);
@@ -32,9 +31,9 @@ pub const RateCounter = struct {
         }
     };
 
-    /// Result of `sample`: projected counter value and whether the
-    /// unbounded tick count crossed a `1 << width_bits` boundary since
-    /// the previous `sample`.
+    /// For widths below 64, `sample` returns the projected counter value and
+    /// whether the unbounded tick count crossed a `1 << width_bits` boundary
+    /// since the previous sample.
     pub const Sample = struct {
         value: u64,
         wrapped: bool,
@@ -51,9 +50,7 @@ pub const RateCounter = struct {
         std.debug.assert(@sizeOf(Self) == 32);
     }
 
-    /// Construct with `last_wrap_count = 0`. Under
-    /// `stdx.core.debug.checksEnabled(.build_mode)`, runs
-    /// `config.assertValid()`.
+    /// In build-mode checks, invokes `config.assertValid()`.
     pub fn init(config: Config) Self {
         if (debug.checksEnabled(.build_mode)) config.assertValid();
         return .{
@@ -64,27 +61,25 @@ pub const RateCounter = struct {
         };
     }
 
-    /// Re-anchor `base` to `clock.now()` and clear the wrap-edge state.
-    /// The next `sample` reports `wrapped = false`. Rate and width are
-    /// preserved.
+    /// Re-anchors `base` to `clock.now()` and clears wrap state. The next
+    /// `sample` reports `wrapped = false`; rate and width are preserved.
     pub fn reset(self: *Self, clock: anytype) void {
         comptime requireClock(@TypeOf(clock));
         self.base = clock.now();
         self.last_wrap_count = 0;
     }
 
-    /// Return the projected counter value at `clock.now()` without
-    /// updating the wrap-edge state. Safe to interleave with `sample`.
+    /// Returns the projected counter without changing wrap state. It is safe
+    /// to call between `sample` calls.
     pub fn peek(self: *const Self, clock: anytype) u64 {
         comptime requireClock(@TypeOf(clock));
         const p = project(self, clock.now());
         return p.value;
     }
 
-    /// Sample the counter at `clock.now()`, advancing the wrap-edge
-    /// state. `wrapped` is true iff the unbounded tick count crossed a
-    /// `1 << width_bits` boundary since the previous `sample`, `init`,
-    /// or `reset`.
+    /// Advances wrap state. For widths below 64, `wrapped` is true exactly
+    /// when the unbounded tick count crossed a `1 << width_bits` boundary
+    /// since `init`, `reset`, or the previous `sample`.
     pub fn sample(self: *Self, clock: anytype) Sample {
         comptime requireClock(@TypeOf(clock));
         const p = project(self, clock.now());
@@ -93,7 +88,7 @@ pub const RateCounter = struct {
         return .{ .value = p.value, .wrapped = wrapped };
     }
 
-    /// Assert the embedded config invariants. Runs unconditionally.
+    /// Asserts the embedded configuration invariants. Runs unconditionally.
     pub fn assertValid(self: *const Self) void {
         const c: Config = .{
             .base = self.base,
@@ -109,17 +104,15 @@ const Projection = struct {
     wrap_count: u64,
 };
 
-/// Project `now` through `self`'s rate and width. Compiled outside the
-/// type body to keep the hot arithmetic free of `self`-field indirection
-/// and to isolate the u128 intermediate.
+/// Keeps the `u128` intermediate isolated from the hot `RateCounter` type
+/// body.
 fn project(self: *const RateCounter, now: Instant) Projection {
     if (debug.checksEnabled(.build_mode)) {
         std.debug.assert(now.afterOrEq(self.base));
     }
 
-    // Debug builds trap above on `now < base`; release builds clamp the
-    // elapsed to zero so the u128 cast is total, keeping the primitive
-    // fault-free outside the checked contract.
+    // Build-mode checks trap when `now < base`. Release builds clamp elapsed
+    // time to zero so the `u128` cast remains total outside that contract.
     const elapsed_i64: i64 = now.since(self.base).nanos();
     const elapsed_ns: u128 = if (elapsed_i64 < 0) 0 else @intCast(elapsed_i64);
     const unbounded: u128 = @divFloor(elapsed_ns * @as(u128, self.rate_hz), nanos_per_second);
@@ -142,9 +135,8 @@ fn project(self: *const RateCounter, now: Instant) Projection {
     };
 }
 
-/// Compile-time signature check for the `clock: anytype` seam. Accepts a
-/// value type `C` or a single-pointer wrapper `*C`. Rejects: missing `now`,
-/// wrong arity, non-`*Self` receiver, and `anyerror` / error-union returns.
+/// Validates the compile-time `clock: anytype` seam. Accepts `C` or `*C`;
+/// rejects a missing or incompatible `now` method and error-union returns.
 fn requireClock(comptime C: type) void {
     const T = switch (@typeInfo(C)) {
         .pointer => |p| p.child,

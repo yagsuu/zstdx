@@ -1,4 +1,4 @@
-//! Function primitives. See docs/specs/func/callback.md.
+//! Runtime-erased callback and inline closure primitives. See `docs/specs/func/callback.md`.
 
 pub const callback = @import("func/callback.zig");
 pub const closure = @import("func/closure.zig");

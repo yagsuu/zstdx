@@ -1,4 +1,4 @@
-//! Bounded multi-producer/single-consumer ring. See docs/specs/concurrent/mpsc-ring.md.
+//! Bounded multi-producer/single-consumer ring. See `docs/specs/concurrent/mpsc-ring.md`.
 
 const std = @import("std");
 
@@ -56,7 +56,7 @@ pub const Ring = struct {
             /// Comptime capacity in items.
             pub const item_capacity = capacity_items;
 
-            /// Reset head, tail, and every slot's publication ticket to
+            /// Resets head, tail, and every slot's publication ticket to
             /// zero. Must be called before any concurrent use.
             pub fn init(self: *Self) void {
                 self.head.value.store(0, .monotonic);
@@ -136,7 +136,7 @@ pub const Ring = struct {
             /// another producer; ring is unchanged.
             pub const Error = error{ Full, Contended };
 
-            /// Borrow `slots` and reset head, tail, and every slot's
+            /// Borrows `slots` and resets head, tail, and every slot's
             /// publication ticket to zero. Asserts non-zero power-of-two
             /// slice length. Must be called before any concurrent use.
             pub fn init(self: *Self, slots: []Slot) void {

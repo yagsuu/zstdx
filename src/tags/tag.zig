@@ -1,5 +1,4 @@
-//! Strongly typed tag values for tag allocator domains.
-//! Spec: docs/specs/tags/tag-allocator.md.
+//! Strongly typed tag values for tag allocator domains. See `docs/specs/tags/tag-allocator.md`.
 
 fn requireUnsignedInt(comptime Int: type) void {
     const info = @typeInfo(Int);
@@ -30,7 +29,6 @@ pub fn Tag(comptime DomainT: type, comptime IntT: type) type {
             return @enumFromInt(value);
         }
 
-        /// Returns the tag's underlying integer value.
         pub fn raw(self: Self) IntT {
             return @intFromEnum(self);
         }

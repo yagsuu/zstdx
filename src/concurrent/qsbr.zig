@@ -1,5 +1,5 @@
 //! Bounded quiescent-state-based reclamation substrate.
-//! Spec: docs/specs/concurrent/qsbr.md.
+//! See `docs/specs/concurrent/qsbr.md`.
 
 const std = @import("std");
 
@@ -266,7 +266,6 @@ fn quiescentImpl(global_generation: *const PaddedWord, slots: []SlotStorage, par
 
 fn beginGracePeriodImpl(global_generation: *PaddedWord) GracePeriod {
     var current = global_generation.value.load(.acquire);
-    // Retry until this caller wins the lock-free generation increment.
     while (true) {
         std.debug.assert(current < SlotWord.generation_mask);
         const next = current + 1;

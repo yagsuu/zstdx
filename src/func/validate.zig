@@ -1,10 +1,9 @@
-//! Internal comptime signature validation shared by `Callback` and
-//! `Closure`. Spec: docs/specs/func/callback.md.
+//! Internal comptime signature validation for `Callback` and `Closure`.
 
 const std = @import("std");
 
-/// Reject `Fn` that is not a callable, concrete function type. Emits a
-/// `@compileError` naming the failing property.
+/// Reject a non-concrete function type and name the invalid property in a
+/// `@compileError`.
 pub fn signature(comptime Fn: type, comptime kind: []const u8) void {
     const info = switch (@typeInfo(Fn)) {
         .@"fn" => |f| f,
@@ -44,8 +43,8 @@ pub fn signature(comptime Fn: type, comptime kind: []const u8) void {
     }
 }
 
-/// Validate that `Ptr` is a pointer to a function whose signature equals
-/// `Fn` with `*Ctx` prepended as the first parameter.
+/// Requires `Ptr` to point to a function with signature `Fn` and `*Ctx` as its
+/// first parameter.
 pub fn bound(
     comptime Fn: type,
     comptime Ctx: type,

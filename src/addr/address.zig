@@ -1,6 +1,6 @@
 //! Zero-cost strong address types parameterized by an opaque tag and an
 //! unsigned integer width. Tags prevent accidental mixing across domains.
-//! See docs/specs/addr/address.md.
+//! See `docs/specs/addr/address.md`.
 
 const std = @import("std");
 
@@ -14,9 +14,8 @@ pub const PhysAddr = Address(PhysTag, u64);
 pub const VirtAddr = Address(VirtTag, usize);
 pub const DMAAddr = Address(DMATag, u64);
 
-/// Strong address type identified by `Tag` and backed by unsigned integer
-/// `Int`. Two `Address(Tag, Int)` instantiations with different tags are
-/// distinct Zig types even when `Int` matches.
+/// `Address(Tag, Int)` is a strong address type identified by `Tag` and backed by `Int`.
+/// Instantiations with different tags are distinct Zig types, even when `Int` matches.
 pub fn Address(comptime Tag: type, comptime Int: type) type {
     comptime requireUnsignedInt(Int);
     return enum(Int) {
@@ -24,21 +23,19 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
 
         const Self = @This();
 
-        /// Tag type used to distinguish address domains.
+        /// The tag type distinguishes address domains.
         pub const TagType = Tag;
 
-        /// Underlying unsigned integer representation.
+        /// The raw unsigned integer representation.
         pub const Raw = Int;
 
-        /// `Overflow`: arithmetic on `add`, `sub`, `diff`, or `alignUp` would
-        /// exceed the `Int` range.
+        /// `Overflow` occurs when arithmetic would fall outside the `Int` range.
         pub const OverflowError = error{Overflow};
 
-        /// `InvalidAlignment`: `alignment` is zero or not a power of two.
+        /// `InvalidAlignment` occurs when `alignment` is zero or not a power of two.
         pub const AlignError = error{InvalidAlignment};
 
-        /// Union of `OverflowError` and `AlignError`. Use this when a method's
-        /// signature may produce either variant.
+        /// This union combines `OverflowError` and `AlignError`.
         pub const Error = OverflowError || AlignError;
 
         pub fn fromInt(value: Int) Self {
@@ -65,8 +62,7 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
             return fromInt(std.math.sub(Int, self.raw(), amount) catch return error.Overflow);
         }
 
-        /// `self - base` as a raw `Int`. Returns `error.Overflow` when
-        /// `self < base`.
+        /// Returns `self - base` as a raw `Int`. It returns `error.Overflow` when `self < base`.
         pub fn diff(self: Self, base: Self) OverflowError!Int {
             return std.math.sub(Int, self.raw(), base.raw()) catch return error.Overflow;
         }

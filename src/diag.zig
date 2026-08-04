@@ -1,5 +1,5 @@
-//! Scoped diagnostics primitives. Specs: docs/specs/diag/diagnostic.md,
-//! docs/specs/diag/panic-log.md.
+//! Scoped diagnostics primitives. See `docs/specs/diag/diagnostic.md` and
+//! `docs/specs/diag/panic-log.md`.
 
 pub const diagnostic = @import("diag/diagnostic.zig");
 pub const panic_log = @import("diag/panic_log.zig");

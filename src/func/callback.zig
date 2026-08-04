@@ -1,25 +1,22 @@
-//! Runtime-erased single-function callback. Spec: docs/specs/func/callback.md.
+//! Runtime-erased single-function callbacks. See `docs/specs/func/callback.md`.
 
 const std = @import("std");
 
 const validate = @import("validate.zig");
 
-/// Signature-typed `{context, invoke}` callback. `Fn` is the caller-visible
-/// function signature; the underlying thunk type prepends a
-/// `?*anyopaque` context slot so every factory (`wrap`, `bind`,
-/// `bindMethod`) produces a uniform shape.
+/// A signature-typed `{context, invoke}` callback. `Fn` is the caller-visible
+/// function signature. The thunk prepends a `?*anyopaque` context slot so
+/// `wrap`, `bind`, and `bindMethod` produce one representation.
 ///
-/// `Fn` must be a concrete function type: no generic (`comptime` /
-/// `anytype`) parameters, no variadics, no naked returns.
+/// `Fn` must be a concrete function type. It cannot have generic (`comptime`
+/// or `anytype`) parameters, variadics, or a naked return.
 ///
-/// Context lifetime: `context` is a borrowed pointer. `Callback` never
-/// takes ownership, never allocates, and never frees. A callback that
-/// outlives its context is a caller contract violation and is not
-/// detected by the primitive.
+/// The `context` pointer is borrowed. `Callback` does not allocate, take
+/// ownership, or free it. A callback that outlives its context violates the
+/// caller contract. The primitive does not detect this violation.
 ///
-/// Concurrency: value type. `call` performs one indirect call and one
-/// context load with no synchronization. Callers who share a `Callback`
-/// across threads publish it themselves.
+/// `call` performs one indirect call and one context load without
+/// synchronization. Callers must publish a shared `Callback` themselves.
 pub fn Callback(comptime Fn: type) type {
     comptime validate.signature(Fn, "Callback(Fn)");
 
@@ -38,15 +35,13 @@ pub fn Callback(comptime Fn: type) type {
             std.debug.assert(@sizeOf(Self) == 2 * @sizeOf(usize));
         }
 
-        /// Wrap an already-erased `{context, invoke}` pair verbatim.
-        /// Reserved for callers who synthesize their own thunk; `wrap`,
-        /// `bind`, and `bindMethod` are the ordinary paths.
+        /// Constructs a callback from an already-erased `{context, invoke}` pair.
+        /// Use `wrap`, `bind`, or `bindMethod` unless the caller supplies a thunk.
         pub fn init(context: ?*anyopaque, invoke: *const Invoke) Self {
             return .{ .context = context, .invoke = invoke };
         }
 
-        /// Adapt a free function with the exact signature `Fn` into a
-        /// context-less callback. The thunk ignores the context slot.
+        /// Adapts a free function with signature `Fn` to a context-less callback.
         pub fn wrap(comptime fn_ptr: *const Fn) Self {
             const Thunk = struct {
                 fn invoke(_: ?*anyopaque, args: Args) Return {
@@ -56,9 +51,8 @@ pub fn Callback(comptime Fn: type) type {
             return .{ .context = null, .invoke = &Thunk.invoke };
         }
 
-        /// Adapt a free function of signature `fn (*Ctx, ...) Return`
-        /// into a callback that carries `ctx` in the context slot. The
-        /// bound signature is validated structurally at compile time.
+        /// Adapts `fn (*Ctx, ...) Return` to a callback with `ctx` in its context
+        /// slot. The function signature is validated structurally at compile time.
         pub fn bind(
             comptime Ctx: type,
             ctx: *Ctx,
@@ -75,9 +69,8 @@ pub fn Callback(comptime Fn: type) type {
             return .{ .context = @ptrCast(ctx), .invoke = &Thunk.invoke };
         }
 
-        /// Adapt a method `ctx.<method_name>(...)` into a callback. The
-        /// method must have signature `fn (*Ctx, ...) Return` matching
-        /// `Fn` with `*Ctx` prepended.
+        /// Adapts `ctx.<method_name>(...)` to a callback. The method must have
+        /// signature `fn (*Ctx, ...) Return`, where `Fn` omits `*Ctx`.
         pub fn bindMethod(
             comptime Ctx: type,
             ctx: *Ctx,
@@ -92,16 +85,14 @@ pub fn Callback(comptime Fn: type) type {
             return bind(Ctx, ctx, &@field(Ctx, method_name));
         }
 
-        /// Invoke the callback with `args`, a positional tuple matching
-        /// `Fn`'s parameters. Zero-argument callbacks pass `.{}`.
+        /// Invoke the callback with an `Args` tuple. Use `.{}` when `Fn` has no
+        /// parameters.
         pub fn call(self: Self, args: Args) Return {
             return self.invoke(self.context, args);
         }
 
-        /// True iff `self.context` and `self.invoke` are field-identical
-        /// to `other`. Two callbacks constructed by identical
-        /// `wrap`/`bind`/`bindMethod` calls compare equal because they
-        /// share the same synthesized thunk instance.
+        /// Returns true when both callback fields equal the fields in `other`.
+        /// Identical `wrap`, `bind`, or `bindMethod` calls share a thunk instance.
         pub fn eql(self: Self, other: Self) bool {
             return self.context == other.context and self.invoke == other.invoke;
         }

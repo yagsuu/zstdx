@@ -1,6 +1,6 @@
 //! Allocation-placement algorithms over free ranges and buddy block arithmetic.
-//! Value-only; no allocation, waiting, or input mutation.
-//! Spec: docs/specs/algo/allocation.md.
+//! Operations use only values; they do not allocate, wait, or mutate input.
+//! See `docs/specs/algo/allocation.md`.
 
 const std = @import("std");
 
@@ -9,18 +9,17 @@ const power_of_two = @import("../bits/power_of_two.zig");
 /// Half-open `[start, end)` extent in caller-defined units.
 pub const Range = @import("../core/range.zig").Range(usize);
 
-/// `InvalidRequest`: zero-length or otherwise meaningless request.
-/// `InvalidAlignment`: alignment is zero or not a power of two.
-/// `Overflow`: checked arithmetic on candidates or block math overflowed
-///     `usize`.
+/// `InvalidRequest` occurs for a zero-length request or an otherwise meaningless operation.
+/// `InvalidAlignment` occurs when alignment is zero or not a power of two.
+/// `Overflow` occurs when checked candidate arithmetic or block arithmetic overflows `usize`.
 pub const Error = error{
     InvalidRequest,
     InvalidAlignment,
     Overflow,
 };
 
-/// Allocation request in caller-defined units. `alignment` defaults to
-/// `1` (no alignment constraint).
+/// Allocation request in caller-defined units. `alignment` defaults to `1`, which
+/// imposes no alignment constraint.
 pub const Request = struct {
     len: usize,
     alignment: usize = 1,
@@ -108,8 +107,8 @@ pub const WorstFit = struct {
     }
 };
 
-/// Block/order arithmetic for buddy-style allocators. Value-only; owns
-/// no free-list state.
+/// Performs value-only block/order arithmetic for buddy-style allocators. It owns no
+/// free-list state.
 pub const Buddy = struct {
     pub const Block = struct {
         start: usize,

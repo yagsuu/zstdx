@@ -1,4 +1,4 @@
-//! x86_64 CPUID decoders. Spec: docs/specs/arch/x86_64/cpuid.md.
+//! x86_64 CPUID decoders. See `docs/specs/arch/x86_64/cpuid.md`.
 
 const std = @import("std");
 
@@ -23,7 +23,7 @@ pub const Leaf = enum(u32) {
     _,
 };
 
-/// Execute `cpuid` with `ecx = 0` against `which` and return the four
+/// Executes `cpuid` with `ecx = 0` against `which` and returns the four
 /// output registers.
 /// Privilege: unprivileged.
 pub fn leaf(which: Leaf) Result {
@@ -31,7 +31,7 @@ pub fn leaf(which: Leaf) Result {
     return subleaf(which, 0);
 }
 
-/// Execute `cpuid` with `eax = which` and `ecx = sub`, returning the four
+/// Executes `cpuid` with `eax = which` and `ecx = sub`, returning the four
 /// output registers.
 /// Privilege: unprivileged.
 pub fn subleaf(which: Leaf, sub: u32) Result {
@@ -53,16 +53,14 @@ pub fn subleaf(which: Leaf, sub: u32) Result {
     return .{ .eax = a, .ebx = b, .ecx = c, .edx = d };
 }
 
-/// Return `leaf(.max_basic).eax`, the highest basic CPUID leaf supported by
-/// the running CPU.
+/// Returns the highest basic CPUID leaf supported by the running CPU.
 /// Privilege: unprivileged.
 pub fn maxBasicLeaf() u32 {
     target.ensureSupported();
     return leaf(.max_basic).eax;
 }
 
-/// Return `leaf(.max_extended).eax`, the highest extended CPUID leaf
-/// supported by the running CPU.
+/// Returns the highest extended CPUID leaf supported by the running CPU.
 /// Privilege: unprivileged.
 pub fn maxExtendedLeaf() u32 {
     target.ensureSupported();
@@ -91,7 +89,7 @@ pub const Version = struct {
     eax: u32,
 };
 
-/// Return true when any `_reserved_` field in a packed mask is non-zero.
+/// Returns true when any `_reserved_` field in a packed mask is non-zero.
 fn maskHasReserved(comptime T: type, self: T) bool {
     inline for (@typeInfo(T).@"struct".fields) |f| {
         if (comptime std.mem.startsWith(u8, f.name, "_reserved_")) {
@@ -467,7 +465,7 @@ pub const AddressSizes = struct {
     guest_physical_bits: u8,
 };
 
-/// Return the CPU vendor decoded from CPUID leaf 0.
+/// Returns the CPU vendor decoded from CPUID leaf 0.
 pub fn vendor() Vendor {
     target.ensureSupported();
 
@@ -538,7 +536,7 @@ pub fn brandString() ?[48]u8 {
     return out;
 }
 
-/// Fetch CPUID leaf 1 EDX/ECX as typed feature masks.
+/// Fetches CPUID leaf 1 EDX/ECX as typed feature masks.
 pub fn basicFeatures() BasicFeatures {
     target.ensureSupported();
 
@@ -549,7 +547,7 @@ pub fn basicFeatures() BasicFeatures {
     };
 }
 
-/// Fetch CPUID leaf 7 subleaf 0 EBX/ECX/EDX as typed feature masks.
+/// Fetches CPUID leaf 7 subleaf 0 EBX/ECX/EDX as typed feature masks.
 /// Returns an all-zero bundle when `maxBasicLeaf() < 7`.
 pub fn structuredFeatures() StructuredFeatures {
     target.ensureSupported();
@@ -568,7 +566,7 @@ pub fn structuredFeatures() StructuredFeatures {
     };
 }
 
-/// Fetch CPUID leaf `0x80000001` EDX/ECX as typed feature masks.
+/// Fetches CPUID leaf `0x80000001` EDX/ECX as typed feature masks.
 /// Returns an all-zero bundle when `maxExtendedLeaf() < 0x80000001`.
 pub fn extendedFeatures() ExtendedFeatures {
     target.ensureSupported();
@@ -597,7 +595,7 @@ pub fn features() Features {
     };
 }
 
-/// Return a fresh iterator over leaf-4 cache descriptors.
+/// Returns a fresh iterator over leaf-4 cache descriptors.
 pub fn caches() cache.Iterator {
     target.ensureSupported();
     return .{ .index = 0 };

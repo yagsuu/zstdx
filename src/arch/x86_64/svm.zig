@@ -1,4 +1,4 @@
-//! x86_64 SVM ISA wrappers. Spec: docs/specs/arch/x86_64/svm.md.
+//! x86_64 SVM ISA wrappers. See `docs/specs/arch/x86_64/svm.md`.
 
 const std = @import("std");
 
@@ -36,7 +36,7 @@ pub const VMCB = extern struct {
     }
 };
 
-/// Execute `vmrun` with the VMCB physical address in `RAX`.
+/// Executes `vmrun` with the VMCB physical address in `RAX`.
 /// Effects: enters guest execution; returns after `#VMEXIT`.
 /// Privilege: CPL 0.
 /// Faults: may `#GP` or `#UD`.
@@ -49,7 +49,7 @@ pub fn vmrun(vmcb: PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// Execute `vmload` with the VMCB physical address in `RAX`.
+/// Executes `vmload` with the VMCB physical address in `RAX`.
 /// Effects: loads FS/GS/TR/LDTR selectors and SYSCALL/SYSENTER MSRs.
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
@@ -61,7 +61,7 @@ pub fn vmload(vmcb: PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// Execute `vmsave` with the VMCB physical address in `RAX`.
+/// Executes `vmsave` with the VMCB physical address in `RAX`.
 /// Effects: saves the same processor-state subset that `vmload` restores.
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
@@ -73,7 +73,7 @@ pub fn vmsave(vmcb: PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// Execute `stgi`.
+/// Executes `stgi`.
 /// Effects: sets the Global Interrupt Flag.
 /// Privilege: CPL 0.
 /// Requirements: `EFER.SVME = 1`.
@@ -83,7 +83,7 @@ pub fn stgi() void {
     asm volatile ("stgi" ::: .{ .memory = true });
 }
 
-/// Execute `clgi`.
+/// Executes `clgi`.
 /// Effects: clears the Global Interrupt Flag, blocking maskable interrupts,
 /// NMI, SMI, INIT, and #MC.
 /// Privilege: CPL 0.
@@ -94,7 +94,7 @@ pub fn clgi() void {
     asm volatile ("clgi" ::: .{ .memory = true });
 }
 
-/// Execute `invlpga` with linear address in `RAX` and ASID in `ECX`.
+/// Executes `invlpga` with linear address in `RAX` and ASID in `ECX`.
 /// Effects: invalidates one TLB entry on the current logical processor.
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
@@ -108,7 +108,7 @@ pub fn invlpga(virt_addr: u64, asid: u32) void {
         : .{ .memory = true });
 }
 
-/// Execute `skinit` with the SL image physical base in `EAX`.
+/// Executes `skinit` with the SL image physical base in `EAX`.
 /// Effects: clears processor state, measures the SL image, and transfers
 /// control to that image (`noreturn`).
 /// Privilege: CPL 0.

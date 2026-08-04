@@ -1,4 +1,4 @@
-//! Bounds-checked random byte access. See docs/specs/bytes/access.md.
+//! Bounds-checked random byte access. See `docs/specs/bytes/access.md`.
 
 const std = @import("std");
 

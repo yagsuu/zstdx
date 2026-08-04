@@ -1,5 +1,5 @@
-//! Unchecked word-of-bits arithmetic used by every bitmap consumer. Spec:
-//! docs/specs/bits/word.md.
+//! Unchecked word-of-bits arithmetic used by every bitmap consumer.
+//! See `docs/specs/bits/word.md`.
 
 const std = @import("std");
 
@@ -12,17 +12,16 @@ fn requireUnsignedInt(comptime Word: type) void {
     }
 }
 
-/// Returns the number of words required to hold `bit_capacity` bits.
-/// This is `ceilDiv(bit_capacity, @bitSizeOf(Word))`.
+/// Returns the number of words needed to hold `bit_capacity` bits.
 pub fn count(comptime Word: type, bit_capacity: usize) usize {
     comptime requireUnsignedInt(Word);
     const bits: usize = @bitSizeOf(Word);
     return @divFloor(bit_capacity, bits) + @intFromBool(bit_capacity % bits != 0);
 }
 
-/// Returns a mask covering the used low bits of the trailing word in a
-/// bitmap of `bit_capacity` bits. Returns `0` when `bit_capacity == 0` and
-/// all ones when `bit_capacity` is a whole multiple of `@bitSizeOf(Word)`.
+/// Returns a mask for the used low bits of a bitmap's trailing word. Returns
+/// `0` when `bit_capacity == 0` and all ones when `bit_capacity` is a whole
+/// multiple of `@bitSizeOf(Word)`.
 pub fn lastMask(comptime Word: type, bit_capacity: usize) Word {
     comptime requireUnsignedInt(Word);
     if (bit_capacity == 0) return 0;
@@ -33,13 +32,13 @@ pub fn lastMask(comptime Word: type, bit_capacity: usize) Word {
     return (@as(Word, 1) << shift) - 1;
 }
 
-/// Returns the word index containing `bit_index`: `bit_index / @bitSizeOf(Word)`.
+/// Returns the word index that contains `bit_index`.
 pub fn indexOf(comptime Word: type, bit_index: usize) usize {
     comptime requireUnsignedInt(Word);
     return @divFloor(bit_index, @bitSizeOf(Word));
 }
 
-/// Returns the single-bit mask at position `bit_index % @bitSizeOf(Word)`.
+/// Returns the single-bit mask at `bit_index % @bitSizeOf(Word)`.
 pub fn maskOf(comptime Word: type, bit_index: usize) Word {
     comptime requireUnsignedInt(Word);
     const shift: std.math.Log2Int(Word) = @intCast(bit_index % @bitSizeOf(Word));
@@ -57,8 +56,7 @@ pub fn isSet(comptime Word: type, words: []const Word, bit_index: usize) bool {
 }
 
 /// Sets the bit at `bit_index`. The precondition and safety contract match
-/// `isSet`. Returns `void`; callers who need the prior bit value call
-/// `isSet` first.
+/// `isSet`.
 pub fn set(comptime Word: type, words: []Word, bit_index: usize) void {
     comptime requireUnsignedInt(Word);
     const word_index = indexOf(Word, bit_index);

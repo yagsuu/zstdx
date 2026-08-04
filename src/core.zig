@@ -1,6 +1,6 @@
-//! Core primitives. See docs/specs/core/options.md,
-//! docs/specs/core/debug.md, docs/specs/core/range.md,
-//! and docs/specs/core/traits.md.
+//! Core primitives. See `docs/specs/core/options.md`,
+//! `docs/specs/core/debug.md`, `docs/specs/core/range.md`, and
+//! `docs/specs/core/traits.md`.
 
 const traits = @import("core/traits.zig");
 pub const debug = @import("core/debug.zig");

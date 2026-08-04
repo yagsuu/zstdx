@@ -1,4 +1,4 @@
-//! x86_64 target gate. Spec: docs/specs/arch/x86_64/base.md.
+//! x86_64 target gate. See `docs/specs/arch/x86_64/base.md`.
 
 const builtin = @import("builtin");
 

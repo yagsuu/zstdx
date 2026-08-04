@@ -1,4 +1,4 @@
-//! Bit mask construction. Spec: docs/specs/bits/mask.md.
+//! Bit-mask construction. See `docs/specs/bits/mask.md`.
 
 const std = @import("std");
 
@@ -9,7 +9,7 @@ fn requireUnsignedInt(comptime T: type) void {
     }
 }
 
-/// Returns a mask with the lowest `count` bits set.
+/// Requirements: `T` is a non-zero-width unsigned integer and `count <= @bitSizeOf(T)`.
 pub fn low(comptime T: type, count: usize) T {
     comptime requireUnsignedInt(T);
     std.debug.assert(count <= @bitSizeOf(T));
@@ -19,7 +19,7 @@ pub fn low(comptime T: type, count: usize) T {
     return (@as(T, 1) << shift) - 1;
 }
 
-/// Returns a mask with only bit `index` set.
+/// Requirements: `T` is a non-zero-width unsigned integer and `index < @bitSizeOf(T)`.
 pub fn single(comptime T: type, index: usize) T {
     comptime requireUnsignedInt(T);
     std.debug.assert(index < @bitSizeOf(T));
@@ -27,7 +27,7 @@ pub fn single(comptime T: type, index: usize) T {
     return @as(T, 1) << shift;
 }
 
-/// Returns a mask with bits `first` through `last`, inclusive, set.
+/// Requirements: `T` is a non-zero-width unsigned integer, `first <= last`, and `last < @bitSizeOf(T)`.
 pub fn range(comptime T: type, first: usize, last: usize) T {
     comptime requireUnsignedInt(T);
     std.debug.assert(first <= last);

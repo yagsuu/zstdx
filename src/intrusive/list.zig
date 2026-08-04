@@ -1,4 +1,4 @@
-//! Intrusive linked lists. Spec: docs/specs/intrusive/list.md.
+//! Intrusive linked lists. See `docs/specs/intrusive/list.md`.
 
 const std = @import("std");
 
@@ -48,7 +48,7 @@ pub const List = struct {
                 return constItemFromNode(next_node);
             }
 
-            /// `item`'s node must be detached; double insert is a programmer error.
+            /// `item`'s node must be detached. Inserting an attached node is a programmer error.
             pub fn pushFront(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -58,7 +58,7 @@ pub const List = struct {
                 if (self.tail == null) self.tail = item;
             }
 
-            /// `item`'s node must be detached; double insert is a programmer error.
+            /// `item`'s node must be detached. Inserting an attached node is a programmer error.
             pub fn pushBack(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -82,7 +82,7 @@ pub const List = struct {
                 if (self.tail == previous) self.tail = item;
             }
 
-            /// Returned node is detached before return.
+            /// A non-null return has its selected node detached.
             pub fn popFront(self: *Self) ?*T {
                 const item = self.head orelse return null;
 
@@ -93,7 +93,7 @@ pub const List = struct {
                 return item;
             }
 
-            /// Success detaches `item`; failure leaves the list unchanged.
+            /// A successful removal detaches `item`; a failed removal leaves the list unchanged.
             pub fn tryRemove(self: *Self, item: *T) bool {
                 var previous: ?*T = null;
                 var current = self.head;
@@ -128,7 +128,7 @@ pub const List = struct {
                 self.tail = null;
             }
 
-            /// Invariant: endpoint symmetry, tail reachability, terminal null, and no head cycle.
+            /// Invariant: Endpoint symmetry, tail reachability, a null terminal link, and no cycle reachable from `head`.
             pub fn assertValid(self: *const Self) void {
                 if (self.head == null) {
                     std.debug.assert(self.tail == null);
@@ -231,7 +231,7 @@ pub const List = struct {
                 return constItemFromNode(previous_node);
             }
 
-            /// `item`'s node must be detached; double insert is a programmer error.
+            /// `item`'s node must be detached. Inserting an attached node is a programmer error.
             pub fn pushFront(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -246,7 +246,7 @@ pub const List = struct {
                 }
             }
 
-            /// `item`'s node must be detached; double insert is a programmer error.
+            /// `item`'s node must be detached. Inserting an attached node is a programmer error.
             pub fn pushBack(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -297,21 +297,22 @@ pub const List = struct {
                 previous_node.next = item_node;
             }
 
-            /// Returned node is detached before return.
+            /// A non-null return has its selected node detached.
             pub fn popFront(self: *Self) ?*T {
                 const item = self.head orelse return null;
                 self.remove(item);
                 return item;
             }
 
-            /// Returned node is detached before return.
+            /// A non-null return has its selected node detached.
             pub fn popBack(self: *Self) ?*T {
                 const item = self.tail orelse return null;
                 self.remove(item);
                 return item;
             }
 
-            /// `item` must belong to this list; success detaches it before return.
+            /// Requirements: `item` belongs to this list.
+            /// Effects: Detaches `item`'s node before return.
             pub fn remove(self: *Self, item: *T) void {
                 self.assertAttached(item);
                 const item_node = node(item);
@@ -345,7 +346,7 @@ pub const List = struct {
                 self.tail = null;
             }
 
-            /// Invariant: endpoint and link symmetry plus no head cycle.
+            /// Invariant: Endpoint and link symmetry, and no cycle reachable from `head`.
             pub fn assertValid(self: *const Self) void {
                 if (self.head == null) {
                     std.debug.assert(self.tail == null);

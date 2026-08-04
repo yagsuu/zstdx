@@ -1,5 +1,5 @@
-//! Byte stream primitives. See docs/specs/bytes/unaligned.md,
-//! docs/specs/bytes/access.md, and docs/specs/bytes/cursor.md.
+//! Byte-stream primitives. See `docs/specs/bytes/unaligned.md`,
+//! `docs/specs/bytes/access.md`, and `docs/specs/bytes/cursor.md`.
 
 pub const unaligned = @import("bytes/unaligned.zig");
 pub const access = @import("bytes/access.zig");

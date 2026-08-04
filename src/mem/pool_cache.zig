@@ -1,5 +1,5 @@
-//! Multi-region typed object cache over `Pool.Bounded`. Spec:
-//! docs/specs/mem/pool-cache.md.
+//! Multi-region typed object cache over `Pool.Bounded`.
+//! See `docs/specs/mem/pool-cache.md`.
 
 const std = @import("std");
 
@@ -88,8 +88,8 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
         /// Refill propagates the source's error set unchanged.
         pub const RefillError = RegionSource.Error;
 
-        /// Acquire error set. `OutOfMemory` when every held region is
-        /// full and no free slot exists.
+        /// Error set for acquisition. `OutOfMemory` occurs when every held
+        /// region is full and no free slot exists.
         pub const Error = error{OutOfMemory};
 
         /// Number of slots per region. Region layout is `RegionHeader`,
@@ -132,7 +132,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             return self.live_count == 0;
         }
 
-        /// Acquire one uninitialized `*T` from any region with free
+        /// Acquires one uninitialized `*T` from any region with free
         /// slots. Never calls `RegionSource.acquire`. Returns
         /// `error.OutOfMemory` when every region is full; state
         /// unchanged.
@@ -146,7 +146,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             return acquireFromRegion(self, empty, .empty);
         }
 
-        /// Return `item` to its owning region's pool. Panics under
+        /// Releases `item` to its owning region's pool. Panics under
         /// safety checks if `item` does not belong to this cache.
         pub fn release(self: *Self, item: *T) void {
             const region_ptr = regionPtrFromItem(item);
@@ -171,7 +171,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             }
         }
 
-        /// Acquire one region from the source and install it on the
+        /// Acquires one region from the source and installs it on the
         /// empty list. Propagates the source's error unchanged.
         pub fn refill(self: *Self) RefillError!void {
             const region = try self.source.acquire();
@@ -193,7 +193,7 @@ pub fn PoolCache(comptime T: type, comptime RegionSource: type) type {
             self.region_count += 1;
         }
 
-        /// Release every fully-empty region back to the source.
+        /// Releases every fully-empty region back to the source.
         /// Regions on the partial or full list are not touched.
         pub fn drain(self: *Self) void {
             var current = self.empty_head;

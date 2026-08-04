@@ -1,5 +1,4 @@
-//! Inline-storage constructor for `Callback`.
-//! Spec: docs/specs/func/callback.md.
+//! Inline-state constructor for `Callback`. See `docs/specs/func/callback.md`.
 
 const std = @import("std");
 
@@ -10,16 +9,15 @@ const Callback = callback.Callback;
 
 const alignUp = @import("../mem/alignment.zig").alignUp;
 
-/// Small-buffer closure over signature `Fn`. Holds `capacity_bytes` of
-/// inline caller state aligned to `@alignOf(usize)`, plus one thunk
-/// pointer. `init` bit-copies the captured state into storage; the
-/// resulting closure is trivially copyable iff the state is.
+/// A small-buffer closure with signature `Fn`. It holds `capacity_bytes` of
+/// inline caller state aligned to `@alignOf(usize)` and one thunk pointer.
+/// `init` bit-copies the state into storage. The resulting closure is trivially
+/// copyable only when the state is trivially copyable.
 ///
-/// Concurrency: value type. Callbacks derived through the type's own
-/// `callback()` method borrow the closure's storage; moving or copying
-/// the `Closure` invalidates any previously-returned `Callback`. A
-/// `Callback` that outlives its owning `Closure` is a caller contract
-/// violation and is not detected by the primitive.
+/// A callback from `callback()` borrows the closure storage. Moving or copying
+/// the `Closure` invalidates previously returned callbacks. A callback that
+/// outlives its owning `Closure` violates the caller contract. The primitive
+/// does not detect this violation.
 pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
     const CB = Callback(Fn);
 
@@ -38,10 +36,9 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
             std.debug.assert(@sizeOf(Self) == aligned_capacity + @sizeOf(usize));
         }
 
-        /// Bit-copy `state` into the closure's inline storage and store
-        /// a thunk that re-casts storage to `*State` before delegating
-        /// to `fn_ptr`. Compile-error when `@sizeOf(State) > capacity`
-        /// or `@alignOf(State) > alignment`.
+        /// Bit-copy `state` into inline storage and store a thunk that casts the
+        /// storage to `*State` before it calls `fn_ptr`. This compile-errors when
+        /// `@sizeOf(State) > capacity` or `@alignOf(State) > alignment`.
         pub fn init(
             comptime State: type,
             state: State,
@@ -81,10 +78,8 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
             return self;
         }
 
-        /// Return a `Callback(Fn)` borrowing this closure's storage.
-        /// The callback is valid only while the closure sits at a
-        /// stable address; moving or copying the closure invalidates
-        /// the returned callback.
+        /// Returns a `Callback(Fn)` that borrows this closure's storage. Keep the
+        /// closure at a stable address until the returned callback is no longer used.
         pub fn callback(self: *Self) CB {
             return .{
                 .context = @ptrCast(&self.storage),

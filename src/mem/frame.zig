@@ -1,5 +1,5 @@
-//! Page-typed wrapper around a unit-index allocator backend. Spec:
-//! docs/specs/mem/frame-allocator.md.
+//! Page-typed wrapper around a unit-index allocator backend.
+//! See `docs/specs/mem/frame-allocator.md`.
 
 const std = @import("std");
 
@@ -7,10 +7,8 @@ const allocation = @import("../algo/allocation.zig");
 
 const Buddy = allocation.Buddy;
 
-/// Canonical FrameAllocator error set. Every conforming `Backend` error
-/// set must be a subset. Private to this module; downstream callers
-/// reach the same set through `FrameAllocator.Static(...).Error` and
-/// `FrameAllocator.Bounded(...).Error`.
+/// Canonical error superset for conforming backends. The public allocator types
+/// expose this set through their `Error` declarations.
 const FrameError = error{
     OutOfMemory,
     OutOfBounds,
@@ -28,9 +26,9 @@ fn requireBackend(comptime Backend: type) void {
         }
     }
     inline for (.{
-        "capacity",         "orderCount",     "maxOrder",
-        "allocatedUnits",   "remainingUnits", "alloc",
-        "free",             "reserve",        "isFreeBlock",
+        "capacity",       "orderCount",     "maxOrder",
+        "allocatedUnits", "remainingUnits", "alloc",
+        "free",           "reserve",        "isFreeBlock",
         "assertValid",
     }) |name| {
         if (!@hasDecl(Backend, name)) {

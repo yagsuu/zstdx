@@ -1,4 +1,4 @@
-//! Memory cache-line alignment. Spec: docs/specs/mem/cache.md.
+//! Memory cache-line alignment. See `docs/specs/mem/cache.md`.
 
 const std = @import("std");
 
@@ -17,7 +17,7 @@ pub fn CachePad(comptime T: type) type {
 }
 
 /// Cache-line-aligned wrapper without trailing padding. The payload
-/// starts on a cache-line boundary; two adjacent values MAY share a
+/// starts on a cache-line boundary; two adjacent values may share a
 /// cache line when `@sizeOf(T) < cache_line`.
 pub fn CacheAlign(comptime T: type) type {
     validatePayload(T, "CacheAlign");

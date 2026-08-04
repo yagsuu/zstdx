@@ -1,17 +1,13 @@
-//! Fixed-capacity bit sets used for slot occupancy, free-index tracking,
-//! resource masks, and small bounded integer domains. See
-//! docs/specs/bits/bitset/static.md.
+//! Fixed-capacity bit sets. See `docs/specs/bits/bitset/static.md`.
 
 const std = @import("std");
 
 const word = @import("word.zig");
 
-/// Provides a family of fixed-capacity bit sets. The single approved variant
-/// `Static(N)` owns inline word storage; never allocates and never waits.
+/// `Static(N)` owns inline word storage and never allocates or waits.
 pub const BitSet = struct {
-    /// Returns a bit set with comptime-fixed capacity `capacity_bits`.
-    /// `capacity_bits` must be at least 1; `Static(0)` is rejected at compile
-    /// time. Unused high bits in the final word stay zero after every public operation.
+    /// Requirements: `capacity_bits >= 1`.
+    /// Invariant: Unused high bits in the final word remain zero.
     pub fn Static(comptime capacity_bits: usize) type {
         comptime if (capacity_bits == 0) @compileError("BitSet.Static requires capacity_bits >= 1");
 
@@ -27,13 +23,11 @@ pub const BitSet = struct {
 
             pub const word_bits = @bitSizeOf(Word);
 
-            /// `bit_capacity` is the comptime slot count.
+            /// The comptime slot count.
             pub const bit_capacity = capacity_bits;
 
-            /// `word_count` is the number of backing words rounded up from `bit_capacity`.
             pub const word_count = word.count(Word, capacity_bits);
 
-            /// Returns an empty set.
             pub fn init() Self {
                 return .{};
             }
@@ -108,9 +102,7 @@ pub const BitSet = struct {
                 return if (value) self.set(index) else self.unset(index);
             }
 
-            /// Flips `index`; returns the new (post-toggle) bit value. Asymmetric
-            /// with `set`/`unset`/`assign` by design: the prior value of a toggle is
-            /// just `!new` and carries no extra information.
+            /// Returns the new bit value. This differs from `set`, `unset`, and `assign` because the prior toggle value is always `!new`.
             pub fn toggle(self: *Self, index: usize) Error!bool {
                 try checkIndex(index);
 
@@ -158,29 +150,25 @@ pub const BitSet = struct {
                 return false;
             }
 
-            /// Updates this set to the union of itself and `other`.
             pub fn unionWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* |= b;
                 self.clearUnused();
             }
 
-            /// Updates this set to the intersection of itself and `other`.
             pub fn intersectWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* &= b;
                 self.clearUnused();
             }
 
-            /// Removes every bit set in `other` from this set.
             pub fn differenceWith(self: *Self, other: *const Self) void {
                 other.assertValid();
                 for (&self.words, other.words) |*a, b| a.* &= ~b;
                 self.clearUnused();
             }
 
-            /// Asserts the unused-bit invariant: every bit past `bit_capacity` in
-            /// the last word is zero.
+            /// Asserts that unused bits past `bit_capacity` in the last word are zero.
             pub fn assertValid(self: *const Self) void {
                 std.debug.assert((self.words[word_count - 1] & ~word.lastMask(Word, bit_capacity)) == 0);
             }

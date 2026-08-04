@@ -1,4 +1,4 @@
-//! x86_64 descriptor-register access. Spec: docs/specs/arch/x86_64/register.md.
+//! x86_64 descriptor-register access. See `docs/specs/arch/x86_64/register.md`.
 
 const std = @import("std");
 
@@ -55,7 +55,7 @@ pub const gdtr = struct {
             std.debug.assert(@offsetOf(Self, "base") == 2);
         }
     };
-    /// Execute `lgdt [ptr]`.
+    /// Executes `lgdt [ptr]`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
@@ -67,7 +67,7 @@ pub const gdtr = struct {
             : .{ .memory = true });
     }
 
-    /// Execute `sgdt` and return the current GDTR.
+    /// Executes `sgdt` and returns the current GDTR.
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: `memory`.
     pub fn read() GDTR {
@@ -103,7 +103,7 @@ pub const idtr = struct {
             std.debug.assert(@offsetOf(Self, "base") == 2);
         }
     };
-    /// Execute `lidt [ptr]`.
+    /// Executes `lidt [ptr]`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
@@ -115,7 +115,7 @@ pub const idtr = struct {
             : .{ .memory = true });
     }
 
-    /// Execute `sidt` and return the current IDTR.
+    /// Executes `sidt` and returns the current IDTR.
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: `memory`.
     pub fn read() IDTR {
@@ -133,7 +133,7 @@ pub const idtr = struct {
 
 pub const tr = struct {
     pub const TR = selector(.tr);
-    /// Execute `ltr selector`.
+    /// Executes `ltr selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or invalid selector state.
     /// Clobbers: `memory`.
@@ -145,7 +145,7 @@ pub const tr = struct {
             : .{ .memory = true });
     }
 
-    /// Execute `str` and return the current task-register selector.
+    /// Executes `str` and returns the current task-register selector.
     /// Privilege: CPU/OS policy at CPL > 0.
     pub fn read() TR {
         target.ensureSupported();
@@ -157,7 +157,7 @@ pub const tr = struct {
 
 pub const ldtr = struct {
     pub const LDTR = selector(.ldtr);
-    /// Execute `lldt selector`.
+    /// Executes `lldt selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or invalid/non-present LDT descriptor.
     /// Clobbers: `memory`.
@@ -169,7 +169,7 @@ pub const ldtr = struct {
             : .{ .memory = true });
     }
 
-    /// Execute `sldt` and return the current LDT selector.
+    /// Executes `sldt` and returns the current LDT selector.
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: registers only.
     pub fn read() LDTR {

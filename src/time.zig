@@ -1,4 +1,4 @@
-//! Time primitive facade. Normative contracts live under docs/specs/time/.
+//! Time primitives. Normative contracts are in `docs/specs/time/`.
 
 pub const monotonic = @import("time/monotonic.zig");
 pub const deadline = @import("time/deadline.zig");

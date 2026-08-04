@@ -1,5 +1,5 @@
 //! x86_64 paging data formats and read-only walker.
-//! Spec: docs/specs/arch/x86_64/paging.md.
+//! See `docs/specs/arch/x86_64/paging.md`.
 
 const address = @import("paging/address.zig");
 const table = @import("paging/table.zig");

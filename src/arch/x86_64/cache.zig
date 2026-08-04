@@ -1,4 +1,4 @@
-//! x86_64 cache maintenance wrappers. Spec: docs/specs/arch/x86_64/base.md.
+//! x86_64 cache maintenance wrappers. See `docs/specs/arch/x86_64/base.md`.
 
 const std = @import("std");
 
@@ -18,7 +18,7 @@ pub fn lineSize() usize {
     return @as(usize, clflush_qwords) * 8;
 }
 
-/// Execute `clflush [addr]`.
+/// Executes `clflush [addr]`.
 /// Privilege: unprivileged.
 /// Clobbers: `memory`.
 pub fn flush(addr: usize) void {
@@ -29,7 +29,7 @@ pub fn flush(addr: usize) void {
         : .{ .memory = true });
 }
 
-/// Execute `clflushopt [addr]`.
+/// Executes `clflushopt [addr]`.
 /// Privilege: unprivileged.
 /// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLFLUSHOPT`.
 /// Clobbers: `memory`.
@@ -41,7 +41,7 @@ pub fn flushOptimized(addr: usize) void {
         : .{ .memory = true });
 }
 
-/// Execute `clwb [addr]`.
+/// Executes `clwb [addr]`.
 /// Privilege: unprivileged.
 /// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLWB`.
 /// Clobbers: `memory`.
@@ -53,7 +53,7 @@ pub fn writeBack(addr: usize) void {
         : .{ .memory = true });
 }
 
-/// Flush every cache line intersecting `[ptr, ptr + len)`.
+/// Flushes every cache line intersecting `[ptr, ptr + len)`.
 /// Contract: `ptr + len` must not wrap; `len == 0` does nothing.
 /// Privilege: unprivileged.
 pub fn flushRange(ptr: [*]const u8, len: usize) void {
@@ -61,7 +61,7 @@ pub fn flushRange(ptr: [*]const u8, len: usize) void {
     rangeWalk(ptr, len, flush);
 }
 
-/// Write back every cache line intersecting `[ptr, ptr + len)`.
+/// Writes back every cache line intersecting `[ptr, ptr + len)`.
 /// Contract: `ptr + len` must not wrap; `len == 0` does nothing.
 /// Privilege: unprivileged.
 pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
@@ -69,7 +69,7 @@ pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
     rangeWalk(ptr, len, writeBack);
 }
 
-/// Execute `wbinvd`.
+/// Executes `wbinvd`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
@@ -78,10 +78,10 @@ pub fn writeBackInvalidate() void {
     asm volatile ("wbinvd" ::: .{ .memory = true });
 }
 
-/// Execute `invd`.
+/// Executes `invd`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
-/// Notes: loses dirty cache state when no prior write-back was issued.
+/// Effects: loses dirty cache state when no prior write-back was issued.
 /// Clobbers: `memory`.
 pub fn invalidate() void {
     target.ensureSupported();

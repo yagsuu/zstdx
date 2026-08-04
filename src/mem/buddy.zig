@@ -1,4 +1,4 @@
-//! Buddy allocator over caller-provided backing. Spec: docs/specs/mem/buddy-allocator.md.
+//! Buddy allocator over caller-provided backing. See `docs/specs/mem/buddy-allocator.md`.
 
 const std = @import("std");
 
@@ -375,9 +375,8 @@ fn allocImpl(
 ) BuddyError!BuddyBlock {
     if (order >= order_count) return error.InvalidOrder;
 
-    // Find the lowest-start free block whose order is >= target order.
-    // Break ties on start by preferring the lowest order (shallowest
-    // split). Scans every order and keeps the best candidate.
+    // Select the lowest-start free block that meets the requested order. Break
+    // ties by selecting the lowest order.
     var best_start: usize = std.math.maxInt(usize);
     var best_order: u8 = 0;
     var found = false;

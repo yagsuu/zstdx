@@ -1,4 +1,4 @@
-//! MMIO register lanes and byte windows. See docs/specs/io/mmio.md.
+//! MMIO register lanes and byte windows. See `docs/specs/io/mmio.md`.
 
 const std = @import("std");
 
@@ -50,13 +50,14 @@ fn requireWindowAlign(comptime bytes: usize) void {
     }
 }
 
-/// MMIO family namespace. Access provides only compiler ordering; hardware
-/// ordering against DMA payloads or other MMIO accesses is the caller's job
-/// via `stdx.barrier.mmio` and `stdx.barrier.dma`.
+/// `MMIO` provides register lanes and byte windows.
+/// Ordering: Its accesses are compiler-ordered. The caller must order them
+/// against DMA payloads or other MMIO accesses with `stdx.barrier.mmio` and
+/// `stdx.barrier.dma`.
 pub const MMIO = struct {
-    /// Default `min_align_bytes` for the `Window64` alias — the alignment
-    /// guarantee callers get from a page-aligned or canonical NVMe register
-    /// block.
+    /// This is the default `min_align_bytes` for the `Window64` alias. It
+    /// matches the alignment guaranteed by page-aligned or canonical NVMe
+    /// register blocks.
     pub const default_window_align: usize = @alignOf(u64);
 
     /// Typed volatile storage lane for a memory-mapped device register. `T`
@@ -73,10 +74,8 @@ pub const MMIO = struct {
 
             const Self = @This();
 
-            /// The native `T` the register lane carries.
             pub const Native = T;
 
-            /// Storage width in bytes.
             pub const width_bytes: comptime_int = @sizeOf(T);
 
             /// Loads `T` with one volatile access at the lane's natural width
@@ -124,7 +123,7 @@ pub const MMIO = struct {
             /// `Misaligned`: `(base + offset)` is not aligned to `@alignOf(T)`.
             pub const Error = error{ OutOfBounds, Misaligned };
 
-            /// Wrap a caller-owned MMIO byte range. The `align` annotation on
+            /// Wraps a caller-owned MMIO byte range. The `align` annotation on
             /// the parameter makes lesser-aligned inputs a compile error
             /// rather than a runtime one.
             pub fn wrap(bytes: []align(min_align_bytes) volatile u8) Self {

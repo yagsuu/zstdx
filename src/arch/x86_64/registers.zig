@@ -1,4 +1,4 @@
-//! x86_64 register access facade. Spec: docs/specs/arch/x86_64/register.md.
+//! x86_64 register-access facade. See `docs/specs/arch/x86_64/register.md`.
 
 const control = @import("register/control.zig");
 const efer_module = @import("register/efer.zig");

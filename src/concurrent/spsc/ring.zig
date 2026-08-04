@@ -1,4 +1,4 @@
-//! Bounded single-producer/single-consumer ring. Spec: docs/specs/concurrent/spsc-ring.md.
+//! Bounded single-producer/single-consumer ring. See `docs/specs/concurrent/spsc-ring.md`.
 
 const std = @import("std");
 
@@ -54,7 +54,7 @@ pub const Ring = struct {
             /// Comptime capacity in items.
             pub const item_capacity = capacity_items;
 
-            /// Reset head and tail to zero. Must be called before any
+            /// Resets head and tail to zero. Must be called before any
             /// concurrent use.
             pub fn init(self: *Self) void {
                 self.head.value.store(0, .monotonic);
@@ -127,7 +127,7 @@ pub const Ring = struct {
             /// ring is unchanged.
             pub const Error = error{Full};
 
-            /// Borrow `slots` and reset head and tail to zero. Asserts
+            /// Borrows `slots` and resets head and tail to zero. Asserts
             /// non-zero power-of-two slice length. Must be called before
             /// any concurrent use.
             pub fn init(self: *Self, slots: []Slot) void {

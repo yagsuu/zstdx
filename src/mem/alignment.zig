@@ -1,4 +1,4 @@
-//! Unsigned-integer alignment helpers. See docs/specs/mem/alignment.md.
+//! Unsigned-integer alignment helpers. See `docs/specs/mem/alignment.md`.
 
 const std = @import("std");
 
@@ -38,8 +38,8 @@ pub fn alignDown(comptime T: type, value: T, alignment: T) AlignError!T {
     return value & ~(alignment - 1);
 }
 
-/// True when `value` is a multiple of `alignment`. `alignment` must be a
-/// non-zero power of two; the precondition is asserted, not error-checked.
+/// Returns true if `value` is a multiple of `alignment`. The function asserts
+/// that `alignment` is a non-zero power of two instead of returning an error.
 pub fn isAligned(comptime T: type, value: T, alignment: T) bool {
     comptime requireUnsignedInt(T);
     std.debug.assert(alignment != 0);

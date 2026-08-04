@@ -1,4 +1,4 @@
-//! Byte layout primitives. See docs/specs/layout/endian.md.
+//! Byte-layout primitives. See `docs/specs/layout/endian.md`.
 
 pub const endian = @import("layout/endian.zig");
 

@@ -1,4 +1,4 @@
-//! Callback trait type factories. See docs/specs/core/traits.md.
+//! Callback trait type factories. See `docs/specs/core/traits.md`.
 
 const std = @import("std");
 

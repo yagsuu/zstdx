@@ -1,4 +1,4 @@
-//! x86_64 architecture primitives. Spec: docs/specs/arch/x86_64/base.md.
+//! x86_64 architecture primitives. See `docs/specs/arch/x86_64/base.md`.
 
 pub const MSR = @import("x86_64/msr.zig").MSR;
 pub const Port = @import("x86_64/port.zig").Port;

@@ -1,6 +1,5 @@
-//! DMA primitives.
-//! Spec: docs/specs/dma/buffer.md.
-//! Spec: docs/specs/dma/scatter-gather.md.
+//! DMA primitives. See `docs/specs/dma/buffer.md` and
+//! `docs/specs/dma/scatter-gather.md`.
 
 pub const buffer = @import("dma/buffer.zig");
 pub const scatter_gather = @import("dma/scatter_gather.zig");

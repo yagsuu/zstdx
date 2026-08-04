@@ -1,5 +1,4 @@
-//! DMA buffer primitive.
-//! Spec: docs/specs/dma/buffer.md.
+//! DMA buffer primitive. See `docs/specs/dma/buffer.md`.
 
 const std = @import("std");
 
@@ -24,11 +23,13 @@ pub fn Buffer(comptime T: type) type {
         pub const Item = T;
         pub const Address = DMAAddr;
 
-        /// `Misaligned`: invalid address or requested alignment.
-        /// `Overflow`: byte length, end address, or sub-range sum overflows.
-        /// `OutOfBounds`: item offset/window escapes `virt`.
+        /// `Misaligned`: The address or requested alignment is invalid.
+        /// `Overflow`: The byte length or end address overflows.
         pub const InitError = error{ Misaligned, Overflow };
+        /// `OutOfBounds`: The item offset or window escapes `virt`.
         pub const OffsetError = error{OutOfBounds};
+        /// `Overflow`: The item offset plus count overflows.
+        /// `OutOfBounds`: The item window escapes `virt`.
         pub const SubError = error{ Overflow, OutOfBounds };
         pub const Error = InitError || OffsetError || SubError;
 
@@ -38,13 +39,13 @@ pub fn Buffer(comptime T: type) type {
             count_items: usize,
         };
 
-        /// Validate default type alignment and address range.
+        /// Validates `dma` against `@alignOf(T)` and the buffer address range.
         pub fn init(virt: []T, dma: Address) InitError!Self {
             return initAlignedWith(virt, dma, @alignOf(T));
         }
 
-        /// Validate `dma` against `max(alignment, @alignOf(T))`.
-        /// Invalid alignment returns `error.Misaligned`.
+        /// Validates `dma` against `max(alignment, @alignOf(T))` and the buffer address range.
+        /// A zero or non-power-of-two alignment returns `error.Misaligned`.
         pub fn initAligned(virt: []T, dma: Address, alignment: Address.Raw) InitError!Self {
             if (alignment == 0 or !bits.isPowerOfTwo(Address.Raw, alignment)) return error.Misaligned;
             return initAlignedWith(virt, dma, alignment);
@@ -88,7 +89,7 @@ pub fn Buffer(comptime T: type) type {
             return self.virt.len;
         }
 
-        /// Returns the byte length as `Address.Raw`. Construction proves no overflow.
+        /// Construction proves that the byte length does not overflow `Address.Raw`.
         pub fn byteLen(self: Self) Address.Raw {
             self.assertValid();
             const virt_len: Address.Raw = @intCast(self.virt.len);
@@ -100,13 +101,12 @@ pub fn Buffer(comptime T: type) type {
             return self.virt.len == 0;
         }
 
-        /// Returns the device-visible base address.
         pub fn dmaAddr(self: Self) Address {
             self.assertValid();
             return self.dma;
         }
 
-        /// Returns the device-visible address at an item offset. `len()` is the end cursor.
+        /// `len()` is a valid one-past-the-end item offset.
         pub fn dmaAddrAt(self: Self, offset_items: usize) OffsetError!Address {
             self.assertValid();
             if (offset_items > self.virt.len) return error.OutOfBounds;
@@ -133,7 +133,7 @@ pub fn Buffer(comptime T: type) type {
             };
         }
 
-        /// Checks the invariants established by construction in debug builds.
+        /// Debug builds check the invariants that construction establishes.
         pub fn assertValid(self: Self) void {
             std.debug.assert((self.dma.raw() & (@as(Address.Raw, @alignOf(T)) - 1)) == 0);
             const virt_len: Address.Raw = std.math.cast(Address.Raw, self.virt.len) orelse unreachable;

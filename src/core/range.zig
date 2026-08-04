@@ -1,6 +1,6 @@
-//! Half-open `[start, end)` ranges over an unsigned integer. Pure value
-//! type; failed operations leave inputs unchanged. See
-//! docs/specs/core/range.md.
+//! Half-open `[start, end)` ranges over an unsigned integer. `Range(T)` is a
+//! pure value type. Failed operations leave inputs unchanged.
+//! See `docs/specs/core/range.md`.
 
 const std = @import("std");
 
@@ -12,8 +12,8 @@ fn requireUnsignedInt(comptime T: type) void {
 }
 
 /// Returns a half-open unsigned-integer range type parameterized by `T`.
-/// The returned type is a plain value (`{ start, end }`) so copying is
-/// checkpointing; no allocation, no waiting.
+/// The returned type is a plain value (`{ start, end }`). Copies make
+/// independent checkpoints and do not allocate or wait.
 pub fn Range(comptime T: type) type {
     comptime requireUnsignedInt(T);
     return struct {
@@ -22,11 +22,11 @@ pub fn Range(comptime T: type) type {
 
         const Self = @This();
 
-        /// `InvalidRange`: caller passed `end < start`.
-        /// `Overflow`: arithmetic on `start`, `end`, or `len` exceeded `T`.
-        /// `OutOfBounds`: point lies outside `[start, end]`.
+        /// `InvalidRange` reports `end < start`.
         pub const InvalidRangeError = error{InvalidRange};
+        /// `Overflow` reports arithmetic on `start`, `end`, or `len` that exceeds `T`.
         pub const OverflowError = error{Overflow};
+        /// `OutOfBounds` reports a point outside `[start, end]`.
         pub const OutOfBoundsError = error{OutOfBounds};
         pub const Error = InvalidRangeError || OverflowError || OutOfBoundsError;
 

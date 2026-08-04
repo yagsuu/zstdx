@@ -1,5 +1,5 @@
-//! Intrusive collections. Specs: docs/specs/intrusive/list.md,
-//! docs/specs/intrusive/queue.md, and docs/specs/intrusive/stack.md.
+//! Intrusive collections. See `docs/specs/intrusive/list.md`,
+//! `docs/specs/intrusive/queue.md`, and `docs/specs/intrusive/stack.md`.
 
 pub const list = @import("intrusive/list.zig");
 pub const queue = @import("intrusive/queue.zig");

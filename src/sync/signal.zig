@@ -1,4 +1,4 @@
-//! Manual-reset sticky notification primitive. See docs/specs/sync/signal.md.
+//! Manual-reset sticky notification primitive. See `docs/specs/sync/signal.md`.
 
 const std = @import("std");
 
@@ -33,7 +33,7 @@ pub const Signal = struct {
     pub const State = struct {
         word: std.atomic.Value(usize),
 
-        /// Initialize an `.unset` or `.set` state; generation starts at zero.
+        /// Initializes an `.unset` or `.set` state; generation starts at zero.
         pub fn init(initial: InitialState) State {
             return .{ .word = std.atomic.Value(usize).init(switch (initial) {
                 .unset => 0,
@@ -41,18 +41,18 @@ pub const Signal = struct {
             }) };
         }
 
-        /// Acquire-load the word and report whether the set flag is set.
+        /// Acquire-loads the word and reports whether the set flag is set.
         pub fn isSet(self: *const State) bool {
             return self.observe().isSet();
         }
 
-        /// Acquire-load the word into a `Token`; used to arm a lost-wakeup
+        /// Acquire-loads the word into a `Token`; used to arm a lost-wakeup
         /// safe wait.
         pub fn observe(self: *const State) Token {
             return @enumFromInt(self.word.load(.acquire));
         }
 
-        /// Acquire-load the word and report whether any set/clear transition
+        /// Acquire-loads the word and reports whether any set/clear transition
         /// has occurred since `token` was observed.
         pub fn changedSince(self: *const State, token: Token) bool {
             return self.word.load(.acquire) != @intFromEnum(token);
@@ -72,19 +72,19 @@ pub const Signal = struct {
             /// Backend-provided error set for `wait`.
             pub const WaitError = Backend.WaitError;
 
-            /// Return a signal with initialized state and backend. Must complete before
+            /// Returns a signal with initialized state and backend. Must complete before
             /// any concurrent use; copying or moving the signal after initialization is
             /// outside the primitive's contract.
             pub fn init(initial: Signal.InitialState, backend: Backend) Self {
                 return .{ .state = Signal.State.init(initial), .backend = backend };
             }
 
-            /// Acquire-load the state and report the set flag.
+            /// Acquire-loads the state and reports the set flag.
             pub fn isSet(self: *const Self) bool {
                 return self.state.isSet();
             }
 
-            /// Transition to set. Idempotent: only the winning unset-to-set
+            /// Transitions to set. Idempotent: only the winning unset-to-set
             /// CAS bumps the generation, release-publishes the transition,
             /// and calls `backend.wakeAll(&state)`.
             pub fn set(self: *Self) void {
@@ -103,7 +103,7 @@ pub const Signal = struct {
                 }
             }
 
-            /// Transition to unset. Idempotent: only the winning set-to-unset
+            /// Transitions to unset. Idempotent: only the winning set-to-unset
             /// CAS bumps the generation and release-publishes the transition.
             /// Never invokes the backend.
             pub fn clear(self: *Self) void {
@@ -121,11 +121,11 @@ pub const Signal = struct {
                 }
             }
 
-            /// Return only after observing the signal set. On each iteration
-            /// observes a token, returns immediately if set, otherwise defers
-            /// to `backend.wait(&state, token)`; spurious backend successes
-            /// re-observe the state before returning. Backend errors are
-            /// propagated unchanged.
+            /// Waits until it observes the signal set.
+            ///
+            /// Each iteration observes a token and returns immediately if set. Otherwise,
+            /// it calls `backend.wait(&state, token)`. Spurious backend successes
+            /// re-observe the state before returning. Backend errors are propagated unchanged.
             pub fn wait(self: *Self) WaitError!void {
                 while (true) {
                     const token = self.state.observe();
@@ -134,7 +134,7 @@ pub const Signal = struct {
                 }
             }
 
-            /// Borrow the underlying `State` for backend enrollment or
+            /// Borrows the underlying `State` for backend enrollment or
             /// external `changedSince` recheck.
             pub fn stateRef(self: *const Self) *const Signal.State {
                 return &self.state;

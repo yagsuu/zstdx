@@ -1,5 +1,5 @@
-//! Range collection facade. Specs: docs/specs/ranges/range-set.md
-//! and docs/specs/ranges/range-map.md.
+//! Range collections. See `docs/specs/ranges/range-set.md` and
+//! `docs/specs/ranges/range-map.md`.
 
 pub const set = @import("ranges/set.zig");
 pub const map = @import("ranges/map.zig");

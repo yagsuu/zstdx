@@ -1,4 +1,4 @@
-//! One-shot countdown latch. Spec: docs/specs/sync/latch.md.
+//! One-shot countdown latch. See `docs/specs/sync/latch.md`.
 
 const std = @import("std");
 
@@ -19,24 +19,24 @@ pub const State = struct {
         return .{ .word = std.atomic.Value(u32).init(capacity) };
     }
 
-    /// Acquire-load the word into a `Token` snapshot used to arm a
+    /// Acquire-loads the word into a `Token` snapshot used to arm a
     /// lost-wakeup-safe wait.
     pub fn observe(self: *const State) Token {
         return @enumFromInt(self.word.load(.acquire));
     }
 
-    /// Acquire-load the word and report whether it differs from `token`.
+    /// Acquire-loads the word and reports whether it differs from `token`.
     pub fn changedSince(self: *const State, token: Token) bool {
         const current = self.word.load(.acquire);
         return current != @intFromEnum(token);
     }
 
-    /// Acquire-load the word and return the current remaining count.
+    /// Acquire-loads the word and returns the current remaining count.
     pub fn remaining(self: *const State) u32 {
         return self.word.load(.acquire);
     }
 
-    /// Acquire-load the word and return whether the latch is released.
+    /// Acquire-loads the word and returns whether the latch is released.
     pub fn isReleased(self: *const State) bool {
         return self.word.load(.acquire) == 0;
     }
@@ -96,7 +96,7 @@ pub fn Latch(comptime Backend: type) type {
 
                 const capacity_u32: u32 = @intCast(capacity_arrivals);
 
-                /// Return a latch pre-armed with `remaining = capacity` and
+                /// Returns a latch pre-armed with `remaining = capacity` and
                 /// `backend` stored by value. Must complete before any
                 /// concurrent use.
                 pub fn init(backend: Backend) Self {
@@ -118,7 +118,7 @@ pub fn Latch(comptime Backend: type) type {
                     return waitShared(&self.state, &self.backend);
                 }
 
-                /// Acquire-load `remaining`.
+                /// Acquire-loads `remaining`.
                 pub fn pending(self: *const Self) u32 {
                     return self.state.remaining();
                 }
@@ -129,12 +129,12 @@ pub fn Latch(comptime Backend: type) type {
                     return capacity_u32;
                 }
 
-                /// Acquire-load and report whether the latch is released.
+                /// Acquire-loads and reports whether the latch is released.
                 pub fn isReleased(self: *const Self) bool {
                     return self.state.isReleased();
                 }
 
-                /// Borrow the underlying `State` for backend enrollment or
+                /// Borrows the underlying `State` for backend enrollment or
                 /// external `changedSince` recheck.
                 pub fn stateRef(self: *const Self) *const State {
                     return &self.state;
@@ -152,7 +152,7 @@ pub fn Latch(comptime Backend: type) type {
             /// Backend-provided error set for `wait`.
             pub const WaitError = Backend.WaitError;
 
-            /// Return a latch pre-armed with `remaining = capacity_arrivals`
+            /// Returns a latch pre-armed with `remaining = capacity_arrivals`
             /// and `backend` stored by value. Must complete before any
             /// concurrent use.
             pub fn init(capacity_arrivals: u32, backend: Backend) Bounded {
@@ -177,7 +177,7 @@ pub fn Latch(comptime Backend: type) type {
                 return waitShared(&self.state, &self.backend);
             }
 
-            /// Acquire-load `remaining`.
+            /// Acquire-loads `remaining`.
             pub fn pending(self: *const Bounded) u32 {
                 return self.state.remaining();
             }
@@ -187,12 +187,12 @@ pub fn Latch(comptime Backend: type) type {
                 return self.arrival_capacity;
             }
 
-            /// Acquire-load and report whether the latch is released.
+            /// Acquire-loads and reports whether the latch is released.
             pub fn isReleased(self: *const Bounded) bool {
                 return self.state.isReleased();
             }
 
-            /// Borrow the underlying `State` for backend enrollment or
+            /// Borrows the underlying `State` for backend enrollment or
             /// external `changedSince` recheck.
             pub fn stateRef(self: *const Bounded) *const State {
                 return &self.state;
@@ -201,16 +201,13 @@ pub fn Latch(comptime Backend: type) type {
     };
 }
 
-// Shared arrival body used by both `Static(N)` and `Bounded`. Runs the
-// reservation CAS loop and calls `wakeAll` on the last-arrival path.
 fn arriveShared(state: *State, backend: anytype) void {
     while (true) {
         const observed = state.observe();
         const rem = observed.remaining();
         if (rem == 0) {
-            // Over-arrival: caller-contract violation. Trap under
-            // checksEnabled; saturate at zero in release without wrap and
-            // without a second wakeAll.
+            // Over-arrival violates the caller contract. In checked builds, trap;
+            // otherwise retain zero and do not issue a second `wakeAll`.
             if (debug.checksEnabled(.build_mode)) unreachable;
             return;
         }
@@ -220,8 +217,6 @@ fn arriveShared(state: *State, backend: anytype) void {
     }
 }
 
-// Shared wait body used by both `Static(N)` and `Bounded`. Fast-paths
-// released state, otherwise loops on `Backend.wait` until released.
 fn waitShared(state: *State, backend: anytype) @TypeOf(backend.*).WaitError!void {
     if (state.isReleased()) return;
     while (true) {
@@ -231,8 +226,6 @@ fn waitShared(state: *State, backend: anytype) @TypeOf(backend.*).WaitError!void
     }
 }
 
-// Comptime interface check for `Backend`. Mirrors the shared wait/wake
-// contract: explicit `WaitError` error set, `wait`, and `wakeAll` decls.
 fn requireBackend(comptime Backend: type) void {
     if (!@hasDecl(Backend, "WaitError")) {
         @compileError("Latch(Backend): Backend must declare pub const WaitError");

@@ -1,4 +1,4 @@
-//! Per-CPU cache-line-padded storage. Spec: docs/specs/cpu/per-cpu.md.
+//! Per-CPU cache-line-padded storage. See `docs/specs/cpu/per-cpu.md`.
 
 const std = @import("std");
 
@@ -12,8 +12,8 @@ const CachePad = cache.CachePad;
 /// `[]CachePad(T)` slice. Neither variant discovers CPUs, orders accesses
 /// across slots, or enforces affinity; routing is caller policy.
 pub const PerCPU = struct {
-    /// Inline `[N]CachePad(T)` per-CPU storage indexed by caller-supplied CPU
-    /// index. `Static(T, 0)` is a compile error: a zero-capacity per-CPU
+    /// Provides inline `[N]CachePad(T)` storage indexed by a caller-supplied
+    /// CPU index. `Static(T, 0)` is a compile error because a zero-capacity
     /// array has no valid consumer.
     pub fn Static(comptime T: type, comptime N: usize) type {
         if (N == 0) {
@@ -54,7 +54,7 @@ pub const PerCPU = struct {
                 return self;
             }
 
-            /// Leave every slot's payload undefined. The caller MUST write
+            /// Leaves every slot's payload undefined. The caller must write
             /// each slot before reading.
             pub fn initUndefined() Self {
                 return .{ .storage = undefined };
@@ -103,20 +103,21 @@ pub const PerCPU = struct {
                 return &self.storage[index].value;
             }
 
-            /// Padded slot slice over `[0..capacity())`. Consumers access
-            /// `slot.value` for the payload.
+            /// Returns a mutable padded slot slice. Access each payload through
+            /// `slot.value`.
             pub fn slots(self: *Self) []Padded {
                 return self.storage[0..];
             }
 
-            /// Immutable padded slot slice over `[0..capacity())`; read `slot.value` for the payload.
+            /// Returns an immutable padded slot slice. Access each payload through
+            /// `slot.value`.
             pub fn slotsConst(self: *const Self) []const Padded {
                 return self.storage[0..];
             }
 
-            /// Invariant: storage base is padded-aligned and adjacent slots are
-            /// exactly `@sizeOf(Padded)` apart. Runs unconditionally; gate at
-            /// the call site under `stdx.core.debug.checksEnabled(.build_mode)`.
+            /// Invariant: The storage base is padded-aligned, and adjacent slots are
+            /// exactly `@sizeOf(Padded)` apart. This method does not gate checks;
+            /// callers can gate it with `stdx.core.debug.checksEnabled(.build_mode)`.
             pub fn assertValid(self: *const Self) void {
                 assertValidPadded(Padded, self.storage[0..]);
             }
@@ -138,13 +139,13 @@ pub const PerCPU = struct {
             /// `OutOfBounds`: index at or past `capacity()`.
             pub const Error = error{OutOfBounds};
 
-            /// Store `backing` and fill every slot's payload with `default`.
+            /// Stores `backing` and fills every slot's payload with `default`.
             pub fn init(backing: []Padded, default: T) Self {
                 fillDefault(Padded, T, backing, default);
                 return .{ .slots_backing = backing };
             }
 
-            /// Store `backing` and call `make(index)` once per slot in index
+            /// Stores `backing` and calls `make(index)` once per slot in index
             /// order.
             pub fn initFn(
                 backing: []Padded,
@@ -154,7 +155,7 @@ pub const PerCPU = struct {
                 return .{ .slots_backing = backing };
             }
 
-            /// Store `backing` and call `fill(index, slot_ptr)` once per slot
+            /// Stores `backing` and calls `fill(index, slot_ptr)` once per slot
             /// in index order.
             pub fn initEach(
                 backing: []Padded,
@@ -164,7 +165,7 @@ pub const PerCPU = struct {
                 return .{ .slots_backing = backing };
             }
 
-            /// Store `backing` without writing. The caller MUST write each
+            /// Stores `backing` without writing. The caller must write each
             /// slot before reading.
             pub fn initUndefined(backing: []Padded) Self {
                 return .{ .slots_backing = backing };
@@ -210,19 +211,15 @@ pub const PerCPU = struct {
                 return self.slots_backing;
             }
 
-            /// Invariant: backing slice is padded-aligned and adjacent slots are
-            /// exactly `@sizeOf(Padded)` apart. Runs unconditionally; gate at
-            /// the call site under `stdx.core.debug.checksEnabled(.build_mode)`.
+            /// Invariant: The backing-slice base is padded-aligned, and adjacent slots
+            /// are exactly `@sizeOf(Padded)` apart. This method does not gate checks;
+            /// callers can gate it with `stdx.core.debug.checksEnabled(.build_mode)`.
             pub fn assertValid(self: *const Self) void {
                 assertValidPadded(Padded, self.slots_backing);
             }
         };
     }
 };
-
-// Shared Static / Bounded implementation: every mutating and structural
-// helper is a module-scope `comptime`-parameterized free function over a
-// `[]CachePad(T)` slice. Both variants thin-wrap these.
 
 fn fillDefault(
     comptime Padded: type,

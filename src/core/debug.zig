@@ -1,5 +1,5 @@
 //! Comptime mapping from `SafetyMode` to whether a debug check is compiled
-//! in. See docs/specs/core/debug.md.
+//! in. See `docs/specs/core/debug.md`.
 
 const builtin = @import("builtin");
 

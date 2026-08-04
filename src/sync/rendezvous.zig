@@ -1,4 +1,4 @@
-//! Reusable N-way cyclic barrier. Spec: docs/specs/sync/rendezvous.md.
+//! Reusable N-way cyclic barrier. See `docs/specs/sync/rendezvous.md`.
 
 const std = @import("std");
 
@@ -26,25 +26,25 @@ pub const State = struct {
         return .{ .word = std.atomic.Value(u64).init(packWord(capacity_parties, 0)) };
     }
 
-    /// Acquire-load the word into a `Token` snapshot used to arm a
+    /// Acquire-loads the word into a `Token` snapshot used to arm a
     /// lost-wakeup-safe wait.
     pub fn observe(self: *const State) Token {
         return @enumFromInt(self.word.load(.acquire));
     }
 
-    /// Acquire-load the word and report whether the generation has
+    /// Acquire-loads the word and reports whether the generation has
     /// advanced since `token` was observed.
     pub fn changedSince(self: *const State, token: Token) bool {
         const current: Token = @enumFromInt(self.word.load(.acquire));
         return current.generation() != token.generation();
     }
 
-    /// Acquire-load the word and return the current `remaining` count.
+    /// Acquire-loads the word and returns the current `remaining` count.
     pub fn remaining(self: *const State) u32 {
         return unpackRemaining(self.word.load(.acquire));
     }
 
-    /// Acquire-load the word and return the current generation counter.
+    /// Acquire-loads the word and returns the current generation counter.
     pub fn generation(self: *const State) u32 {
         return unpackGeneration(self.word.load(.acquire));
     }
@@ -105,7 +105,7 @@ pub fn Rendezvous(comptime Backend: type) type {
 
                 const capacity_u32: u32 = @intCast(capacity_parties);
 
-                /// Return a rendezvous pre-armed for the first generation
+                /// Returns a rendezvous pre-armed for the first generation
                 /// with `backend` stored by value. Must complete before
                 /// any concurrent use.
                 pub fn init(backend: Backend) Self {
@@ -122,7 +122,7 @@ pub fn Rendezvous(comptime Backend: type) type {
                     return arriveShared(&self.state, &self.backend, capacity_u32);
                 }
 
-                /// Acquire-load `remaining` for the current generation.
+                /// Acquire-loads `remaining` for the current generation.
                 pub fn pending(self: *const Self) u32 {
                     return self.state.remaining();
                 }
@@ -133,12 +133,12 @@ pub fn Rendezvous(comptime Backend: type) type {
                     return capacity_u32;
                 }
 
-                /// Acquire-load the current generation counter.
+                /// Acquire-loads the current generation counter.
                 pub fn generation(self: *const Self) u32 {
                     return self.state.generation();
                 }
 
-                /// Borrow the underlying `State` for backend enrollment
+                /// Borrows the underlying `State` for backend enrollment
                 /// or external `changedSince` recheck.
                 pub fn stateRef(self: *const Self) *const State {
                     return &self.state;
@@ -157,7 +157,7 @@ pub fn Rendezvous(comptime Backend: type) type {
             /// Backend-provided error set for `wait`.
             pub const WaitError = Backend.WaitError;
 
-            /// Return a rendezvous pre-armed for the first generation
+            /// Returns a rendezvous pre-armed for the first generation
             /// with `backend` stored by value.
             pub fn init(capacity_parties: u32, backend: Backend) Bounded {
                 if (debug.checksEnabled(.build_mode)) {
@@ -176,7 +176,7 @@ pub fn Rendezvous(comptime Backend: type) type {
                 return arriveShared(&self.state, &self.backend, self.capacity_parties);
             }
 
-            /// Acquire-load `remaining` for the current generation.
+            /// Acquire-loads `remaining` for the current generation.
             pub fn pending(self: *const Bounded) u32 {
                 return self.state.remaining();
             }
@@ -186,12 +186,12 @@ pub fn Rendezvous(comptime Backend: type) type {
                 return self.capacity_parties;
             }
 
-            /// Acquire-load the current generation counter.
+            /// Acquire-loads the current generation counter.
             pub fn generation(self: *const Bounded) u32 {
                 return self.state.generation();
             }
 
-            /// Borrow the underlying `State` for backend enrollment or
+            /// Borrows the underlying `State` for backend enrollment or
             /// external `changedSince` recheck.
             pub fn stateRef(self: *const Bounded) *const State {
                 return &self.state;
@@ -212,8 +212,6 @@ inline fn unpackGeneration(word: u64) u32 {
     return @intCast(word >> remaining_bits);
 }
 
-// Shared arrival body used by both `Static(N)` and `Bounded`. Runs the
-// reservation CAS loop, then, for non-last arrivers, the wait loop.
 fn arriveShared(state: *State, backend: anytype, capacity: u32) @TypeOf(backend.*).WaitError!void {
     std.debug.assert(capacity > 0);
 
@@ -250,8 +248,6 @@ fn arriveShared(state: *State, backend: anytype, capacity: u32) @TypeOf(backend.
     }
 }
 
-// Comptime interface check for `Backend`. Mirrors `Once`'s requirement:
-// explicit `WaitError` error set, `wait`, and `wakeAll` decls.
 fn requireBackend(comptime Backend: type) void {
     if (!@hasDecl(Backend, "WaitError")) {
         @compileError("Rendezvous(Backend): Backend must declare pub const WaitError");

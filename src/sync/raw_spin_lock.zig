@@ -1,4 +1,4 @@
-//! Raw atomic-word spinlock. Spec: docs/specs/sync/raw-spin-lock.md.
+//! Raw atomic-word spinlock. See `docs/specs/sync/raw-spin-lock.md`.
 
 const std = @import("std");
 
@@ -7,11 +7,13 @@ const atomic_cell = @import("atomic_cell.zig");
 
 const AtomicCell = atomic_cell.AtomicCell;
 
-/// Minimum viable mutual-exclusion primitive: one atomic word, an
-/// `acquire()` that spins until it wins, a `release()` that publishes
-/// the exit. No fairness, no queueing, no interrupt policy, no
-/// scheduler awareness, no backoff. The zero bit-pattern is a valid
-/// unlocked lock, so bulk `@memset` to zero is a legal initialization.
+/// Non-fair atomic-word spinlock.
+///
+/// Representation: one atomic word. `unlocked` is zero, so bulk `@memset`
+/// initialization is valid.
+///
+/// `acquire()` spins until it succeeds. The lock does not queue waiters,
+/// manage interrupt policy or scheduling, or apply backoff.
 pub const RawSpinLock = struct {
     state: AtomicCell(u32),
 
@@ -24,16 +26,16 @@ pub const RawSpinLock = struct {
 
     const Self = @This();
 
-    /// Return a lock whose state is `unlocked`.
+    /// Returns a lock whose state is `unlocked`.
     pub fn init() Self {
         return .{ .state = AtomicCell(u32).init(@intFromEnum(State.unlocked)) };
     }
 
-    /// Spin until the caller holds the lock. Test-and-test-and-set:
-    /// contended waiters spin on monotonic loads then retry the acquire
-    /// CAS. Never allocates, never yields, never touches interrupt
-    /// state; the winning CAS establishes an acquire edge with the
-    /// previous holder's `release()`.
+    /// Acquires the lock through test-and-test-and-set.
+    ///
+    /// Contended callers spin on monotonic loads and retry the acquire CAS.
+    /// The lock does not allocate, yield, or change interrupt state. The winning
+    /// CAS establishes an acquire edge with the previous holder's `release()`.
     pub fn acquire(self: *Self) void {
         while (true) {
             if (self.state.cmpxchgWeakAcquire(
@@ -47,9 +49,9 @@ pub const RawSpinLock = struct {
         }
     }
 
-    /// Attempt one acquire; return `true` iff the caller now holds the
-    /// lock. Strong CAS so a `false` return unambiguously means
-    /// contention, not spurious failure. Never spins.
+    /// Attempts to acquire once. Returns `true` only when the caller holds
+    /// the lock. Strong CAS means that `false` unambiguously signals
+    /// contention rather than spurious failure. Never spins.
     pub fn tryAcquire(self: *Self) bool {
         return self.state.cmpxchgStrongAcquire(
             @intFromEnum(State.unlocked),
@@ -57,10 +59,11 @@ pub const RawSpinLock = struct {
         ) == null;
     }
 
-    /// Publish the unlocked state with a release store. Under
-    /// `core.debug.checksEnabled(.build_mode)` `assertHeld` runs first;
-    /// a stray release traps in Debug/ReleaseSafe. In
-    /// ReleaseFast/ReleaseSmall the store is unconditional.
+    /// Release-publishes the unlocked state.
+    ///
+    /// Under `core.debug.checksEnabled(.build_mode)`, `assertHeld` runs first;
+    /// a stray release traps in Debug/ReleaseSafe. In ReleaseFast/ReleaseSmall,
+    /// the store is unconditional.
     pub fn release(self: *Self) void {
         if (debug.checksEnabled(.build_mode)) self.assertHeld();
         self.state.storeRelease(@intFromEnum(State.unlocked));

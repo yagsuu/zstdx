@@ -1,9 +1,9 @@
-//! x86_64 interrupt flag helpers. Spec: docs/specs/arch/x86_64/base.md.
+//! x86_64 interrupt flag helpers. See `docs/specs/arch/x86_64/base.md`.
 
 const target = @import("target.zig");
 const rflags = @import("register/rflags.zig");
 
-/// Execute `sti`.
+/// Executes `sti`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
@@ -12,7 +12,7 @@ pub fn enable() void {
     asm volatile ("sti" ::: .{ .memory = true });
 }
 
-/// Execute `cli`.
+/// Executes `cli`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
@@ -21,7 +21,7 @@ pub fn disable() void {
     asm volatile ("cli" ::: .{ .memory = true });
 }
 
-/// Return whether the `IF` bit in `RFLAGS` is set.
+/// Returns whether the `IF` bit in `RFLAGS` is set.
 /// Privilege: unprivileged.
 pub fn enabled() bool {
     target.ensureSupported();

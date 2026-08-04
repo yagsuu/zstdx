@@ -1,4 +1,4 @@
-//! Panic-safe ring log sink. Spec: docs/specs/diag/panic-log.md.
+//! Panic-safe ring log sink. See `docs/specs/diag/panic-log.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -38,10 +38,9 @@ pub const PanicLog = struct {
 
             const Self = @This();
 
-            /// WriterBusy: seat CAS lost to a concurrent writer; drop
-            /// already accounted.
-            /// PayloadTooLarge: `payload.len` exceeds `max_payload_bytes`.
-            /// EmptyPayload: zero-length writes are invalid.
+            /// `WriterBusy` means that seat acquisition lost to a concurrent writer; the drop is already counted.
+            /// `PayloadTooLarge` means that `payload.len` exceeds `max_payload_bytes`.
+            /// `EmptyPayload` means that a zero-length write is invalid.
             pub const Error = error{
                 WriterBusy,
                 PayloadTooLarge,
@@ -58,14 +57,13 @@ pub const PanicLog = struct {
             /// Largest payload accepted by `write`.
             pub const max_payload_bytes: usize = capacity_bytes - header_bytes;
 
-            /// Zero-init every field. Static resource; no allocation.
+            /// Initializes all fields without allocation.
             pub fn init() Self {
                 return .{};
             }
 
-            /// Reset counters and zero the byte storage. Safe only
-            /// when no writer holds the seat and no reader is
-            /// mid-drain.
+            /// Resets counters and zeros the byte storage only when no writer holds
+            /// the seat and no reader is mid-drain.
             pub fn clear(self: *Self) void {
                 if (comptime debug.checksEnabled(.build_mode)) {
                     std.debug.assert(self.seat.load(.acquire) == 0);
@@ -79,9 +77,9 @@ pub const PanicLog = struct {
                 @memset(&self.bytes, 0);
             }
 
-            /// Publish `payload` as a single frame. NMI-safe: a
+            /// Publishes `payload` as a single frame. NMI-safe: a
             /// preempted or contending writer returns
-            /// `error.WriterBusy` and bumps `dropped_seq`. On success
+            /// `error.WriterBusy` and bumps `dropped_seq`. On success,
             /// the ring reserves oldest-first bytes as needed via
             /// whole-frame eviction, each eviction bumping
             /// `dropped_seq` by one.
@@ -89,9 +87,9 @@ pub const PanicLog = struct {
                 if (payload.len == 0) return error.EmptyPayload;
                 if (payload.len > max_payload_bytes) return error.PayloadTooLarge;
 
-                // Acquire: pairs with the seat release-store at the end of `write`.
+                // Ordering: Pairs with the release store to `seat` at the end of `write`.
                 if (self.seat.cmpxchgStrong(0, 1, .acquire, .monotonic) != null) {
-                    // Release: publishes drop count to drain's dropped_seq acquire.
+                    // Ordering: Publishes the drop count to the acquire load of `dropped_seq` in `drain`.
                     _ = self.dropped_seq.fetchAdd(1, .release);
                     return error.WriterBusy;
                 }
@@ -105,7 +103,7 @@ pub const PanicLog = struct {
                     const flen: usize = readU32Wrap(&self.bytes, tail_off, capacity_bytes);
                     tail_val += header_bytes + flen;
                     self.tail.store(tail_val, .release);
-                    // Release: publishes drop count to drain's dropped_seq acquire.
+                    // Ordering: Publishes the drop count to the acquire load of `dropped_seq` in `drain`.
                     _ = self.dropped_seq.fetchAdd(1, .release);
                 }
 
@@ -118,11 +116,11 @@ pub const PanicLog = struct {
                 copyInWrap(&self.bytes, (head_off + header_bytes) % capacity_bytes, payload, capacity_bytes);
 
                 head_val += needed;
-                // Release: publishes header and payload bytes to drain's head acquire.
+                // Ordering: Publishes the header and payload bytes to the acquire load of `head` in `drain`.
                 self.head.value.store(head_val, .release);
-                // Release: publishes the new seq value to drain's seq acquire.
+                // Ordering: Publishes the new sequence value to the acquire load of `seq` in `drain`.
                 self.seq.store(new_seq, .release);
-                // Release: publishes header and payload writes to the next seat CAS.
+                // Ordering: Publishes the header and payload writes to the next `seat` CAS.
                 self.seat.store(0, .release);
             }
 
@@ -139,9 +137,9 @@ pub const PanicLog = struct {
                 var cursor_ready = false;
 
                 while (true) {
-                    // Acquire: pairs with write's seq release-store.
+                    // Ordering: Pairs with the release store to `seq` in `write`.
                     const seq_now = self.seq.load(.acquire);
-                    // Acquire: pairs with write's dropped_seq fetchAdd release.
+                    // Ordering: Pairs with the release operation on `dropped_seq` in `write`.
                     const dropped_now = self.dropped_seq.load(.acquire);
 
                     if (dropped_now != reader_state.dropped_snapshot) {
@@ -155,7 +153,7 @@ pub const PanicLog = struct {
 
                     if (reader_state.next_seq > seq_now) return;
 
-                    // Acquire: pairs with write's head release-store.
+                    // Ordering: Pairs with the release store to `head` in `write`.
                     const head_now = self.head.value.load(.acquire);
                     const tail_now = self.tail.load(.acquire);
 
@@ -224,8 +222,8 @@ pub const PanicLog = struct {
                 return self.seat.load(.acquire) == 1;
             }
 
-            /// Structural validity — quiescent-owner check. Not
-            /// race-safe against a running writer.
+            /// Checks structural validity when the caller has exclusive ownership.
+            /// This method is not race-safe against a running writer.
             pub fn isValid(self: *const Self) bool {
                 const head_val = self.head.value.load(.acquire);
                 const tail_val = self.tail.load(.acquire);
@@ -280,9 +278,8 @@ pub const PanicLog = struct {
                 return candidate;
             }
 
-            /// Test-only mutation hooks. Exposed only under
-            /// `builtin.is_test` so no production caller can force a
-            /// stuck seat or a synthetic drop.
+            /// Test-only mutation hooks are available only when `builtin.is_test` is true.
+            /// They can force a stuck seat or a synthetic drop.
             pub const test_only = if (builtin.is_test) struct {
                 pub fn forceSeatBusy(self: *Self) void {
                     self.seat.store(1, .release);

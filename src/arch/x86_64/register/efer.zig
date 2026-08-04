@@ -1,4 +1,4 @@
-//! x86_64 EFER access. Spec: docs/specs/arch/x86_64/register.md.
+//! x86_64 EFER access. See `docs/specs/arch/x86_64/register.md`.
 
 const std = @import("std");
 
@@ -47,13 +47,13 @@ pub const EFER = packed struct(u64) {
     }
 };
 
-/// Execute `rdmsr` for `IA32_EFER` and return the typed value.
+/// Executes `rdmsr` for `IA32_EFER` and returns the typed value.
 /// Privilege: CPL 0.
 pub fn read() EFER {
     return EFER.fromInt(MSR.efer.read());
 }
 
-/// Execute `wrmsr` for `IA32_EFER` with `value`.
+/// Executes `wrmsr` for `IA32_EFER` with `value`.
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn write(value: EFER) void {

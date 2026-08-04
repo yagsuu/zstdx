@@ -1,4 +1,4 @@
-//! One-shot init primitive. Spec: docs/specs/sync/once.md.
+//! One-shot init primitive. See `docs/specs/sync/once.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -21,32 +21,31 @@ const done_bits: u32 = 0b10;
 pub const State = struct {
     word: std.atomic.Value(u32),
 
-    /// Return a fresh state: `untouched` bits, generation zero.
+    /// Returns a fresh state: `untouched` bits, generation zero.
     pub fn init() State {
         return .{ .word = std.atomic.Value(u32).init(0) };
     }
 
-    /// Acquire-load the word and report whether the state bits equal
+    /// Acquire-loads the word and reports whether the state bits equal
     /// `done` (`0b10`).
     pub fn isDone(self: *const State) bool {
         return (self.word.load(.acquire) & state_mask) == done_bits;
     }
 
-    /// Acquire-load the word into a `Token` snapshot used to arm a
+    /// Acquire-loads the word into a `Token` snapshot used to arm a
     /// lost-wakeup-safe wait.
     pub fn observe(self: *const State) Token {
         return @enumFromInt(self.word.load(.acquire));
     }
 
-    /// Acquire-load the word and report whether any claim, publish, or
+    /// Acquire-loads the word and reports whether any claim, publish, or
     /// rollback transition has occurred since `token` was observed.
     pub fn changedSince(self: *const State, token: Token) bool {
         return self.word.load(.acquire) != @intFromEnum(token);
     }
 
-    // Try to CAS untouched(gen=G) -> running(gen=G+1). Returns true on the
-    // winning transition. Release on success synchronizes with any acquire
-    // load that observes `running`.
+    // A successful release CAS publishes `running`; acquire observers
+    // synchronize with it.
     fn tryClaim(self: *State) bool {
         var current = self.word.load(.acquire);
         while (true) {
@@ -63,9 +62,8 @@ pub const State = struct {
         }
     }
 
-    // Publish running(gen=G) -> done(gen=G+1). Only the winning claimer
-    // calls this; the store is unconditional and release-ordered so
-    // acquire-loading observers synchronize-with the work's writes.
+    // Only the winning claimer calls this release store. Acquire observers
+    // synchronize with the completed work.
     fn publish(self: *State) void {
         const current = self.word.load(.monotonic);
         std.debug.assert((current & state_mask) == running_bits);
@@ -73,10 +71,9 @@ pub const State = struct {
         self.word.store(gen_next | done_bits, .release);
     }
 
-    // Roll back running(gen=G) -> untouched(gen=G+1). Only the winning
-    // claimer of a failed `callChecked` calls this; the release store
-    // makes the untouched state and its bumped generation visible to any
-    // loser holding the earlier `running` token.
+    // Only the winning claimer of a failed `callChecked` calls this release
+    // store. The new generation makes the rollback visible to losers that
+    // hold the earlier `running` token.
     fn rollback(self: *State) void {
         const current = self.word.load(.monotonic);
         std.debug.assert((current & state_mask) == running_bits);
@@ -137,7 +134,7 @@ pub fn Once(comptime Backend: type) type {
         /// Backend-provided error set for `wait`.
         pub const WaitError = Backend.WaitError;
 
-        /// Return a `Once` with a fresh state and the supplied backend
+        /// Returns a `Once` with a fresh state and the supplied backend
         /// stored by value. Must complete before any concurrent use;
         /// copying or moving the `Once` after any pointer to it is shared
         /// is outside the primitive's contract.
@@ -145,12 +142,12 @@ pub fn Once(comptime Backend: type) type {
             return .{ .state = State.init(), .backend = backend };
         }
 
-        /// Acquire-load the state and report whether `work` has published.
+        /// Acquire-loads the state and reports whether `work` has published.
         pub fn isDone(self: *const Self) bool {
             return self.state.isDone();
         }
 
-        /// Borrow the underlying `State` for backend enrollment or
+        /// Borrows the underlying `State` for backend enrollment or
         /// external `changedSince` recheck.
         pub fn stateRef(self: *const Self) *const State {
             return &self.state;
@@ -205,8 +202,8 @@ pub fn Once(comptime Backend: type) type {
 
             checkNotRecursive(&self.state);
 
-            // Rollback returns state to `untouched`, so every loser released
-            // by `wakeAll` re-races the claim instead of waiting on a stale token.
+            // A rollback wakes losers to retry the claim instead of waiting on a
+            // stale token.
             while (true) {
                 if (self.state.isDone()) return;
 
@@ -227,9 +224,8 @@ pub fn Once(comptime Backend: type) type {
 
                 const token = self.state.observe();
                 if (token.isDone()) return;
-                // Rollback races: state is `untouched` (someone rolled back
-                // between tryClaim and observe). Skip the backend wait and
-                // retry the claim immediately.
+                // The state can become `untouched` between `tryClaim` and
+                // `observe` when another caller rolls back. Retry the claim.
                 if ((@intFromEnum(token) & state_mask) == untouched_bits) continue;
                 try self.backend.wait(&self.state, token);
             }
@@ -237,9 +233,6 @@ pub fn Once(comptime Backend: type) type {
     };
 }
 
-// This comptime backend check requires explicit `WaitError`, `wait`, and
-// `wakeAll` declarations, rejects `anyerror`, and leaves full signature
-// enforcement to the call sites in `Once`.
 fn requireBackend(comptime Backend: type) void {
     if (!@hasDecl(Backend, "WaitError")) {
         @compileError("Once(Backend): Backend must declare pub const WaitError");

@@ -1,4 +1,4 @@
-//! x86_64 segment-register access. Spec: docs/specs/arch/x86_64/register.md.
+//! x86_64 segment-register access. See `docs/specs/arch/x86_64/register.md`.
 
 const std = @import("std");
 const target = @import("../target.zig");
@@ -54,7 +54,7 @@ fn Selector(comptime kind: SelectorKind) type {
 pub const cs = struct {
     pub const CS = Selector(.cs);
 
-    /// Execute `mov rNN, cs` and return the current selector.
+    /// Executes `mov rNN, cs` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() CS {
         target.ensureSupported();
@@ -83,7 +83,7 @@ pub const cs = struct {
 pub const ds = struct {
     pub const DS = Selector(.ds);
 
-    /// Execute `mov rNN, ds` and return the current selector.
+    /// Executes `mov rNN, ds` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() DS {
         target.ensureSupported();
@@ -92,7 +92,7 @@ pub const ds = struct {
         ));
     }
 
-    /// Execute `mov ds, rNN` loading `selector`.
+    /// Executes `mov ds, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -108,7 +108,7 @@ pub const ds = struct {
 pub const es = struct {
     pub const ES = Selector(.es);
 
-    /// Execute `mov rNN, es` and return the current selector.
+    /// Executes `mov rNN, es` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() ES {
         target.ensureSupported();
@@ -117,7 +117,7 @@ pub const es = struct {
         ));
     }
 
-    /// Execute `mov es, rNN` loading `selector`.
+    /// Executes `mov es, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -133,7 +133,7 @@ pub const es = struct {
 pub const fs = struct {
     pub const FS = Selector(.fs);
 
-    /// Execute `mov rNN, fs` and return the current selector.
+    /// Executes `mov rNN, fs` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() FS {
         target.ensureSupported();
@@ -142,7 +142,7 @@ pub const fs = struct {
         ));
     }
 
-    /// Execute `mov fs, rNN` loading `selector`.
+    /// Executes `mov fs, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -158,7 +158,7 @@ pub const fs = struct {
 pub const gs = struct {
     pub const GS = Selector(.gs);
 
-    /// Execute `mov rNN, gs` and return the current selector.
+    /// Executes `mov rNN, gs` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() GS {
         target.ensureSupported();
@@ -167,7 +167,7 @@ pub const gs = struct {
         ));
     }
 
-    /// Execute `mov gs, rNN` loading `selector`.
+    /// Executes `mov gs, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -183,7 +183,7 @@ pub const gs = struct {
 pub const ss = struct {
     pub const SS = Selector(.ss);
 
-    /// Execute `mov rNN, ss` and return the current selector.
+    /// Executes `mov rNN, ss` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() SS {
         target.ensureSupported();
@@ -192,7 +192,7 @@ pub const ss = struct {
         ));
     }
 
-    /// Execute `mov ss, rNN` loading `selector`.
+    /// Executes `mov ss, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -231,7 +231,7 @@ pub const fs_base = struct {
             std.debug.assert(@sizeOf(Self) == 8);
         }
     };
-    /// Read the current FS base with `rdfsbase`.
+    /// Reads the current FS base with `rdfsbase`.
     pub fn read() FSBase {
         target.ensureSupported();
         return FSBase.fromInt(asm volatile ("rdfsbase %[ret]"
@@ -239,7 +239,7 @@ pub const fs_base = struct {
         ));
     }
 
-    /// Write the FS base with `wrfsbase`.
+    /// Writes the FS base with `wrfsbase`.
     /// Clobbers: `memory`.
     pub fn write(value: FSBase) void {
         target.ensureSupported();
@@ -276,7 +276,7 @@ pub const gs_base = struct {
             std.debug.assert(@sizeOf(Self) == 8);
         }
     };
-    /// Read the current GS base with `rdgsbase`.
+    /// Reads the current GS base with `rdgsbase`.
     pub fn read() GSBase {
         target.ensureSupported();
         return GSBase.fromInt(asm volatile ("rdgsbase %[ret]"
@@ -284,7 +284,7 @@ pub const gs_base = struct {
         ));
     }
 
-    /// Write the GS base with `wrgsbase`.
+    /// Writes the GS base with `wrgsbase`.
     /// Clobbers: `memory`.
     pub fn write(value: GSBase) void {
         target.ensureSupported();
@@ -294,7 +294,7 @@ pub const gs_base = struct {
             : .{ .memory = true });
     }
 
-    /// Execute `swapgs`.
+    /// Executes `swapgs`.
     /// Privilege: CPL 0.
     /// Effects: exchanges `GS.base` with `IA32_KERNEL_GS_BASE`.
     /// Clobbers: `memory`.

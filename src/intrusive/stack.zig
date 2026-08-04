@@ -1,4 +1,4 @@
-//! Intrusive LIFO stack. Spec: docs/specs/intrusive/stack.md.
+//! Intrusive LIFO stack. See `docs/specs/intrusive/stack.md`.
 
 const std = @import("std");
 
@@ -19,7 +19,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             return self.top == null;
         }
 
-        /// Borrowed LIFO top pointer; invalidated by mutation.
+        /// Returns a borrowed pointer to the top object.
         pub fn peek(self: *Self) ?*T {
             return self.top;
         }
@@ -28,7 +28,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             return self.top;
         }
 
-        /// `item`'s node must be detached; double insert is a programmer error.
+        /// `item`'s node must be detached. Inserting an attached node is a programmer error.
         pub fn push(self: *Self, item: *T) void {
             assertDetached(item);
 
@@ -36,7 +36,7 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
             self.top = item;
         }
 
-        /// Returned node has `next` cleared before return.
+        /// A non-null return has its selected node detached.
         pub fn pop(self: *Self) ?*T {
             const item = self.top orelse return null;
 

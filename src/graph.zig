@@ -1,4 +1,4 @@
-//! Graph and tree topology primitives. Spec: docs/specs/graph/forest.md.
+//! Graph and tree topology primitives. See `docs/specs/graph/forest.md`.
 
 pub const forest = @import("graph/forest.zig");
 

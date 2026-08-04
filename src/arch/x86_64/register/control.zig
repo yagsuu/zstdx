@@ -1,4 +1,4 @@
-//! x86_64 control-register access. Spec: docs/specs/arch/x86_64/register.md.
+//! x86_64 control-register access. See `docs/specs/arch/x86_64/register.md`.
 
 const std = @import("std");
 
@@ -45,7 +45,7 @@ pub const cr0 = struct {
         }
     };
 
-    /// Execute `mov rNN, cr0` and return the value.
+    /// Executes `mov rNN, cr0` and returns the value.
     /// Privilege: CPL 0.
     pub fn read() CR0 {
         target.ensureSupported();
@@ -54,7 +54,7 @@ pub const cr0 = struct {
         ));
     }
 
-    /// Execute `mov cr0, rNN` writing `value`.
+    /// Executes `mov cr0, rNN` writing `value`.
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR0) void {
@@ -92,7 +92,7 @@ pub const cr2 = struct {
         }
     };
 
-    /// Execute `mov rNN, cr2` and return the page-fault linear address.
+    /// Executes `mov rNN, cr2` and returns the page-fault linear address.
     /// Privilege: CPL 0.
     pub fn read() CR2 {
         target.ensureSupported();
@@ -101,7 +101,7 @@ pub const cr2 = struct {
         ));
     }
 
-    /// Execute `mov cr2, rNN` writing `value`.
+    /// Executes `mov cr2, rNN` writing `value`.
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR2) void {
@@ -115,7 +115,7 @@ pub const cr2 = struct {
 
 /// `CR3` access (paging root).
 /// Privilege: CPL 0.
-/// Notes: `write` may invalidate TLB entries per architectural rules.
+/// Effects: `write` may invalidate TLB entries per architectural rules.
 pub const cr3 = struct {
     pub const CR3 = packed struct(u64) {
         low_bits: u12,
@@ -209,7 +209,7 @@ pub const cr3 = struct {
         }
     };
 
-    /// Execute `mov rNN, cr3` and return the value.
+    /// Executes `mov rNN, cr3` and returns the value.
     /// Privilege: CPL 0.
     pub fn read() CR3 {
         target.ensureSupported();
@@ -218,9 +218,9 @@ pub const cr3 = struct {
         ));
     }
 
-    /// Execute `mov cr3, rNN` writing `value`.
+    /// Executes `mov cr3, rNN` writing `value`.
     /// Privilege: CPL 0.
-    /// Notes: may invalidate TLB entries per architectural rules.
+    /// Effects: may invalidate TLB entries per architectural rules.
     /// Clobbers: `memory`.
     pub fn write(value: CR3) void {
         target.ensureSupported();
@@ -309,7 +309,7 @@ pub const cr4 = struct {
         }
     };
 
-    /// Execute `mov rNN, cr4` and return the value.
+    /// Executes `mov rNN, cr4` and returns the value.
     /// Privilege: CPL 0.
     pub fn read() CR4 {
         target.ensureSupported();
@@ -318,7 +318,7 @@ pub const cr4 = struct {
         ));
     }
 
-    /// Execute `mov cr4, rNN` writing `value`.
+    /// Executes `mov cr4, rNN` writing `value`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` on reserved-bit violations.
     /// Clobbers: `memory`.
@@ -358,7 +358,7 @@ pub const cr8 = struct {
         }
     };
 
-    /// Execute `mov rNN, cr8` and return the value.
+    /// Executes `mov rNN, cr8` and returns the value.
     /// Privilege: CPL 0.
     pub fn read() CR8 {
         target.ensureSupported();
@@ -367,7 +367,7 @@ pub const cr8 = struct {
         ));
     }
 
-    /// Execute `mov cr8, rNN` writing `value`.
+    /// Executes `mov cr8, rNN` writing `value`.
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR8) void {
@@ -420,7 +420,7 @@ pub const xcr0 = struct {
         }
     };
 
-    /// Execute `xgetbv` with `ecx = 0` and return the combined `edx:eax` as `u64`.
+    /// Executes `xgetbv` with `ecx = 0` and returns the combined `edx:eax` as `u64`.
     /// Requirements: `CR4.osxsave`.
     pub fn read() XCR0 {
         target.ensureSupported();
@@ -437,7 +437,7 @@ pub const xcr0 = struct {
         return XCR0.fromInt((@as(u64, hi) << 32) | @as(u64, lo));
     }
 
-    /// Execute `xsetbv` with `ecx = 0` and `edx:eax` split from `value.raw()`.
+    /// Executes `xsetbv` with `ecx = 0` and `edx:eax` split from `value.raw()`.
     /// Privilege: CPL 0.
     /// Requirements: `CR4.osxsave`.
     /// Faults: `#GP` when bits violate CPU support.

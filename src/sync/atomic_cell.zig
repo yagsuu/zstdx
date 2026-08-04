@@ -1,4 +1,4 @@
-//! Typed atomic cell. Spec: docs/specs/sync/atomic-cell.md.
+//! Typed atomic cell. See `docs/specs/sync/atomic-cell.md`.
 
 const std = @import("std");
 
@@ -19,7 +19,7 @@ pub fn AtomicCell(comptime T: type) type {
             std.debug.assert(@alignOf(Self) == @alignOf(std.atomic.Value(T)));
         }
 
-        /// Return a cell holding `value`. Publication is the caller's job;
+        /// Returns a cell holding `value`. Publication is the caller's job;
         /// pair with a release-side store or RMW to establish visibility.
         pub fn init(value: T) Self {
             return .{ .raw = std.atomic.Value(T).init(value) };
@@ -37,8 +37,8 @@ pub fn AtomicCell(comptime T: type) type {
             return @ptrCast(ptr);
         }
 
-        /// Acquire load: subsequent data-dependent reads observe the
-        /// release-paired writes of the last publisher.
+        /// Acquire-loads the value. If the load observes a release sequence,
+        /// subsequent reads observe writes sequenced before that sequence.
         pub fn loadAcquire(self: *const Self) T {
             return self.raw.load(.acquire);
         }
@@ -79,9 +79,9 @@ pub fn AtomicCell(comptime T: type) type {
             return self.raw.swap(value, .monotonic);
         }
 
-        /// Weak CAS with acq-rel success and acquire failure ordering.
-        /// Returns `null` on success; on failure returns the observed value.
-        /// May fail spuriously; callers loop.
+        /// Weak CAS with acq-rel success and acquire failure ordering. Returns
+        /// `null` on success and the observed value on failure. Weak CAS can
+        /// fail spuriously.
         pub fn cmpxchgWeakAcqRel(self: *Self, expected: T, new: T) ?T {
             return self.raw.cmpxchgWeak(expected, new, .acq_rel, .acquire);
         }

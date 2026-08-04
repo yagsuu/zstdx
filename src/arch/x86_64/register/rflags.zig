@@ -1,4 +1,4 @@
-//! x86_64 RFLAGS access. Spec: docs/specs/arch/x86_64/register.md.
+//! x86_64 RFLAGS access. See `docs/specs/arch/x86_64/register.md`.
 
 const std = @import("std");
 
@@ -48,7 +48,7 @@ pub const RFLAGS = packed struct(u64) {
 
 const target = @import("../target.zig");
 
-/// Execute `pushfq; pop rNN` and return RFLAGS.
+/// Executes `pushfq; pop rNN` and returns RFLAGS.
 /// Privilege: unprivileged.
 pub fn read() RFLAGS {
     target.ensureSupported();
@@ -61,7 +61,7 @@ pub fn read() RFLAGS {
 
 /// Push `value.raw()` and execute `popfq`.
 /// Privilege: unprivileged.
-/// Notes: bits the caller cannot modify at the current CPL are silently ignored.
+/// Effects: bits the caller cannot modify at the current CPL are silently ignored.
 /// Clobbers: `memory`, `cc`.
 pub fn write(value: RFLAGS) void {
     target.ensureSupported();

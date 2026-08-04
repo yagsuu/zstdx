@@ -1,4 +1,4 @@
-//! Intrusive FIFO queue. Spec: docs/specs/intrusive/queue.md.
+//! Intrusive FIFO queue. See `docs/specs/intrusive/queue.md`.
 
 const std = @import("std");
 
@@ -20,7 +20,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             return self.head == null;
         }
 
-        /// Borrowed FIFO head pointer; invalidated by mutation.
+        /// Returns a borrowed pointer to the oldest queued object.
         pub fn front(self: *Self) ?*T {
             return self.head;
         }
@@ -37,7 +37,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             return self.tail;
         }
 
-        /// `item`'s node must be detached; FIFO order follows successful `pushBack` calls.
+        /// `item`'s node must be detached. Inserting an attached node is a programmer error.
         pub fn pushBack(self: *Self, item: *T) void {
             assertDetached(item);
 
@@ -50,7 +50,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             }
         }
 
-        /// Returned node has `next` cleared before return.
+        /// A non-null return has its selected node detached.
         pub fn popFront(self: *Self) ?*T {
             const item = self.head orelse return null;
 
@@ -73,7 +73,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             self.tail = null;
         }
 
-        /// Invariant: endpoint symmetry, tail reachability, terminal null, and no head cycle.
+        /// Invariant: Endpoint symmetry, tail reachability, a null terminal link, and no cycle reachable from `head`.
         pub fn assertValid(self: *const Self) void {
             if (self.head == null) {
                 std.debug.assert(self.tail == null);

@@ -1,4 +1,4 @@
-//! x86_64 privilege helpers. Spec: docs/specs/arch/x86_64/base.md.
+//! x86_64 privilege helpers. See `docs/specs/arch/x86_64/base.md`.
 
 const target = @import("target.zig");
 const segment = @import("register/segment.zig");

@@ -1,20 +1,17 @@
 //! Monotonic clock, `Instant`, and `Duration` value types.
-//! Spec: docs/specs/time/monotonic.md.
+//! See `docs/specs/time/monotonic.md`.
 
 const std = @import("std");
 
 const debug = @import("../core/debug.zig");
 
-/// Monotonic point-in-time value with `u64` nanoseconds of range. The domain
-/// covers approximately 584 years relative to the backend's epoch.
+/// Monotonic point in time with a `u64` nanosecond range of approximately
+/// 584 years from the backend epoch.
 pub const Instant = enum(u64) {
     _,
 
-    /// Underlying unsigned nanosecond representation.
     pub const Raw = u64;
 
-    /// `Overflow`: `Instant.add` would push the result below `0` or above
-    /// `maxInt(u64)`.
     pub const Error = error{Overflow};
 
     pub fn fromNanos(ns: u64) Instant {
@@ -25,21 +22,19 @@ pub const Instant = enum(u64) {
         return @intFromEnum(self);
     }
 
-    /// Sentinel at nanosecond `0`. Epoch semantics are backend-defined.
+    /// Returns nanosecond zero. The backend defines its epoch.
     pub fn zero() Instant {
         return fromNanos(0);
     }
 
-    /// Signed offset from `self` by `delta`. Returns `error.Overflow` when
-    /// the result would fall below `0` or exceed `maxInt(u64)`.
+    /// Returns `error.Overflow` if the result falls outside the `u64` range.
     pub fn add(self: Instant, delta: Duration) Error!Instant {
         const wide = @as(i128, self.nanos()) + @as(i128, delta.nanos());
         const narrowed = std.math.cast(u64, wide) orelse return error.Overflow;
         return fromNanos(narrowed);
     }
 
-    /// Signed difference `self - base`. Negative when `self < base`. The
-    /// primitive's contract requires separation fit within `i64` (`±292`
+    /// Returns `self - base`. The separation must fit within `i64` (±292
     /// years); wider gaps are outside the contract.
     pub fn since(self: Instant, base: Instant) Duration {
         const wide = @as(i128, self.nanos()) - @as(i128, base.nanos());
@@ -47,25 +42,20 @@ pub const Instant = enum(u64) {
         return Duration.fromNanos(narrowed);
     }
 
-    /// True when `self` is at or after `other`. Equality uses `==`.
     pub fn afterOrEq(self: Instant, other: Instant) bool {
         return self.nanos() >= other.nanos();
     }
 };
 
-/// Signed nanosecond difference with `i64` range (`±292` years). Negative
-/// durations model "before" relationships.
+/// Signed nanosecond duration with an `i64` range of approximately ±292 years.
+/// Negative values represent earlier instants.
 pub const Duration = enum(i64) {
     _,
 
-    /// Underlying signed nanosecond representation.
     pub const Raw = i64;
 
-    /// `Overflow`: `Duration.from{Micros,Millis,Seconds}` multiplication
-    /// exceeds `i64` range.
     pub const Error = error{Overflow};
 
-    /// The zero-length duration.
     pub const zero: Duration = @enumFromInt(0);
 
     pub fn fromNanos(ns: i64) Duration {
@@ -76,20 +66,17 @@ pub const Duration = enum(i64) {
         return @intFromEnum(self);
     }
 
-    /// `us * 1_000` as a `Duration`. Returns `error.Overflow` when the
-    /// multiplication overflows `i64`.
+    /// Returns `error.Overflow` if `us * 1_000` exceeds `i64`.
     pub fn fromMicros(us: i64) Error!Duration {
         return fromNanos(std.math.mul(i64, us, 1_000) catch return error.Overflow);
     }
 
-    /// `ms * 1_000_000` as a `Duration`. Returns `error.Overflow` when the
-    /// multiplication overflows `i64`.
+    /// Returns `error.Overflow` if `ms * 1_000_000` exceeds `i64`.
     pub fn fromMillis(ms: i64) Error!Duration {
         return fromNanos(std.math.mul(i64, ms, 1_000_000) catch return error.Overflow);
     }
 
-    /// `s * 1_000_000_000` as a `Duration`. Returns `error.Overflow` when the
-    /// multiplication overflows `i64`.
+    /// Returns `error.Overflow` if `s * 1_000_000_000` exceeds `i64`.
     pub fn fromSeconds(s: i64) Error!Duration {
         return fromNanos(std.math.mul(i64, s, 1_000_000_000) catch return error.Overflow);
     }
@@ -103,22 +90,15 @@ pub const Duration = enum(i64) {
     }
 };
 
-/// Clock family namespace. Owns the monotonic-clock wrapper factory.
 pub const Clock = struct {
-    /// Wrap a caller-supplied `Backend` with the monotonic-reader
-    /// contract.
+    /// Wraps a caller-supplied `Backend` in the monotonic-reader contract.
     ///
-    /// `Backend` must expose `pub fn now(*Backend) Instant`. It may also
-    /// expose `pub fn sleep(*Backend, Duration) void`; when present, the
-    /// wrapper exposes a forwarding `sleep` method. Both signatures are
-    /// validated at compile time; error unions are rejected.
+    /// `Backend` must provide `pub fn now(*Backend) Instant`. If it provides
+    /// `pub fn sleep(*Backend, Duration) void`, the wrapper forwards `sleep`.
+    /// Both signatures are validated at compile time; error unions are rejected.
     ///
-    /// `Backend` is stored by value. Not thread-safe; single-owner.
-    ///
-    /// Under `core.debug.checksEnabled(.build_mode)` `now` asserts
-    /// monotonicity against the previous return and `sleep` asserts
-    /// `delta.nanos() >= 0`. In release builds both methods compile to
-    /// one backend call plus a return.
+    /// The wrapper stores `Backend` by value and is single-owner. In build-mode
+    /// checks, `now` asserts monotonicity and `sleep` asserts a non-negative duration.
     pub fn Monotonic(comptime Backend: type) type {
         requireBackendNow(Backend);
 
@@ -138,9 +118,7 @@ pub const Clock = struct {
                     };
                 }
 
-                /// Return the backend's current instant. Under
-                /// `.build_mode` safety, assert monotonicity against the
-                /// previous return.
+                /// In build-mode checks, asserts that time never moves backwards.
                 pub fn now(self: *Self) Instant {
                     const t = self.backend.now();
                     if (check_monotonic) {
@@ -167,8 +145,7 @@ pub const Clock = struct {
                 };
             }
 
-            /// Return the backend's current instant. Under `.build_mode`
-            /// safety, assert monotonicity against the previous return.
+            /// In build-mode checks, asserts that time never moves backwards.
             pub fn now(self: *Self) Instant {
                 const t = self.backend.now();
                 if (check_monotonic) {
@@ -178,9 +155,8 @@ pub const Clock = struct {
                 return t;
             }
 
-            /// Forward `delta` to the backend. Under `.build_mode` safety,
-            /// assert `delta.nanos() >= 0`; non-positive deltas are legal
-            /// on the backend seam.
+            /// The backend seam permits negative `delta`; build-mode checks
+            /// assert a non-negative duration.
             pub fn sleep(self: *Self, delta: Duration) void {
                 if (check_monotonic) std.debug.assert(delta.nanos() >= 0);
                 self.backend.sleep(delta);

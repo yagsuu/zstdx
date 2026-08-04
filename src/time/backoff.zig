@@ -1,4 +1,4 @@
-//! Retry-delay generator. Spec: docs/specs/time/backoff.md.
+//! Retry-delay generator. See `docs/specs/time/backoff.md`.
 
 const std = @import("std");
 
@@ -10,13 +10,11 @@ const Deadline = deadline.Deadline;
 const Duration = monotonic.Duration;
 const Instant = monotonic.Instant;
 
-/// Structured retry-delay state machine. The primitive owns the phase
-/// progression and per-step deadline clipping; the caller executes the
-/// returned action (spin, yield, sleep, timeout). Never allocates, never
-/// sleeps, never touches the clock beyond querying the supplied
-/// `Deadline`. Single-owner value type.
+/// Retry-delay state machine. The caller performs each returned action. This
+/// single-owner value type neither allocates nor sleeps; it reads time only
+/// through the supplied `Deadline`.
 pub const Backoff = struct {
-    /// Tuning knobs. Field order matches the spec's Approved API.
+    /// Field order matches the specification's Approved API.
     pub const Policy = struct {
         spin_iterations: u32,
         yield_iterations: u32,
@@ -25,7 +23,7 @@ pub const Backoff = struct {
         max_wait: Duration,
         growth_shift: u3,
 
-        /// Assert `initial_wait` and `max_wait` are non-negative and
+        /// Asserts `initial_wait >= 0`, `max_wait >= 0`, and
         /// `initial_wait <= max_wait`. Runs unconditionally.
         pub fn assertValid(self: Policy) void {
             std.debug.assert(self.initial_wait.nanos() >= 0);
@@ -34,7 +32,6 @@ pub const Backoff = struct {
         }
     };
 
-    /// Phase result returned by `next`.
     pub const Step = union(enum) {
         spin,
         yield,
@@ -46,9 +43,7 @@ pub const Backoff = struct {
     attempt: u32,
     next_wait: Duration,
 
-    /// Construct a `Backoff` seeded with `policy.initial_wait`. Under
-    /// `stdx.core.debug.checksEnabled(.build_mode)`, `policy.assertValid()`
-    /// runs.
+    /// In build-mode checks, invokes `policy.assertValid()`.
     pub fn init(policy: Policy) Backoff {
         if (debug.checksEnabled(.build_mode)) policy.assertValid();
         return .{
@@ -58,19 +53,15 @@ pub const Backoff = struct {
         };
     }
 
-    /// Restore `attempt = 0` and `next_wait = policy.initial_wait`.
-    /// `policy` is untouched.
     pub fn reset(self: *Backoff) void {
         self.attempt = 0;
         self.next_wait = self.policy.initial_wait;
     }
 
-    /// Advance the backoff by one step. `clock` must expose
-    /// `pub fn now(*Self) Instant`; error unions are rejected at compile
-    /// time. Deadline check runs first; a caller past `deadline` never
-    /// enters spin or yield. Sleep steps are clipped to the remaining
-    /// deadline. `attempt` increments on productive results only
-    /// (`.spin`, `.yield`, `.sleep`); `.timeout` leaves it unchanged.
+    /// `clock` must provide `pub fn now(*Self) Instant`; error unions are
+    /// rejected at compile time. An expired `dl` returns `.timeout` before
+    /// spin or yield. Sleep duration is limited to the remaining time.
+    /// `attempt` increments only for `.spin`, `.yield`, and `.sleep`.
     pub fn next(self: *Backoff, dl: Deadline, clock: anytype) Step {
         comptime requireClock(@TypeOf(clock));
 
@@ -102,14 +93,12 @@ pub const Backoff = struct {
         return .{ .sleep = Duration.fromNanos(wait_ns_i64) };
     }
 
-    /// Return the running productive-attempt count.
     pub fn attempts(self: *const Backoff) u32 {
         return self.attempt;
     }
 
-    /// Assert `policy.assertValid()` and that `next_wait` sits in
-    /// `[0, policy.max_wait]`. Runs unconditionally; consumers gate the
-    /// call under `checksEnabled(.build_mode)`.
+    /// Asserts the policy invariant and `next_wait` bounds. Runs
+    /// unconditionally.
     pub fn assertValid(self: *const Backoff) void {
         self.policy.assertValid();
         std.debug.assert(self.next_wait.nanos() >= 0);
@@ -117,12 +106,8 @@ pub const Backoff = struct {
     }
 };
 
-/// Left-shift `wait.nanos()` by `policy.growth_shift`, clamped to
-/// `policy.max_wait`. `wait.nanos()` and `max_wait.nanos()` are
-/// non-negative by policy invariant, so the widened arithmetic never
-/// underflows. `i128` fully contains any `i64 << 7`, so overflow of the
-/// shift itself cannot occur; the only clamp point is the `max_wait`
-/// ceiling.
+/// Uses `i128` so shifting an `i64` by `growth_shift` cannot overflow before
+/// the result is clamped to `max_wait`.
 fn growWait(wait: Duration, policy: Backoff.Policy) Duration {
     const shifted: i128 = @as(i128, wait.nanos()) << policy.growth_shift;
     const ceiling: i128 = @as(i128, policy.max_wait.nanos());
@@ -130,9 +115,8 @@ fn growWait(wait: Duration, policy: Backoff.Policy) Duration {
     return Duration.fromNanos(clamped);
 }
 
-/// Compile-time signature check for the `clock: anytype` seam. Accepts a
-/// value type `C` or a single-pointer wrapper `*C`. Rejects: missing `now`,
-/// wrong arity, non-`*Self` receiver, and `anyerror` / error-union returns.
+/// Validates the compile-time `clock: anytype` seam. Accepts `C` or `*C`;
+/// rejects a missing or incompatible `now` method and error-union returns.
 fn requireClock(comptime C: type) void {
     const T = switch (@typeInfo(C)) {
         .pointer => |p| p.child,
@@ -164,6 +148,7 @@ fn requireClock(comptime C: type) void {
     const P0 = info.params[0].type orelse @compileError(
         "Backoff: " ++ @typeName(T) ++ ".now must take (*Self), not anytype",
     );
+
     if (P0 != *T) {
         @compileError(
             "Backoff: " ++ @typeName(T) ++
@@ -175,6 +160,7 @@ fn requireClock(comptime C: type) void {
     const Ret = info.return_type orelse @compileError(
         "Backoff: " ++ @typeName(T) ++ ".now must return Instant",
     );
+
     if (Ret != Instant) {
         @compileError(
             "Backoff: " ++ @typeName(T) ++
