@@ -53,7 +53,9 @@ pub fn main() !void {
 | Need | Entry point |
 | --- | --- |
 | Inline or caller-provided fixed-capacity FIFO storage | `stdx.Ring.Static`, `stdx.Ring.Bounded` |
-| Caller-owned bump allocation | `stdx.mem.Arena.Bounded` |
+| Caller-owned bump allocation | `stdx.mem.alloc.Arena.Bounded` |
+| Fixed-capacity typed object storage | `stdx.mem.alloc.SlabAllocator.Static`, `stdx.mem.alloc.SlabAllocator.Bounded` |
+| Explicitly grown region-backed object caching | `stdx.mem.alloc.SlabCache`, `stdx.mem.alloc.SlabCache.PerCpu` |
 | Strong address, page, and frame types | `stdx.addr` |
 | Synchronization and concurrent structures | `stdx.sync`, `stdx.concurrent` |
 | Architecture-specific operations, MMIO, DMA, and barriers | `stdx.arch`, `stdx.io`, `stdx.dma`, `stdx.barrier` |

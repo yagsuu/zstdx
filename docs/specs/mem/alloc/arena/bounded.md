@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`stdx.mem.Arena.Bounded` is a caller-buffer-backed scratch arena for bounded
+`stdx.mem.alloc.Arena.Bounded` is a caller-buffer-backed scratch arena for bounded
 construction phases, parsers, boot-time setup, and tests that need predictable
 allocation without a heap fallback.
 
@@ -14,7 +14,7 @@ surface of `std.heap.FixedBufferAllocator`.
 
 This spec owns:
 
-- `mem.Arena.Bounded`;
+- `mem.alloc.Arena.Bounded`;
 - allocation from caller-owned byte storage;
 - byte and typed allocation helpers;
 - reset and mark/restore lifecycle;
@@ -25,7 +25,7 @@ This spec owns:
 
 This spec does not own:
 
-- `mem.Arena.Static` (owned by `docs/specs/mem/arena/static.md`);
+- `mem.alloc.Arena.Static` (owned by `docs/specs/mem/alloc/arena/static.md`);
 - growable arenas;
 - heap fallback or page allocation;
 - individual free, compaction, or ownership transfer;
@@ -36,11 +36,11 @@ This spec does not own:
 
 ## Public namespace
 
-`Arena.Bounded` lives under `stdx.mem`:
+`Arena.Bounded` lives under `stdx.mem.alloc`:
 
 ```zig
-stdx.mem.Arena
-stdx.mem.Arena.Bounded
+stdx.mem.alloc.Arena
+stdx.mem.alloc.Arena.Bounded
 ```
 
 It is not root-promoted:
@@ -53,14 +53,14 @@ Source ownership:
 
 ```text
 src/mem.zig
-src/mem/arena.zig
-test/mem/arena_test.zig
+src/mem/alloc/arena.zig
+test/mem/alloc/arena_test.zig
 ```
 
-`src/mem.zig` re-exports:
+`src/mem/alloc.zig` re-exports:
 
 ```zig
-pub const arena = @import("mem/arena.zig");
+pub const arena = @import("alloc/arena.zig");
 
 pub const Arena = arena.Arena;
 ```
@@ -291,7 +291,7 @@ Build a temporary table list:
 
 ```zig
 var scratch: [4096]u8 = undefined;
-var arena = stdx.mem.Arena.Bounded.wrap(&scratch);
+var arena = stdx.mem.alloc.Arena.Bounded.wrap(&scratch);
 
 const tables = try arena.allocSlice(Table, table_count);
 ```
@@ -310,7 +310,7 @@ Interop with allocator-taking code:
 
 ```zig
 var scratch: [8192]u8 = undefined;
-var arena = stdx.mem.Arena.Bounded.wrap(&scratch);
+var arena = stdx.mem.alloc.Arena.Bounded.wrap(&scratch);
 
 var list = std.ArrayListUnmanaged(u32){};
 try list.append(arena.allocator(), 42);

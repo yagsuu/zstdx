@@ -1,4 +1,4 @@
-//! Buddy allocator contract tests. See `docs/specs/mem/buddy-allocator.md`.
+//! Buddy allocator contract tests. See `docs/specs/mem/alloc/buddy.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -7,7 +7,7 @@ const stdx = @import("stdx");
 
 const testing = std.testing;
 
-const BuddyAllocator = stdx.mem.BuddyAllocator;
+const BuddyAllocator = stdx.mem.alloc.BuddyAllocator;
 const Buddy = stdx.algo.allocation.Buddy;
 
 // Static factory
@@ -37,7 +37,7 @@ test "contract: Block type is stdx.algo.allocation.Buddy.Block" {
 
 // Compile-only rejection cases: `Static(0, 5)`, `Static(16, 0)`,
 // `Static(16, 33)`, and `Static(std.math.maxInt(usize), 5)` are guarded by
-// `@compileError` in `src/mem/buddy.zig` and cannot be exercised at runtime
+// `@compileError` in `src/mem/alloc/buddy.zig` and cannot be exercised at runtime
 // in Zig. Positive comptime assertions pin the contract for legal parameter
 // grids.
 

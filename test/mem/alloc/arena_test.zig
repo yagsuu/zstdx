@@ -1,5 +1,5 @@
-//! Arena contract tests. See `docs/specs/mem/arena/bounded.md` and
-//! `docs/specs/mem/arena/static.md`.
+//! Arena contract tests. See `docs/specs/mem/alloc/arena/bounded.md` and
+//! `docs/specs/mem/alloc/arena/static.md`.
 
 const std = @import("std");
 
@@ -7,7 +7,7 @@ const stdx = @import("stdx");
 
 const mem = stdx.mem;
 
-const Arena = mem.Arena;
+const Arena = mem.alloc.Arena;
 
 const testing = std.testing;
 

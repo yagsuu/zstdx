@@ -1,48 +1,20 @@
-//! Buddy allocator over caller-provided backing. See `docs/specs/mem/buddy-allocator.md`.
+//! Buddy allocator over fixed bitmap storage.
+//! See `docs/specs/mem/alloc/buddy.md`.
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
-const allocation = @import("../algo/allocation.zig");
-const word = @import("../bits/word.zig");
+const debug = @import("../../core/debug.zig");
+const allocation = @import("../../algo/allocation.zig");
+const word = @import("../../bits/word.zig");
 
-const Buddy = allocation.Buddy;
-const BuddyWord = u64;
-const RangeUsize = @import("../core/range.zig").Range(usize);
-const Shift = std.math.Log2Int(BuddyWord);
-
-const buddy_word_bits = @bitSizeOf(BuddyWord);
-
-/// Power-of-two unit allocator over caller-provided bitmap words. Both
-/// variants share a per-order bit-per-slot layout, deterministic lowest-index
-/// split placement, and eager on-`free` coalescing.
+/// Uses lowest-index splitting and eager coalescing.
 pub const BuddyAllocator = struct {
-    /// Inline-storage buddy allocator. Both a default struct literal and
-    /// `init()` yield an allocator whose free state covers
-    /// `[0, unit_capacity)` via the standard buddy decomposition.
+    /// Owns inline storage initialized to the standard buddy decomposition.
     pub fn Static(comptime unit_capacity: usize, comptime order_count: u8) type {
-        if (order_count == 0) {
-            @compileError("BuddyAllocator.Static: order_count must be at least 1");
-        }
-        if (order_count > 32) {
-            @compileError("BuddyAllocator.Static: order_count must be at most 32");
-        }
-        if (unit_capacity == 0) {
-            @compileError("BuddyAllocator.Static: unit_capacity must be at least 1");
-        }
-        if (unit_capacity > (std.math.maxInt(usize) >> (order_count - 1))) {
-            @compileError(
-                "BuddyAllocator.Static: unit_capacity exceeds (maxInt(usize) >> (order_count - 1))",
-            );
-        }
+        comptime requireStaticShape(unit_capacity, order_count);
 
         const wc = requiredWordCount(unit_capacity, order_count);
-        const initial: [wc]BuddyWord = comptime blk: {
-            @setEvalBranchQuota(100_000);
-            var arr = [_]BuddyWord{0} ** wc;
-            installInitialDecomposition(arr[0..], unit_capacity, order_count);
-            break :blk arr;
-        };
+        const initial = initialWords(wc, unit_capacity, order_count);
 
         return struct {
             words: [word_count]Word = initial,
@@ -50,7 +22,6 @@ pub const BuddyAllocator = struct {
             const Self = @This();
 
             pub const Word = u64;
-            pub const word_bits = @bitSizeOf(Word);
             pub const Block = Buddy.Block;
             pub const Range = RangeUsize;
             pub const Error = BuddyAllocator.Bounded.Error;
@@ -59,16 +30,10 @@ pub const BuddyAllocator = struct {
             pub const order_count_const: u8 = order_count;
             pub const max_order_const: u8 = order_count - 1;
             pub const word_count: usize = wc;
+            pub const word_bits = @bitSizeOf(Word);
 
-            /// Allocator whose free state covers `[0, unit_capacity)`.
             pub fn init() Self {
                 return .{};
-            }
-
-            /// Restore the initial fully-free decomposition without
-            /// releasing backing storage.
-            pub fn clearRetainingCapacity(self: *Self) void {
-                self.words = initial;
             }
 
             pub fn capacity(self: *const Self) usize {
@@ -94,32 +59,31 @@ pub const BuddyAllocator = struct {
                 return freeUnitsImpl(self.words[0..], unit_capacity, order_count);
             }
 
-            /// `order` selects an exact block size; higher blocks may split.
-            /// `error.InvalidOrder`: `order >= orderCount()`.
-            /// `error.OutOfMemory`: no fitting free block. Error leaves allocator unchanged.
+            pub fn isFreeBlock(self: *const Self, block: Block) bool {
+                return isFreeBlockImpl(self.words[0..], unit_capacity, order_count, block);
+            }
+
+            /// Splits higher-order blocks when necessary.
+            /// Errors leave allocator state unchanged.
             pub fn alloc(self: *Self, order: u8) Error!Block {
                 return allocImpl(self.words[0..], unit_capacity, order_count, order);
             }
 
-            /// `block` must match allocator alignment, range, and allocated state.
-            /// Free buddies coalesce transitively.
-            /// `error.InvalidOrder`, `error.InvalidRequest`, or `error.NotAllocated`.
-            /// Error leaves allocator unchanged. Checks trap double-free and misalignment.
+            /// Requires an allocated, aligned block.
+            /// Coalesces free buddies; errors leave allocator state unchanged.
             pub fn free(self: *Self, block: Block) Error!void {
                 return freeImpl(self.words[0..], unit_capacity, order_count, block);
             }
 
-            /// `error.InvalidRequest`: `range` is invalid.
-            /// `error.OutOfBounds`: `range.end > capacity()`.
-            /// `error.AlreadyAllocated`: any unit is already allocated.
-            /// Empty in-bounds range is a no-op. Error leaves allocator unchanged.
-            /// Reserving splits containing blocks down to order 0.
+            /// Requires a valid `range`.
+            /// An empty in-bounds range is a no-op; errors do not mutate.
+            /// Splits containing blocks to order 0.
             pub fn reserve(self: *Self, range: Range) Error!void {
                 return reserveImpl(self.words[0..], unit_capacity, order_count, range);
             }
 
-            pub fn isFreeBlock(self: *const Self, block: Block) bool {
-                return isFreeBlockImpl(self.words[0..], unit_capacity, order_count, block);
+            pub fn clearRetainingCapacity(self: *Self) void {
+                self.words = initial;
             }
 
             pub fn isValid(self: *const Self) bool {
@@ -132,9 +96,7 @@ pub const BuddyAllocator = struct {
         };
     }
 
-    /// Runtime-capacity buddy allocator over caller-owned words. `words`
-    /// must live for the allocator's lifetime; the allocator borrows them
-    /// and never releases storage.
+    /// Borrows `words`; they must outlive the allocator.
     pub const Bounded = struct {
         words: []Word,
         unit_capacity: usize,
@@ -160,26 +122,22 @@ pub const BuddyAllocator = struct {
             NotAllocated,
         };
 
-        /// Borrowed words are zeroed only on success.
-        /// `error.InvalidRequest`: parameters violate `Static(...)` constraints
-        /// or `words.len` is too small. Error leaves borrowed storage unchanged.
+        /// Initializes `words` only after validating all arguments.
         pub fn wrap(words: []Word, unit_capacity: usize, order_count: u8) Error!Bounded {
             if (order_count == 0) return error.InvalidRequest;
             if (order_count > 32) return error.InvalidRequest;
             if (unit_capacity == 0) return error.InvalidRequest;
+
             if (unit_capacity > std.math.shr(usize, std.math.maxInt(usize), order_count - 1)) {
                 return error.InvalidRequest;
             }
+
             if (words.len < requiredWordCount(unit_capacity, order_count)) {
                 return error.InvalidRequest;
             }
 
             installInitialDecomposition(words, unit_capacity, order_count);
             return .{ .words = words, .unit_capacity = unit_capacity, .order_count = order_count };
-        }
-
-        pub fn clearRetainingCapacity(self: *Bounded) void {
-            installInitialDecomposition(self.words, self.unit_capacity, self.order_count);
         }
 
         pub fn capacity(self: *const Bounded) usize {
@@ -202,32 +160,31 @@ pub const BuddyAllocator = struct {
             return freeUnitsImpl(self.words, self.unit_capacity, self.order_count);
         }
 
-        /// `order` selects an exact block size; higher blocks may split.
-        /// `error.InvalidOrder`: `order >= orderCount()`.
-        /// `error.OutOfMemory`: no fitting free block. Error leaves allocator unchanged.
+        pub fn isFreeBlock(self: *const Bounded, block: Block) bool {
+            return isFreeBlockImpl(self.words, self.unit_capacity, self.order_count, block);
+        }
+
+        /// Splits higher-order blocks when necessary.
+        /// Errors leave allocator state unchanged.
         pub fn alloc(self: *Bounded, order: u8) Error!Block {
             return allocImpl(self.words, self.unit_capacity, self.order_count, order);
         }
 
-        /// `block` must match allocator alignment, range, and allocated state.
-        /// Free buddies coalesce transitively.
-        /// `error.InvalidOrder`, `error.InvalidRequest`, or `error.NotAllocated`.
-        /// Error leaves allocator unchanged. Checks trap double-free and misalignment.
+        /// Requires an allocated, aligned block.
+        /// Coalesces free buddies; errors leave allocator state unchanged.
         pub fn free(self: *Bounded, block: Block) Error!void {
             return freeImpl(self.words, self.unit_capacity, self.order_count, block);
         }
 
-        /// `error.InvalidRequest`: `range` is invalid.
-        /// `error.OutOfBounds`: `range.end > capacity()`.
-        /// `error.AlreadyAllocated`: any unit is already allocated.
-        /// Empty in-bounds range is a no-op. Error leaves allocator unchanged.
-        /// Reserving splits containing blocks down to order 0.
+        /// Requires a valid `range`.
+        /// An empty in-bounds range is a no-op; errors do not mutate.
+        /// Splits containing blocks to order 0.
         pub fn reserve(self: *Bounded, range: Range) Error!void {
             return reserveImpl(self.words, self.unit_capacity, self.order_count, range);
         }
 
-        pub fn isFreeBlock(self: *const Bounded, block: Block) bool {
-            return isFreeBlockImpl(self.words, self.unit_capacity, self.order_count, block);
+        pub fn clearRetainingCapacity(self: *Bounded) void {
+            installInitialDecomposition(self.words, self.unit_capacity, self.order_count);
         }
 
         pub fn isValid(self: *const Bounded) bool {
@@ -249,6 +206,41 @@ pub const BuddyAllocator = struct {
     };
 };
 
+const Buddy = allocation.Buddy;
+const BuddyWord = u64;
+const RangeUsize = @import("../../core/range.zig").Range(usize);
+const Shift = std.math.Log2Int(BuddyWord);
+
+const buddy_word_bits = @bitSizeOf(BuddyWord);
+
+fn requireStaticShape(comptime unit_capacity: usize, comptime order_count: u8) void {
+    if (order_count == 0) {
+        @compileError("BuddyAllocator.Static: order_count must be at least 1");
+    }
+    if (order_count > 32) {
+        @compileError("BuddyAllocator.Static: order_count must be at most 32");
+    }
+    if (unit_capacity == 0) {
+        @compileError("BuddyAllocator.Static: unit_capacity must be at least 1");
+    }
+    if (unit_capacity > (std.math.maxInt(usize) >> (order_count - 1))) {
+        @compileError(
+            "BuddyAllocator.Static: unit_capacity exceeds (maxInt(usize) >> (order_count - 1))",
+        );
+    }
+}
+
+fn initialWords(
+    comptime word_count: usize,
+    comptime unit_capacity: usize,
+    comptime order_count: u8,
+) [word_count]BuddyWord {
+    @setEvalBranchQuota(100_000);
+    var words = [_]BuddyWord{0} ** word_count;
+    installInitialDecomposition(words[0..], unit_capacity, order_count);
+    return words;
+}
+
 const BuddyBlock = Buddy.Block;
 const BuddyError = BuddyAllocator.Bounded.Error;
 
@@ -256,14 +248,13 @@ fn ceilDivUsize(a: usize, b: usize) usize {
     return @divFloor(a, b) + @intFromBool(a % b != 0);
 }
 
-/// Number of aligned start-slots at `order` (`ceilDiv(unit_capacity, 1 << order)`).
+/// Aligned start slots at `order`, rounded up.
 fn slotsForOrder(unit_capacity: usize, order: u8) usize {
     const size = @as(usize, 1) << @as(Shift, @intCast(order));
     return ceilDivUsize(unit_capacity, size);
 }
 
-/// Number of slots at `order` whose block fits entirely in `[0, unit_capacity)`.
-/// Bits above this count are always zero.
+/// Slots at `order` whose blocks fit within `[0, unit_capacity)`.
 fn validSlotsFor(unit_capacity: usize, order: u8) usize {
     const size = @as(usize, 1) << @as(Shift, @intCast(order));
     return @divFloor(unit_capacity, size);
@@ -282,7 +273,6 @@ fn orderWordOffset(unit_capacity: usize, order: u8) usize {
     return offset;
 }
 
-/// Sum over `k in [0, order_count)` of `wordsForOrder(unit_capacity, k)`.
 fn requiredWordCount(unit_capacity: usize, order_count: u8) usize {
     return orderWordOffset(unit_capacity, order_count);
 }
@@ -345,8 +335,10 @@ fn freeUnitsImpl(words: []const BuddyWord, unit_capacity: usize, order_count: u8
     while (k < order_count) : (k += 1) {
         const off = orderWordOffset(unit_capacity, k);
         const wc = wordsForOrder(unit_capacity, k);
+
         var pop: usize = 0;
         for (words[off..][0..wc]) |w| pop += @popCount(w);
+
         const size = @as(usize, 1) << @as(Shift, @intCast(k));
         total += pop * size;
     }
@@ -361,8 +353,10 @@ fn isFreeBlockImpl(
 ) bool {
     if (block.order >= order_count) return false;
     const size = @as(usize, 1) << @as(Shift, @intCast(block.order));
+
     if (block.start % size != 0) return false;
     const end = std.math.add(usize, block.start, size) catch return false;
+
     if (end > unit_capacity) return false;
     return bitIsSet(words, unit_capacity, block.order, block.start >> @as(Shift, @intCast(block.order)));
 }
@@ -375,11 +369,11 @@ fn allocImpl(
 ) BuddyError!BuddyBlock {
     if (order >= order_count) return error.InvalidOrder;
 
-    // Select the lowest-start free block that meets the requested order. Break
-    // ties by selecting the lowest order.
+    // Select the lowest-start free block. Break same-start ties by order.
     var best_start: usize = std.math.maxInt(usize);
     var best_order: u8 = 0;
     var found = false;
+
     var k: u8 = order;
     while (k < order_count) : (k += 1) {
         const slot = findFirstFreeAtOrder(words, unit_capacity, k) orelse continue;
@@ -387,20 +381,24 @@ fn allocImpl(
         const beats_start = start < best_start;
         const beats_order = start == best_start and k < best_order;
         const should_replace = !found or beats_start or beats_order;
+
         if (should_replace) {
             best_start = start;
             best_order = k;
             found = true;
         }
     }
+
     if (!found) return error.OutOfMemory;
 
     const source_slot = best_start >> @as(Shift, @intCast(best_order));
     clearBit(words, unit_capacity, best_order, source_slot);
+
     var current: BuddyBlock = .{ .start = best_start, .order = best_order };
     while (current.order > order) {
         std.debug.assert(current.order > 0);
         const pair = Buddy.split(current) catch unreachable;
+
         const right = pair[1];
         setBit(
             words,
@@ -408,6 +406,7 @@ fn allocImpl(
             right.order,
             right.start >> @as(Shift, @intCast(right.order)),
         );
+
         current = pair[0];
     }
 
@@ -415,6 +414,7 @@ fn allocImpl(
         const slot = current.start >> @as(Shift, @intCast(current.order));
         std.debug.assert(!bitIsSet(words, unit_capacity, current.order, slot));
     }
+
     return current;
 }
 
@@ -477,6 +477,7 @@ fn reserveImpl(
         if (range.start > unit_capacity) return error.OutOfBounds;
         return;
     }
+
     if (range.end > unit_capacity) return error.OutOfBounds;
 
     var probe: usize = range.start;
@@ -493,9 +494,11 @@ fn reserveImpl(
         const block_start = @divFloor(u, size_k) * size_k;
 
         clearBit(words, unit_capacity, k, block_start >> @as(Shift, @intCast(k)));
+
         var current: BuddyBlock = .{ .start = block_start, .order = k };
         while (current.order > 0) {
             std.debug.assert(current.order > 0);
+
             const pair = Buddy.split(current) catch unreachable;
             const left = pair[0];
             const right = pair[1];
@@ -542,13 +545,16 @@ fn containingFreeOrder(
 
 fn hasBothBuddiesFree(words: []const BuddyWord, unit_capacity: usize, order_count: u8) bool {
     if (order_count == 0) return false;
+
     var k: u8 = 0;
     while (k + 1 < order_count) : (k += 1) {
         const valid = validSlotsFor(unit_capacity, k);
+
         var pair: usize = 0;
         while (pair * 2 + 1 < valid) : (pair += 1) {
             const left = pair * 2;
             const right = left + 1;
+
             if (bitIsSet(words, unit_capacity, k, left) and
                 bitIsSet(words, unit_capacity, k, right))
             {
@@ -556,6 +562,7 @@ fn hasBothBuddiesFree(words: []const BuddyWord, unit_capacity: usize, order_coun
             }
         }
     }
+
     return false;
 }
 
@@ -570,12 +577,15 @@ fn hasUnusedHighBits(words: []const BuddyWord, unit_capacity: usize, order_count
         while (wi < wc) : (wi += 1) {
             const base = wi * buddy_word_bits;
             const w = words[off + wi];
+
             if (base >= valid) {
                 if (w != 0) return true;
                 continue;
             }
+
             const in_word = valid - base;
             if (in_word >= buddy_word_bits) continue;
+
             const high_mask = ~((@as(BuddyWord, 1) << @as(Shift, @intCast(in_word))) - 1);
             if ((w & high_mask) != 0) return true;
         }

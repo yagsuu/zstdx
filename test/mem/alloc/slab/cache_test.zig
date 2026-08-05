@@ -1,10 +1,10 @@
-//! PoolCache contract tests. See `docs/specs/mem/pool-cache.md`.
+//! SlabCache contract tests. See `docs/specs/mem/alloc/slab/cache.md`.
 
 const std = @import("std");
 
 const stdx = @import("stdx");
 
-const PoolCache = stdx.mem.PoolCache;
+const SlabCache = stdx.mem.alloc.SlabCache;
 
 const testing = std.testing;
 
@@ -65,10 +65,31 @@ fn MockStore(comptime bytes_per_region: usize, comptime region_capacity: usize) 
 
 const Item = struct { value: u64 };
 
-test "unit: PoolCache.init reports empty and does not call source" {
+const WideAlignedStore = struct {
+    buffer: [region_bytes]u8 align(region_align) = undefined,
+    used: bool = false,
+
+    pub const region_bytes: usize = 256;
+    pub const region_align: usize = 512;
+    pub const Error = error{OutOfMemory};
+
+    pub fn acquire(self: *WideAlignedStore) Error!*align(region_align) [region_bytes]u8 {
+        if (self.used) return error.OutOfMemory;
+        self.used = true;
+        return &self.buffer;
+    }
+
+    pub fn release(self: *WideAlignedStore, region: *align(region_align) [region_bytes]u8) void {
+        std.debug.assert(region == &self.buffer);
+        std.debug.assert(self.used);
+        self.used = false;
+    }
+};
+
+test "unit: SlabCache.init reports empty and does not call source" {
     const Store = MockStore(1024, 4);
     var store: Store = .{};
-    var cache = PoolCache(Item, Store).init(&store);
+    var cache = SlabCache(Item, Store).init(&store);
 
     try testing.expectEqual(@as(usize, 0), cache.len());
     try testing.expectEqual(@as(usize, 0), cache.regionCount());
@@ -80,10 +101,10 @@ test "unit: PoolCache.init reports empty and does not call source" {
     cache.assertValid();
 }
 
-test "unit: PoolCache.refill acquires one region and installs it empty" {
+test "unit: SlabCache.refill acquires one region and installs it empty" {
     const Store = MockStore(1024, 4);
     var store: Store = .{};
-    var cache = PoolCache(Item, Store).init(&store);
+    var cache = SlabCache(Item, Store).init(&store);
 
     try cache.refill();
     try testing.expectEqual(@as(usize, 1), store.acquire_calls);
@@ -93,11 +114,11 @@ test "unit: PoolCache.refill acquires one region and installs it empty" {
     cache.assertValid();
 }
 
-test "unit: PoolCache.refill propagates source error without state change" {
+test "unit: SlabCache.refill propagates source error without state change" {
     const Store = MockStore(1024, 4);
     var store: Store = .{};
     store.acquire_returns_null_at = 0; // fail every acquire
-    var cache = PoolCache(Item, Store).init(&store);
+    var cache = SlabCache(Item, Store).init(&store);
 
     const before_count = cache.regionCount();
     try testing.expectError(error.OutOfMemory, cache.refill());
@@ -106,10 +127,10 @@ test "unit: PoolCache.refill propagates source error without state change" {
     cache.assertValid();
 }
 
-test "unit: PoolCache.acquire uses free slot without calling source" {
+test "unit: SlabCache.acquire uses free slot without calling source" {
     const Store = MockStore(1024, 4);
     var store: Store = .{};
-    var cache = PoolCache(Item, Store).init(&store);
+    var cache = SlabCache(Item, Store).init(&store);
     try cache.refill();
 
     const before_acquires = store.acquire_calls;
@@ -123,10 +144,10 @@ test "unit: PoolCache.acquire uses free slot without calling source" {
     cache.assertValid();
 }
 
-test "unit: PoolCache exhaustion returns OutOfMemory without source call" {
+test "unit: SlabCache exhaustion returns OutOfMemory without source call" {
     const Store = MockStore(256, 4);
     var store: Store = .{};
-    var cache = PoolCache(Item, Store).init(&store);
+    var cache = SlabCache(Item, Store).init(&store);
     try cache.refill();
 
     const capacity = cache.capacity();
@@ -149,10 +170,10 @@ test "unit: PoolCache exhaustion returns OutOfMemory without source call" {
     cache.assertValid();
 }
 
-test "unit: PoolCache.drain returns only empty regions to source" {
+test "unit: SlabCache.drain returns only empty regions to source" {
     const Store = MockStore(1024, 4);
     var store: Store = .{};
-    var cache = PoolCache(Item, Store).init(&store);
+    var cache = SlabCache(Item, Store).init(&store);
 
     try cache.refill();
     try cache.refill();
@@ -174,10 +195,10 @@ test "unit: PoolCache.drain returns only empty regions to source" {
     cache.assertValid();
 }
 
-test "unit: PoolCache.contains rejects foreign pointers" {
+test "unit: SlabCache.contains rejects foreign pointers" {
     const Store = MockStore(1024, 4);
     var store: Store = .{};
-    var cache = PoolCache(Item, Store).init(&store);
+    var cache = SlabCache(Item, Store).init(&store);
     try cache.refill();
 
     var stray: Item = .{ .value = 0 };
@@ -189,10 +210,86 @@ test "unit: PoolCache.contains rejects foreign pointers" {
     cache.assertValid();
 }
 
-test "model: PoolCache matches ArrayList oracle over random ops" {
+test "unit: SlabCache recovers a region with alignment larger than its size" {
+    var store: WideAlignedStore = .{};
+    var cache = SlabCache(Item, WideAlignedStore).init(&store);
+    try cache.refill();
+
+    const item = try cache.acquire();
+    try testing.expect(cache.contains(item));
+    cache.release(item);
+    cache.drain();
+    try testing.expect(!store.used);
+}
+
+test "unit: SlabCache.refill rotates slot colors and maintains doubly linked empty list" {
+    const Store = MockStore(1024, 4);
+    const Cache = SlabCache(Item, Store);
+    comptime std.debug.assert(Cache.color_count == 2);
+
+    var store: Store = .{};
+    var cache = Cache.init(&store);
+    try cache.refill();
+    const first = cache.empty_head.?;
+    try cache.refill();
+    const second = cache.empty_head.?;
+
+    try testing.expectEqual(Cache.color_stride, second.slot_offset - first.slot_offset);
+    try testing.expectEqual(first, second.next.?);
+    try testing.expectEqual(second, first.prev.?);
+    cache.assertValid();
+}
+
+test "unit: SlabCache.release moves a non-head full region in O(1)" {
+    const Store = MockStore(1024, 4);
+    const Cache = SlabCache(Item, Store);
+    var store: Store = .{};
+    var cache = Cache.init(&store);
+    try cache.refill();
+    try cache.refill();
+
+    var items: [2 * Cache.slots_per_region]*Item = undefined;
+    for (&items) |*item| item.* = try cache.acquire();
+    const older_full = cache.full_head.?.next.?;
+
+    cache.release(items[0]);
+    try testing.expectEqual(older_full, cache.partial_head.?);
+    try testing.expect(cache.full_head.?.next == null);
+    cache.assertValid();
+
+    for (items[1..]) |item| cache.release(item);
+    cache.drain();
+    try testing.expectEqual(@as(usize, 0), cache.regionCount());
+}
+
+test "unit: SlabCache.PerCpu caches locally and drains through global cache" {
+    const Store = MockStore(1024, 4);
+    const Cache = SlabCache(Item, Store);
+    const PerCpuCache = Cache.PerCpu(2, 2);
+    var store: Store = .{};
+    var cache = PerCpuCache.init(&store);
+    try cache.refill();
+
+    const a = try cache.acquire(0);
+    const b = try cache.acquire(1);
+    cache.release(1, a);
+    cache.release(0, b);
+
+    try testing.expectEqual(@as(usize, 0), cache.len());
+    const reuse = try cache.acquire(1);
+    try testing.expectEqual(a, reuse);
+    cache.release(1, reuse);
+    cache.assertValid();
+
+    cache.drain();
+    try testing.expectEqual(@as(usize, 0), cache.regionCount());
+    try testing.expectEqual(@as(usize, 0), store.liveRegions());
+}
+
+test "model: SlabCache matches ArrayList oracle over random ops" {
     const Store = MockStore(512, 8);
     var store: Store = .{};
-    var cache = PoolCache(u64, Store).init(&store);
+    var cache = SlabCache(u64, Store).init(&store);
 
     var live: std.ArrayList(*u64) = .empty;
     defer live.deinit(testing.allocator);

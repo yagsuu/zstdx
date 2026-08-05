@@ -1,4 +1,4 @@
-//! Default host test suite aggregate. See `docs/specs/architecture.md`.
+//! Default host test suite aggregate. See `docs/specs/project/architecture.md`.
 
 comptime {
     _ = @import("sync/signal_test.zig");
@@ -12,12 +12,12 @@ comptime {
     _ = @import("bits/mask_test.zig");
     _ = @import("bits/set_test.zig");
     _ = @import("bits/word_test.zig");
-    _ = @import("mem/alignment_test.zig");
-    _ = @import("mem/arena_test.zig");
-    _ = @import("mem/pool_test.zig");
-    _ = @import("mem/pool_cache_test.zig");
-    _ = @import("mem/frame_test.zig");
-    _ = @import("mem/bitmap_test.zig");
+    _ = @import("mem/align_test.zig");
+    _ = @import("mem/alloc/arena_test.zig");
+    _ = @import("mem/alloc/slab/allocator_test.zig");
+    _ = @import("mem/alloc/slab/cache_test.zig");
+    _ = @import("mem/alloc/frame_test.zig");
+    _ = @import("mem/alloc/bitmap_test.zig");
     _ = @import("algo/allocation_test.zig");
     _ = @import("tags/tag_test.zig");
     _ = @import("tags/allocator_test.zig");
@@ -60,7 +60,7 @@ comptime {
     _ = @import("arch/x86_64/paging/address_test.zig");
     _ = @import("arch/x86_64/paging/table_test.zig");
     _ = @import("arch/x86_64/paging/walk_test.zig");
-    _ = @import("mem/buddy_test.zig");
+    _ = @import("mem/alloc/buddy_test.zig");
     _ = @import("io/poll_test.zig");
     _ = @import("sync/once_test.zig");
     _ = @import("sync/rendezvous_test.zig");

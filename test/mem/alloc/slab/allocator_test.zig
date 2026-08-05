@@ -1,10 +1,10 @@
-//! Pool contract tests. See `docs/specs/mem/pool.md`.
+//! SlabAllocator contract tests. See `docs/specs/mem/alloc/slab/allocator.md`.
 
 const std = @import("std");
 
 const stdx = @import("stdx");
 
-const Pool = stdx.mem.Pool;
+const SlabAllocator = stdx.mem.alloc.SlabAllocator;
 
 const debug = stdx.core.debug;
 const testing = std.testing;
@@ -20,8 +20,8 @@ const Frame = struct {
 // remain observable as `0xFD` for use-after-free diagnostics.
 const FillPayload = struct { bytes: [64]u8 };
 
-test "unit: Pool.Static reports capacity and starts empty" {
-    var pool = Pool.Static(Frame, 4).init();
+test "unit: SlabAllocator.Static reports capacity and starts empty" {
+    var pool = SlabAllocator.Static(Frame, 4).init();
     try testing.expectEqual(@as(usize, 4), @TypeOf(pool).item_capacity);
     try testing.expectEqual(@as(usize, 4), pool.capacity());
     try testing.expectEqual(@as(usize, 0), pool.len());
@@ -31,9 +31,9 @@ test "unit: Pool.Static reports capacity and starts empty" {
     pool.assertValid();
 }
 
-test "unit: Pool.Bounded.wrap(&.{}) is empty and full" {
-    const PoolT = Pool.Bounded(Frame);
-    var pool = PoolT.wrap(&.{});
+test "unit: SlabAllocator.Bounded.wrap(&.{}) is empty and full" {
+    const SlabT = SlabAllocator.Bounded(Frame);
+    var pool = SlabT.wrap(&.{});
     try testing.expectEqual(@as(usize, 0), pool.capacity());
     try testing.expect(pool.isEmpty());
     try testing.expect(pool.isFull());
@@ -41,8 +41,8 @@ test "unit: Pool.Bounded.wrap(&.{}) is empty and full" {
     pool.assertValid();
 }
 
-test "unit: Pool.Static acquires and releases with LIFO reuse" {
-    var pool = Pool.Static(Frame, 3).init();
+test "unit: SlabAllocator.Static acquires and releases with LIFO reuse" {
+    var pool = SlabAllocator.Static(Frame, 3).init();
     const a = try pool.acquire();
     a.* = .{ .id = 1, .payload = 10 };
     const b = try pool.acquire();
@@ -61,8 +61,8 @@ test "unit: Pool.Static acquires and releases with LIFO reuse" {
     pool.assertValid();
 }
 
-test "unit: Pool.Static.acquire after exhaustion leaves live_count unchanged" {
-    var pool = Pool.Static(Frame, 1).init();
+test "unit: SlabAllocator.Static.acquire after exhaustion leaves live_count unchanged" {
+    var pool = SlabAllocator.Static(Frame, 1).init();
     const a = try pool.acquire();
     try testing.expectError(error.OutOfMemory, pool.acquire());
     try testing.expectEqual(@as(usize, 1), pool.len());
@@ -70,10 +70,10 @@ test "unit: Pool.Static.acquire after exhaustion leaves live_count unchanged" {
     try testing.expectEqual(@as(usize, 0), pool.len());
 }
 
-test "unit: Pool.Bounded over caller storage cycles through capacity" {
-    const PoolT = Pool.Bounded(Frame);
-    var storage: [4]PoolT.Slot = undefined;
-    var pool = PoolT.wrap(&storage);
+test "unit: SlabAllocator.Bounded over caller storage cycles through capacity" {
+    const SlabT = SlabAllocator.Bounded(Frame);
+    var storage: [4]SlabT.Slot = undefined;
+    var pool = SlabT.wrap(&storage);
     try testing.expectEqual(@as(usize, 4), pool.capacity());
 
     var live: [4]*Frame = undefined;
@@ -87,8 +87,8 @@ test "unit: Pool.Bounded over caller storage cycles through capacity" {
     pool.assertValid();
 }
 
-test "unit: Pool.Static clearRetainingCapacity rebuilds the free list" {
-    var pool = Pool.Static(Frame, 4).init();
+test "unit: SlabAllocator.Static clearRetainingCapacity rebuilds the free list" {
+    var pool = SlabAllocator.Static(Frame, 4).init();
     _ = try pool.acquire();
     _ = try pool.acquire();
     try testing.expectEqual(@as(usize, 2), pool.len());
@@ -105,18 +105,18 @@ test "unit: Pool.Static clearRetainingCapacity rebuilds the free list" {
     pool.assertValid();
 }
 
-test "unit: Pool.Static returns pointers that satisfy @alignOf(T)" {
-    var pool = Pool.Static(u64, 4).init();
+test "unit: SlabAllocator.Static returns pointers that satisfy @alignOf(T)" {
+    var pool = SlabAllocator.Static(u64, 4).init();
     const p = try pool.acquire();
     try testing.expect(stdx.mem.isAligned(usize, @intFromPtr(p), @alignOf(u64)));
     pool.release(p);
 }
 
-test "unit: Pool.Bounded backed by Arena storage acquires until exhaustion" {
-    var arena = stdx.mem.Arena.Static(4 * 1024).init();
-    const PoolT = Pool.Bounded(Frame);
-    const storage = try arena.allocSlice(PoolT.Slot, 8);
-    var pool = PoolT.wrap(storage);
+test "unit: SlabAllocator.Bounded backed by Arena storage acquires until exhaustion" {
+    var arena = stdx.mem.alloc.Arena.Static(4 * 1024).init();
+    const SlabT = SlabAllocator.Bounded(Frame);
+    const storage = try arena.allocSlice(SlabT.Slot, 8);
+    var pool = SlabT.wrap(storage);
     try testing.expectEqual(@as(usize, 8), pool.capacity());
 
     var live: [8]*Frame = undefined;
@@ -128,8 +128,8 @@ test "unit: Pool.Bounded backed by Arena storage acquires until exhaustion" {
     pool.assertValid();
 }
 
-test "unit: Pool.Static invariants hold across many acquire/release cycles" {
-    var pool = Pool.Static(Frame, 8).init();
+test "unit: SlabAllocator.Static invariants hold across many acquire/release cycles" {
+    var pool = SlabAllocator.Static(Frame, 8).init();
     var live: [8]?*Frame = .{ null, null, null, null, null, null, null, null };
     var rng = std.Random.DefaultPrng.init(0x1234);
     var random = rng.random();
@@ -151,12 +151,12 @@ test "unit: Pool.Static invariants hold across many acquire/release cycles" {
     try testing.expectEqual(expected_live, pool.len());
 }
 
-test "unit: Pool families produce distinct types per element and capacity" {
-    try testing.expect(Pool.Bounded(Frame) != Pool.Bounded(u32));
-    try testing.expect(Pool.Static(Frame, 4) != Pool.Static(Frame, 8));
+test "unit: SlabAllocator families produce distinct types per element and capacity" {
+    try testing.expect(SlabAllocator.Bounded(Frame) != SlabAllocator.Bounded(u32));
+    try testing.expect(SlabAllocator.Static(Frame, 4) != SlabAllocator.Static(Frame, 8));
 }
-test "unit: Pool.Static live acquisitions do not alias" {
-    var pool = Pool.Static(Frame, 4).init();
+test "unit: SlabAllocator.Static live acquisitions do not alias" {
+    var pool = SlabAllocator.Static(Frame, 4).init();
     const a = try pool.acquire();
     a.* = .{ .id = 1, .payload = 100 };
     const b = try pool.acquire();
@@ -167,8 +167,8 @@ test "unit: Pool.Static live acquisitions do not alias" {
     try testing.expect(@intFromPtr(a) != @intFromPtr(b));
 }
 
-test "unit: Pool.Static len + remaining == capacity across mutations" {
-    var pool = Pool.Static(Frame, 4).init();
+test "unit: SlabAllocator.Static len + remaining == capacity across mutations" {
+    var pool = SlabAllocator.Static(Frame, 4).init();
     try testing.expectEqual(pool.capacity(), pool.len() + pool.remaining());
     const a = try pool.acquire();
     try testing.expectEqual(pool.capacity(), pool.len() + pool.remaining());
@@ -180,8 +180,8 @@ test "unit: Pool.Static len + remaining == capacity across mutations" {
     try testing.expectEqual(pool.capacity(), pool.len() + pool.remaining());
 }
 
-test "unit: Pool.Static.isValid returns boolean and detects corruption" {
-    var pool = Pool.Static(Frame, 4).init();
+test "unit: SlabAllocator.Static.isValid returns boolean and detects corruption" {
+    var pool = SlabAllocator.Static(Frame, 4).init();
     try testing.expect(pool.isValid());
     _ = try pool.acquire();
     try testing.expect(pool.isValid());
@@ -189,8 +189,8 @@ test "unit: Pool.Static.isValid returns boolean and detects corruption" {
     try testing.expect(!pool.isValid());
 }
 
-test "unit: Pool.Static(T, 1) cycles its only slot without losing it" {
-    var pool = Pool.Static(Frame, 1).init();
+test "unit: SlabAllocator.Static(T, 1) cycles its only slot without losing it" {
+    var pool = SlabAllocator.Static(Frame, 1).init();
     var i: usize = 0;
     while (i < 4) : (i += 1) {
         const item = try pool.acquire();
@@ -201,8 +201,8 @@ test "unit: Pool.Static(T, 1) cycles its only slot without losing it" {
     pool.assertValid();
 }
 
-test "unit: Pool.Static debug fill patterns match spec" {
-    var pool = Pool.Static(FillPayload, 2).init();
+test "unit: SlabAllocator.Static debug fill patterns match spec" {
+    var pool = SlabAllocator.Static(FillPayload, 2).init();
     const item = try pool.acquire();
 
     if (debug.checksEnabled(.build_mode)) {
@@ -219,8 +219,8 @@ test "unit: Pool.Static debug fill patterns match spec" {
     for (&item.bytes) |*b| b.* = 0x42;
     pool.release(item);
 
-    const PoolT = Pool.Static(FillPayload, 2);
-    const link_size = @sizeOf(?*PoolT.Slot);
+    const SlabT = SlabAllocator.Static(FillPayload, 2);
+    const link_size = @sizeOf(?*SlabT.Slot);
     const raw: [*]const u8 = @ptrCast(item);
     if (debug.checksEnabled(.build_mode)) {
         var i: usize = link_size;
@@ -242,10 +242,10 @@ test "unit: Pool.Static debug fill patterns match spec" {
     pool.assertValid();
 }
 
-test "unit: Pool.Bounded debug fill honors payload window" {
-    const PoolT = Pool.Bounded(FillPayload);
-    var storage: [4]PoolT.Slot = undefined;
-    var pool = PoolT.wrap(&storage);
+test "unit: SlabAllocator.Bounded debug fill honors payload window" {
+    const SlabT = SlabAllocator.Bounded(FillPayload);
+    var storage: [4]SlabT.Slot = undefined;
+    var pool = SlabT.wrap(&storage);
 
     const item = try pool.acquire();
 
@@ -256,7 +256,7 @@ test "unit: Pool.Bounded debug fill honors payload window" {
     pool.release(item);
 
     if (debug.checksEnabled(.build_mode)) {
-        const link_size = @sizeOf(?*PoolT.Slot);
+        const link_size = @sizeOf(?*SlabT.Slot);
         const raw: [*]const u8 = @ptrCast(item);
         var i: usize = link_size;
         while (i < @sizeOf(FillPayload)) : (i += 1) {
@@ -267,8 +267,8 @@ test "unit: Pool.Bounded debug fill honors payload window" {
     pool.assertValid();
 }
 
-test "unit: Pool debug fill leaves len/remaining unchanged" {
-    var pool = Pool.Static(FillPayload, 3).init();
+test "unit: SlabAllocator debug fill leaves len/remaining unchanged" {
+    var pool = SlabAllocator.Static(FillPayload, 3).init();
     try testing.expectEqual(@as(usize, 3), pool.remaining());
 
     const a = try pool.acquire();

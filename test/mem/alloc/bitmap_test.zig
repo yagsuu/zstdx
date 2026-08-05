@@ -1,10 +1,10 @@
-//! BitmapAllocator contract tests. See `docs/specs/mem/bitmap-allocator.md`.
+//! BitmapAllocator contract tests. See `docs/specs/mem/alloc/bitmap.md`.
 
 const std = @import("std");
 
 const stdx = @import("stdx");
 
-const BitmapAllocator = stdx.mem.BitmapAllocator;
+const BitmapAllocator = stdx.mem.alloc.BitmapAllocator;
 
 const testing = std.testing;
 

@@ -51,19 +51,19 @@ Source ownership:
 
 ```text
 src/mem.zig
-src/mem/alignment.zig
+src/mem/align.zig
 ```
 
 `src/mem.zig` re-exports:
 
 ```zig
-pub const alignment = @import("mem/alignment.zig");
+pub const @"align" = @import("mem/align.zig");
 
-pub const alignUp = alignment.alignUp;
-pub const alignDown = alignment.alignDown;
-pub const isAligned = alignment.isAligned;
-pub const alignUpDelta = alignment.alignUpDelta;
-pub const alignDownDelta = alignment.alignDownDelta;
+pub const alignUp = @"align".alignUp;
+pub const alignDown = @"align".alignDown;
+pub const isAligned = @"align".isAligned;
+pub const alignUpDelta = @"align".alignUpDelta;
+pub const alignDownDelta = @"align".alignDownDelta;
 ```
 
 ## Approved API

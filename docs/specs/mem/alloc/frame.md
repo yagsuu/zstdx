@@ -2,12 +2,12 @@
 
 Status: Approved.
 
-`stdx.mem.FrameAllocator(Backend, Page)` lifts a unit-index allocator
+`stdx.mem.alloc.FrameAllocator(Backend, Page)` lifts a unit-index allocator
 (`Backend`) into an `addr.Page.Frame` / `addr.Page.FrameRange` vocabulary.
 It owns the unit-to-frame conversion, a base-frame anchor, `reserve`
 translation, and canonical frame-count statistics. It does not own the
 underlying free-list state — the `Backend` (typically
-`mem.BuddyAllocator.Static` or `mem.BuddyAllocator.Bounded`) owns that.
+`mem.alloc.BuddyAllocator.Static` or `mem.alloc.BuddyAllocator.Bounded`) owns that.
 
 Every consumer today rewrites the same "block start × page size + base
 frame = Frame" adapter and gets `reserve` accounting subtly wrong.
@@ -17,8 +17,8 @@ frame = Frame" adapter and gets `reserve` accounting subtly wrong.
 
 This spec owns:
 
-- `mem.FrameAllocator.Static(Backend, Page, base_frame)`;
-- `mem.FrameAllocator.Bounded(Backend, Page)`;
+- `mem.alloc.FrameAllocator.Static(Backend, Page, base_frame)`;
+- `mem.alloc.FrameAllocator.Bounded(Backend, Page)`;
 - unit-index ↔ `Page.Frame` conversion around any conforming `Backend`;
 - `alloc(order)` returning a `Page.FrameRange`;
 - `free(range)` translated to `Backend.free(block)`;
@@ -27,7 +27,7 @@ This spec owns:
 - canonical stats: `freeFrames`, `allocatedFrames`, `largestFreeOrder`,
   `remainingBytes`, `capacityFrames`;
 - nested `FrameSource(order)` region-source view satisfying
-  `docs/specs/mem/pool-cache.md`'s `RegionSource` interface;
+  `docs/specs/mem/alloc/slab/cache.md`'s `RegionSource` interface;
 - structural invariants and `assertValid` contract;
 - required tests.
 
@@ -50,12 +50,12 @@ This spec does not own:
 
 ## Public namespace
 
-`FrameAllocator` lives under `stdx.mem`:
+`FrameAllocator` lives under `stdx.mem.alloc`:
 
 ```zig
-stdx.mem.FrameAllocator
-stdx.mem.FrameAllocator.Static
-stdx.mem.FrameAllocator.Bounded
+stdx.mem.alloc.FrameAllocator
+stdx.mem.alloc.FrameAllocator.Static
+stdx.mem.alloc.FrameAllocator.Bounded
 ```
 
 It is not root-promoted:
@@ -68,14 +68,14 @@ Source ownership:
 
 ```text
 src/mem.zig
-src/mem/frame.zig
-test/mem/frame_test.zig
+src/mem/alloc/frame.zig
+test/mem/alloc/frame_test.zig
 ```
 
-`src/mem.zig` re-exports:
+`src/mem/alloc.zig` re-exports:
 
 ```zig
-pub const frame = @import("mem/frame.zig");
+pub const frame = @import("alloc/frame.zig");
 
 pub const FrameAllocator = frame.FrameAllocator;
 ```
@@ -115,9 +115,9 @@ Requirements:
   set below. Broader backend error sets are compile errors — the
   frame-allocator does not silently widen the caller-visible surface.
 
-`mem.BuddyAllocator.Static(unit_capacity, order_count)` and
-`mem.BuddyAllocator.Bounded` satisfy this interface directly.
-`mem.BitmapAllocator` does not (it exposes `allocOne` / `allocRange` in
+`mem.alloc.BuddyAllocator.Static(unit_capacity, order_count)` and
+`mem.alloc.BuddyAllocator.Bounded` satisfy this interface directly.
+`mem.alloc.BitmapAllocator` does not (it exposes `allocOne` / `allocRange` in
 place of `alloc(order)` / `free(block)`); adding a wrapper for the
 order-0-only case is outside this spec.
 
@@ -288,7 +288,7 @@ not fit in `AddressInt`.
 
 `FrameSource(order)` is a zero-state view type parameterized on a
 comptime order. It satisfies the `RegionSource` interface from
-`docs/specs/mem/pool-cache.md`:
+`docs/specs/mem/alloc/slab/cache.md`:
 
 ```zig
 pub fn FrameSource(comptime order: u8) type {
@@ -409,8 +409,8 @@ Static physical-frame allocator at a fixed base:
 const stdx = @import("stdx");
 
 const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
-const Buddy = stdx.mem.BuddyAllocator.Static(1024, 6);
-const Frames = stdx.mem.FrameAllocator.Static(
+const Buddy = stdx.mem.alloc.BuddyAllocator.Static(1024, 6);
+const Frames = stdx.mem.alloc.FrameAllocator.Static(
     Buddy,
     Phys4K,
     try Phys4K.Frame.fromAddressInt(0x0010_0000),
@@ -435,12 +435,12 @@ _ = bytes;
 Runtime-base bounded allocator over caller words:
 
 ```zig
-var backing: [64]stdx.mem.BuddyAllocator.Bounded.Word = @splat(0);
-const backend = try stdx.mem.BuddyAllocator.Bounded.wrap(&backing, 128, 5);
+var backing: [64]stdx.mem.alloc.BuddyAllocator.Bounded.Word = @splat(0);
+const backend = try stdx.mem.alloc.BuddyAllocator.Bounded.wrap(&backing, 128, 5);
 
 const Virt4K = stdx.addr.Page(stdx.addr.VirtAddr, stdx.addr.pages._4kib);
-const Frames = stdx.mem.FrameAllocator.Bounded(
-    stdx.mem.BuddyAllocator.Bounded,
+const Frames = stdx.mem.alloc.FrameAllocator.Bounded(
+    stdx.mem.alloc.BuddyAllocator.Bounded,
     Virt4K,
 );
 
@@ -451,12 +451,12 @@ const region = try frames.alloc(3);
 try frames.free(region);
 ```
 
-Compose with `PoolCache` for `kmem_cache_alloc`-shaped growth:
+Compose with `SlabCache` for `kmem_cache_alloc`-shaped growth:
 
 ```zig
 var source = frames.frameSource(0);   // 4 KiB regions
 
-const NodeCache = stdx.mem.PoolCache(Node, @TypeOf(source));
+const NodeCache = stdx.mem.alloc.SlabCache(Node, @TypeOf(source));
 var cache = NodeCache.init(&source);
 
 try cache.refill();
@@ -472,12 +472,12 @@ _ = node;
   custom `Address(GpaTag, u64)` domain;
 - firmware pre-runtime frame allocators over a caller-provided
   physical-memory region;
-- page-source for `PoolCache(T, FrameSource(order))` used by kernel
+- page-source for `SlabCache(T, FrameSource(order))` used by kernel
   and driver typed-object caches.
 
 ## Required tests
 
-Tests live in `test/mem/frame_test.zig`. Backends exercised: at least
+Tests live in `test/mem/alloc/frame_test.zig`. Backends exercised: at least
 `BuddyAllocator.Static(16, 5)` paired with `Page(PhysAddr, _4kib)`,
 `BuddyAllocator.Bounded` paired with `Page(VirtAddr, _4kib)`, and one
 `BuddyAllocator.Static(...)` paired with a custom
@@ -541,7 +541,7 @@ Tests live in `test/mem/frame_test.zig`. Backends exercised: at least
 - `FrameSource(order)` where `order >= Backend.orderCount()` is a
   compile error (verified for `Static` backends);
 - `FrameSource` satisfies `RegionSource`: instantiating
-  `PoolCache(u64, @TypeOf(view))` succeeds and a round-trip
+  `SlabCache(u64, @TypeOf(view))` succeeds and a round-trip
   `refill → acquire → release → drain` cycle balances the frame
   allocator's stats.
 

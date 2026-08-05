@@ -1,21 +1,21 @@
-//! FrameAllocator contract tests. See `docs/specs/mem/frame-allocator.md`.
+//! FrameAllocator contract tests. See `docs/specs/mem/alloc/frame.md`.
 
 const std = @import("std");
 
 const stdx = @import("stdx");
 
-const Buddy4Phys = stdx.mem.BuddyAllocator.Static(16, 5);
-const Buddy4Virt = stdx.mem.BuddyAllocator.Static(16, 5);
+const Buddy4Phys = stdx.mem.alloc.BuddyAllocator.Static(16, 5);
+const Buddy4Virt = stdx.mem.alloc.BuddyAllocator.Static(16, 5);
 const Phys4K = stdx.addr.Page(PhysAddr, stdx.addr.pages._4kib);
 const PhysAddr = stdx.addr.PhysAddr;
-const PhysFrames = stdx.mem.FrameAllocator.Static(
+const PhysFrames = stdx.mem.alloc.FrameAllocator.Static(
     Buddy4Phys,
     Phys4K,
     Phys4K.Frame.fromAddressInt(0x0010_0000) catch unreachable,
 );
 const Virt4K = stdx.addr.Page(VirtAddr, stdx.addr.pages._4kib);
 const VirtAddr = stdx.addr.VirtAddr;
-const VirtFrames = stdx.mem.FrameAllocator.Static(
+const VirtFrames = stdx.mem.alloc.FrameAllocator.Static(
     Buddy4Virt,
     Virt4K,
     Virt4K.Frame.fromAddressInt(0xffff_0000_0000_0000) catch unreachable,
@@ -150,11 +150,11 @@ test "unit: remainingBytes reports expected byte count" {
 }
 
 test "unit: Bounded wrap validates base + capacity does not overflow" {
-    var storage: [64]stdx.mem.BuddyAllocator.Bounded.Word = @splat(0);
-    const backend = try stdx.mem.BuddyAllocator.Bounded.wrap(&storage, 16, 4);
+    var storage: [64]stdx.mem.alloc.BuddyAllocator.Bounded.Word = @splat(0);
+    const backend = try stdx.mem.alloc.BuddyAllocator.Bounded.wrap(&storage, 16, 4);
 
-    const Frames = stdx.mem.FrameAllocator.Bounded(
-        stdx.mem.BuddyAllocator.Bounded,
+    const Frames = stdx.mem.alloc.FrameAllocator.Bounded(
+        stdx.mem.alloc.BuddyAllocator.Bounded,
         Phys4K,
     );
 
@@ -186,21 +186,21 @@ test "unit: FrameSource acquire and release round-trip through parent" {
     frames.assertValid();
 }
 
-test "unit: FrameSource satisfies PoolCache RegionSource shape" {
+test "unit: FrameSource satisfies SlabCache RegionSource shape" {
     var frames = VirtFrames.init();
     const source = frames.frameSource(0);
     const S = @TypeOf(source);
 
-    // Compile-only conformance: PoolCache accepts the source as a
+    // Compile-only conformance: SlabCache accepts the source as a
     // valid RegionSource. Runtime composition requires an identity-
     // mapped Page domain, which is out of scope for host-only tests.
-    _ = stdx.mem.PoolCache(u64, S);
+    _ = stdx.mem.alloc.SlabCache(u64, S);
 
     try testing.expectEqual(@as(usize, stdx.addr.pages._4kib), S.region_bytes);
     try testing.expectEqual(@as(usize, stdx.addr.pages._4kib), S.region_align);
 }
 
-test "unit: FrameSource composes with PoolCache over identity-mapped host memory" {
+test "unit: FrameSource composes with SlabCache over identity-mapped host memory" {
     // Real host-backed test: base the VirtAddr FrameAllocator at the
     // address of a page-aligned host buffer so that pointers returned
     // by FrameSource.acquire address writable memory in this process.
@@ -211,15 +211,15 @@ test "unit: FrameSource composes with PoolCache over identity-mapped host memory
     defer testing.allocator.free(backing);
 
     const HostVirt4K = stdx.addr.Page(VirtAddr, page_size);
-    const HostBuddy = stdx.mem.BuddyAllocator.Static(region_count, 3);
-    const HostFrames = stdx.mem.FrameAllocator.Bounded(HostBuddy, HostVirt4K);
+    const HostBuddy = stdx.mem.alloc.BuddyAllocator.Static(region_count, 3);
+    const HostFrames = stdx.mem.alloc.FrameAllocator.Bounded(HostBuddy, HostVirt4K);
 
     const backend = HostBuddy.init();
     const base = try HostVirt4K.Frame.fromAddressInt(@intCast(@intFromPtr(backing.ptr)));
     var frames = try HostFrames.wrap(backend, base);
     var source = frames.frameSource(0);
 
-    const Cache = stdx.mem.PoolCache(u64, @TypeOf(source));
+    const Cache = stdx.mem.alloc.SlabCache(u64, @TypeOf(source));
     var cache = Cache.init(&source);
     try cache.refill();
 

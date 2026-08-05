@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`stdx.mem.BuddyAllocator` is a fixed-unit power-of-two buddy allocator over a
+`stdx.mem.alloc.BuddyAllocator` is a fixed-unit power-of-two buddy allocator over a
 caller-supplied backing region. It manages abstract unit indexes at multiple
 orders, splits blocks on demand, and coalesces buddies eagerly on `free`. It
 does not own the resources those indexes name.
@@ -16,8 +16,8 @@ domain-specific policy.
 
 This spec owns:
 
-- `mem.BuddyAllocator.Static(unit_capacity, order_count)`;
-- `mem.BuddyAllocator.Bounded`;
+- `mem.alloc.BuddyAllocator.Static(unit_capacity, order_count)`;
+- `mem.alloc.BuddyAllocator.Bounded`;
 - per-order bitmap free-list discipline over caller-provided backing words;
 - `alloc`/`free`/`reserve` semantics with the shared
   `algo.allocation.Buddy.Block` value shape;
@@ -49,12 +49,12 @@ This spec does not own:
 
 ## Public namespace
 
-`BuddyAllocator` lives under `stdx.mem`:
+`BuddyAllocator` lives under `stdx.mem.alloc`:
 
 ```zig
-stdx.mem.BuddyAllocator
-stdx.mem.BuddyAllocator.Static
-stdx.mem.BuddyAllocator.Bounded
+stdx.mem.alloc.BuddyAllocator
+stdx.mem.alloc.BuddyAllocator.Static
+stdx.mem.alloc.BuddyAllocator.Bounded
 ```
 
 It is not root-promoted:
@@ -67,14 +67,14 @@ Source ownership:
 
 ```text
 src/mem.zig
-src/mem/buddy.zig
-test/mem/buddy_test.zig
+src/mem/alloc/buddy.zig
+test/mem/alloc/buddy_test.zig
 ```
 
-`src/mem.zig` re-exports:
+`src/mem/alloc.zig` re-exports:
 
 ```zig
-pub const buddy = @import("mem/buddy.zig");
+pub const buddy = @import("alloc/buddy.zig");
 
 pub const BuddyAllocator = buddy.BuddyAllocator;
 ```
@@ -451,7 +451,7 @@ Physical-frame allocator with a small three-order allocator:
 ```zig
 const stdx = @import("stdx");
 
-const Buddy = stdx.mem.BuddyAllocator.Static(64, 4); // 64 frames, orders 0..3
+const Buddy = stdx.mem.alloc.BuddyAllocator.Static(64, 4); // 64 frames, orders 0..3
 
 var frames: Buddy = .init();
 
@@ -469,8 +469,8 @@ _ = phys;
 Bounded variant over caller-owned words:
 
 ```zig
-var backing: [64]stdx.mem.BuddyAllocator.Bounded.Word = @splat(0);
-var frames = try stdx.mem.BuddyAllocator.Bounded.wrap(&backing, 128, 5);
+var backing: [64]stdx.mem.alloc.BuddyAllocator.Bounded.Word = @splat(0);
+var frames = try stdx.mem.alloc.BuddyAllocator.Bounded.wrap(&backing, 128, 5);
 
 const big = try frames.alloc(4); // 16 units
 try frames.free(big);
@@ -478,7 +478,7 @@ try frames.free(big);
 
 ## Required tests
 
-Tests live in `test/mem/buddy_test.zig`. Unit tests use small parameters;
+Tests live in `test/mem/alloc/buddy_test.zig`. Unit tests use small parameters;
 model tests compare against a naive reference; stress tests exercise
 random-op sequences.
 

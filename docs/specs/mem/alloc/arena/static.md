@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`stdx.mem.Arena.Static(N)` is an inline fixed-capacity bump arena. It owns
+`stdx.mem.alloc.Arena.Static(N)` is an inline fixed-capacity bump arena. It owns
 `[N]u8` storage, never allocates beyond that storage, and shares the same
 allocation, mark/restore, and reset semantics as `Arena.Bounded`.
 
@@ -10,7 +10,7 @@ allocation, mark/restore, and reset semantics as `Arena.Bounded`.
 
 This spec owns:
 
-- `mem.Arena.Static(N)`;
+- `mem.alloc.Arena.Static(N)`;
 - inline `[N]u8` storage;
 - bump allocation that matches `Arena.Bounded`;
 - mark/restore/reset lifecycle for inline-storage arenas;
@@ -20,7 +20,7 @@ This spec owns:
 
 This spec does not own:
 
-- `mem.Arena.Bounded` (owned by `docs/specs/mem/arena/bounded.md`);
+- `mem.alloc.Arena.Bounded` (owned by `docs/specs/mem/alloc/arena/bounded.md`);
 - growable arenas;
 - heap fallback or page allocation;
 - per-allocation free, compaction, or transfer of ownership;
@@ -29,11 +29,11 @@ This spec does not own:
 
 ## Public namespace
 
-`Arena.Static` lives under `stdx.mem`:
+`Arena.Static` lives under `stdx.mem.alloc`:
 
 ```zig
-stdx.mem.Arena
-stdx.mem.Arena.Static
+stdx.mem.alloc.Arena
+stdx.mem.alloc.Arena.Static
 ```
 
 It is not root-promoted:
@@ -46,8 +46,8 @@ Source ownership is shared with `Arena.Bounded`:
 
 ```text
 src/mem.zig
-src/mem/arena.zig
-test/mem/arena_test.zig
+src/mem/alloc/arena.zig
+test/mem/alloc/arena_test.zig
 ```
 
 ## Approved API
@@ -209,7 +209,7 @@ Implementation must:
 Inline scratch arena for a parser:
 
 ```zig
-var arena = stdx.mem.Arena.Static(4096).init();
+var arena = stdx.mem.alloc.Arena.Static(4096).init();
 
 const tables = try arena.allocSlice(Table, table_count);
 ```
@@ -217,7 +217,7 @@ const tables = try arena.allocSlice(Table, table_count);
 Speculative parsing rollback:
 
 ```zig
-var arena = stdx.mem.Arena.Static(8192).init();
+var arena = stdx.mem.alloc.Arena.Static(8192).init();
 
 const checkpoint = arena.mark();
 parseCandidate(&arena) catch |err| {
@@ -229,7 +229,7 @@ parseCandidate(&arena) catch |err| {
 Interop with `std.mem.Allocator`:
 
 ```zig
-var arena = stdx.mem.Arena.Static(8192).init();
+var arena = stdx.mem.alloc.Arena.Static(8192).init();
 
 var list = std.ArrayListUnmanaged(u32){};
 try list.append(arena.allocator(), 42);
@@ -238,7 +238,7 @@ try list.append(arena.allocator(), 42);
 Zero-capacity edge case:
 
 ```zig
-var arena = stdx.mem.Arena.Static(0).init();
+var arena = stdx.mem.alloc.Arena.Static(0).init();
 
 try std.testing.expectError(error.OutOfMemory, arena.allocBytes(1));
 ```

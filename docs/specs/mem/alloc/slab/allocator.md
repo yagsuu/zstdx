@@ -1,12 +1,12 @@
-# Memory pool
+# Memory slab allocator
 
 Status: Approved.
 
-`stdx.mem.Pool(T)` is a fixed-capacity, typed, intrusive-free-list object pool
+`stdx.mem.alloc.SlabAllocator` is a fixed-capacity, typed, intrusive-free-list object slab allocator
 with O(1) acquire and release and pointer-stable storage for the lifetime of
 each acquired slot. It does not allocate, wait, or call destructors.
 
-`Pool.Static(T, N)` owns inline `[N]Slot` storage. `Pool.Bounded(T)` borrows
+`SlabAllocator.Static(T, N)` owns inline `[N]Slot` storage. `SlabAllocator.Bounded(T)` borrows
 caller-owned `[]Slot` storage. Both share every observable behavior except
 construction.
 
@@ -14,8 +14,8 @@ construction.
 
 This spec owns:
 
-- `mem.Pool.Static(T, N)`;
-- `mem.Pool.Bounded(T)`;
+- `mem.alloc.SlabAllocator.Static(T, N)`;
+- `mem.alloc.SlabAllocator.Bounded(T)`;
 - private intrusive free-list discipline using `Slot = union(enum)`;
 - `acquire`/`release` semantics with O(1) cost;
 - pointer-stability rules and uninitialized-payload rules;
@@ -30,7 +30,7 @@ This spec does not own:
 - destructors, release callbacks, or value finalizers;
 - generation counters or stale-handle detection;
 - multi-typed slab allocators;
-- thread-safe pools;
+- thread-safe slab allocators;
 - iteration over live objects;
 - shrinking, defragmentation, or compaction;
 - automatic zeroing or poisoning;
@@ -41,40 +41,40 @@ This spec does not own:
 
 ## Public namespace
 
-`Pool` lives under `stdx.mem`:
+`SlabAllocator` lives under `stdx.mem.alloc`:
 
 ```zig
-stdx.mem.Pool
-stdx.mem.Pool.Static
-stdx.mem.Pool.Bounded
+stdx.mem.alloc.SlabAllocator
+stdx.mem.alloc.SlabAllocator.Static
+stdx.mem.alloc.SlabAllocator.Bounded
 ```
 
 It is not root-promoted:
 
 ```zig
-stdx.Pool // not exported
+stdx.SlabAllocator // not exported
 ```
 
 Source ownership:
 
 ```text
 src/mem.zig
-src/mem/pool.zig
-test/mem/pool_test.zig
+src/mem/alloc/slab/allocator.zig
+test/mem/alloc/slab/allocator_test.zig
 ```
 
-`src/mem.zig` re-exports:
+`src/mem/alloc/slab.zig` re-exports:
 
 ```zig
-pub const pool = @import("mem/pool.zig");
+pub const allocator = @import("slab/allocator.zig");
 
-pub const Pool = pool.Pool;
+pub const SlabAllocator = allocator.SlabAllocator;
 ```
 
 ## Approved API
 
 ```zig
-pub const Pool = struct {
+pub const SlabAllocator = struct {
     pub fn Static(comptime T: type, comptime capacity_items: usize) type;
     pub fn Bounded(comptime T: type) type;
 };
@@ -152,7 +152,7 @@ pub const Self = struct {
 };
 ```
 
-`Static` and `Bounded` have identical observable pool semantics. They differ
+`Static` and `Bounded` have identical observable slab semantics. They differ
 only in storage ownership.
 
 ## Type and capacity contract
@@ -165,13 +165,13 @@ read the tag directly.
 `@alignOf(Slot) >= @alignOf(T)` is guaranteed by Zig's union alignment rules.
 Acquired pointers satisfy `@alignOf(T)`.
 
-A valid pool satisfies:
+A valid slab allocator satisfies:
 
 ```zig
 self.live_count <= self.capacity()
 ```
 
-`Static(T, 0)` is a compile error. `Bounded(T).wrap(&.{})` is valid; the pool
+`Static(T, 0)` is a compile error. `Bounded(T).wrap(&.{})` is valid; the allocator
 is empty and full.
 
 ## Ownership and lifetime
@@ -378,7 +378,7 @@ Static pool:
 
 ```zig
 const Frame = struct { id: u32, data: [256]u8 };
-var pool = stdx.mem.Pool.Static(Frame, 16).init();
+var pool = stdx.mem.alloc.SlabAllocator.Static(Frame, 16).init();
 
 const f = try pool.acquire();
 f.* = .{ .id = 7, .data = undefined };
@@ -389,9 +389,9 @@ pool.release(f);
 Bounded pool with caller storage:
 
 ```zig
-const PoolT = stdx.mem.Pool.Bounded(Frame);
-var storage: [16]PoolT.Slot = undefined;
-var pool = PoolT.wrap(&storage);
+const SlabT = stdx.mem.alloc.SlabAllocator.Bounded(Frame);
+var storage: [16]SlabT.Slot = undefined;
+var pool = SlabT.wrap(&storage);
 
 const f = try pool.acquire();
 f.* = .{ .id = 7, .data = undefined };
@@ -401,17 +401,17 @@ pool.release(f);
 Bounded pool over arena storage:
 
 ```zig
-var arena = stdx.mem.Arena.Static(4096).init();
-const PoolT = stdx.mem.Pool.Bounded(Job);
-const storage = try arena.allocSlice(PoolT.Slot, 64);
-var jobs = PoolT.wrap(storage);
+var arena = stdx.mem.alloc.Arena.Static(4096).init();
+const SlabT = stdx.mem.alloc.SlabAllocator.Bounded(Job);
+const storage = try arena.allocSlice(SlabT.Slot, 64);
+var jobs = SlabT.wrap(storage);
 ```
 
 Exhaustion and reuse:
 
 ```zig
-const PoolT = stdx.mem.Pool.Static(u32, 2);
-var p = PoolT.init();
+const SlabT = stdx.mem.alloc.SlabAllocator.Static(u32, 2);
+var p = SlabT.init();
 const a = try p.acquire();
 const b = try p.acquire();
 try std.testing.expectError(error.OutOfMemory, p.acquire());
@@ -433,12 +433,12 @@ _ = c;
 
 ### Construction and capacity
 
-- `Pool.Static(T, N).init()` reports `len == 0`, `capacity == N`,
+- `SlabAllocator.Static(T, N).init()` reports `len == 0`, `capacity == N`,
   `remaining == N`;
-- `Pool.Bounded(T).wrap(buffer)` reports `capacity == buffer.len`;
-- `Pool.Static(T, 0).init()` is both empty and full; `acquire` returns
+- `SlabAllocator.Bounded(T).wrap(buffer)` reports `capacity == buffer.len`;
+- `SlabAllocator.Static(T, 0).init()` is both empty and full; `acquire` returns
   `error.OutOfMemory`;
-- `Pool.Bounded(T).wrap(&.{})` is both empty and full; `acquire` returns
+- `SlabAllocator.Bounded(T).wrap(&.{})` is both empty and full; `acquire` returns
   `error.OutOfMemory`.
 
 ### Acquire and release
@@ -474,15 +474,15 @@ _ = c;
 
 ### Static specifics
 
-- `Pool.Static(T, 1)` cycles through acquire/release without losing the
+- `SlabAllocator.Static(T, 1)` cycles through acquire/release without losing the
   slot;
-- `Pool.Static(T, N).item_capacity == N`.
+- `SlabAllocator.Static(T, N).item_capacity == N`.
 
 ### Type identity
 
-- `Pool.Bounded(A)` and `Pool.Bounded(B)` are distinct types for distinct
+- `SlabAllocator.Bounded(A)` and `SlabAllocator.Bounded(B)` are distinct types for distinct
   `T`;
-- `Pool.Static(T, M)` and `Pool.Static(T, N)` are distinct types for
+- `SlabAllocator.Static(T, M)` and `SlabAllocator.Static(T, N)` are distinct types for
   `M != N`.
 
 ### Debug fill

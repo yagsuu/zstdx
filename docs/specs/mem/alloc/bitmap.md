@@ -2,7 +2,7 @@
 
 Status: Approved.
 
-`stdx.mem.BitmapAllocator` is a fixed-unit resource allocator backed by a
+`stdx.mem.alloc.BitmapAllocator` is a fixed-unit resource allocator backed by a
 bitmap. It tracks abstract unit indexes and contiguous unit ranges; it does not
 own the resources those indexes name.
 
@@ -15,8 +15,8 @@ policy.
 
 This spec owns:
 
-- `mem.BitmapAllocator.Static(unit_capacity)`;
-- `mem.BitmapAllocator.Bounded`;
+- `mem.alloc.BitmapAllocator.Static(unit_capacity)`;
+- `mem.alloc.BitmapAllocator.Bounded`;
 - bitmap-backed fixed-unit allocation state;
 - single-unit and contiguous-range allocation;
 - explicit reserve and free of caller-selected ranges;
@@ -40,12 +40,12 @@ This spec does not own:
 
 ## Public namespace
 
-`BitmapAllocator` lives under `stdx.mem`:
+`BitmapAllocator` lives under `stdx.mem.alloc`:
 
 ```zig
-stdx.mem.BitmapAllocator
-stdx.mem.BitmapAllocator.Static
-stdx.mem.BitmapAllocator.Bounded
+stdx.mem.alloc.BitmapAllocator
+stdx.mem.alloc.BitmapAllocator.Static
+stdx.mem.alloc.BitmapAllocator.Bounded
 ```
 
 It is not root-promoted:
@@ -58,14 +58,14 @@ Source ownership:
 
 ```text
 src/mem.zig
-src/mem/bitmap.zig
-test/mem/bitmap_test.zig
+src/mem/alloc/bitmap.zig
+test/mem/alloc/bitmap_test.zig
 ```
 
-`src/mem.zig` re-exports:
+`src/mem/alloc.zig` re-exports:
 
 ```zig
-pub const bitmap = @import("mem/bitmap.zig");
+pub const bitmap = @import("alloc/bitmap.zig");
 
 pub const BitmapAllocator = bitmap.BitmapAllocator;
 ```

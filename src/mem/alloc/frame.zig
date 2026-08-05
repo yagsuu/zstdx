@@ -1,14 +1,191 @@
 //! Page-typed wrapper around a unit-index allocator backend.
-//! See `docs/specs/mem/frame-allocator.md`.
+//! See `docs/specs/mem/alloc/frame.md`.
 
 const std = @import("std");
 
-const allocation = @import("../algo/allocation.zig");
+const allocation = @import("../../algo/allocation.zig");
+
+pub const FrameAllocator = struct {
+    /// Owns an inline backend and a comptime base frame.
+    pub fn Static(
+        comptime Backend: type,
+        comptime Page: type,
+        comptime base_frame: Page.Frame,
+    ) type {
+        comptime requireBackend(Backend);
+
+        return struct {
+            backend: Backend = Backend.init(),
+
+            const Self = @This();
+
+            pub const Frame = Page.Frame;
+            pub const FrameRange = Page.FrameRange;
+            pub const AddressInt = Page.AddressInt;
+
+            /// Superset of errors from all frame allocator operations.
+            pub const Error = FrameError;
+
+            pub fn init() Self {
+                return .{};
+            }
+
+            pub fn baseFrame(self: *const Self) Frame {
+                _ = self;
+                return base_frame;
+            }
+
+            pub fn capacityFrames(self: *const Self) AddressInt {
+                return @intCast(self.backend.capacity());
+            }
+
+            pub fn freeFrames(self: *const Self) AddressInt {
+                return @intCast(self.backend.remainingUnits());
+            }
+
+            pub fn allocatedFrames(self: *const Self) AddressInt {
+                return @intCast(self.backend.allocatedUnits());
+            }
+
+            pub fn largestFreeOrder(self: *const Self) ?u8 {
+                return largestFreeOrderImpl(Backend, &self.backend);
+            }
+
+            pub fn remainingBytes(self: *const Self) Error!AddressInt {
+                return remainingBytesImpl(AddressInt, Page.Size.bytes, self.freeFrames());
+            }
+
+            pub fn isFree(self: *const Self, range: FrameRange) bool {
+                return isFreeImpl(Backend, Page, &self.backend, base_frame, range);
+            }
+
+            /// Allocates `1 << order` frames.
+            /// Errors leave allocator state unchanged.
+            pub fn alloc(self: *Self, order: u8) Error!FrameRange {
+                return allocImpl(Backend, Page, &self.backend, base_frame, order);
+            }
+
+            /// Requires one allocated block.
+            /// Errors leave allocator state unchanged.
+            pub fn free(self: *Self, range: FrameRange) Error!void {
+                return freeImpl(Backend, Page, &self.backend, base_frame, range);
+            }
+
+            /// Requires a valid `range`.
+            /// An empty in-bounds range is a no-op; errors do not mutate.
+            pub fn reserve(self: *Self, range: FrameRange) Error!void {
+                return reserveImpl(Backend, Page, &self.backend, base_frame, range);
+            }
+
+            pub fn FrameSource(comptime order: u8) type {
+                return FrameSourceImpl(Self, Page, order);
+            }
+
+            pub fn frameSource(self: *Self, comptime order: u8) FrameSource(order) {
+                return .{ .parent = self };
+            }
+
+            pub fn isValid(self: *const Self) bool {
+                return isValidImpl(Backend, Page, &self.backend, base_frame);
+            }
+
+            pub fn assertValid(self: *const Self) void {
+                std.debug.assert(self.isValid());
+            }
+        };
+    }
+
+    pub fn Bounded(
+        comptime Backend: type,
+        comptime Page: type,
+    ) type {
+        comptime requireBackend(Backend);
+
+        return struct {
+            backend: Backend,
+            base: Page.Frame,
+
+            const Self = @This();
+
+            pub const Frame = Page.Frame;
+            pub const FrameRange = Page.FrameRange;
+            pub const AddressInt = Page.AddressInt;
+
+            pub const Error = FrameError;
+
+            pub fn wrap(backend: Backend, base: Frame) Error!Self {
+                _ = base.add(Page.Count.fromPages(@intCast(backend.capacity()))) catch return error.Overflow;
+                return .{ .backend = backend, .base = base };
+            }
+
+            pub fn baseFrame(self: *const Self) Frame {
+                return self.base;
+            }
+
+            pub fn capacityFrames(self: *const Self) AddressInt {
+                return @intCast(self.backend.capacity());
+            }
+
+            pub fn freeFrames(self: *const Self) AddressInt {
+                return @intCast(self.backend.remainingUnits());
+            }
+
+            pub fn allocatedFrames(self: *const Self) AddressInt {
+                return @intCast(self.backend.allocatedUnits());
+            }
+
+            pub fn largestFreeOrder(self: *const Self) ?u8 {
+                return largestFreeOrderImpl(Backend, &self.backend);
+            }
+
+            pub fn remainingBytes(self: *const Self) Error!AddressInt {
+                return remainingBytesImpl(AddressInt, Page.Size.bytes, self.freeFrames());
+            }
+
+            pub fn isFree(self: *const Self, range: FrameRange) bool {
+                return isFreeImpl(Backend, Page, &self.backend, self.base, range);
+            }
+
+            /// Allocates `1 << order` frames.
+            /// Errors leave allocator state unchanged.
+            pub fn alloc(self: *Self, order: u8) Error!FrameRange {
+                return allocImpl(Backend, Page, &self.backend, self.base, order);
+            }
+
+            /// Requires one allocated block.
+            /// Errors leave allocator state unchanged.
+            pub fn free(self: *Self, range: FrameRange) Error!void {
+                return freeImpl(Backend, Page, &self.backend, self.base, range);
+            }
+
+            /// Requires a valid `range`.
+            /// An empty in-bounds range is a no-op; errors do not mutate.
+            pub fn reserve(self: *Self, range: FrameRange) Error!void {
+                return reserveImpl(Backend, Page, &self.backend, self.base, range);
+            }
+
+            pub fn FrameSource(comptime order: u8) type {
+                return FrameSourceImpl(Self, Page, order);
+            }
+
+            pub fn frameSource(self: *Self, comptime order: u8) FrameSource(order) {
+                return .{ .parent = self };
+            }
+
+            pub fn isValid(self: *const Self) bool {
+                return isValidImpl(Backend, Page, &self.backend, self.base);
+            }
+
+            pub fn assertValid(self: *const Self) void {
+                std.debug.assert(self.isValid());
+            }
+        };
+    }
+};
 
 const Buddy = allocation.Buddy;
 
-/// Canonical error superset for conforming backends. The public allocator types
-/// expose this set through their `Error` declarations.
+/// Error superset required from conforming backends.
 const FrameError = error{
     OutOfMemory,
     OutOfBounds,
@@ -47,6 +224,7 @@ fn requireBackend(comptime Backend: type) void {
     if (!@hasField(Backend.Range, "end")) {
         @compileError("FrameAllocator backend Range missing field: end");
     }
+    requireBackendErrorFits(Backend, FrameError);
 }
 
 fn requireBackendErrorFits(comptime Backend: type, comptime Superset: type) void {
@@ -69,214 +247,6 @@ fn requireBackendErrorFits(comptime Backend: type, comptime Superset: type) void
         }
     }
 }
-
-/// Page-typed wrapper around a unit-index allocator. Public entry
-/// points are `Static(Backend, Page, base_frame)` and
-/// `Bounded(Backend, Page)`.
-pub const FrameAllocator = struct {
-    /// Inline backend + comptime base-frame anchor.
-    pub fn Static(
-        comptime Backend: type,
-        comptime Page: type,
-        comptime base_frame: Page.Frame,
-    ) type {
-        requireBackend(Backend);
-
-        return struct {
-            backend: Backend = Backend.init(),
-
-            const Self = @This();
-
-            pub const Frame = Page.Frame;
-            pub const FrameRange = Page.FrameRange;
-            pub const AddressInt = Page.AddressInt;
-
-            /// Union of every error variant the frame allocator may
-            /// return; per-op error sets are narrower.
-            pub const Error = FrameError;
-
-            comptime {
-                requireBackendErrorFits(Backend, Error);
-            }
-
-            pub fn init() Self {
-                return .{};
-            }
-
-            pub fn baseFrame(self: *const Self) Frame {
-                _ = self;
-                return base_frame;
-            }
-
-            pub fn capacityFrames(self: *const Self) AddressInt {
-                return @intCast(self.backend.capacity());
-            }
-
-            pub fn freeFrames(self: *const Self) AddressInt {
-                return @intCast(self.backend.remainingUnits());
-            }
-
-            pub fn allocatedFrames(self: *const Self) AddressInt {
-                return @intCast(self.backend.allocatedUnits());
-            }
-
-            pub fn largestFreeOrder(self: *const Self) ?u8 {
-                return largestFreeOrderImpl(Backend, &self.backend);
-            }
-
-            pub fn remainingBytes(self: *const Self) Error!AddressInt {
-                return remainingBytesImpl(AddressInt, Page.Size.bytes, self.freeFrames());
-            }
-
-            /// `order` selects `1 << order` frames.
-            /// `error.InvalidOrder`: `order >= backend.orderCount()`.
-            /// `error.OutOfMemory`: no fitting block.
-            /// `error.Overflow`: frame arithmetic overflow. Error leaves allocator unchanged.
-            pub fn alloc(self: *Self, order: u8) Error!FrameRange {
-                return allocImpl(Backend, Page, &self.backend, base_frame, order);
-            }
-
-            /// `range` must be a single allocated block.
-            /// `error.InvalidRequest`: bad size or alignment.
-            /// `error.OutOfBounds`: `range` escapes allocator span.
-            /// `error.NotAllocated`: double-free.
-            /// `error.Overflow`: unit arithmetic overflow. Error leaves allocator unchanged.
-            pub fn free(self: *Self, range: FrameRange) Error!void {
-                return freeImpl(Backend, Page, &self.backend, base_frame, range);
-            }
-
-            /// `error.InvalidRequest`: `range` is invalid.
-            /// `error.OutOfBounds`: `range` escapes allocator span.
-            /// `error.AlreadyAllocated`: any frame is already unavailable.
-            /// `error.Overflow`: unit arithmetic overflow. Empty in-bounds range is a no-op.
-            /// Error leaves allocator unchanged.
-            pub fn reserve(self: *Self, range: FrameRange) Error!void {
-                return reserveImpl(Backend, Page, &self.backend, base_frame, range);
-            }
-
-            pub fn isFree(self: *const Self, range: FrameRange) bool {
-                return isFreeImpl(Backend, Page, &self.backend, base_frame, range);
-            }
-
-            pub fn FrameSource(comptime order: u8) type {
-                return FrameSourceImpl(Self, Page, order);
-            }
-
-            pub fn frameSource(self: *Self, comptime order: u8) FrameSource(order) {
-                return .{ .parent = self };
-            }
-
-            pub fn isValid(self: *const Self) bool {
-                return isValidImpl(Backend, Page, &self.backend, base_frame);
-            }
-
-            pub fn assertValid(self: *const Self) void {
-                std.debug.assert(self.isValid());
-            }
-        };
-    }
-
-    /// Runtime backend + runtime base-frame anchor. Both come in via
-    /// `wrap`.
-    pub fn Bounded(
-        comptime Backend: type,
-        comptime Page: type,
-    ) type {
-        requireBackend(Backend);
-
-        return struct {
-            backend: Backend,
-            base: Page.Frame,
-
-            const Self = @This();
-
-            pub const Frame = Page.Frame;
-            pub const FrameRange = Page.FrameRange;
-            pub const AddressInt = Page.AddressInt;
-
-            pub const Error = FrameError;
-
-            comptime {
-                requireBackendErrorFits(Backend, Error);
-            }
-
-            pub fn wrap(backend: Backend, base: Frame) Error!Self {
-                _ = base.add(Page.Count.fromPages(@intCast(backend.capacity()))) catch return error.Overflow;
-                return .{ .backend = backend, .base = base };
-            }
-
-            pub fn baseFrame(self: *const Self) Frame {
-                return self.base;
-            }
-
-            pub fn capacityFrames(self: *const Self) AddressInt {
-                return @intCast(self.backend.capacity());
-            }
-
-            pub fn freeFrames(self: *const Self) AddressInt {
-                return @intCast(self.backend.remainingUnits());
-            }
-
-            pub fn allocatedFrames(self: *const Self) AddressInt {
-                return @intCast(self.backend.allocatedUnits());
-            }
-
-            pub fn largestFreeOrder(self: *const Self) ?u8 {
-                return largestFreeOrderImpl(Backend, &self.backend);
-            }
-
-            pub fn remainingBytes(self: *const Self) Error!AddressInt {
-                return remainingBytesImpl(AddressInt, Page.Size.bytes, self.freeFrames());
-            }
-
-            /// `order` selects `1 << order` frames.
-            /// `error.InvalidOrder`: `order >= backend.orderCount()`.
-            /// `error.OutOfMemory`: no fitting block.
-            /// `error.Overflow`: frame arithmetic overflow. Error leaves allocator unchanged.
-            pub fn alloc(self: *Self, order: u8) Error!FrameRange {
-                return allocImpl(Backend, Page, &self.backend, self.base, order);
-            }
-
-            /// `range` must be a single allocated block.
-            /// `error.InvalidRequest`: bad size or alignment.
-            /// `error.OutOfBounds`: `range` escapes allocator span.
-            /// `error.NotAllocated`: double-free.
-            /// `error.Overflow`: unit arithmetic overflow. Error leaves allocator unchanged.
-            pub fn free(self: *Self, range: FrameRange) Error!void {
-                return freeImpl(Backend, Page, &self.backend, self.base, range);
-            }
-
-            /// `error.InvalidRequest`: `range` is invalid.
-            /// `error.OutOfBounds`: `range` escapes allocator span.
-            /// `error.AlreadyAllocated`: any frame is already unavailable.
-            /// `error.Overflow`: unit arithmetic overflow. Empty in-bounds range is a no-op.
-            /// Error leaves allocator unchanged.
-            pub fn reserve(self: *Self, range: FrameRange) Error!void {
-                return reserveImpl(Backend, Page, &self.backend, self.base, range);
-            }
-
-            pub fn isFree(self: *const Self, range: FrameRange) bool {
-                return isFreeImpl(Backend, Page, &self.backend, self.base, range);
-            }
-
-            pub fn FrameSource(comptime order: u8) type {
-                return FrameSourceImpl(Self, Page, order);
-            }
-
-            pub fn frameSource(self: *Self, comptime order: u8) FrameSource(order) {
-                return .{ .parent = self };
-            }
-
-            pub fn isValid(self: *const Self) bool {
-                return isValidImpl(Backend, Page, &self.backend, self.base);
-            }
-
-            pub fn assertValid(self: *const Self) void {
-                std.debug.assert(self.isValid());
-            }
-        };
-    }
-};
 
 fn allocImpl(
     comptime Backend: type,

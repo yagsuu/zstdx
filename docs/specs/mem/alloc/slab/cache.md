@@ -1,25 +1,27 @@
-# Memory pool cache
+# Memory slab cache
 
 Status: Approved.
 
-`stdx.mem.PoolCache(T, RegionSource)` is a multi-region typed object cache. It
-composes many `Pool.Bounded(T)` instances behind one class, growing by pulling
+`stdx.mem.alloc.SlabCache(T, RegionSource)` is a multi-region typed object cache. It
+composes many `SlabAllocator.Bounded(T)` instances behind one class, growing by pulling
 fixed-size aligned regions from a caller-supplied `RegionSource` on explicit
 `refill` and returning fully-empty regions on explicit `drain`. Every object
 handed out by `acquire` lives in exactly one region; `release` returns the
-slot to that region's pool without touching the region-source.
+slot to that region's slab allocator without touching the region-source.
 
-`PoolCache` never hides allocation. `acquire` never calls the `RegionSource`.
+`SlabCache` never hides allocation. `acquire` never calls the `RegionSource`.
 Growth is a caller decision expressed by `refill`.
 
 ## Owned scope
 
 This spec owns:
 
-- `mem.PoolCache(T, RegionSource)`;
+- `mem.alloc.SlabCache(T, RegionSource)`;
+- `SlabCache.PerCpu(cpu_count, local_capacity)`;
 - the `RegionSource` interface contract (comptime-duck-typed);
 - intrusive per-region metadata (`RegionHeader`) laid out inside each region;
-- the empty / partial / full three-list membership discipline;
+- slab coloring during `refill`;
+- empty / partial / full region-list membership;
 - `acquire`, `release`, `refill`, `drain`, and `contains` semantics;
 - exhaustion behavior when every region is full;
 - pointer stability for outstanding acquisitions across `acquire`, `release`,
@@ -30,51 +32,50 @@ This spec does not own:
 
 - concrete region sources (page allocators, boot heaps, IOMMU-mapped
   regions, huge-page providers);
-- per-CPU sharding or a `PoolCache.PerCpu` sibling;
-- reclamation ordering across regions;
+- CPU discovery, affinity, or interrupt policy;
+- a general-purpose thread-safe `SlabCache`;
 - destructors, release callbacks, or value finalizers;
 - generation counters, stale-handle detection, or hazard-pointer schemes;
-- thread-safe caches;
 - iteration over live objects across regions;
-- automatic zeroing or poisoning beyond the `Pool` debug-fill contract
-  inherited from `docs/specs/mem/pool.md`;
+- automatic zeroing or poisoning beyond the `SlabAllocator` debug-fill contract
+  inherited from `docs/specs/mem/alloc/slab/allocator.md`;
 - `std.mem.Allocator` views.
 
 ## Public namespace
 
-`PoolCache` lives under `stdx.mem`:
+`SlabCache` lives under `stdx.mem.alloc`:
 
 ```zig
-stdx.mem.PoolCache
+stdx.mem.alloc.SlabCache
 ```
 
 It is not root-promoted:
 
 ```zig
-stdx.PoolCache // not exported
+stdx.SlabCache // not exported
 ```
 
 Source ownership:
 
 ```text
 src/mem.zig
-src/mem/pool_cache.zig
-test/mem/pool_cache_test.zig
+src/mem/alloc/slab/cache.zig
+test/mem/alloc/slab/cache_test.zig
 ```
 
-`src/mem.zig` re-exports:
+`src/mem/alloc/slab.zig` re-exports:
 
 ```zig
-pub const pool_cache = @import("mem/pool_cache.zig");
+pub const cache = @import("slab/cache.zig");
 
-pub const PoolCache = pool_cache.PoolCache;
+pub const SlabCache = cache.SlabCache;
 ```
 
 ## `RegionSource` interface
 
 `RegionSource` is a comptime-duck-typed interface. Any type used as
 `RegionSource` MUST expose the following declarations, evaluated at
-`PoolCache(T, RegionSource)` instantiation:
+`SlabCache(T, RegionSource)` instantiation:
 
 ```zig
 pub const region_bytes: usize;
@@ -87,11 +88,13 @@ pub fn release(self: *Self, region: *align(region_align) [region_bytes]u8) void;
 
 Requirements:
 
-- `region_bytes > 0` and a multiple of `region_align`;
+- `region_bytes > 0`;
 - `region_align` is a non-zero power of two;
+- `region_align >= region_bytes`, so masking an object address down to
+  `region_align` recovers its region base;
 - `region_align >= @alignOf(RegionHeader)` (the cache asserts this at
   compile time);
-- `region_bytes >= @sizeOf(RegionHeader) + @sizeOf(PoolCache(T, ...).Slot)`
+- `region_bytes >= @sizeOf(RegionHeader) + @sizeOf(SlabCache(T, ...).Slot)`
   (the cache asserts this at compile time; a region MUST fit at least the
   header and one slot);
 - `Error` is a Zig error set;
@@ -101,7 +104,7 @@ Requirements:
   releasing a foreign pointer is a caller contract violation;
 - neither method wakes threads, blocks, spins, or performs I/O within the
   cache's contract; source implementations that do so are outside the
-  `PoolCache` spec.
+  `SlabCache` spec.
 
 The cache never inspects, retains, or forwards `RegionSource` state beyond
 calling these two methods. The source pointer stored in the cache is used
@@ -110,8 +113,11 @@ only to dispatch `refill` and `drain`.
 ## Approved API
 
 ```zig
-pub fn PoolCache(comptime T: type, comptime RegionSource: type) type;
+pub fn SlabCache(comptime T: type, comptime RegionSource: type) type;
 ```
+
+`SlabCache.PerCpu(cpu_count, local_capacity)` returns a cache with
+cache-line-padded local object caches and a synchronized global `SlabCache`.
 
 Returned namespace:
 
@@ -124,7 +130,7 @@ pub const Self = struct {
     region_count: usize = 0,
     live_count: usize = 0,
 
-    pub const Slot = Pool.Bounded(T).Slot;
+    pub const Slot = SlabAllocator.Bounded(T).Slot;
 
     pub const Error = error{ OutOfMemory };
     pub const RefillError = RegionSource.Error;
@@ -149,6 +155,8 @@ pub const Self = struct {
 
     pub fn isValid(self: *const Self) bool;
     pub fn assertValid(self: *const Self) void;
+
+    pub fn PerCpu(comptime cpu_count: usize, comptime local_capacity: usize) type;
 };
 ```
 
@@ -163,37 +171,42 @@ on its exact layout beyond what this spec requires.
 ## Region layout
 
 Every region acquired from the source begins with a `RegionHeader` at
-offset zero. The remaining `region_bytes - header_bytes` bytes host a
-contiguous `[slots_per_region]Slot` array whose first slot starts at the
-first byte-position at or after the header whose alignment satisfies
-`@alignOf(Slot)`. `slots_per_region` is chosen at compile time as the
-largest integer for which the header, alignment padding, and slot array
-all fit in `region_bytes`.
+offset zero. The cache computes an aligned base slot offset after the
+header.
+
+`color_stride` is `max(std.atomic.cache_line, @alignOf(Slot))`. If a
+region can hold at least one slot at both the base offset and at
+`base offset + color_stride`, the cache uses two colors. Otherwise, the
+cache uses one color. `refill` alternates the selected color.
+
+`slots_per_region` is computed for the largest selected offset. Thus,
+every region has identical capacity even when it has a different color.
 
 `slots_per_region >= 1` is required at compile time. When this condition
-fails, `PoolCache(T, RegionSource)` is a compile error with a message
+fails, `SlabCache(T, RegionSource)` is a compile error with a message
 naming `region_bytes`, `region_align`, and the resulting layout.
 
-`RegionHeader` contains at minimum:
+`RegionHeader` contains:
 
-- an intrusive list link used by the empty / partial / full lists;
-- a `Pool.Bounded(T)` instance whose `buffer` field points into the
-  in-region slot array;
-- a `region_ptr: *align(region_align) [region_bytes]u8` back-pointer used
-  by `drain` when returning the region to the source.
+- `prev` and `next` links for the empty, partial, and full lists;
+- a list identifier;
+- a `SlabAllocator.Bounded(T)` instance whose `buffer` field points into the
+  colored in-region slot array;
+- `region: *align(region_align) [region_bytes]u8`, used by `drain`;
+- `slot_offset`, the byte offset from `region` to the slot array.
 
-Implementations MAY add extra fields (e.g. a `back_link` for O(1) removal,
-a live-count cache) provided the additions do not weaken the spec's
-guarantees.
+The cache uses `region_align` to recover a candidate `RegionHeader` from
+an object pointer. The source alignment requirement makes this operation
+valid for every colored slot.
 
 ## Region membership lists
 
 Every region held by the cache appears on exactly one of three intrusive
-singly-linked lists:
+doubly-linked lists:
 
-- **empty**: `RegionHeader.pool.len() == 0`;
-- **partial**: `0 < RegionHeader.pool.len() < slots_per_region`;
-- **full**: `RegionHeader.pool.len() == slots_per_region`.
+- **empty**: `RegionHeader.inner.len() == 0`;
+- **partial**: `0 < RegionHeader.inner.len() < slots_per_region`;
+- **full**: `RegionHeader.inner.len() == slots_per_region`.
 
 Every mutating operation preserves this partition. Transitions are:
 
@@ -239,11 +252,12 @@ Logic:
    is not modified when `source.acquire` returns an error.
 2. Cast the returned region pointer's first `@sizeOf(RegionHeader)` bytes
    as a `*RegionHeader`.
-3. Initialize the header: install the intrusive link, initialize the
-   inner `Pool.Bounded(T)` over the in-region slot array via
-   `Pool.Bounded(T).wrap(slot_slice)`, store `region_ptr = region`.
-4. Push the header onto the empty list.
-5. Increment `region_count`.
+3. Select the next slot-start color.
+4. Initialize the header. Initialize the inner `SlabAllocator.Bounded(T)`
+   over the colored slot array with `SlabAllocator.Bounded(T).wrap`.
+   Store `region` and `slot_offset`.
+5. Link the header at the empty-list head.
+6. Increment `region_count`.
 
 `refill` propagates the exact error returned by `source.acquire` under
 `RefillError = RegionSource.Error`. Cache-side exhaustion is reported by
@@ -255,9 +269,9 @@ Logic:
 
 Logic:
 
-1. For each `RegionHeader` on the empty list (in list order):
-   - unlink it from the empty list;
-   - call `source.release(header.region_ptr)`;
+1. For each `RegionHeader` on the empty list:
+   - unlink the header from the empty list;
+   - call `source.release(header.region)`;
    - decrement `region_count`.
 2. Regions on the partial or full list are not touched.
 
@@ -272,12 +286,12 @@ Logic:
 Logic:
 
 1. If the partial list is non-empty, choose its head region and call
-   `header.pool.acquire()`. On success, if the region is now full,
+   `header.inner.acquire()`. On success, if the region is now full,
    move it from the partial list to the full list. Increment
    `live_count`. Return the pointer.
 2. Otherwise, if the empty list is non-empty, choose its head region,
    move it from the empty list to the partial list (or full list if
-   `slots_per_region == 1`), and call `header.pool.acquire()`.
+   `slots_per_region == 1`), and call `header.inner.acquire()`.
    Increment `live_count`. Return the pointer.
 3. Otherwise, return `error.OutOfMemory` and leave the cache
    unchanged. The caller decides whether to call `refill()` next.
@@ -285,26 +299,21 @@ Logic:
 `acquire` never calls `source.acquire`. It never walks the full list.
 
 The returned `*T` satisfies `@alignOf(T)` and points at uninitialized
-storage (subject to `Pool`'s debug-fill contract on Debug/ReleaseSafe).
+storage (subject to `SlabAllocator`'s debug-fill contract on Debug/ReleaseSafe).
 
 ## `release(item)` semantics
 
-`release(item)` returns `item` to its owning region's pool.
+`release(item)` returns `item` to its owning region's slab allocator.
 
 Logic:
 
-1. Compute `region_ptr` by masking `@intFromPtr(item)` down to
-   `region_align`. Under `stdx.core.debug.checksEnabled(.build_mode)`,
-   assert that the result matches one of the cache's known region
-   pointers. In release builds this is a caller contract violation
-   silently accepted for O(1) release.
-2. Recover the `RegionHeader` at the base of the region.
-3. Note the region's pre-release list class (empty, partial, or full)
-   from `header.pool.len()` versus `slots_per_region`.
-4. Call `header.pool.release(item)`.
-5. Move the region to its new list class if it changed (see the
-   transitions table above).
-6. Decrement `live_count`.
+1. Mask `@intFromPtr(item)` down to `region_align` to recover the region
+   base, then recover the `RegionHeader`.
+2. Under `stdx.core.debug.checksEnabled(.build_mode)`, assert that the
+   header belongs to this cache.
+3. Call `header.inner.release(item)`.
+4. Decrement `live_count`.
+5. Move the region when its occupancy changes.
 
 `release` never calls `source.release`. Regions that reach the empty
 list stay in the cache until `drain()` is called explicitly.
@@ -319,9 +328,9 @@ owned by this cache.
 Logic:
 
 1. Mask `@intFromPtr(item)` down to `region_align` to obtain a candidate
-   `region_ptr`.
-2. Walk the empty, partial, and full lists (in any order) and return
-   `true` when a header's `region_ptr` matches.
+   region base.
+2. Walk the empty, partial, and full lists and return `true` when a
+   header address matches the candidate base.
 3. Return `false` otherwise.
 
 `contains` walks up to `region_count` headers and is O(region_count).
@@ -351,7 +360,35 @@ Callers that need to detect the acquire-must-refill boundary observe
 
 None of these operations walks a list or calls the source.
 
-## Behavior contract
+## `PerCpu(cpu_count, local_capacity)` semantics
+
+`PerCpu` owns one global `SlabCache` and `cpu_count` cache-line-padded
+local object caches. `cpu_count` and `local_capacity` must be non-zero at
+compile time.
+
+The caller supplies `cpu_index` to `acquire` and `release`. The caller
+MUST route each index to one concurrent executor. The type does not
+discover CPUs or enforce affinity.
+
+`acquire(cpu_index)` pops from the local cache first. When the local cache
+is empty, it acquires the global spin lock, obtains one object for the
+caller, and reserves additional objects for the local cache. It never
+calls the region source.
+
+`release(cpu_index, item)` pushes to the local cache. When the local cache
+is full, it acquires the global spin lock and flushes the local objects to
+the global cache before it pushes `item`.
+
+`refill()` acquires the global spin lock and delegates to the global cache.
+`drain()` acquires the global spin lock, flushes all local caches, then
+delegates to the global cache. The caller MUST quiesce local CPU operations
+before it calls `drain()`.
+
+`PerCpu.len()` excludes objects reserved by local caches. `capacity()`,
+`regionCount()`, `remaining()`, and `isEmpty()` use this external-object
+view. `len()`, `remaining()`, and `isEmpty()` are O(`cpu_count`).
+
+## Base cache behavior contract
 
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -399,7 +436,7 @@ outstanding acquisitions.
   programmer error caught by `assertValid` where practical.
 - zero-sized `T` is a compile error.
 - `slots_per_region == 0` is a compile error at
-  `PoolCache(T, RegionSource)` instantiation.
+  `SlabCache(T, RegionSource)` instantiation.
 
 All error returns leave the cache unchanged.
 
@@ -407,13 +444,14 @@ All error returns leave the cache unchanged.
 
 `assertValid()` walks the empty, partial, and full lists and checks:
 
-- each list's regions have the expected `header.pool.len()` class;
+- each list's regions have the expected `header.inner.len()` class;
+- `prev` and `next` links are mutually consistent;
 - `region_count` equals the sum of the three list lengths;
-- `live_count` equals the sum of `header.pool.len()` across every
+- `live_count` equals the sum of `header.inner.len()` across every
   region;
-- every region's inner `Pool.Bounded(T)` passes its own `isValid`;
-- no region appears on more than one list;
-- every region's `region_ptr` is `region_align`-aligned.
+- every region's inner `SlabAllocator.Bounded(T)` passes its own `isValid`;
+- each header equals the base address of `header.region`;
+- each `slot_offset` and inner slot buffer is valid for the selected color.
 
 `assertValid()` is O(region_count + region_count * slots_per_region) and
 is called explicitly. Operations do not call it unconditionally on hot
@@ -428,16 +466,15 @@ Implementation MUST:
 
 - store the region-list metadata inside `RegionHeader` at region offset
   zero (no external metadata array);
-- initialize each region's inner `Pool.Bounded(T)` via
-  `Pool.Bounded(T).wrap` — do NOT reimplement the Pool bookkeeping
+- initialize each region's inner `SlabAllocator.Bounded(T)` via
+  `SlabAllocator.Bounded(T).wrap` — do NOT reimplement the SlabAllocator bookkeeping
   inside the cache;
-- respect the Pool debug-fill contract by delegating `acquire`/`release`
-  to the inner pool;
+- respect the SlabAllocator debug-fill contract by delegating `acquire`/`release`
+  to the inner slab allocator;
 - never call `RegionSource.acquire` from `acquire`;
 - never call `RegionSource.release` from `release`;
 - perform O(1) list moves on transitions between empty / partial / full
-  (an intrusive next+prev link in `RegionHeader` if singly-linked lists
-  cannot support O(1) unlink);
+  with intrusive `prev` and `next` links in `RegionHeader`;
 - reject `T` and `RegionSource` violations at comptime with clear
   messages;
 - compile for freestanding targets;
@@ -453,7 +490,7 @@ const stdx = @import("stdx");
 
 const Cmd = struct { id: u32, opcode: u32, payload: [16]u8 };
 
-const CmdCache = stdx.mem.PoolCache(Cmd, PageFrameSource);
+const CmdCache = stdx.mem.alloc.SlabCache(Cmd, PageFrameSource);
 
 var cache = CmdCache.init(&page_source);
 
@@ -472,12 +509,12 @@ cache.drain();
 ```
 
 Composing over `FrameAllocator.FrameSource` (documented in
-`docs/specs/mem/frame-allocator.md`):
+`docs/specs/mem/alloc/frame.md`):
 
 ```zig
 const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
-const FrameAlloc = stdx.mem.FrameAllocator.Static(
-    stdx.mem.BuddyAllocator.Static(1024, 6),
+const FrameAlloc = stdx.mem.alloc.FrameAllocator.Static(
+    stdx.mem.alloc.BuddyAllocator.Static(1024, 6),
     Phys4K,
     try Phys4K.Frame.fromAddressInt(0x0010_0000),
 );
@@ -485,7 +522,7 @@ const FrameAlloc = stdx.mem.FrameAllocator.Static(
 var frames = FrameAlloc.init();
 var source = frames.frameSource(0);            // one 4 KiB region per acquire
 
-const NodeCache = stdx.mem.PoolCache(Node, @TypeOf(source));
+const NodeCache = stdx.mem.alloc.SlabCache(Node, @TypeOf(source));
 var cache = NodeCache.init(&source);
 ```
 
@@ -502,7 +539,7 @@ var cache = NodeCache.init(&source);
 
 ## Required tests
 
-Tests live in `test/mem/pool_cache_test.zig`. A mock region source with
+Tests live in `test/mem/alloc/slab/cache_test.zig`. A mock region source with
 recorded `acquire` / `release` counts backs every test unless a variant
 under test names its concrete source.
 
@@ -520,6 +557,13 @@ under test names its concrete source.
   unchanged (`regionCount`, `live_count`, all three list heads
   identical to pre-call snapshot).
 
+### Slab coloring
+
+- consecutive `refill` calls use distinct slot offsets when
+  `color_count == 2`;
+- each colored region has `slots_per_region` slots;
+- the empty-list `prev` and `next` links remain consistent after refill.
+
 ### Acquire and release
 
 - `acquire` after `refill` succeeds and returns a pointer inside the
@@ -532,6 +576,13 @@ under test names its concrete source.
   empty list;
 - `acquire` never calls `source.acquire`;
 - `release` never calls `source.release`.
+
+### Per-CPU cache
+
+- a local release is returned by a later acquire on the same CPU index;
+- `len` excludes local cached objects;
+- `drain` flushes local objects and releases empty regions;
+- `assertValid` succeeds with objects in local caches.
 
 ### Exhaustion
 
@@ -573,8 +624,8 @@ Reference: `std.ArrayList(?T)` oracle sized to the cache's current
 capacity. Reference operations mirror `acquire` / `release`; `refill`
 and `drain` grow and shrink the oracle by `slots_per_region`.
 
-- 10 000 random operations over a `PoolCache(u64, MockSource)` with
-  `region_bytes = 256` and `region_align = 64`;
+- 2 000 random operations over a `SlabCache(u64, MockSource)` with
+  `region_bytes = 512` and `region_align = 512`;
 - the model checks pointer validity, `contains` correctness, list
   membership invariants after every op;
 - at the end of the sequence, a final `drain` returns the cache to
@@ -586,17 +637,17 @@ and `drain` grow and shrink the oracle by `slots_per_region`.
 - zero-sized `T` fails to instantiate;
 - a `RegionSource` missing `region_bytes` fails to instantiate;
 - a `RegionSource` missing `acquire` fails to instantiate;
-- a `RegionSource` whose `region_align` does not satisfy
-  `@alignOf(RegionHeader)` fails to instantiate;
+- a `RegionSource` whose `region_align < region_bytes` fails to
+  instantiate;
 - a `RegionSource` whose `region_bytes` cannot fit at least one header
-  plus one slot fails to instantiate.
+  plus one colored slot fails to instantiate.
 
 ### Debug fill inheritance
 
-- `PoolCache`'s acquired pointers are subject to the same
-  `0xCD` / `0xFD` fill discipline as `Pool` under
+- `SlabCache`'s acquired pointers are subject to the same
+  `0xCD` / `0xFD` fill discipline as `SlabAllocator` under
   `checksEnabled(.build_mode) == true` — the test relies on the
-  underlying `Pool.Bounded(T)` inside each region enforcing it.
+  underlying `SlabAllocator.Bounded(T)` inside each region enforcing it.
 
 ## Open questions
 

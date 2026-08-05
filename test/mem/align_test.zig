@@ -1,4 +1,4 @@
-//! Memory alignment helper contract tests. See `docs/specs/mem/alignment.md`.
+//! Memory alignment helper contract tests. See `docs/specs/mem/align.md`.
 
 const std = @import("std");
 

@@ -1,42 +1,33 @@
-//! Typed, fixed-capacity intrusive-free-list object pool family.
-//! See `docs/specs/mem/pool.md`.
+//! Fixed-capacity typed object allocator with intrusive free lists.
+//! See `docs/specs/mem/alloc/slab/allocator.md`.
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("../../../core/debug.zig");
 
-fn requireRuntimeValue(comptime T: type) void {
-    if (@sizeOf(T) == 0) @compileError("pool element type must have nonzero size");
-}
-
-/// Fixed-capacity object pool family. Both variants store `T` inside a
-/// `Slot = union(enum) { free, occupied }` and share LIFO intrusive-free-list
-/// discipline.
-pub const Pool = struct {
-    /// Inline `[capacity_items]Slot` storage. The pool value owns its
-    /// backing storage; do not move the value while any pointer is live.
+/// Fixed-capacity typed allocator with LIFO reuse.
+pub const SlabAllocator = struct {
+    /// Owns inline storage. Do not move the allocator while allocations are live.
     pub fn Static(comptime T: type, comptime capacity_items: usize) type {
         comptime requireRuntimeValue(T);
-        comptime if (capacity_items == 0) @compileError("Pool.Static capacity_items must be non-zero");
+        comptime if (capacity_items == 0) @compileError("SlabAllocator.Static capacity_items must be non-zero");
+
         return struct {
             buffer: [capacity_items]Slot = undefined,
             free_head: ?*Slot = null,
             bump_index: usize = 0,
             live_count: usize = 0,
 
-            const Self = @This();
-
-            /// Per-element storage. `free` carries the next pointer in the
-            /// intrusive free list; `occupied` holds the live `T`.
+            /// `free` links the intrusive free list; `occupied` stores live `T`.
             pub const Slot = union(enum) {
                 free: ?*Slot,
                 occupied: T,
             };
 
-            /// `OutOfMemory`: pool has no free slots.
+            const Self = @This();
+
             pub const Error = error{OutOfMemory};
 
-            /// Comptime capacity in items.
             pub const item_capacity = capacity_items;
 
             pub fn init() Self {
@@ -64,25 +55,21 @@ pub const Pool = struct {
                 return self.live_count == item_capacity;
             }
 
-            /// Resets to a fresh empty pool. Invalidates every outstanding
-            /// acquired pointer.
-            pub fn clearRetainingCapacity(self: *Self) void {
-                self.free_head = null;
-                self.bump_index = 0;
-                self.live_count = 0;
-            }
-
-            /// Acquires one uninitialized `T`. Returns `error.OutOfMemory`
-            /// when the pool is full.
+            /// Returns uninitialized storage.
             pub fn acquire(self: *Self) Error!*T {
                 return acquireSlot(Slot, T, self.buffer[0..], &self.free_head, &self.bump_index, &self.live_count);
             }
 
-            /// Releases a previously acquired pointer to the free list. The
-            /// pointer must come from this pool and must not have been
-            /// released already.
+            /// `item` must be live and belong to this allocator.
             pub fn release(self: *Self, item: *T) void {
                 releaseSlot(Slot, T, &self.free_head, &self.live_count, item);
+            }
+
+            /// Invalidates outstanding pointers.
+            pub fn clearRetainingCapacity(self: *Self) void {
+                self.free_head = null;
+                self.bump_index = 0;
+                self.live_count = 0;
             }
 
             pub fn isValid(self: *const Self) bool {
@@ -95,22 +82,22 @@ pub const Pool = struct {
         };
     }
 
-    /// Borrowed `[]Slot` storage. The caller keeps the buffer alive for the
-    /// lifetime of the pool and every acquired pointer.
+    /// Borrows `buffer`; it must outlive every acquired pointer.
     pub fn Bounded(comptime T: type) type {
         comptime requireRuntimeValue(T);
+
         return struct {
             buffer: []Slot,
             free_head: ?*Slot = null,
             bump_index: usize = 0,
             live_count: usize = 0,
 
-            const Self = @This();
-
             pub const Slot = union(enum) {
                 free: ?*Slot,
                 occupied: T,
             };
+
+            const Self = @This();
 
             pub const Error = error{OutOfMemory};
 
@@ -138,18 +125,19 @@ pub const Pool = struct {
                 return self.live_count == self.buffer.len;
             }
 
-            pub fn clearRetainingCapacity(self: *Self) void {
-                self.free_head = null;
-                self.bump_index = 0;
-                self.live_count = 0;
-            }
-
             pub fn acquire(self: *Self) Error!*T {
                 return acquireSlot(Slot, T, self.buffer, &self.free_head, &self.bump_index, &self.live_count);
             }
 
             pub fn release(self: *Self, item: *T) void {
                 releaseSlot(Slot, T, &self.free_head, &self.live_count, item);
+            }
+
+            /// Invalidates outstanding pointers.
+            pub fn clearRetainingCapacity(self: *Self) void {
+                self.free_head = null;
+                self.bump_index = 0;
+                self.live_count = 0;
             }
 
             pub fn isValid(self: *const Self) bool {
@@ -163,10 +151,7 @@ pub const Pool = struct {
     }
 };
 
-// Slots are allocated sequentially until released slots form a LIFO free list.
-// The free-list pointers refer to stable pool storage and are initialized
-// lazily because pointers created by `init()` would become invalid when the
-// pool is returned by value.
+// Lazy LIFO links let `Static.init()` return by value.
 fn acquireSlot(
     comptime Slot: type,
     comptime T: type,
@@ -179,6 +164,7 @@ fn acquireSlot(
         free_head.* = slot.free;
         slot.* = .{ .occupied = undefined };
         live_count.* += 1;
+
         const payload = &slot.occupied;
         fillPayload(T, payload, alloc_fill);
         return payload;
@@ -187,9 +173,11 @@ fn acquireSlot(
     if (bump_index.* >= buffer.len) return error.OutOfMemory;
 
     const slot = &buffer[bump_index.*];
-    bump_index.* += 1;
     slot.* = .{ .occupied = undefined };
+
+    bump_index.* += 1;
     live_count.* += 1;
+
     const payload = &slot.occupied;
     fillPayload(T, payload, alloc_fill);
     return payload;
@@ -217,9 +205,7 @@ fn releaseSlot(
 const alloc_fill: u8 = 0xCD;
 const free_fill: u8 = 0xFD;
 
-// Overwrite `@sizeOf(T)` payload bytes at `payload` with `pattern` when
-// stdx safety checks are enabled. Compiled out in ReleaseFast and
-// ReleaseSmall. Payload-only diagnostic per docs/specs/mem/pool.md.
+// Fills payload bytes only when safety checks are enabled.
 inline fn fillPayload(comptime T: type, payload: *T, pattern: u8) void {
     if (!debug.checksEnabled(.build_mode)) return;
     const bytes: [*]u8 = @ptrCast(payload);
@@ -241,7 +227,7 @@ fn checkValid(
     var current = free_head;
     while (current) |slot| {
         seen += 1;
-        if (seen > free_count) return false; // cycle or over-count
+        if (seen > free_count) return false; // Free-list cycle or over-count.
         if (!slotInBuffer(Slot, buffer, slot)) return false;
         if (slot.* != .free) return false;
         current = slot.free;
@@ -260,4 +246,8 @@ fn slotInBuffer(comptime Slot: type, buffer: []const Slot, slot: *const Slot) bo
     const offset = slot_addr - base_addr;
     if (offset % @sizeOf(Slot) != 0) return false;
     return @divExact(offset, @sizeOf(Slot)) < buffer.len;
+}
+
+fn requireRuntimeValue(comptime T: type) void {
+    if (@sizeOf(T) == 0) @compileError("slab allocator element type must have nonzero size");
 }

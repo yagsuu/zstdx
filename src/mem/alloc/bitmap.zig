@@ -1,21 +1,20 @@
 //! Fixed-unit bitmap allocators over `u64`-word storage with lowest-index
 //! first-fit placement.
-//! See `docs/specs/mem/bitmap-allocator.md`.
+//! See `docs/specs/mem/alloc/bitmap.md`.
 
 const std = @import("std");
 
-const word = @import("../bits/word.zig");
+const word = @import("../../bits/word.zig");
 
-const RangeUsize = @import("../core/range.zig").Range(usize);
+const RangeUsize = @import("../../core/range.zig").Range(usize);
 
-/// Family of fixed-unit bitmap allocators. Both variants share `u64`-word
-/// storage, lowest-index first-fit placement, and the unused-bit invariant
-/// enforced after every public mutation. They never allocate, never wait,
-/// and never touch global state.
+const BitmapWord = u64;
+const Shift = std.math.Log2Int(BitmapWord);
+
+const bitmap_word_bits = @bitSizeOf(BitmapWord);
+
 pub const BitmapAllocator = struct {
-    /// Inline `[word_count]Word` storage. The allocator value owns its
-    /// backing storage; a default struct literal and `init()` both yield
-    /// an empty allocator.
+    /// Owns inline bitmap storage.
     pub fn Static(comptime capacity_units: usize) type {
         comptime if (capacity_units == 0) @compileError("BitmapAllocator.Static capacity_units must be non-zero");
         return struct {
@@ -23,37 +22,20 @@ pub const BitmapAllocator = struct {
 
             const Self = @This();
 
-            /// Backing word type. Implementation-fixed to `u64`.
             pub const Word = u64;
-
-            /// Bits per backing word.
-            pub const word_bits = @bitSizeOf(Word);
-
-            /// Comptime unit capacity.
-            pub const unit_capacity = capacity_units;
-
-            /// Number of backing words; rounded up from
-            /// `unit_capacity / word_bits`.
-            pub const word_count = word.count(Word, capacity_units);
-
-            /// Half-open range of unit indexes.
             pub const Range = RangeUsize;
 
-            /// Error set shared with `BitmapAllocator.Bounded`.
             pub const Error = BitmapAllocator.Bounded.Error;
             pub const AllocError = BitmapAllocator.Bounded.AllocError;
             pub const ReserveError = BitmapAllocator.Bounded.ReserveError;
             pub const FreeError = BitmapAllocator.Bounded.FreeError;
 
-            /// Empty allocator.
+            pub const word_bits = @bitSizeOf(Word);
+            pub const unit_capacity = capacity_units;
+            pub const word_count = word.count(Word, capacity_units);
+
             pub fn init() Self {
                 return .{};
-            }
-
-            /// Marks every unit free. Capacity and backing storage identity
-            /// do not change.
-            pub fn clearRetainingCapacity(self: *Self) void {
-                for (&self.words) |*w| w.* = 0;
             }
 
             pub fn capacity(self: Self) usize {
@@ -77,41 +59,35 @@ pub const BitmapAllocator = struct {
                 return self.allocated() == unit_capacity;
             }
 
-            /// True only when `index < capacity()` and the unit is
-            /// allocated. Out-of-bounds indexes return false.
+            /// Returns false when `index` is out of bounds.
             pub fn isAllocated(self: Self, index: usize) bool {
                 return bitIsSet(self.words[0..], unit_capacity, index);
             }
 
-            /// True only when `index < capacity()` and the unit is free.
-            /// Out-of-bounds indexes return false.
+            /// Returns false when `index` is out of bounds.
             pub fn isFree(self: Self, index: usize) bool {
                 if (index >= unit_capacity) return false;
                 return !bitIsSet(self.words[0..], unit_capacity, index);
             }
 
-            /// Lowest free unit index, or `error.OutOfMemory` when full.
+            /// Allocates the lowest free unit.
             pub fn allocOne(self: *Self) AllocError!usize {
                 return allocOneImpl(self.words[0..], unit_capacity);
             }
 
-            /// Lowest contiguous first-fit range of `count` free units.
-            /// `count == 0` returns `Range.empty(0)` without mutating.
+            /// Allocates the lowest contiguous free range.
+            /// `count == 0` does not mutate.
             pub fn allocRange(self: *Self, count: usize) AllocError!Range {
                 return allocRangeImpl(self.words[0..], unit_capacity, count);
             }
 
-            /// `error.OutOfBounds`: `index >= capacity()`.
-            /// `error.AlreadyAllocated`: unit is already allocated.
-            /// Error leaves allocator unchanged.
+            /// Leaves the bitmap unchanged on error.
             pub fn reserveOne(self: *Self, index: usize) ReserveError!void {
                 return reserveOneImpl(self.words[0..], unit_capacity, index);
             }
 
-            /// `range` must be valid; invalid range is a programmer error.
-            /// `error.OutOfBounds`: `range.end > capacity()`.
-            /// `error.AlreadyAllocated`: any unit is already allocated.
-            /// Empty range is a no-op. Error leaves allocator unchanged.
+            /// Requires a valid `range`.
+            /// An empty in-bounds range is a no-op; errors do not mutate.
             pub fn reserveRange(self: *Self, range: Range) ReserveError!void {
                 return reserveRangeImpl(self.words[0..], unit_capacity, range);
             }
@@ -120,15 +96,16 @@ pub const BitmapAllocator = struct {
                 return freeOneImpl(self.words[0..], unit_capacity, index);
             }
 
-            /// `range` must be valid; invalid range is a programmer error.
-            /// `error.OutOfBounds`: `range.end > capacity()`.
-            /// `error.NotAllocated`: any unit is already free.
-            /// Empty range is a no-op. Error leaves allocator unchanged.
+            /// Requires a valid `range`.
+            /// An empty in-bounds range is a no-op; errors do not mutate.
             pub fn freeRange(self: *Self, range: Range) FreeError!void {
                 return freeRangeImpl(self.words[0..], unit_capacity, range);
             }
 
-            /// Returns true if unused high bits in the final logical word are zero.
+            pub fn clearRetainingCapacity(self: *Self) void {
+                for (&self.words) |*w| w.* = 0;
+            }
+
             pub fn isValid(self: Self) bool {
                 return checkValid(self.words[0..], unit_capacity);
             }
@@ -139,20 +116,15 @@ pub const BitmapAllocator = struct {
         };
     }
 
-    /// Borrowed `[]Word` bitmap. The caller keeps `words` alive for the
-    /// lifetime of the allocator.
+    /// Borrows `words`; they must outlive the allocator.
     pub const Bounded = struct {
         words: []Word,
         unit_capacity: usize,
 
-        /// Backing word type. Implementation-fixed to `u64`.
         pub const Word = u64;
-
-        /// Bits per backing word.
-        pub const word_bits = @bitSizeOf(Word);
-
-        /// Half-open range of unit indexes.
         pub const Range = RangeUsize;
+
+        pub const word_bits = @bitSizeOf(Word);
 
         /// `OutOfMemory`: requested allocation cannot be satisfied.
         /// `OutOfBounds`: caller index or range, or wrap capacity, is
@@ -165,16 +137,11 @@ pub const BitmapAllocator = struct {
         pub const FreeError = error{ OutOfBounds, NotAllocated };
         pub const Error = WrapError || AllocError || ReserveError || FreeError;
 
-        /// Borrowed words are zeroed only on success.
-        /// `error.OutOfBounds`: `unit_capacity` exceeds word storage; unchanged on error.
+        /// Clears `words` only after validating `unit_capacity`.
         pub fn wrap(words: []Word, unit_capacity: usize) WrapError!Bounded {
             if (word.count(Word, unit_capacity) > words.len) return error.OutOfBounds;
             for (words) |*w| w.* = 0;
             return .{ .words = words, .unit_capacity = unit_capacity };
-        }
-
-        pub fn clearRetainingCapacity(self: *Bounded) void {
-            for (self.words) |*w| w.* = 0;
         }
 
         pub fn capacity(self: Bounded) usize {
@@ -214,17 +181,12 @@ pub const BitmapAllocator = struct {
             return allocRangeImpl(self.words, self.unit_capacity, count);
         }
 
-        /// `error.OutOfBounds`: `index >= capacity()`.
-        /// `error.AlreadyAllocated`: unit is already allocated.
-        /// Error leaves allocator unchanged.
         pub fn reserveOne(self: *Bounded, index: usize) ReserveError!void {
             return reserveOneImpl(self.words, self.unit_capacity, index);
         }
 
-        /// `range` must be valid; invalid range is a programmer error.
-        /// `error.OutOfBounds`: `range.end > capacity()`.
-        /// `error.AlreadyAllocated`: any unit is already allocated.
-        /// Empty range is a no-op. Error leaves allocator unchanged.
+        /// Requires a valid `range`.
+        /// An empty in-bounds range is a no-op; errors do not mutate.
         pub fn reserveRange(self: *Bounded, range: Range) ReserveError!void {
             return reserveRangeImpl(self.words, self.unit_capacity, range);
         }
@@ -233,17 +195,16 @@ pub const BitmapAllocator = struct {
             return freeOneImpl(self.words, self.unit_capacity, index);
         }
 
-        /// `range` must be valid; invalid range is a programmer error.
-        /// `error.OutOfBounds`: `range.end > capacity()`.
-        /// `error.NotAllocated`: any unit is already free.
-        /// Empty range is a no-op. Error leaves allocator unchanged.
+        /// Requires a valid `range`.
+        /// An empty in-bounds range is a no-op; errors do not mutate.
         pub fn freeRange(self: *Bounded, range: Range) FreeError!void {
             return freeRangeImpl(self.words, self.unit_capacity, range);
         }
 
-        /// True when `unit_capacity <= words.len * word_bits`, unused high
-        /// bits in the final logical word are zero, and every borrowed
-        /// word past the logical word count is zero.
+        pub fn clearRetainingCapacity(self: *Bounded) void {
+            for (self.words) |*w| w.* = 0;
+        }
+
         pub fn isValid(self: Bounded) bool {
             return checkValid(self.words, self.unit_capacity);
         }
@@ -254,14 +215,9 @@ pub const BitmapAllocator = struct {
     };
 };
 
-// Shared bit-arithmetic helpers; every mutator preflights its full effect
-// so that errors leave storage untouched.
-const BitmapWord = u64;
-const bitmap_word_bits = @bitSizeOf(BitmapWord);
 const BitmapAllocError = BitmapAllocator.Bounded.AllocError;
 const BitmapReserveError = BitmapAllocator.Bounded.ReserveError;
 const BitmapFreeError = BitmapAllocator.Bounded.FreeError;
-const Shift = std.math.Log2Int(BitmapWord);
 
 fn logicalWordCount(unit_capacity: usize) usize {
     return word.count(BitmapWord, unit_capacity);
