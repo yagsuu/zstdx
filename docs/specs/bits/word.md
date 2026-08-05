@@ -252,9 +252,9 @@ _ = tail_live;
 ## Planned use
 
 - `stdx.bits.BitSet.Static` word-count and mask primitives;
-- `stdx.mem.BitmapAllocator` (Static / Bounded) word-count and query
+- `stdx.mem.alloc.BitmapAllocator` (Static / Bounded) word-count and query
   primitives;
-- `stdx.mem.BuddyAllocator` per-order word-count math;
+- `stdx.mem.alloc.BuddyAllocator` per-order word-count math;
 - `stdx.tags.TagAllocator` (Static / Bounded) word-count, last-mask,
   and single-bit primitives;
 - downstream bitmap consumers that need the same word-level

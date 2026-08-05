@@ -1,5 +1,5 @@
 //! Power-of-two integer helpers used by alignment, ring capacities, and
-//! bitsets. See `docs/specs/bits/power-of-two.md`.
+//! bitsets. See `docs/specs/bits/power_of_two.md`.
 
 const std = @import("std");
 

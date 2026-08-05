@@ -65,7 +65,7 @@ pub const set = @import("ranges/set.zig");
 pub const RangeSet = set.RangeSet;
 ```
 
-The package root may export the `ranges` namespace when `src/ranges.zig` lands, as governed by `docs/specs/root-exports.md`.
+The package root may export the `ranges` namespace when `src/ranges.zig` lands, as governed by `docs/specs/stdx.md`.
 
 ## Approved API
 

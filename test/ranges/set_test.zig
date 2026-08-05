@@ -1,4 +1,4 @@
-//! RangeSet contract tests. See `docs/specs/ranges/range-set.md`.
+//! RangeSet contract tests. See `docs/specs/ranges/set.md`.
 
 const std = @import("std");
 

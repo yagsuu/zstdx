@@ -58,7 +58,7 @@ Use these labels in specs and planning documents:
 
 The following are not approved implementation contracts until a later spec marks them approved:
 
-- exact per-primitive source files beyond the architecture tree approved in `docs/specs/architecture.md`;
+- exact per-primitive source files beyond the architecture tree approved in `docs/specs/project/architecture.md`;
 - exact method signatures beyond the common vocabulary approved in `docs/specs/project/scope.md`;
 - exact managed/unmanaged container naming beyond the approved `Static` and `Bounded` capacity categories;
 - exact barrier, DMA, IO, and architecture fence semantics;

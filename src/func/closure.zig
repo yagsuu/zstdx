@@ -7,7 +7,7 @@ const validate = @import("validate.zig");
 
 const Callback = callback.Callback;
 
-const alignUp = @import("../mem/alignment.zig").alignUp;
+const alignUp = @import("../mem/align.zig").alignUp;
 
 /// A small-buffer closure with signature `Fn`. It holds `capacity_bytes` of
 /// inline caller state aligned to `@alignOf(usize)` and one thunk pointer.

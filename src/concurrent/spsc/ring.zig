@@ -1,4 +1,4 @@
-//! Bounded single-producer/single-consumer ring. See `docs/specs/concurrent/spsc-ring.md`.
+//! Bounded single-producer/single-consumer ring. See `docs/specs/concurrent/spsc/ring.md`.
 
 const std = @import("std");
 

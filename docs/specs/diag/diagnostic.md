@@ -175,7 +175,7 @@ var diag = stdx.diag.Diagnostics.Static(.{
 
 The diagnostics value owns its frame slots and detail arena. It MUST NOT be moved
 while formatted detail allocations are live; this matches the pointer-stability
-contract of `stdx.mem.Arena.Static`.
+contract of `stdx.mem.alloc.Arena.Static`.
 
 ## Common usage: scoped propagated-error unwind
 

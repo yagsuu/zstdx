@@ -1,4 +1,4 @@
-//! Barrier primitives. See `docs/specs/barrier/overview.md` and
+//! Barrier primitives. See `docs/specs/barrier.md` and
 //! `docs/specs/barrier/dma.md`.
 
 pub const mmio = @import("barrier/mmio.zig");

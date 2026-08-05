@@ -28,7 +28,7 @@ This spec owns:
 This spec does not own:
 
 - allocators that own free lists, bitmaps, arenas, pages, or memory maps;
-- `mem.BuddyAllocator` storage and free-list management;
+- `mem.alloc.BuddyAllocator` storage and free-list management;
 - physical or virtual memory policy;
 - DMA or IOMMU policy;
 - page-size policy;

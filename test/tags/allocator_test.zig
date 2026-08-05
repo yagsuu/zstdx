@@ -1,4 +1,4 @@
-//! TagAllocator contract tests. See `docs/specs/tags/tag-allocator.md`.
+//! TagAllocator contract tests. See `docs/specs/tags/allocator.md`.
 
 const std = @import("std");
 const stdx = @import("stdx");

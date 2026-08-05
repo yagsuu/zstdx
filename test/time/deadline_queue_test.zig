@@ -1,4 +1,4 @@
-//! Deadline queue behavioral tests. See `docs/specs/time/deadline-queue.md`.
+//! Deadline queue behavioral tests. See `docs/specs/time/deadline_queue.md`.
 
 const std = @import("std");
 const stdx = @import("stdx");

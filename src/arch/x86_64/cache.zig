@@ -1,4 +1,4 @@
-//! x86_64 cache maintenance wrappers. See `docs/specs/arch/x86_64/base.md`.
+//! x86_64 cache maintenance wrappers. See `docs/specs/arch/x86_64.md`.
 
 const std = @import("std");
 

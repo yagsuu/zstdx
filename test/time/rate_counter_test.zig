@@ -1,4 +1,4 @@
-//! RateCounter projection tests. See `docs/specs/time/rate-counter.md`.
+//! RateCounter projection tests. See `docs/specs/time/rate_counter.md`.
 
 const std = @import("std");
 

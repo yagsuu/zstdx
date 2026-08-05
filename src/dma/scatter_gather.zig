@@ -1,5 +1,5 @@
 //! DMA segment lists and aligned append builders.
-//! See `docs/specs/dma/scatter-gather.md`.
+//! See `docs/specs/dma/scatter_gather.md`.
 
 const std = @import("std");
 

@@ -1,4 +1,4 @@
-//! Typed atomic cell. See `docs/specs/sync/atomic-cell.md`.
+//! Typed atomic cell. See `docs/specs/sync/atomic_cell.md`.
 
 const std = @import("std");
 

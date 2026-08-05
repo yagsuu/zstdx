@@ -156,7 +156,7 @@ pub const Bounded = struct {
 ```
 
 `Static(0)` is a compile-time error, matching the `BitSet.Static(0)` rule in
-`docs/specs/bits/bitset/static.md`. `Static(capacity_parties)` with
+`docs/specs/bits/set/static.md`. `Static(capacity_parties)` with
 `capacity_parties > std.math.maxInt(u32)` is a compile-time error.
 `Bounded.init(0, backend)` is a caller-contract violation and traps under
 `stdx.core.debug.checksEnabled(.build_mode)`.

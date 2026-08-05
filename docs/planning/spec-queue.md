@@ -198,7 +198,7 @@ MUST follow this convention:
 
 - `docs/specs/concurrent/mpsc-atomic-ring.md` — Single-atomic-publication bounded MPSC ring for preemption-safe producer paths.
 
-  Sibling to `docs/specs/concurrent/mpsc-ring.md` under the same `mpsc`
+  Sibling to `docs/specs/concurrent/mpsc/ring.md` under the same `mpsc`
   namespace. Not a mode flag on `Ring`. Publishes an item in one atomic step
   (packed sequence tag + payload in a single CAS on a per-slot
   `std.atomic.Value(u64)`), so a producer preempted at any point leaves the ring
@@ -220,7 +220,7 @@ MUST follow this convention:
   - `popFront` matches `Ring.popFront`'s execution-context freedom (single
     owner, no CAS participation), and remains safe from any execution context
     including NMI;
-  - cross-reference from `docs/specs/concurrent/mpsc-ring.md` (correction 16's
+  - cross-reference from `docs/specs/concurrent/mpsc/ring.md` (correction 16's
     NMI-safe sibling pointer) is repointed at
     `docs/specs/concurrent/mpsc-atomic-ring.md`;
   - zero-allocation, bounded, no policy on wake or scheduler.

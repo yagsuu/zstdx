@@ -1,4 +1,4 @@
-//! x86_64 interrupt flag helpers. See `docs/specs/arch/x86_64/base.md`.
+//! x86_64 interrupt flag helpers. See `docs/specs/arch/x86_64.md`.
 
 const target = @import("target.zig");
 const rflags = @import("register/rflags.zig");

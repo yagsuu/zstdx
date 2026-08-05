@@ -9,7 +9,7 @@ descriptor. It never allocates, never maps, and never emits a barrier.
 
 `Buffer(T)` is the atomic unit of DMA-visible memory in `stdx`. Non-contiguous
 transfers compose several `Buffer` regions into a segment list; see
-`docs/specs/dma/scatter-gather.md`.
+`docs/specs/dma/scatter_gather.md`.
 
 ## Owned scope
 
@@ -36,7 +36,7 @@ This spec does not own:
 - barrier emission around DMA-visible reads and writes; see
   `docs/specs/barrier/dma.md`;
 - multi-segment or non-contiguous regions; see
-  `docs/specs/dma/scatter-gather.md`;
+  `docs/specs/dma/scatter_gather.md`;
 - device-side notification such as doorbells or MMIO writes;
 - ABI, wire, or descriptor layout for device data structures;
 - concurrency between host and device, or across host threads;

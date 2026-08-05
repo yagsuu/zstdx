@@ -6,7 +6,7 @@ Status: Approved.
 (Secure Virtual Machine) instructions. Consumers reach every primitive through the lower-case `stdx.arch.x86_64.svm` namespace.
 
 Every wrapper models exactly one instruction with the same "just the ISA,
-no policy" contract as `docs/specs/arch/x86_64/base.md` and
+no policy" contract as `docs/specs/arch/x86_64.md` and
 `docs/specs/arch/x86_64/vmx.md`. Unlike VMX, SVM instructions do not use
 `RFLAGS.CF`/`ZF` to report failure; faults surface as CPU exceptions
 (`#UD`, `#GP`). Every wrapper's Zig signature is therefore infallible.
@@ -42,7 +42,7 @@ This spec does not own:
   `VM_HSAVE_PA` MSR has no architecturally normative fields
   (CPU-implementation-defined body); caller supplies a 4 KiB page;
 - `VM_HSAVE_PA` MSR programming or any other MSR write — MSR access is
-  handled by `docs/specs/arch/x86_64/base.md`'s `Msr` type;
+  handled by `docs/specs/arch/x86_64.md`'s `Msr` type;
 - CR4/EFER programming (`EFER.SVME`), CR4 fixed-bit constraints;
 - feature detection of SVM, NPT, ASID width, SKINIT, or DecodeAssists —
   deferred to `docs/specs/arch/x86_64/cpuid.md`;

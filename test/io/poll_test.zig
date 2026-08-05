@@ -1,4 +1,4 @@
-//! Poll-until composition tests. See `docs/specs/io/poll-until.md`.
+//! Poll-until composition tests. See `docs/specs/io/poll.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

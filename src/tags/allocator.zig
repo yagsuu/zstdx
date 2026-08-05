@@ -1,6 +1,6 @@
 //! Strongly typed tag allocator family. `Static` owns inline storage; `Bounded`
 //! variants share an observable surface and differ only in storage ownership.
-//! See `docs/specs/tags/tag-allocator.md`.
+//! See `docs/specs/tags/allocator.md`.
 
 const std = @import("std");
 

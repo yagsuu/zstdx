@@ -1,4 +1,4 @@
-//! SPSC ring contract tests. See `docs/specs/concurrent/spsc-ring.md`.
+//! SPSC ring contract tests. See `docs/specs/concurrent/spsc/ring.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

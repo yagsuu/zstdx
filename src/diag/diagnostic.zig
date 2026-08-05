@@ -42,7 +42,7 @@ pub const Diagnostics = struct {
         comptime if (config.arena_bytes == 0) {
             @compileError("Diagnostics.Static requires a non-zero arena");
         };
-        const Arena = mem.Arena.Static(config.arena_bytes);
+        const Arena = mem.alloc.Arena.Static(config.arena_bytes);
 
         return struct {
             frames: [config.frames]Frame = undefined,

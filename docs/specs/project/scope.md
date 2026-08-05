@@ -88,7 +88,7 @@ const Ring = stdx.Ring;
 const HashMap = stdx.HashMap;
 ```
 
-Root promotion does not replace the canonical subsystem home. Exact root exports are owned by `docs/specs/root-exports.md`.
+Root promotion does not replace the canonical subsystem home. Exact root exports are owned by `docs/specs/stdx.md`.
 
 ## Naming policy
 
@@ -273,14 +273,14 @@ Planned primitives:
 - `mem.alignUp`
 - `mem.alignDown`
 - `mem.isAligned`
-- `mem.Arena.Bounded`
+- `mem.alloc.Arena.Bounded`
 - `mem.BumpAllocator`
-- `mem.PoolAllocator(T)`
-- `mem.BitmapAllocator`
+- `mem.alloc.SlabAllocator(T)`
+- `mem.alloc.BitmapAllocator`
 - `mem.DeferredFreeList`
-- `mem.PoolCache(T)`
-- `mem.FrameAllocator`
-- `mem.BuddyAllocator`
+- `mem.alloc.SlabCache(T)`
+- `mem.alloc.FrameAllocator`
+- `mem.alloc.BuddyAllocator`
 
 `mem.VirtualRegionAllocator` remains a candidate only as a generic mechanism. OS physical-memory-map policy is out of scope.
 
@@ -409,7 +409,7 @@ Planned primitive names remain candidates until barrier specs approve them:
 - `arch.aarch64.isb`
 - `arch.riscv.fence`
 
-`stdx.arch.x86_64` is owned by `docs/specs/arch/x86_64/base.md` (Approved) and
+`stdx.arch.x86_64` is owned by `docs/specs/arch/x86_64.md` (Approved) and
 covers port-mapped IO, CPUID, MSR, control-register, RFLAGS, interrupt
 enable/disable, CPU one-shots, descriptor-table load/store, segment access,
 raw fences (`lfence`/`sfence`/`mfence`), cache control, and current privilege
@@ -572,7 +572,7 @@ Approved first-slice candidates:
 10. `layout.Le`, `layout.Be`;
 11. `bytes.loadUnaligned`, `bytes.storeUnaligned`;
 12. `bytes.Cursor`;
-13. `mem.Arena.Bounded`;
+13. `mem.alloc.Arena.Bounded`;
 14. `mem.BumpAllocator`;
 15. `List.Static`;
 16. `List.Bounded`;

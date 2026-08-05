@@ -1,4 +1,4 @@
-//! Panic-safe ring log sink. See `docs/specs/diag/panic-log.md`.
+//! Panic-safe ring log sink. See `docs/specs/diag/panic_log.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -1,4 +1,4 @@
-//! x86_64 control-register access. See `docs/specs/arch/x86_64/register.md`.
+//! x86_64 control-register access. See `docs/specs/arch/x86_64/registers.md`.
 
 const std = @import("std");
 

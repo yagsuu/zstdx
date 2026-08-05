@@ -1,4 +1,4 @@
-//! Per-CPU cache-line-padded storage. See `docs/specs/cpu/per-cpu.md`.
+//! Per-CPU cache-line-padded storage. See `docs/specs/cpu/per_cpu.md`.
 
 const std = @import("std");
 

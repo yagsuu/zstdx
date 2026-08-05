@@ -8,7 +8,7 @@ surfaces over the leaves the library and its downstream consumers
 actually read, cache-topology iteration, brand string, and address-size
 extraction.
 
-This spec supersedes the CPUID portions previously owned by `docs/specs/arch/x86_64/base.md`.
+This spec supersedes the CPUID portions previously owned by `docs/specs/arch/x86_64.md`.
 
 ## Owned scope
 
@@ -643,7 +643,7 @@ safe from any execution context including NMI.
 
 ## Amendments
 
-This spec supersedes the CPUID portions previously owned by `docs/specs/arch/x86_64/base.md`. The base spec no longer owns raw CPUID access or CPUID decoding.
+This spec supersedes the CPUID portions previously owned by `docs/specs/arch/x86_64.md`. The base spec no longer owns raw CPUID access or CPUID decoding.
 
 
 ## Examples

@@ -1,5 +1,5 @@
 //! Fixed-rate projection of `Instant`; detects wrap edges below 64 bits.
-//! See `docs/specs/time/rate-counter.md`.
+//! See `docs/specs/time/rate_counter.md`.
 
 const std = @import("std");
 

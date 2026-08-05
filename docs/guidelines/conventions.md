@@ -31,7 +31,7 @@ and spec testing requirements are defined in
 
 ## Directory ownership
 
-Source directory ownership is defined by `docs/specs/architecture.md`.
+Source directory ownership is defined by `docs/specs/project/architecture.md`.
 
 - `src/core/` — options, traits, debug policy, and shared range primitives.
 - `src/bits/` — power-of-two helpers, flags, fields, bitsets, bitmaps.
@@ -287,6 +287,6 @@ implementation via module-scope `comptime`-parameterized free functions in the
 subsystem's primary file. The variants are thin wrappers that pass their
 internal buffer and capacity into the free functions.
 
-This pattern is in effect in `src/ranges/` and `src/mem/bitmap.zig`. New
+This pattern is in effect in `src/ranges/` and `src/mem/alloc/bitmap.zig`. New
 subsystems with the same shape MUST follow it. A private `Core` struct that
 both variants delegate to is not used for this role.

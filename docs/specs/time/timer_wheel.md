@@ -35,7 +35,7 @@ This spec owns:
 
 This spec does not own:
 
-- exact deadline ordering; use `docs/specs/time/deadline-queue.md`;
+- exact deadline ordering; use `docs/specs/time/deadline_queue.md`;
 - sleeping, blocking, parking, yielding, spinning on external state, or
   scheduler interaction;
 - wake dispatch, fiber resumption, task completion, callback execution, or
@@ -119,7 +119,7 @@ This spec depends on:
 
 This spec composes with but does not own:
 
-- `docs/specs/time/deadline-queue.md`; exact or far-future timers use
+- `docs/specs/time/deadline_queue.md`; exact or far-future timers use
   `DeadlineQueue` instead of `TimerWheel`;
 - Zig `std.Io.Timeout`; downstream backends may translate `std.Io.Timeout`
   values into wheel entries internally when coarse timing is acceptable, but

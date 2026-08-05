@@ -42,7 +42,7 @@ This spec does not own:
 - CR4/EFER programming, VMX enable/disable dance beyond the ISA
   instructions themselves;
 - VMX revision-identifier probing via `IA32_VMX_BASIC` — MSR reads are
-  handled by `docs/specs/arch/x86_64/base.md`'s `Msr` type;
+  handled by `docs/specs/arch/x86_64.md`'s `Msr` type;
 - feature detection of VMX, EPT, VPID, INVEPT, or INVVPID — deferred to
   `docs/specs/arch/x86_64/cpuid.md`;
 - host-state / guest-state initialization, VM-entry launch-controls

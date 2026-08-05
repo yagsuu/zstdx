@@ -1,4 +1,4 @@
-//! TimerWheel behavioral tests. See `docs/specs/time/timer-wheel.md`.
+//! TimerWheel behavioral tests. See `docs/specs/time/timer_wheel.md`.
 
 const std = @import("std");
 

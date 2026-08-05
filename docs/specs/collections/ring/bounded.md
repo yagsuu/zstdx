@@ -34,7 +34,7 @@ This spec does not own:
 - stable handles, generation counters, or tombstones;
 - on-drop callbacks or overwrite policy enums;
 - single- or multi-producer atomic ring semantics; see
-  `docs/specs/concurrent/spsc-ring.md` for the planned concurrent variant;
+  `docs/specs/concurrent/spsc/ring.md` for the planned concurrent variant;
 - ABI, wire, or packed layout guarantees for the ring value.
 
 ## Public namespace

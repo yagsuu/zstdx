@@ -1,4 +1,4 @@
-//! Fixed-capacity bit sets. See `docs/specs/bits/bitset/static.md`.
+//! Fixed-capacity bit sets. See `docs/specs/bits/set/static.md`.
 
 const std = @import("std");
 

@@ -1,4 +1,4 @@
-//! Tests for `stdx.sync.RawSpinLock`. See `docs/specs/sync/raw-spin-lock.md`.
+//! Tests for `stdx.sync.RawSpinLock`. See `docs/specs/sync/raw_spin_lock.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

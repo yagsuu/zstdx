@@ -1,4 +1,4 @@
-//! x86_64 port I/O primitives. See `docs/specs/arch/x86_64/base.md`.
+//! x86_64 port I/O primitives. See `docs/specs/arch/x86_64.md`.
 
 const target = @import("target.zig");
 

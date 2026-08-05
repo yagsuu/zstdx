@@ -1,4 +1,4 @@
-//! Power-of-two helper contract tests. See `docs/specs/bits/power-of-two.md`.
+//! Power-of-two helper contract tests. See `docs/specs/bits/power_of_two.md`.
 
 const std = @import("std");
 

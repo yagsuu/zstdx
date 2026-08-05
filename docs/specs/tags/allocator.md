@@ -408,7 +408,7 @@ error{
 
 Every error-returning operation must leave the allocator unchanged on error.
 
-`OutOfTags` is intentionally distinct from `mem.BitmapAllocator`'s
+`OutOfTags` is intentionally distinct from `mem.alloc.BitmapAllocator`'s
 `OutOfMemory`. A consumer at the wire level knows about tags, not memory; the
 error names match the contract.
 
@@ -443,7 +443,7 @@ Implementations must:
 - avoid public bit-scan wrappers around Zig builtins.
 
 Implementations may share private helper code with
-`stdx.bits.BitSet.Static` or `stdx.mem.BitmapAllocator` per those specs'
+`stdx.bits.BitSet.Static` or `stdx.mem.alloc.BitmapAllocator` per those specs'
 private-helper clauses, but `TagAllocator` owns its public semantics and its
 own error set.
 

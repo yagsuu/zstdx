@@ -86,7 +86,7 @@ test/barrier/dma_test.zig
 `src/barrier.zig`:
 
 ```zig
-//! Barrier primitives. Specs: docs/specs/barrier/overview.md and
+//! Barrier primitives. Specs: docs/specs/barrier.md and
 //! docs/specs/barrier/dma.md.
 
 pub const compiler = @import("barrier/compiler.zig").compiler;
@@ -376,7 +376,7 @@ interrupt delivery.
 
 ## Required tests
 
-Following `docs/specs/barrier/overview.md` §"Required tests for future APIs",
+Following `docs/specs/barrier.md` §"Required tests for future APIs",
 tests must not claim to prove CPU or DMA ordering. They exercise API shape,
 target gating, and lowering.
 

@@ -1,4 +1,4 @@
-//! Fixed-capacity sorted range maps. See `docs/specs/ranges/range-map.md`.
+//! Fixed-capacity sorted range maps. See `docs/specs/ranges/map.md`.
 
 const std = @import("std");
 

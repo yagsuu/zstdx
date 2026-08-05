@@ -7,6 +7,6 @@ This spec is no longer normative. Its owned surfaces were split into semantic x8
 Current owners:
 
 - `stdx.arch.x86_64.cpu.tsc` and `stdx.arch.x86_64.cpu.tlb` are owned by `docs/specs/arch/x86_64/cpu.md`.
-- `stdx.arch.x86_64.registers.dr0` and `stdx.arch.x86_64.registers.ldtr` are owned by `docs/specs/arch/x86_64/register.md`.
+- `stdx.arch.x86_64.registers.dr0` and `stdx.arch.x86_64.registers.ldtr` are owned by `docs/specs/arch/x86_64/registers.md`.
 
 Do not implement new public API from this file. Update the owning current spec instead.

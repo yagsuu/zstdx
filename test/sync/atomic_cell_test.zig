@@ -1,4 +1,4 @@
-//! AtomicCell contract tests. See `docs/specs/sync/atomic-cell.md`.
+//! AtomicCell contract tests. See `docs/specs/sync/atomic_cell.md`.
 
 const std = @import("std");
 

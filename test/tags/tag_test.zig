@@ -1,4 +1,4 @@
-//! Tag value-type tests. See `docs/specs/tags/tag-allocator.md`.
+//! Tag value-type tests. See `docs/specs/tags/allocator.md`.
 
 const std = @import("std");
 const stdx = @import("stdx");

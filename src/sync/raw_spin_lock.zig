@@ -1,4 +1,4 @@
-//! Raw atomic-word spinlock. See `docs/specs/sync/raw-spin-lock.md`.
+//! Raw atomic-word spinlock. See `docs/specs/sync/raw_spin_lock.md`.
 
 const std = @import("std");
 

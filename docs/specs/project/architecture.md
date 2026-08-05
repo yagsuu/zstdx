@@ -100,7 +100,7 @@ This tree is an ownership map, not permission to create empty scaffolding. Files
 `src/stdx.zig` is the public package facade and build module root.
 
 ```zig
-//! Public stdx facade. Spec: docs/specs/root-exports.md.
+//! Public stdx facade. Spec: docs/specs/stdx.md.
 
 pub const core = @import("core.zig");
 pub const bits = @import("bits.zig");
@@ -112,7 +112,7 @@ pub const collections = @import("collections.zig");
 pub const intrusive = @import("intrusive.zig");
 ```
 
-`src/stdx.zig` may promote flagship families after `docs/specs/root-exports.md` approves the exact surface:
+`src/stdx.zig` may promote flagship families after `docs/specs/stdx.md` approves the exact surface:
 
 ```zig
 pub const List = collections.List;
@@ -150,7 +150,7 @@ Domain facades must not:
 Example facade shape:
 
 ```zig
-//! Bit primitives. Specs: docs/specs/bits/power-of-two.md and docs/specs/bits/bitflags.md.
+//! Bit primitives. Specs: docs/specs/bits/power_of_two.md and docs/specs/bits/bitflags.md.
 
 pub const power_of_two = @import("bits/power_of_two.zig");
 pub const BitFlags = @import("bits/bit_flags.zig").BitFlags;
@@ -203,9 +203,18 @@ src/
 
   mem.zig
   mem/
-    arena.zig
-    alignment.zig
-    pool.zig
+    align.zig
+    cache.zig
+    alloc.zig
+    alloc/
+      arena.zig
+      bitmap.zig
+      buddy.zig
+      frame.zig
+      slab.zig
+      slab/
+        allocator.zig
+        cache.zig
 
   collections.zig
   collections/
@@ -251,9 +260,15 @@ test/
     access_test.zig
 
   mem/
-    arena_test.zig
-    alignment_test.zig
-    pool_test.zig
+    align_test.zig
+    alloc/
+      arena_test.zig
+      bitmap_test.zig
+      buddy_test.zig
+      frame_test.zig
+      slab/
+        allocator_test.zig
+        cache_test.zig
 
   collections/
     list_test.zig
@@ -274,7 +289,7 @@ Approved examples:
 ```text
 bits/power_of_two.zig    isPowerOfTwo, nextPowerOfTwo
 bits/bit_flags.zig       BitFlags
-mem/alignment.zig        alignUp, alignDown, isAligned
+mem/align.zig            alignUp, alignDown, isAligned
 bits/set.zig             BitSet family
 addr/address.zig         Address, PhysAddr, VirtAddr, DmaAddr
 collections/list.zig     List family: Static, Bounded, later Managed/Unmanaged
@@ -416,7 +431,7 @@ Examples, tools, integration steps, and target-specific build steps are added on
 comptime {
     _ = @import("bits/power_of_two_test.zig");
     _ = @import("bits/bit_flags_test.zig");
-    _ = @import("mem/alignment_test.zig");
+    _ = @import("mem/align_test.zig");
 }
 ```
 

@@ -1,4 +1,4 @@
-//! Strongly typed tag values for tag allocator domains. See `docs/specs/tags/tag-allocator.md`.
+//! Strongly typed tag values for tag allocator domains. See `docs/specs/tags/allocator.md`.
 
 fn requireUnsignedInt(comptime Int: type) void {
     const info = @typeInfo(Int);

@@ -1,4 +1,4 @@
-//! PerCPU contract tests. See `docs/specs/cpu/per-cpu.md`.
+//! PerCPU contract tests. See `docs/specs/cpu/per_cpu.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -1,4 +1,4 @@
-//! RangeMap contract tests. See `docs/specs/ranges/range-map.md`.
+//! RangeMap contract tests. See `docs/specs/ranges/map.md`.
 
 const std = @import("std");
 

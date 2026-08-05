@@ -26,7 +26,7 @@ This spec does not own:
 `src/stdx.zig` begins with:
 
 ```zig
-//! Public stdx facade. Spec: docs/specs/root-exports.md.
+//! Public stdx facade. Spec: docs/specs/stdx.md.
 ```
 
 ## Domain namespace exports

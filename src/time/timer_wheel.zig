@@ -1,4 +1,4 @@
-//! Fixed-tick, fixed-capacity timer wheel. See `docs/specs/time/timer-wheel.md`.
+//! Fixed-tick, fixed-capacity timer wheel. See `docs/specs/time/timer_wheel.md`.
 
 const std = @import("std");
 

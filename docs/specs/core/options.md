@@ -144,9 +144,9 @@ Deferred until an allocator or container spec requires poisoning.
 
 Candidate consumers:
 
-- `mem.Arena.Bounded`;
+- `mem.alloc.Arena.Bounded`;
 - `mem.BumpAllocator`;
-- `mem.PoolAllocator`;
+- `mem.alloc.SlabAllocator`;
 - `List.Static`;
 - `Ring.Static`.
 
@@ -157,7 +157,7 @@ Deferred until diagnostics or allocator stats have concrete consumers.
 Candidate consumers:
 
 - `diag.AllocationStats`;
-- `mem.PoolAllocator`;
+- `mem.alloc.SlabAllocator`;
 - `HashMap.Managed`.
 
 ## Rejected generic policies

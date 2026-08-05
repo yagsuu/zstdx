@@ -1,4 +1,4 @@
-//! Wait-for-value poll-loop composition. See `docs/specs/io/poll-until.md`.
+//! Wait-for-value poll-loop composition. See `docs/specs/io/poll.md`.
 
 const std = @import("std");
 

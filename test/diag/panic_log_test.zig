@@ -1,4 +1,4 @@
-//! Tests for `stdx.diag.PanicLog`. See `docs/specs/diag/panic-log.md`.
+//! Tests for `stdx.diag.PanicLog`. See `docs/specs/diag/panic_log.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -134,7 +134,7 @@ test "unit: write returns WriterBusy when seat is held" {
 //   5th write needs 12 → evict frame 1 → tail=12 → head advances to 60 → offset 60 % 48 = 12.
 //   The 5th frame occupies offsets 48..60 mod 48 (wraps from the tail
 //   boundary into the buffer's start), producing exactly one whole-frame drop.
-// Spec docs/specs/diag/panic-log.md lines 499-505 example a `Static(32)`
+// Spec docs/specs/diag/panic_log.md lines 499-505 example a `Static(32)`
 // case with four 4-byte writes dropping frame 1; that combination cannot
 // yield dropped==1 under a consistent head/tail model (3rd 12-byte frame
 // already forces eviction, so four writes drop 2 frames). The corrected
@@ -416,7 +416,7 @@ test "stress: two writer threads plus periodic drain preserve write-outcome inva
     // Every write attempt is either a successful publish or an
     // `error.WriterBusy` return; overflow evictions bump `dropped_seq`
     // internally to a successful write and are not counted here per spec
-    // §Writer semantics (docs/specs/diag/panic-log.md:213-214, 232-234).
+    // §Writer semantics (docs/specs/diag/panic_log.md:213-214, 232-234).
     const busy = writer_busy.load(.monotonic);
     try testing.expectEqual(@as(u64, total), log.published() + busy);
     // `dropped()` combines busy drops and overflow evictions; it must be

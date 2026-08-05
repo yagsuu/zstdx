@@ -43,7 +43,7 @@ This spec does not own:
 - stable FIFO ordering for equal deadlines;
 - priority inversion, fairness, scheduler, or ready-queue policy;
 - coarse bucketed timers or cascading wheels;
-  `docs/specs/time/timer-wheel.md` owns timer wheels.
+  `docs/specs/time/timer_wheel.md` owns timer wheels.
 - root promotion of `DeadlineQueue`.
 
 ## Terminology
@@ -107,7 +107,7 @@ This spec depends on:
 
 This spec composes with but does not own:
 
-- `docs/specs/io/poll-until.md`; single-operation poll loops continue to use
+- `docs/specs/io/poll.md`; single-operation poll loops continue to use
   `time.Deadline` and `time.Backoff` directly;
 - Zig `std.Io.Timeout`; downstream backends may translate `std.Io.Timeout`
   into queue entries internally, but `DeadlineQueue` does not expose or depend
@@ -115,7 +115,7 @@ This spec composes with but does not own:
 - `docs/specs/heaps/indexed-heap.md`; an implementation may use an indexed heap
   substrate, but this spec's public contract is time-specific and does not
   depend on that public heap API;
-- `docs/specs/time/timer-wheel.md` for coarse high-fanout timer buckets.
+- `docs/specs/time/timer_wheel.md` for coarse high-fanout timer buckets.
 
 ## Data structures and representation
 

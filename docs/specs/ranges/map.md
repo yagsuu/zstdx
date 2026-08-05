@@ -68,7 +68,7 @@ pub const map = @import("ranges/map.zig");
 pub const RangeMap = map.RangeMap;
 ```
 
-The package root may export the `ranges` namespace when `src/ranges.zig` lands, as governed by `docs/specs/root-exports.md`.
+The package root may export the `ranges` namespace when `src/ranges.zig` lands, as governed by `docs/specs/stdx.md`.
 
 ## Approved API
 

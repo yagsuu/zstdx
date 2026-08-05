@@ -1,4 +1,4 @@
-//! Fixed-capacity canonical range sets. See `docs/specs/ranges/range-set.md`.
+//! Fixed-capacity canonical range sets. See `docs/specs/ranges/set.md`.
 
 const std = @import("std");
 
