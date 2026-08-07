@@ -276,7 +276,20 @@ pub fn executeDisableEnabled(self: EFER, execute_disable_supported: bool) Error!
 The method returns the `execute_disable_enable` field when it is clear or supported. An enabled unsupported
 control returns `error.UnsupportedExecuteDisable`.
 
-`gdtr.read` and `idtr.read` emit `sgdt` and `sidt`. `gdtr.write` and `idtr.write` emit `lgdt` and `lidt`.
+The descriptor-register wrappers use distinct operand types and map to instructions as follows:
+
+| Typed operation | Instruction |
+| --- | --- |
+| `gdtr.write(value: GDTR)` | `lgdt` |
+| `gdtr.read() GDTR` | `sgdt` |
+| `idtr.write(value: IDTR)` | `lidt` |
+| `idtr.read() IDTR` | `sidt` |
+| `tr.write(value: TR)` | `ltr` |
+| `tr.read() TR` | `str` |
+| `ldtr.write(value: LDTR)` | `lldt` |
+| `ldtr.read() LDTR` | `sldt` |
+
+`GDTR` and `IDTR` are distinct 10-byte pseudo-descriptor types. `TR` and `LDTR` are distinct 16-bit selector types. A wrapper MUST NOT accept the operand type of another descriptor register.
 
 ## Behavior contract
 
@@ -312,7 +325,7 @@ their architectural requirements are absent. Trap recovery is caller policy.
 
 ## Testing
 
-Representation tests MUST verify exact backing widths, `fromInt`/`raw` round trips, named-field placement, selector type separation, and the documented `GDTR` and `IDTR` size, alignment, and offsets. Semantic tests MUST cover CR3 physical-width bounds, reserved bits, low-bit decoding, LAM precedence and capability failures; CR4 capability validation; and EFER execute-disable validation. Compile-time tests MUST reject incompatible register-type accessor arguments, instantiate each privileged wrapper on x86_64, and verify non-x86_64 use-site target gating. Host-safe runtime tests MUST verify that `rflags.read()` reports architectural RFLAGS bit 1 set. These tests prove raw-representation preservation, validation errors, ABI layouts, type safety, target gating, and the executable unprivileged subset.
+Representation tests MUST verify exact backing widths, `fromInt`/`raw` round trips, named-field placement, selector type separation, and the documented `GDTR` and `IDTR` size, alignment, and offsets. Semantic tests MUST cover CR3 physical-width bounds, reserved bits, low-bit decoding, LAM precedence and capability failures; CR4 capability validation; and EFER execute-disable validation. Compile-time signature tests MUST reject incompatible descriptor-register operand types. An x86_64 compile fixture MUST generate code for `lgdt`, `sgdt`, `lidt`, `sidt`, `ltr`, `str`, `lldt`, and `sldt` through their typed wrappers. Other compile-time tests MUST instantiate each privileged wrapper on x86_64 and verify non-x86_64 use-site target gating. Host-safe runtime tests MUST verify that `rflags.read()` reports architectural RFLAGS bit 1 set. These tests prove raw-representation preservation, validation errors, ABI layouts, type safety, target gating, and host-safe access behavior.
 
 ## Sources
 
