@@ -22,7 +22,7 @@ Ordinary domain facades MUST NOT be named `root.zig`.
 
 ## Data structures and representation
 
-The repository contains `build.zig`, `build.zig.zon`, `README.md`, `docs/`, `src/`, and `test/`. The `docs/` tree contains specifications, planning material, guidelines, and project decisions. The source tree contains `src/stdx.zig`, domain facade files, and implementation directories. The test tree contains hierarchical `all.zig` aggregation facades rooted at `test/all.zig`.
+The repository contains `build.zig`, `build.zig.zon`, `README.md`, `docs/`, `src/`, and `test/`. The `docs/` tree contains specifications, planning material, and guidelines. The source tree contains `src/stdx.zig`, domain facade files, and implementation directories. The test tree contains hierarchical `all.zig` aggregation facades rooted at `test/all.zig`.
 
 The repository tree is an ownership map, not permission to create empty scaffolding. A file or directory MAY land only when an approved owning specification and implementation slice require it.
 
