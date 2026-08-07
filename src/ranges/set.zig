@@ -7,6 +7,7 @@ const core = @import("../core.zig");
 pub const RangeSet = struct {
     pub fn Static(comptime T: type, comptime capacity_ranges: usize) type {
         comptime if (capacity_ranges == 0) @compileError("RangeSet.Static capacity_ranges must be non-zero");
+
         return struct {
             buffer: [capacity_ranges]Range = undefined,
             count: usize = 0,
@@ -275,6 +276,7 @@ fn findContainingValue(comptime Range: type, ranges: []const Range, value: anyty
 
 fn containsRangeInSlice(comptime Range: type, ranges: []const Range, range: Range) bool {
     std.debug.assert(range.isValid());
+
     if (range.isEmpty()) return containsEmptyBoundary(Range, ranges, range.start);
     const containing = findContainingValue(Range, ranges, range.start) orelse return false;
     return containing.end >= range.end;
@@ -290,6 +292,7 @@ fn containsEmptyBoundary(comptime Range: type, ranges: []const Range, point: any
 
 fn findIntersectingRange(comptime Range: type, ranges: []const Range, range: Range) ?Range {
     std.debug.assert(range.isValid());
+
     if (range.isEmpty()) return null;
     var low: usize = 0;
     var high: usize = ranges.len;
@@ -307,6 +310,7 @@ fn findIntersectingRange(comptime Range: type, ranges: []const Range, range: Ran
 
 fn assertCanonical(comptime Range: type, buffer: []const Range, count: usize) void {
     std.debug.assert(count <= buffer.len);
+
     var previous: ?Range = null;
     for (buffer[0..count]) |range| {
         std.debug.assert(range.isValid());

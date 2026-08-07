@@ -56,7 +56,9 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
 
             const item_node = node(item);
             self.head = if (item_node.next) |next_node| itemFromNode(next_node) else null;
+
             if (self.tail == item) self.tail = self.head;
+
             item_node.next = null;
             return item;
         }
@@ -80,6 +82,7 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             } else {
                 std.debug.assert(self.tail != null);
             }
+
             if (self.head == null) return;
 
             var slow: ?*const T = self.head;

@@ -39,8 +39,8 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
         /// A non-null return has its selected node detached.
         pub fn pop(self: *Self) ?*T {
             const item = self.top orelse return null;
-
             const item_node = node(item);
+
             self.top = if (item_node.next) |next_node| itemFromNode(next_node) else null;
             item_node.next = null;
             return item;

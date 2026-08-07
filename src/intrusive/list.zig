@@ -54,7 +54,9 @@ pub const List = struct {
 
                 const item_node = node(item);
                 item_node.next = if (self.head) |head_item| node(head_item) else null;
+
                 self.head = item;
+
                 if (self.tail == null) self.tail = item;
             }
 
@@ -77,8 +79,10 @@ pub const List = struct {
 
                 const previous_node = node(previous);
                 const item_node = node(item);
+
                 item_node.next = previous_node.next;
                 previous_node.next = item_node;
+
                 if (self.tail == previous) self.tail = item;
             }
 
@@ -88,7 +92,9 @@ pub const List = struct {
 
                 const item_node = node(item);
                 self.head = if (item_node.next) |next_node| itemFromNode(next_node) else null;
+
                 if (self.tail == item) self.tail = self.head;
+
                 item_node.next = null;
                 return item;
             }
@@ -99,16 +105,20 @@ pub const List = struct {
                 var current = self.head;
                 while (current) |current_item| {
                     const current_node = node(current_item);
+
                     if (current_item == item) {
                         if (previous) |previous_item| {
                             node(previous_item).next = current_node.next;
                         } else {
                             self.head = if (current_node.next) |next_node| itemFromNode(next_node) else null;
                         }
+
                         if (self.tail == item) self.tail = previous;
+
                         current_node.next = null;
                         return true;
                     }
+
                     previous = current_item;
                     current = if (current_node.next) |next_node| itemFromNode(next_node) else null;
                 }
@@ -124,6 +134,7 @@ pub const List = struct {
                     current = if (item_node.next) |next_node| itemFromNode(next_node) else null;
                     item_node.next = null;
                 }
+
                 self.head = null;
                 self.tail = null;
             }
@@ -135,6 +146,7 @@ pub const List = struct {
                 } else {
                     std.debug.assert(self.tail != null);
                 }
+
                 if (self.head == null) return;
 
                 var slow: ?*const T = self.head;
@@ -143,6 +155,7 @@ pub const List = struct {
                     const next_fast = constNext(fast_item) orelse break;
                     fast = constNext(next_fast);
                     slow = if (slow) |slow_item| constNext(slow_item) else null;
+
                     if (fast) |f| if (slow) |s| if (f == s) unreachable;
                 }
 
@@ -315,8 +328,8 @@ pub const List = struct {
             /// Effects: Detaches `item`'s node before return.
             pub fn remove(self: *Self, item: *T) void {
                 self.assertAttached(item);
-                const item_node = node(item);
 
+                const item_node = node(item);
                 if (item_node.prev) |previous_node| {
                     previous_node.next = item_node.next;
                 } else {
@@ -353,6 +366,7 @@ pub const List = struct {
                 } else {
                     std.debug.assert(self.tail != null);
                 }
+
                 if (self.head == null) return;
 
                 std.debug.assert(constNode(self.head.?).prev == null);
@@ -376,6 +390,7 @@ pub const List = struct {
                     last = item;
                     current = constNext(item);
                 }
+
                 std.debug.assert(last == self.tail);
 
                 current = self.tail;
@@ -387,6 +402,7 @@ pub const List = struct {
                     last = item;
                     current = constPrevious(item);
                 }
+
                 std.debug.assert(last == self.head);
             }
 

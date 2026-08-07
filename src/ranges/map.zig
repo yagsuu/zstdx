@@ -12,6 +12,7 @@ pub const RangeMap = struct {
     pub fn Static(comptime T: type, comptime V: type, comptime capacity_entries: usize) type {
         comptime requireRuntimeValue(V);
         comptime if (capacity_entries == 0) @compileError("RangeMap.Static capacity_entries must be non-zero");
+
         return struct {
             buffer: [capacity_entries]Entry = undefined,
             count: usize = 0,

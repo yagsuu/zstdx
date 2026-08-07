@@ -3,6 +3,7 @@
 //! `docs/specs/core/traits.md`.
 
 const traits = @import("core/traits.zig");
+
 pub const debug = @import("core/debug.zig");
 
 pub const SafetyMode = @import("core/options.zig").SafetyMode;

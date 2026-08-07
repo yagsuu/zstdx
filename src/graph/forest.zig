@@ -8,6 +8,7 @@ const std = @import("std");
 pub const Forest = struct {
     pub fn Static(comptime capacity_nodes: usize) type {
         comptime if (capacity_nodes == 0) @compileError("Forest.Static capacity_nodes must be non-zero");
+
         return struct {
             roots: SiblingList = .{},
             links: [capacity_nodes]Links = [_]Links{.{}} ** capacity_nodes,
@@ -86,6 +87,7 @@ pub const Forest = struct {
             pub fn appendChild(self: *Self, parent_item: NodeID, child_item: NodeID) AppendError!void {
                 const parent_links = try self.link(parent_item);
                 const child_links = try self.link(child_item);
+
                 if (parent_item == child_item) return error.AlreadyLinked;
                 if (try self.isLinked(child_item, child_links)) return error.AlreadyLinked;
 
@@ -104,6 +106,7 @@ pub const Forest = struct {
             /// Cost: O(source-list length).
             pub fn remove(self: *Self, item: NodeID) RemoveError!void {
                 const item_links = try self.link(item);
+
                 if (item_links.parent) |parent_item| {
                     const parent_links = try self.link(parent_item);
                     try self.removeFromList(&parent_links.children, item, item_links);
@@ -219,6 +222,7 @@ pub const Forest = struct {
                     std.debug.assert(list.tail == null);
                     return;
                 }
+
                 std.debug.assert(list.tail != null);
 
                 var current = list.head;
@@ -226,15 +230,21 @@ pub const Forest = struct {
                 var steps: usize = 0;
                 while (current) |item| : (steps += 1) {
                     std.debug.assert(steps < self.capacity());
+
                     self.assertInBounds(item);
                     const item_links = self.constLink(item) catch unreachable;
+
                     std.debug.assert(item_links.parent == expected_parent);
+
                     last = item;
                     current = item_links.next_sibling;
                 }
+
                 std.debug.assert(last == list.tail);
+
                 const tail_item = list.tail.?;
                 self.assertInBounds(tail_item);
+
                 std.debug.assert((self.constLink(tail_item) catch unreachable).next_sibling == null);
             }
         };
@@ -317,6 +327,7 @@ pub const Forest = struct {
             pub fn appendChild(self: *Self, parent_item: NodeID, child_item: NodeID) AppendError!void {
                 const parent_links = try self.link(parent_item);
                 const child_links = try self.link(child_item);
+
                 if (parent_item == child_item) return error.AlreadyLinked;
                 if (try self.isLinked(child_item, child_links)) return error.AlreadyLinked;
 
@@ -421,21 +432,27 @@ pub const Forest = struct {
                 var previous: ?NodeID = null;
                 var current = list.head;
                 var steps: usize = 0;
+
                 while (current) |current_item| : (steps += 1) {
                     std.debug.assert(steps < self.capacity());
+
                     if (current_item == item) {
                         const next = item_links.next_sibling;
+
                         if (previous) |previous_item| {
                             (try self.link(previous_item)).next_sibling = next;
                         } else {
                             list.head = next;
                         }
+
                         if (list.tail == item) list.tail = previous;
                         return;
                     }
+
                     previous = current_item;
                     current = (try self.link(current_item)).next_sibling;
                 }
+
                 return error.NotLinked;
             }
 
@@ -448,11 +465,13 @@ pub const Forest = struct {
                     std.debug.assert(list.tail == null);
                     return;
                 }
+
                 std.debug.assert(list.tail != null);
 
                 var current = list.head;
                 var last: ?NodeID = null;
                 var steps: usize = 0;
+
                 while (current) |item| : (steps += 1) {
                     std.debug.assert(steps < self.capacity());
                     self.assertInBounds(item);
@@ -461,9 +480,12 @@ pub const Forest = struct {
                     last = item;
                     current = item_links.next_sibling;
                 }
+
                 std.debug.assert(last == list.tail);
+
                 const tail_item = list.tail.?;
                 self.assertInBounds(tail_item);
+
                 std.debug.assert((self.constLink(tail_item) catch unreachable).next_sibling == null);
             }
         };
@@ -602,40 +624,50 @@ pub const Forest = struct {
             fn removeFromNodeList(list: *LinkedNode.ChildList, item_node: *LinkedNode) void {
                 var previous: ?*LinkedNode = null;
                 var current = list.head;
+
                 while (current) |candidate_node| {
                     if (candidate_node == item_node) {
                         const next = item_node.next_sibling;
+
                         if (previous) |previous_node| {
                             previous_node.next_sibling = next;
                         } else {
                             list.head = next;
                         }
+
                         if (list.tail == item_node) list.tail = previous;
                         return;
                     }
+
                     previous = candidate_node;
                     current = candidate_node.next_sibling;
                 }
+
                 unreachable;
             }
 
             fn removeFromRootList(list: *RootList, item: *T, item_node: *LinkedNode) void {
                 var previous: ?*T = null;
                 var current = list.head;
+
                 while (current) |candidate| {
                     if (candidate == item) {
                         const next = if (item_node.next_sibling) |next_node| itemFromNode(next_node) else null;
+
                         if (previous) |previous_item| {
                             node(previous_item).next_sibling = item_node.next_sibling;
                         } else {
                             list.head = next;
                         }
+
                         if (list.tail == item) list.tail = previous;
                         return;
                     }
+
                     previous = candidate;
                     current = nextSibling(candidate);
                 }
+
                 unreachable;
             }
 
