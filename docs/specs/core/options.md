@@ -136,7 +136,6 @@ Candidate consumers:
 - `List.Managed`;
 - `Ring.Managed`;
 - `HashMap.Managed`;
-- `bytes.Builder`.
 
 ### `PoisonPolicy`
 

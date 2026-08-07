@@ -144,7 +144,7 @@ Stateless functions stay under their domain namespaces:
 
 ```zig
 stdx.mem.alignUp
-stdx.bytes.loadUnaligned
+stdx.bytes.loadSlice
 stdx.algo.binarySearch
 ```
 
@@ -152,7 +152,7 @@ The root facade must not flatten these as:
 
 ```zig
 stdx.alignUp
-stdx.loadUnaligned
+stdx.loadSlice
 stdx.binarySearch
 ```
 

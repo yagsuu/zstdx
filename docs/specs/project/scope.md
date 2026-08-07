@@ -239,24 +239,16 @@ scope for this library.
 
 ### Layout and bytes
 
-Planned primitives:
+Approved primitives:
 
 - `layout.EndianInt(T, endian)`
 - `layout.Le(T)`
 - `layout.Be(T)`
 - `layout.assertStructLayout`
-- `bytes.loadUnaligned`
-- `bytes.storeUnaligned`
-- `bytes.load`
-- `bytes.store`
 - `bytes.loadSlice`
 - `bytes.storeSlice`
-- `bytes.loadTail`
-- `bytes.Cursor`
-- `bytes.Builder`
-- `bytes.StaticBuilder(N)`
-- `bytes.EndianReader`
-- `bytes.EndianWriter`
+
+Sequential byte access uses `std.Io.Reader` and `std.Io.Writer`. Fixed-window value conversion uses `std.mem`.
 
 Deferred until a dedicated safety spec:
 
@@ -570,18 +562,17 @@ Approved first-slice candidates:
 8. `addr.Address`;
 9. `addr.PhysAddr` and `addr.VirtAddr`;
 10. `layout.Le`, `layout.Be`;
-11. `bytes.loadUnaligned`, `bytes.storeUnaligned`;
-12. `bytes.Cursor`;
-13. `mem.alloc.Arena.Bounded`;
-14. `mem.BumpAllocator`;
-15. `List.Static`;
-16. `List.Bounded`;
-17. `Ring.Static`;
-18. `Ring.Bounded`;
-19. `intrusive.List.SinglyLinked`;
-20. `intrusive.List.DoublyLinked`;
-21. `intrusive.Queue`;
-22. `intrusive.Stack`.
+11. `bytes.loadSlice`, `bytes.storeSlice`;
+12. `mem.alloc.Arena.Bounded`;
+13. `mem.BumpAllocator`;
+14. `List.Static`;
+15. `List.Bounded`;
+16. `Ring.Static`;
+17. `Ring.Bounded`;
+18. `intrusive.List.SinglyLinked`;
+19. `intrusive.List.DoublyLinked`;
+20. `intrusive.Queue`;
+21. `intrusive.Stack`;
 
 Explicitly deferred from the first slice:
 

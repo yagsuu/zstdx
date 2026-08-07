@@ -197,8 +197,6 @@ src/
 
   bytes.zig
   bytes/
-    cursor.zig
-    unaligned.zig
     access.zig
 
   mem.zig
@@ -255,8 +253,6 @@ test/
     endian_test.zig
 
   bytes/
-    cursor_test.zig
-    unaligned_test.zig
     access_test.zig
 
   mem/

@@ -177,7 +177,7 @@ Specs must not introduce near-duplicates such as `OutOfRange`, `Truncated`, or `
 
 - Free functions in a module → module-level `pub const Error = error{...}`.
 - Types with state or methods → nested `pub const Error = error{...}` inside the type or returned namespace.
-- Domain facades do not re-export error sets. A caller writes `stdx.bytes.Cursor.Error` or `stdx.mem.alignment.Error`, never `stdx.bytes.Error`.
+- Namespace facades may re-export a module-level error set when they re-export the free functions that return it. A caller writes `stdx.bytes.Error`.
 
 Per-operation error sets may narrow the type-level union when a method can only produce a subset of variants. The type-level `Error` remains a documentary union over every variant the type can return.
 

@@ -29,9 +29,7 @@ comptime {
     _ = @import("ranges/map_test.zig");
     _ = @import("graph/forest_test.zig");
     _ = @import("layout/endian_test.zig");
-    _ = @import("bytes/unaligned_test.zig");
     _ = @import("bytes/access_test.zig");
-    _ = @import("bytes/cursor_test.zig");
     _ = @import("collections/list_test.zig");
     _ = @import("collections/ring_test.zig");
     _ = @import("intrusive/list_test.zig");

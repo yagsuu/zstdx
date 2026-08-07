@@ -21,7 +21,7 @@ This spec owns:
 - unsigned byte-aligned integer type restrictions;
 - native integer conversion;
 - exact byte-count and alignment guarantees;
-- composition with `bytes.loadUnaligned` and `bytes.storeUnaligned`;
+- composition with standard byte-value conversion;
 - required tests.
 
 This spec does not own:
@@ -218,24 +218,20 @@ header.generation = stdx.layout.Le(u64).fromNative(next_generation);
 The wrapper's alignment is 1, so this models unaligned byte layouts without
 `u32 align(1)` fields plus local conversion code.
 
-## Unaligned composition
+## Byte conversion
 
-`bytes.loadUnaligned` and `bytes.storeUnaligned` are byte-copy primitives.
-Endian wrappers compose with them for endian-aware unaligned fields:
+Use Zig standard primitives to convert between endian wrappers and exact byte windows:
 
 ```zig
-const le = stdx.bytes.loadUnaligned(stdx.layout.Le(u32), bytes[pos..][0..4]);
+const window = try stdx.bytes.loadSlice(bytes, pos, @sizeOf(stdx.layout.Le(u32)));
+const le = std.mem.bytesToValue(stdx.layout.Le(u32), window[0..4]);
 const value = le.native();
 
-stdx.bytes.storeUnaligned(
-    stdx.layout.Le(u32),
-    bytes[pos..][0..4],
-    stdx.layout.Le(u32).fromNative(value),
-);
+const encoded = std.mem.toBytes(stdx.layout.Le(u32).fromNative(value));
+try stdx.bytes.storeSlice(bytes, pos, &encoded);
 ```
 
-Bounds checking remains the caller's responsibility until a cursor or checked
-offset spec owns that behavior.
+`stdx.bytes.loadSlice` and `stdx.bytes.storeSlice` provide runtime-offset bounds checks. `std.mem.bytesToValue` and `std.mem.toBytes` provide fixed-window object-representation conversion.
 
 ## Behavior contract
 
@@ -280,9 +276,7 @@ cleanly through `Le(T)`.
 Little-endian record headers and GUID fields use `Le(T)`; big-endian
 command codecs use `Be(T)`.
 
-Little-endian on-disk table fields at non-natural alignment — for example,
-64-bit entries after a 36-byte header — compose with unaligned loads and
-stores.
+Little-endian on-disk table fields at non-natural alignment—for example, 64-bit entries after a 36-byte header—compose with `std.mem` byte conversion after bounds checking.
 
 ## Required tests
 
@@ -318,13 +312,11 @@ Required for `Le(u8)`, `Le(u16)`, `Le(u32)`, `Le(u64)`, `Be(u8)`, `Be(u16)`,
 - zero and max values round trip;
 - repeated conversion does not change bytes.
 
-### Unaligned composition
+### Byte conversion
 
-- `bytes.loadUnaligned(Le(u32), bytes[offset..][0..4]).native()` decodes the
-  expected value at a deliberately unaligned offset;
-- `bytes.storeUnaligned(Le(u32), bytes[offset..][0..4], Le(u32).fromNative(value))`
-  writes only the selected byte window;
-- equivalent `Be(u32)` load and store cases are covered.
+- `std.mem.bytesToValue(Le(u32), bytes[offset..][0..4]).native()` decodes the expected value at a deliberately unaligned offset;
+- `std.mem.toBytes(Le(u32).fromNative(value))` produces the expected byte window;
+- equivalent `Be(u32)` conversion cases are covered.
 
 ### Packed flag lanes
 
