@@ -22,19 +22,15 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
     const CB = Callback(Fn);
 
     return struct {
-        pub const Signature: type = Fn;
-        pub const capacity: usize = capacity_bytes;
-        pub const alignment: usize = @alignOf(usize);
-
         storage: [capacity_bytes]u8 align(alignment),
         invoke: *const CB.Invoke,
 
-        const Self = @This();
+        pub const Signature: type = Fn;
 
-        comptime {
-            const aligned_capacity = alignUp(usize, capacity_bytes, alignment) catch unreachable;
-            std.debug.assert(@sizeOf(Self) == aligned_capacity + @sizeOf(usize));
-        }
+        pub const capacity: usize = capacity_bytes;
+        pub const alignment: usize = @alignOf(usize);
+
+        const Self = @This();
 
         /// Bit-copy `state` into inline storage and store a thunk that casts the
         /// storage to `*State` before it calls `fn_ptr`. This compile-errors when
@@ -62,6 +58,7 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
 
             const Args = CB.Args;
             const Return = CB.Return;
+
             const Thunk = struct {
                 fn invoke(erased: ?*anyopaque, args: Args) Return {
                     const typed: *State = @ptrCast(@alignCast(erased.?));
@@ -73,6 +70,7 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
                 .storage = undefined,
                 .invoke = &Thunk.invoke,
             };
+
             const dst: *State = @ptrCast(@alignCast(&self.storage));
             dst.* = state;
             return self;
@@ -85,6 +83,11 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
                 .context = @ptrCast(&self.storage),
                 .invoke = self.invoke,
             };
+        }
+
+        comptime {
+            const aligned_capacity = alignUp(usize, capacity_bytes, alignment) catch unreachable;
+            std.debug.assert(@sizeOf(Self) == aligned_capacity + @sizeOf(usize));
         }
     };
 }

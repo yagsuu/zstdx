@@ -21,19 +21,15 @@ pub fn Callback(comptime Fn: type) type {
     comptime validate.signature(Fn, "Callback(Fn)");
 
     return struct {
+        context: ?*anyopaque,
+
+        invoke: *const Invoke,
         pub const Signature: type = Fn;
         pub const Args: type = std.meta.ArgsTuple(Fn);
-        pub const Return: type = returnType(Fn);
+        pub const Return: type = RetType(Fn);
         pub const Invoke: type = fn (?*anyopaque, Args) Return;
 
-        context: ?*anyopaque,
-        invoke: *const Invoke,
-
         const Self = @This();
-
-        comptime {
-            std.debug.assert(@sizeOf(Self) == 2 * @sizeOf(usize));
-        }
 
         /// Constructs a callback from an already-erased `{context, invoke}` pair.
         /// Use `wrap`, `bind`, or `bindMethod` unless the caller supplies a thunk.
@@ -82,6 +78,7 @@ pub fn Callback(comptime Fn: type) type {
                         " has no pub decl named '" ++ method_name ++ "'",
                 );
             }
+
             return bind(Ctx, ctx, &@field(Ctx, method_name));
         }
 
@@ -96,10 +93,14 @@ pub fn Callback(comptime Fn: type) type {
         pub fn eql(self: Self, other: Self) bool {
             return self.context == other.context and self.invoke == other.invoke;
         }
+
+        comptime {
+            std.debug.assert(@sizeOf(Self) == 2 * @sizeOf(usize));
+        }
     };
 }
 
-fn returnType(comptime Fn: type) type {
+fn RetType(comptime Fn: type) type {
     return @typeInfo(Fn).@"fn".return_type orelse
         @compileError("Callback: function signature has no return type");
 }
