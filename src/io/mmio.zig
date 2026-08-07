@@ -5,51 +5,6 @@ const std = @import("std");
 const debug = @import("../core/debug.zig");
 const endian = @import("../layout/endian.zig");
 
-fn isAllowedNativeInt(comptime T: type) bool {
-    return switch (T) {
-        u8, u16, u32, u64 => true,
-        else => false,
-    };
-}
-
-fn isAllowedEndianInt(comptime T: type) bool {
-    if (@typeInfo(T) != .@"struct") return false;
-    if (!@hasDecl(T, "Native")) return false;
-    const Native = T.Native;
-    if (!isAllowedNativeInt(Native)) return false;
-    return T == endian.Le(Native) or T == endian.Be(Native);
-}
-
-fn isAllowedPackedStruct(comptime T: type) bool {
-    const info = @typeInfo(T);
-    if (info != .@"struct") return false;
-    if (info.@"struct".layout != .@"packed") return false;
-    const backing = info.@"struct".backing_integer orelse return false;
-    return switch (backing) {
-        u8, u16, u32, u64 => true,
-        else => false,
-    };
-}
-
-fn requireRegisterType(comptime T: type) void {
-    if (isAllowedNativeInt(T)) return;
-    if (isAllowedEndianInt(T)) return;
-    if (isAllowedPackedStruct(T)) return;
-    @compileError(
-        "MMIO.Register requires u8/u16/u32/u64, layout.Le/Be over those widths, " ++
-            "or packed struct(uN) with N in {8,16,32,64}",
-    );
-}
-
-fn requireWindowAlign(comptime bytes: usize) void {
-    if (bytes == 0) {
-        @compileError("MMIO.Window min_align_bytes must be at least 1");
-    }
-    if (!std.math.isPowerOfTwo(bytes)) {
-        @compileError("MMIO.Window min_align_bytes must be a power of two");
-    }
-}
-
 /// `MMIO` provides register lanes and byte windows.
 /// Ordering: Its accesses are compiler-ordered. The caller must order them
 /// against DMA payloads or other MMIO accesses with `stdx.barrier.mmio` and
@@ -58,7 +13,7 @@ pub const MMIO = struct {
     /// This is the default `min_align_bytes` for the `Window64` alias. It
     /// matches the alignment guaranteed by page-aligned or canonical NVMe
     /// register blocks.
-    pub const default_window_align: usize = @alignOf(u64);
+    pub const default_align: usize = @alignOf(u64);
 
     /// Typed volatile storage lane for a memory-mapped device register. `T`
     /// must be `u8`, `u16`, `u32`, `u64`; `layout.Le`/`Be` over one of those
@@ -69,6 +24,7 @@ pub const MMIO = struct {
     /// blocks. `@sizeOf == @sizeOf(T)` and `@alignOf == @alignOf(T)`.
     pub fn Register(comptime T: type) type {
         comptime requireRegisterType(T);
+
         return extern struct {
             value: T align(@alignOf(T)),
 
@@ -109,6 +65,7 @@ pub const MMIO = struct {
     /// time.
     pub fn Window(comptime min_align_bytes: usize) type {
         comptime requireWindowAlign(min_align_bytes);
+
         return struct {
             base: [*]align(min_align_bytes) volatile u8,
             len: usize,
@@ -181,6 +138,7 @@ pub const MMIO = struct {
                         );
                     }
                 }
+
                 const FieldT = @FieldType(Layout, field_name);
                 return self.register(FieldT, @offsetOf(Layout, field_name));
             }
@@ -221,3 +179,52 @@ pub const MMIO = struct {
     /// 4-byte alignment (some legacy PCI BARs).
     pub const Window32 = Window(@alignOf(u32));
 };
+
+fn isAllowedNativeInt(comptime T: type) bool {
+    return switch (T) {
+        u8, u16, u32, u64 => true,
+        else => false,
+    };
+}
+
+fn isAllowedEndianInt(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info != .@"struct") return false;
+    if (!@hasDecl(T, "Native")) return false;
+
+    const Native = T.Native;
+    if (!isAllowedNativeInt(Native)) return false;
+    return T == endian.Le(Native) or T == endian.Be(Native);
+}
+
+fn isAllowedPackedStruct(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info != .@"struct") return false;
+    if (info.@"struct".layout != .@"packed") return false;
+
+    const backing = info.@"struct".backing_integer orelse return false;
+    return switch (backing) {
+        u8, u16, u32, u64 => true,
+        else => false,
+    };
+}
+
+fn requireRegisterType(comptime T: type) void {
+    if (isAllowedNativeInt(T)) return;
+    if (isAllowedEndianInt(T)) return;
+    if (isAllowedPackedStruct(T)) return;
+
+    @compileError(
+        "MMIO.Register requires u8/u16/u32/u64, layout.Le/Be over those widths, " ++
+            "or packed struct(uN) with N in {8,16,32,64}",
+    );
+}
+
+fn requireWindowAlign(comptime bytes: usize) void {
+    if (bytes == 0) {
+        @compileError("MMIO.Window min_align_bytes must be at least 1");
+    }
+    if (!std.math.isPowerOfTwo(bytes)) {
+        @compileError("MMIO.Window min_align_bytes must be a power of two");
+    }
+}

@@ -186,7 +186,7 @@ test "unit: MMIO.Window32 and MMIO.Window64 resolve to Window(min_align)" {
     comptime {
         std.debug.assert(MMIO.Window32 == MMIO.Window(@alignOf(u32)));
         std.debug.assert(MMIO.Window64 == MMIO.Window(@alignOf(u64)));
-        std.debug.assert(MMIO.default_window_align == @alignOf(u64));
+        std.debug.assert(MMIO.default_align == @alignOf(u64));
     }
 }
 

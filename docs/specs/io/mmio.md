@@ -88,7 +88,7 @@ pub const Mmio = struct {
 
     pub fn Window(comptime min_align_bytes: usize) type;
 
-    pub const default_window_align: usize = @alignOf(u64);
+    pub const default_align: usize = @alignOf(u64);
 
     pub const Window64 = Window(@alignOf(u64));
     pub const Window32 = Window(@alignOf(u32));
