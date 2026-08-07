@@ -69,7 +69,7 @@ pub fn Latch(comptime Backend: type) type {
 
         /// Runtime-capacity variant.
         pub const Bounded = struct {
-            arrival_capacity: u32,
+            total_capacity: u32,
             state: State,
             backend: Backend,
 
@@ -80,8 +80,9 @@ pub fn Latch(comptime Backend: type) type {
                 if (debug.checksEnabled(.build_mode)) {
                     std.debug.assert(capacity_arrivals > 0);
                 }
+
                 return .{
-                    .arrival_capacity = capacity_arrivals,
+                    .total_capacity = capacity_arrivals,
                     .state = State.init(capacity_arrivals),
                     .backend = backend,
                 };
@@ -103,7 +104,7 @@ pub fn Latch(comptime Backend: type) type {
             }
 
             pub fn capacity(self: *const Bounded) u32 {
-                return self.arrival_capacity;
+                return self.total_capacity;
             }
 
             /// Returns whether released. Uses acquire.

@@ -17,8 +17,6 @@ const AtomicCell = atomic_cell.AtomicCell;
 pub const RawSpinLock = struct {
     state: AtomicCell(u32),
 
-    /// State-word encoding. `unlocked` is `0` so the zero bit-pattern is
-    /// a valid unlocked lock; adding a third value is a spec break.
     pub const State = enum(u32) {
         unlocked = 0,
         locked = 1,
@@ -26,7 +24,7 @@ pub const RawSpinLock = struct {
 
     const Self = @This();
 
-    /// Returns a lock whose state is `unlocked`.
+    /// Returns a lock in the `unlocked` state.
     pub fn init() Self {
         return .{ .state = AtomicCell(u32).init(@intFromEnum(State.unlocked)) };
     }
