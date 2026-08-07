@@ -83,7 +83,8 @@ stdx.arch.x86_64.cpuid.addressSizes
 ```text
 src/arch/x86_64.zig
 src/arch/x86_64/cpuid.zig
-test/arch/x86_64_cpuid_test.zig
+test/arch/x86_64/cpuid/all.zig
+test/arch/x86_64/cpuid/cpuid_test.zig
 ```
 
 `src/arch/x86_64.zig` re-exports `pub const cpuid = @import("x86_64/cpuid.zig");`.

@@ -63,7 +63,8 @@ stdx.arch.x86_64.svm.Vmcb
 ```text
 src/arch/x86_64.zig
 src/arch/x86_64/svm.zig
-test/arch/x86_64_svm_test.zig   ← separate test file
+test/arch/x86_64/svm/all.zig
+test/arch/x86_64/svm/svm_test.zig
 ```
 
 `src/arch/x86_64.zig` re-exports `pub const svm = @import("x86_64/svm.zig");`.

@@ -22,7 +22,7 @@ Ordinary domain facades MUST NOT be named `root.zig`.
 
 ## Data structures and representation
 
-The repository contains `build.zig`, `build.zig.zon`, `README.md`, `docs/`, `src/`, and `test/`. The `docs/` tree contains specifications, planning material, guidelines, and project decisions. The source tree contains `src/stdx.zig`, domain facade files, and implementation directories. `test/all.zig` is the test aggregation root.
+The repository contains `build.zig`, `build.zig.zon`, `README.md`, `docs/`, `src/`, and `test/`. The `docs/` tree contains specifications, planning material, guidelines, and project decisions. The source tree contains `src/stdx.zig`, domain facade files, and implementation directories. The test tree contains hierarchical `all.zig` aggregation facades rooted at `test/all.zig`.
 
 The repository tree is an ownership map, not permission to create empty scaffolding. A file or directory MAY land only when an approved owning specification and implementation slice require it.
 
@@ -100,6 +100,8 @@ A source file MAY land only when all of these conditions are true:
 
 ## Testing
 
-`test/all.zig` MUST aggregate test modules with comptime imports. Test directories MUST mirror source domains. Local pure-logic tests MAY be in their source file. Multi-module, model, stress, and fixture-driven tests MUST be under `test/`.
+`test/all.zig` MUST import only immediate domain test facades with comptime imports. Each domain test facade MUST import only its immediate category facades. Each category facade MUST import only its immediate child facades or its own leaf test modules. A leaf test module MUST NOT import another leaf test module. Every leaf test module MUST have exactly one aggregation path from `test/all.zig`.
 
-Aggregation tests prove that every required test module is part of the default test build. Domain tests prove their own observable primitive contracts. The aggregation mechanism does not replace required domain tests.
+Test directories MUST mirror source domains and public namespace boundaries. A test-only category MAY group declarations that share one source or specification owner but have no public namespace. Its name MUST identify that ownership boundary. Aggregation facades MUST contain imports only; they MUST NOT contain tests, helpers, fixtures, or assertions.
+
+Local pure-logic tests MAY be in their source file. Multi-module, model, stress, and fixture-driven tests MUST be under `test/`. Aggregation facades prove that every required leaf test is part of the default test build. They do not replace domain tests.

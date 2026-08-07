@@ -53,7 +53,13 @@ src/arch/x86_64/register/rflags.zig
 src/arch/x86_64/register/segment.zig
 src/arch/x86_64/register/descriptor.zig
 src/arch/x86_64/register/debug.zig
-test/arch/x86_64_test.zig
+test/arch/x86_64/registers/all.zig
+test/arch/x86_64/registers/control_test.zig
+test/arch/x86_64/registers/efer_test.zig
+test/arch/x86_64/registers/rflags_test.zig
+test/arch/x86_64/registers/segment_test.zig
+test/arch/x86_64/registers/descriptor_test.zig
+test/arch/x86_64/registers/debug_test.zig
 ```
 
 `registers.zig` is a thin facade. It re-exports register namespaces. Each domain module owns its packed

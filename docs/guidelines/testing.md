@@ -15,6 +15,15 @@ Test requirements for zstdx implementation work.
 - `test/` contains multi-module tests, model comparisons, fixture-driven tests, stress tests, and integration-style tests.
 - Benchmarks live outside the default correctness test path unless a spec says otherwise.
 
+## Test aggregation
+
+- `test/all.zig` imports only domain `all.zig` facades.
+- Each `all.zig` imports only immediate child facades or leaf tests owned by its category.
+- Each leaf test has exactly one aggregation path from `test/all.zig`.
+- Aggregation facades contain imports only.
+- Leaf tests do not import other leaf tests.
+- Test directories mirror source domains and public namespaces. A test-only category can group root-owned declarations when the category has one explicit owner.
+
 ## Test naming
 
 Use category prefixes:

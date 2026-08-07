@@ -72,7 +72,8 @@ stdx.arch.x86_64.vmx.InvvpidDescriptor
 ```text
 src/arch/x86_64.zig
 src/arch/x86_64/vmx.zig
-test/arch/x86_64_vmx_test.zig   ← separate test file
+test/arch/x86_64/vmx/all.zig
+test/arch/x86_64/vmx/vmx_test.zig
 ```
 
 `src/arch/x86_64.zig` re-exports `pub const vmx = @import("x86_64/vmx.zig");`.

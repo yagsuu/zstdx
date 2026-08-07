@@ -111,6 +111,7 @@ src/arch/x86_64/paging/address.zig
 src/arch/x86_64/paging/table.zig
 src/arch/x86_64/paging/walk.zig
 
+test/arch/x86_64/paging/all.zig
 test/arch/x86_64/paging/address_test.zig
 test/arch/x86_64/paging/table_test.zig
 test/arch/x86_64/paging/walk_test.zig
@@ -133,9 +134,7 @@ private entry interpretation.
 `paging/walk.zig` owns the reader contract, walker state, requested access,
 effective permissions, translation results, and faults.
 
-`address_test.zig`, `table_test.zig`, and `walk_test.zig` test the declarations
-owned by their matching source files. `test/all.zig` imports all three test files
-directly. No flat or umbrella paging test file is part of the approved layout.
+`address_test.zig`, `table_test.zig`, and `walk_test.zig` test the declarations owned by their matching source files. `test/arch/x86_64/paging/all.zig` imports all three leaf tests. The parent x86_64 facade imports only `paging/all.zig`.
 
 ## Physical address aliases
 

@@ -52,7 +52,10 @@ stdx.arch.x86_64.cpu.tlb.invalidatePcid
 ```text
 src/arch/x86_64.zig
 src/arch/x86_64/cpu.zig
-test/arch/x86_64_cpu_test.zig
+test/arch/x86_64/cpu/all.zig
+test/arch/x86_64/cpu/cpu_test.zig
+test/arch/x86_64/cpu/tsc_test.zig
+test/arch/x86_64/cpu/tlb_test.zig
 ```
 
 `src/arch/x86_64.zig` re-exports:
