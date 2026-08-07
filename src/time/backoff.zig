@@ -14,6 +14,10 @@ const Instant = monotonic.Instant;
 /// single-owner value type neither allocates nor sleeps; it reads time only
 /// through the supplied `Deadline`.
 pub const Backoff = struct {
+    policy: Policy,
+    attempt: u32,
+    next_wait: Duration,
+
     /// Field order matches the specification's Approved API.
     pub const Policy = struct {
         spin_iterations: u32,
@@ -38,10 +42,6 @@ pub const Backoff = struct {
         sleep: Duration,
         timeout,
     };
-
-    policy: Policy,
-    attempt: u32,
-    next_wait: Duration,
 
     /// In build-mode checks, invokes `policy.assertValid()`.
     pub fn init(policy: Policy) Backoff {

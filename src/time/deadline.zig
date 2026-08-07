@@ -13,9 +13,7 @@ pub const Deadline = enum(u64) {
     _,
 
     pub const Raw = u64;
-
     pub const OverflowError = error{Overflow};
-
     pub const TimeoutError = error{Timeout};
 
     /// Represents no expiry. It uses `maxInt(u64)`, so `expired` is false

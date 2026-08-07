@@ -21,16 +21,16 @@ pub const DeadlineQueue = struct {
         const SlotType = QueueSlot(T);
 
         return struct {
-            pub const item_capacity = capacity_items;
-
-            const Slot = SlotType;
-
             slots: [capacity_items]Slot,
             heap: [capacity_items]usize,
             count: usize,
             free_head: usize,
 
+            pub const item_capacity = capacity_items;
+
             const Self = @This();
+
+            const Slot = SlotType;
             const Impl = Common(T, Self);
 
             pub const Handle = Impl.Handle;
@@ -130,8 +130,6 @@ pub const DeadlineQueue = struct {
         const SlotType = QueueSlot(T);
 
         return struct {
-            pub const Slot = SlotType;
-
             slots: []Slot,
             heap: []usize,
             count: usize,
@@ -140,6 +138,7 @@ pub const DeadlineQueue = struct {
             const Self = @This();
             const Impl = Common(T, Self);
 
+            pub const Slot = SlotType;
             pub const Handle = Impl.Handle;
             pub const Entry = Impl.Entry;
             pub const Error = Impl.Error;
@@ -155,6 +154,7 @@ pub const DeadlineQueue = struct {
                     .count = 0,
                     .free_head = invalid_index,
                 };
+
                 Impl.initializeStorage(&self);
                 return self;
             }
@@ -293,7 +293,9 @@ fn Common(comptime T: type, comptime Self: type) type {
             for (heap[0..old_len]) |*heap_entry| {
                 const index = heap_entry.*;
                 const slot = &slots[index];
+
                 bumpGeneration(slot);
+
                 slot.deadline = Deadline.never;
                 slot.item = undefined;
                 slot.heap_pos = invalid_index;
