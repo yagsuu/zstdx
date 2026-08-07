@@ -18,7 +18,8 @@ comptime {
     _ = @import("mem/alloc/slab/cache_test.zig");
     _ = @import("mem/alloc/frame_test.zig");
     _ = @import("mem/alloc/bitmap_test.zig");
-    _ = @import("algo/allocation_test.zig");
+    _ = @import("algo/alloc/placement_test.zig");
+    _ = @import("algo/alloc/buddy_test.zig");
     _ = @import("tags/tag_test.zig");
     _ = @import("tags/allocator_test.zig");
     _ = @import("arch/x86_64_test.zig");

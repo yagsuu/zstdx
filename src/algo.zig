@@ -1,3 +1,3 @@
-//! Allocation-placement algorithms. See `docs/specs/algo/allocation.md`.
+//! Allocation algorithms. See `docs/specs/algo/alloc/`.
 
-pub const allocation = @import("algo/allocation.zig");
+pub const alloc = @import("algo/alloc.zig");

@@ -6,14 +6,10 @@ Status: Approved.
 (`Backend`) into an `addr.Page.Frame` / `addr.Page.FrameRange` vocabulary.
 It owns the unit-to-frame conversion, a base-frame anchor, `reserve`
 translation, and canonical frame-count statistics. It does not own the
-underlying free-list state — the `Backend` (typically
-`mem.alloc.BuddyAllocator.Static` or `mem.alloc.BuddyAllocator.Bounded`) owns that.
+underlying free-list state. `mem.alloc.BuddyAllocator.Static` and
+`mem.alloc.BuddyAllocator.Bounded` are conforming backends.
 
-Every consumer today rewrites the same "block start × page size + base
-frame = Frame" adapter and gets `reserve` accounting subtly wrong.
-`FrameAllocator` closes that gap once for every sibling project.
-
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -31,7 +27,7 @@ This spec owns:
 - structural invariants and `assertValid` contract;
 - required tests.
 
-## Deferred scope and non-goals
+## What this spec is not
 
 This spec does not own:
 
@@ -46,9 +42,8 @@ This spec does not own:
   beyond the canonical frame counts named above;
 - automatic zeroing or poisoning of allocated frames;
 - `std.mem.Allocator` byte-view adapter;
-- root promotion.
 
-## Public namespace
+## Public namespace and source ownership
 
 `FrameAllocator` lives under `stdx.mem.alloc`:
 
@@ -56,12 +51,6 @@ This spec does not own:
 stdx.mem.alloc.FrameAllocator
 stdx.mem.alloc.FrameAllocator.Static
 stdx.mem.alloc.FrameAllocator.Bounded
-```
-
-It is not root-promoted:
-
-```zig
-stdx.FrameAllocator // not exported
 ```
 
 Source ownership:
@@ -87,7 +76,7 @@ MUST expose the following declarations, evaluated at `FrameAllocator(...)`
 instantiation:
 
 ```zig
-pub const Block: type;    // structurally equal to algo.allocation.Buddy.Block
+pub const Block: type;    // structurally equal to algo.alloc.buddy.Block
 pub const Range: type;    // structurally equal to core.Range(usize)
 pub const Error: type;    // a Zig error set
 
@@ -108,7 +97,7 @@ pub fn assertValid(self: *const Self) void;
 Requirements:
 
 - `Block` MUST expose `start: usize` and `order: u8` fields with the
-  semantics of `stdx.algo.allocation.Buddy.Block`;
+  semantics of `stdx.algo.alloc.buddy.Block`;
 - `Range` MUST expose `start: usize` and `end: usize` fields with the
   half-open semantics of `stdx.core.Range(usize)`;
 - `Error` MUST be a subset of, or equal to, the `FrameAllocator` error
@@ -152,7 +141,7 @@ Semantics:
 All error returns leave the allocator unchanged (subject to the same
 no-mutation-on-error guarantee from the backend).
 
-## Approved API
+## API
 
 ```zig
 pub const FrameAllocator = struct {
@@ -246,7 +235,7 @@ FrameRange {
 `free(range)` computes `unit_at(range.base)` and calls
 `Backend.free(Block{ .start = unit, .order = order })`, where
 `order` is derived from `range.count.pages()` via
-`stdx.algo.allocation.Buddy.orderForLen`. If `range.count.pages()` is
+`stdx.algo.alloc.buddy.orderForLen`. If `range.count.pages()` is
 zero or not a power of two, `free` returns `error.InvalidRequest`
 without mutation.
 
@@ -401,87 +390,14 @@ Implementation MAY:
   power-of-two-page-count case;
 - share helpers between `Static` and `Bounded` bodies.
 
-## Usage
+## Testing
+Verification uses static and bounded buddy backends, page types with distinct address widths, boundary/error cases, and a bool-array unit model. It observes checked frame conversion, allocation and reservation exclusion, statistics, region-source balance, and invariant failures; the model proves that frame-visible state stays equivalent to backend unit state.
 
-Static physical-frame allocator at a fixed base:
-
-```zig
-const stdx = @import("stdx");
-
-const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
-const Buddy = stdx.mem.alloc.BuddyAllocator.Static(1024, 6);
-const Frames = stdx.mem.alloc.FrameAllocator.Static(
-    Buddy,
-    Phys4K,
-    try Phys4K.Frame.fromAddressInt(0x0010_0000),
-);
-
-var frames = Frames.init();
-
-// Reserve firmware-owned frames [0x0010_0000, 0x0010_4000).
-const reserved = try Phys4K.FrameRange.fromAddressBytes(
-    stdx.addr.PhysAddr.fromInt(0x0010_0000),
-    4 * stdx.addr.pages._4kib,
-);
-try frames.reserve(reserved);
-
-const region = try frames.alloc(2);   // 4 contiguous frames (order 2)
-defer frames.free(region) catch unreachable;
-
-const bytes = try frames.remainingBytes();
-_ = bytes;
-```
-
-Runtime-base bounded allocator over caller words:
-
-```zig
-var backing: [64]stdx.mem.alloc.BuddyAllocator.Bounded.Word = @splat(0);
-const backend = try stdx.mem.alloc.BuddyAllocator.Bounded.wrap(&backing, 128, 5);
-
-const Virt4K = stdx.addr.Page(stdx.addr.VirtAddr, stdx.addr.pages._4kib);
-const Frames = stdx.mem.alloc.FrameAllocator.Bounded(
-    stdx.mem.alloc.BuddyAllocator.Bounded,
-    Virt4K,
-);
-
-const base = try Virt4K.Frame.fromAddressInt(0xffff_ffff_8000_0000);
-var frames = try Frames.wrap(backend, base);
-
-const region = try frames.alloc(3);
-try frames.free(region);
-```
-
-Compose with `SlabCache` for `kmem_cache_alloc`-shaped growth:
-
-```zig
-var source = frames.frameSource(0);   // 4 KiB regions
-
-const NodeCache = stdx.mem.alloc.SlabCache(Node, @TypeOf(source));
-var cache = NodeCache.init(&source);
-
-try cache.refill();
-const node = try cache.acquire();
-_ = node;
-```
-
-## Planned use
-
-- kernel physical-memory allocators that hand out ranges typed as
-  `PhysAddr` frames;
-- hypervisor guest-physical-memory allocators typed against a
-  custom `Address(GpaTag, u64)` domain;
-- firmware pre-runtime frame allocators over a caller-provided
-  physical-memory region;
-- page-source for `SlabCache(T, FrameSource(order))` used by kernel
-  and driver typed-object caches.
-
-## Required tests
-
-Tests live in `test/mem/alloc/frame_test.zig`. Backends exercised: at least
-`BuddyAllocator.Static(16, 5)` paired with `Page(PhysAddr, _4kib)`,
-`BuddyAllocator.Bounded` paired with `Page(VirtAddr, _4kib)`, and one
-`BuddyAllocator.Static(...)` paired with a custom
-`Page(Address(Tag, u64), _2mib)`.
+The verification matrix includes `BuddyAllocator.Static(16, 5)` with
+`Page(PhysAddr, _4kib)`, `BuddyAllocator.Bounded` with
+`Page(VirtAddr, _4kib)`, and `BuddyAllocator.Static(...)` with
+`Page(Address(Tag, u64), _2mib)`. These configurations verify conversion
+across static and bounded storage, physical and virtual address domains, and distinct address widths.
 
 ### Construction
 
@@ -552,7 +468,7 @@ Tests live in `test/mem/alloc/frame_test.zig`. Backends exercised: at least
 - `FrameAllocator.Bounded(BuddyBounded, Phys4K)` and
   `FrameAllocator.Bounded(BuddyBounded, Phys2M)` are distinct types;
 - `FrameRange` values from different instantiations are not
-  assignment-compatible where practical.
+  assignment-compatible; this is verified by type-level compilation of the distinct instantiations.
 
 ### Invariants
 
@@ -583,7 +499,3 @@ Parameter grid: `unit_capacity ∈ {8, 16, 64, 128}`, `order_count ∈
 - a `Page` whose `AddressInt` cannot hold `Backend.capacity() *
   Page.Size.bytes` still compiles (validated at runtime by
   `remainingBytes` / `wrap`).
-
-## Open questions
-
-None.

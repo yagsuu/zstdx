@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const allocation = @import("../../algo/allocation.zig");
+const buddy = @import("../../algo/alloc/buddy.zig");
 
 pub const FrameAllocator = struct {
     /// Owns an inline backend and a comptime base frame.
@@ -183,8 +183,6 @@ pub const FrameAllocator = struct {
     }
 };
 
-const Buddy = allocation.Buddy;
-
 /// Error superset required from conforming backends.
 const FrameError = error{
     OutOfMemory,
@@ -313,8 +311,8 @@ fn isFreeImpl(
     if (range.isEmpty()) return false;
 
     const page_count = range.count.pages();
-    const order = Buddy.orderForLen(@intCast(page_count)) catch return false;
-    const block_size = Buddy.blockSize(order) catch return false;
+    const order = buddy.orderForLen(@intCast(page_count)) catch return false;
+    const block_size = buddy.blockSize(order) catch return false;
     if (block_size != page_count) return false;
 
     const base_unit = base.addressInt() >> Page.Size.shift;
@@ -336,7 +334,7 @@ fn largestFreeOrderImpl(comptime Backend: type, backend: *const Backend) ?u8 {
     if (backend.remainingUnits() == 0) return null;
     var order: u8 = backend.maxOrder();
     while (true) : (order -%= 1) {
-        const block_size = Buddy.blockSize(order) catch {
+        const block_size = buddy.blockSize(order) catch {
             if (order == 0) return null;
             continue;
         };
@@ -385,7 +383,7 @@ fn frameRangeFromBlock(
 ) FrameError!Page.FrameRange {
     const start_offset: Page.AddressInt =
         std.math.cast(Page.AddressInt, block.start) orelse return error.Overflow;
-    const count_pages_native: usize = Buddy.blockSize(block.order) catch return error.Overflow;
+    const count_pages_native: usize = buddy.blockSize(block.order) catch return error.Overflow;
     const count_pages: Page.AddressInt =
         std.math.cast(Page.AddressInt, count_pages_native) orelse return error.Overflow;
 
@@ -403,8 +401,8 @@ fn blockFromFrameRange(
     if (range.isEmpty()) return error.InvalidRequest;
 
     const page_count = range.count.pages();
-    const order = Buddy.orderForLen(@intCast(page_count)) catch return error.InvalidRequest;
-    const block_size = Buddy.blockSize(order) catch return error.InvalidRequest;
+    const order = buddy.orderForLen(@intCast(page_count)) catch return error.InvalidRequest;
+    const block_size = buddy.blockSize(order) catch return error.InvalidRequest;
     if (block_size != page_count) return error.InvalidRequest;
 
     const base_unit = base.addressInt() >> Page.Size.shift;
@@ -448,7 +446,7 @@ fn FrameSourceImpl(comptime Parent: type, comptime Page: type, comptime order: u
             const raw: usize = @intFromPtr(region);
             const address_int: Page.AddressInt = @intCast(raw);
             const frame = Page.Frame.fromAddressInt(address_int) catch unreachable;
-            const count_pages = Buddy.blockSize(order) catch unreachable;
+            const count_pages = buddy.blockSize(order) catch unreachable;
             const count = Page.Count.fromPages(@intCast(count_pages));
             const range = Page.FrameRange.fromBaseCount(frame, count) catch unreachable;
             self.parent.free(range) catch |err| std.debug.panic(

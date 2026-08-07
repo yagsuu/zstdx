@@ -8,7 +8,7 @@ const stdx = @import("stdx");
 const testing = std.testing;
 
 const BuddyAllocator = stdx.mem.alloc.BuddyAllocator;
-const Buddy = stdx.algo.allocation.Buddy;
+const buddy = stdx.algo.alloc.buddy;
 
 // Static factory
 
@@ -30,9 +30,9 @@ test "unit: Static(1, 1) compiles as degenerate one-block allocator" {
     try testing.expectEqual(@as(usize, 0), a.allocatedUnits());
 }
 
-test "contract: Block type is stdx.algo.allocation.Buddy.Block" {
-    comptime std.debug.assert(BuddyAllocator.Static(16, 5).Block == Buddy.Block);
-    comptime std.debug.assert(BuddyAllocator.Bounded.Block == Buddy.Block);
+test "contract: Block type is stdx.algo.alloc.buddy.Block" {
+    comptime std.debug.assert(BuddyAllocator.Static(16, 5).Block == buddy.Block);
+    comptime std.debug.assert(BuddyAllocator.Bounded.Block == buddy.Block);
 }
 
 // Compile-only rejection cases: `Static(0, 5)`, `Static(16, 0)`,

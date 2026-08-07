@@ -12,7 +12,7 @@ groups, and any resource domain where the allocation grain is a power-of-two
 count of fixed units. It never allocates backing memory and never performs
 domain-specific policy.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -20,7 +20,7 @@ This spec owns:
 - `mem.alloc.BuddyAllocator.Bounded`;
 - per-order bitmap free-list discipline over caller-provided backing words;
 - `alloc`/`free`/`reserve` semantics with the shared
-  `algo.allocation.Buddy.Block` value shape;
+  `algo.alloc.buddy.Block` value shape;
 - eager on-`free` coalescing;
 - deterministic lowest-index split-and-place policy;
 - exhaustion, bounds, order-range, invalid-request, double-reserve, and
@@ -29,11 +29,11 @@ This spec owns:
 - structural invariants and `assertValid` contract;
 - required tests (unit, model, stress).
 
-## Deferred scope and non-goals
+## What this spec is not
 
 This spec does not own:
 
-- byte-level allocation; `alloc` returns `Buddy.Block` values, never `*u8`;
+- byte-level allocation; `alloc` returns `algo.alloc.buddy.Block` values, never `*u8`;
 - page-size policy, page-frame types, physical or virtual address translation;
 - NUMA locality, per-CPU caches, or hot-path per-order counters;
 - dynamic backing growth or shrinkage;
@@ -45,9 +45,8 @@ This spec does not own:
 - alignment override, generation counts, or handle stability guarantees
   across `free`;
 - `std.mem.Allocator` views — this is not a byte allocator;
-- root promotion of `BuddyAllocator`.
 
-## Public namespace
+## Public namespace and source ownership
 
 `BuddyAllocator` lives under `stdx.mem.alloc`:
 
@@ -55,12 +54,6 @@ This spec does not own:
 stdx.mem.alloc.BuddyAllocator
 stdx.mem.alloc.BuddyAllocator.Static
 stdx.mem.alloc.BuddyAllocator.Bounded
-```
-
-It is not root-promoted:
-
-```zig
-stdx.BuddyAllocator // not exported
 ```
 
 Source ownership:
@@ -79,7 +72,7 @@ pub const buddy = @import("alloc/buddy.zig");
 pub const BuddyAllocator = buddy.BuddyAllocator;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const BuddyAllocator = struct {
@@ -92,7 +85,7 @@ pub const BuddyAllocator = struct {
 
         pub const Word = u64;
         pub const word_bits = @bitSizeOf(Word);
-        pub const Block = stdx.algo.allocation.Buddy.Block;
+        pub const Block = stdx.algo.alloc.buddy.Block;
         pub const Range = stdx.core.Range(usize);
         pub const Error = error{
             OutOfMemory,
@@ -135,7 +128,7 @@ pub const Self = struct {
 
     pub const Word = u64;
     pub const word_bits = @bitSizeOf(Word);
-    pub const Block = stdx.algo.allocation.Buddy.Block;
+    pub const Block = stdx.algo.alloc.buddy.Block;
     pub const Range = stdx.core.Range(usize);
     pub const Error = BuddyAllocator.Bounded.Error;
 
@@ -162,7 +155,7 @@ translates to whatever domain they own.
 A unit is an abstract resource slot identified by an index in
 `[0, unit_capacity)`.
 
-An allocation is a `Buddy.Block`:
+An allocation is an `algo.alloc.buddy.Block`:
 
 ```zig
 Block{ .start = start_unit, .order = order }
@@ -177,9 +170,9 @@ Order names a block size in units:
 size_units(order) = 1 << order
 ```
 
-`Buddy.Block`, `Buddy.blockSize`, `Buddy.buddyOf`, `Buddy.parentOf`,
-`Buddy.split`, and `Buddy.canCoalesce` come from
-`docs/specs/algo/allocation.md` and are used verbatim. This spec does not
+`buddy.Block`, `buddy.blockSize`, `buddy.buddyOf`, `buddy.parentOf`,
+`buddy.split`, and `buddy.canCoalesce` come from
+`docs/specs/algo/alloc/buddy.md` and are used verbatim. This spec does not
 redefine them.
 
 The allocator does not know what a unit represents. A unit may name a page
@@ -294,13 +287,13 @@ Logic:
 3. Otherwise, find the lowest-index free block at any order `order + 1
    .. maxOrder()`. If none exists, return `error.OutOfMemory`. No mutation.
 4. Otherwise, split repeatedly from that higher order down to `order`:
-   - `let (left, right) = Buddy.split(current);`
+   - `let (left, right) = buddy.split(current);`
    - mark the right child free in its order's bitmap;
    - continue with `left` as `current` until `current.order == order`.
    Return `current`.
 
 The lowest-source-order tie-break in step 3 keeps splits shallow and
-deterministic. Splitting itself uses `algo.allocation.Buddy.split`, which
+deterministic. Splitting itself uses `algo.alloc.buddy.split`, which
 never fails for `order >= 1`.
 
 ## `free(block)` semantics — eager coalesce
@@ -320,9 +313,9 @@ Logic:
    the caller is freeing a block that is currently free (double-free). No
    mutation.
 4. While `block.order < maxOrder()`:
-   - compute `buddy := Buddy.buddyOf(block)`;
-   - if `buddy` is free at `block.order` in the bitmap, clear the buddy's
-     bit and set `block := Buddy.parentOf(block)`;
+   - compute `sibling := buddy.buddyOf(block)`;
+   - if `sibling` is free at `block.order` in the bitmap, clear the sibling's
+     bit and set `block := buddy.parentOf(block)`;
    - otherwise break.
 5. Set the bit for `(block.order, block.start >> block.order)`.
 
@@ -428,59 +421,10 @@ it catches:
 
 `isValid()` returns whether the same conditions hold, without trapping.
 
-## `std.Io` lane
+## Testing
+Verification combines boundary cases, direct bitmap-corruption checks, a bool-array reference model, and randomized stress sequences. It observes the initial decomposition, deterministic splitting, eager coalescing, fragmentation, error atomicity, and structural invariants; the model and stress sequence prove that each operation preserves the free-block partition.
 
-`BuddyAllocator` serves both lanes declared in the spec queue:
-
-1. Composes inside a downstream `std.Io` backend implementation (e.g. a
-   hosted physical-memory allocator wrapping this allocator behind
-   `Io.Threaded`), by owning the state that the backend surfaces.
-2. Serves freestanding consumers directly — kernel physical-memory maps,
-   hypervisor guest-page-table allocators, firmware pre-runtime allocators
-   — against caller-provided backing words.
-
-Distinct from `std.heap.*`: byte-granular std allocators have hidden
-allocation, no explicit unit/order concept, and no split/coalesce policy.
-Distinct from `std.bit_set.IntegerBitSet`: no allocation state or split/
-coalesce; a bit set is not an allocator.
-
-## Examples
-
-Physical-frame allocator with a small three-order allocator:
-
-```zig
-const stdx = @import("stdx");
-
-const Buddy = stdx.mem.alloc.BuddyAllocator.Static(64, 4); // 64 frames, orders 0..3
-
-var frames: Buddy = .init();
-
-// Reserve firmware-owned frames [0, 4).
-try frames.reserve(Buddy.Range.fromBounds(0, 4) catch unreachable);
-
-// Allocate an order-2 block (4 contiguous frames).
-const region = try frames.alloc(2);
-defer frames.free(region) catch unreachable;
-
-const phys = base_phys.add(region.start * page_size);
-_ = phys;
-```
-
-Bounded variant over caller-owned words:
-
-```zig
-var backing: [64]stdx.mem.alloc.BuddyAllocator.Bounded.Word = @splat(0);
-var frames = try stdx.mem.alloc.BuddyAllocator.Bounded.wrap(&backing, 128, 5);
-
-const big = try frames.alloc(4); // 16 units
-try frames.free(big);
-```
-
-## Required tests
-
-Tests live in `test/mem/alloc/buddy_test.zig`. Unit tests use small parameters;
-model tests compare against a naive reference; stress tests exercise
-random-op sequences.
+Boundary tests use small allocator configurations to verify construction, splitting, coalescing, and error behavior. A bool-array reference model verifies allocation state after mixed operations. Random operation sequences verify that the free-block partition and model equivalence persist under stress.
 
 ### `Static(...)` factory
 
@@ -617,11 +561,7 @@ naive "find lowest-index aligned power-of-two run" allocator.
 
 ### Compile-only
 
-- `Block = stdx.algo.allocation.Buddy.Block` (identity comparison of the
+- `Block = stdx.algo.alloc.buddy.Block` (identity comparison of the
   types).
 - `Static(1, 1)` compiles and yields a degenerate one-block allocator.
 - Non-x86 build compiles the module.
-
-## Open questions
-
-None.

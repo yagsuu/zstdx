@@ -4,7 +4,7 @@
 const std = @import("std");
 
 const debug = @import("../../core/debug.zig");
-const allocation = @import("../../algo/allocation.zig");
+const buddy = @import("../../algo/alloc/buddy.zig");
 const word = @import("../../bits/word.zig");
 
 /// Uses lowest-index splitting and eager coalescing.
@@ -22,7 +22,7 @@ pub const BuddyAllocator = struct {
             const Self = @This();
 
             pub const Word = u64;
-            pub const Block = Buddy.Block;
+            pub const Block = buddy.Block;
             pub const Range = RangeUsize;
             pub const Error = BuddyAllocator.Bounded.Error;
 
@@ -104,7 +104,7 @@ pub const BuddyAllocator = struct {
 
         pub const Word = u64;
         pub const word_bits = @bitSizeOf(Word);
-        pub const Block = Buddy.Block;
+        pub const Block = buddy.Block;
         pub const Range = RangeUsize;
 
         /// `OutOfMemory`: no free block of the requested order exists.
@@ -206,7 +206,7 @@ pub const BuddyAllocator = struct {
     };
 };
 
-const Buddy = allocation.Buddy;
+const BuddyBlock = buddy.Block;
 const BuddyWord = u64;
 const RangeUsize = @import("../../core/range.zig").Range(usize);
 const Shift = std.math.Log2Int(BuddyWord);
@@ -241,7 +241,6 @@ fn initialWords(
     return words;
 }
 
-const BuddyBlock = Buddy.Block;
 const BuddyError = BuddyAllocator.Bounded.Error;
 
 fn ceilDivUsize(a: usize, b: usize) usize {
@@ -397,7 +396,7 @@ fn allocImpl(
     var current: BuddyBlock = .{ .start = best_start, .order = best_order };
     while (current.order > order) {
         std.debug.assert(current.order > 0);
-        const pair = Buddy.split(current) catch unreachable;
+        const pair = buddy.split(current) catch unreachable;
 
         const right = pair[1];
         setBit(
@@ -442,16 +441,16 @@ fn freeImpl(
 
     var current = block;
     while (current.order + 1 < order_count) {
-        const buddy = Buddy.buddyOf(current) catch break;
-        const buddy_size = @as(usize, 1) << @as(Shift, @intCast(buddy.order));
-        const buddy_end = std.math.add(usize, buddy.start, buddy_size) catch break;
-        if (buddy_end > unit_capacity) break;
+        const sibling = buddy.buddyOf(current) catch break;
+        const sibling_size = @as(usize, 1) << @as(Shift, @intCast(sibling.order));
+        const sibling_end = std.math.add(usize, sibling.start, sibling_size) catch break;
+        if (sibling_end > unit_capacity) break;
 
-        const buddy_slot = buddy.start >> @as(Shift, @intCast(buddy.order));
-        if (!bitIsSet(words, unit_capacity, buddy.order, buddy_slot)) break;
+        const sibling_slot = sibling.start >> @as(Shift, @intCast(sibling.order));
+        if (!bitIsSet(words, unit_capacity, sibling.order, sibling_slot)) break;
 
-        clearBit(words, unit_capacity, buddy.order, buddy_slot);
-        current = Buddy.parentOf(current) catch break;
+        clearBit(words, unit_capacity, sibling.order, sibling_slot);
+        current = buddy.parentOf(current) catch break;
     }
 
     setBit(
@@ -499,7 +498,7 @@ fn reserveImpl(
         while (current.order > 0) {
             std.debug.assert(current.order > 0);
 
-            const pair = Buddy.split(current) catch unreachable;
+            const pair = buddy.split(current) catch unreachable;
             const left = pair[0];
             const right = pair[1];
             const left_end = left.start + (@as(usize, 1) << @as(Shift, @intCast(left.order)));

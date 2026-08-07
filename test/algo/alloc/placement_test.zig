@@ -1,17 +1,16 @@
-//! Allocation-placement contract tests. See `docs/specs/algo/allocation.md`.
+//! Placement algorithm contract tests. See `docs/specs/algo/alloc/placement.md`.
 
 const std = @import("std");
 
 const stdx = @import("stdx");
 
-const allocation = stdx.algo.allocation;
-const Range = allocation.Range;
-const Request = allocation.Request;
-const Selection = allocation.Selection;
-const FirstFit = allocation.FirstFit;
-const BestFit = allocation.BestFit;
-const WorstFit = allocation.WorstFit;
-const Buddy = allocation.Buddy;
+const placement = stdx.algo.alloc.placement;
+const Range = placement.Range;
+const Request = placement.Request;
+const Selection = placement.Selection;
+const FirstFit = placement.FirstFit;
+const BestFit = placement.BestFit;
+const WorstFit = placement.WorstFit;
 
 const testing = std.testing;
 
@@ -234,128 +233,6 @@ test "unit: selection does not mutate input free ranges" {
     }
 }
 
-// ---- Buddy behavior -----------------------------------------------------
-
-test "unit: Buddy.blockSize(0) == 1 and grows by powers of two" {
-    try testing.expectEqual(@as(usize, 1), try Buddy.blockSize(0));
-    try testing.expectEqual(@as(usize, 2), try Buddy.blockSize(1));
-    try testing.expectEqual(@as(usize, 4), try Buddy.blockSize(2));
-    try testing.expectEqual(@as(usize, 1024), try Buddy.blockSize(10));
-}
-
-test "unit: Buddy.blockSize overflow for unrepresentable orders" {
-    const bits = @bitSizeOf(usize);
-    try testing.expectError(error.Overflow, Buddy.blockSize(@intCast(bits)));
-    try testing.expectError(error.Overflow, Buddy.blockSize(@intCast(bits + 1)));
-}
-
-test "unit: Buddy.orderForLen exact for powers of two, rounds up otherwise" {
-    try testing.expectEqual(@as(u8, 0), try Buddy.orderForLen(1));
-    try testing.expectEqual(@as(u8, 1), try Buddy.orderForLen(2));
-    try testing.expectEqual(@as(u8, 2), try Buddy.orderForLen(3));
-    try testing.expectEqual(@as(u8, 2), try Buddy.orderForLen(4));
-    try testing.expectEqual(@as(u8, 3), try Buddy.orderForLen(5));
-    try testing.expectEqual(@as(u8, 3), try Buddy.orderForLen(8));
-    try testing.expectEqual(@as(u8, 10), try Buddy.orderForLen(1024));
-    try testing.expectEqual(@as(u8, 11), try Buddy.orderForLen(1025));
-}
-
-test "unit: Buddy.orderForLen(0) returns InvalidRequest" {
-    try testing.expectError(error.InvalidRequest, Buddy.orderForLen(0));
-}
-
-test "unit: Buddy.orderForLen overflow for unrepresentable len" {
-    const bits = @bitSizeOf(usize);
-    // 1 << (bits - 1) maps to order bits-1.
-    const highest_pow2: usize = @as(usize, 1) << @intCast(bits - 1);
-    try testing.expectEqual(@as(u8, @intCast(bits - 1)), try Buddy.orderForLen(highest_pow2));
-    // Anything bigger requires order >= bits → Overflow.
-    try testing.expectError(error.Overflow, Buddy.orderForLen(highest_pow2 + 1));
-    try testing.expectError(error.Overflow, Buddy.orderForLen(std.math.maxInt(usize)));
-}
-
-test "unit: Buddy.contains includes start, excludes end" {
-    const block = Buddy.Block{ .start = 16, .order = 3 }; // size = 8 → [16, 24)
-    try testing.expect(try Buddy.contains(block, 16));
-    try testing.expect(try Buddy.contains(block, 20));
-    try testing.expect(try Buddy.contains(block, 23));
-    try testing.expect(!(try Buddy.contains(block, 24)));
-    try testing.expect(!(try Buddy.contains(block, 15)));
-}
-
-test "unit: Buddy.buddyOf returns adjacent same-order block" {
-    // order 3 → size 8. start 16 buddy = 16 XOR 8 = 24.
-    const a = Buddy.Block{ .start = 16, .order = 3 };
-    const b = try Buddy.buddyOf(a);
-    try testing.expectEqual(@as(usize, 24), b.start);
-    try testing.expectEqual(@as(u8, 3), b.order);
-    // Buddy of buddy is original.
-    const back = try Buddy.buddyOf(b);
-    try testing.expectEqual(a.start, back.start);
-    // Adjacent in the other direction.
-    const c = Buddy.Block{ .start = 24, .order = 3 };
-    const d = try Buddy.buddyOf(c);
-    try testing.expectEqual(@as(usize, 16), d.start);
-}
-
-test "unit: Buddy.parentOf returns containing next-order block" {
-    // Block [16, 24) at order 3; parent at order 4 has size 16 → [16, 32).
-    const a = Buddy.Block{ .start = 16, .order = 3 };
-    const p = try Buddy.parentOf(a);
-    try testing.expectEqual(@as(usize, 16), p.start);
-    try testing.expectEqual(@as(u8, 4), p.order);
-    // Block [24, 32) at order 3; parent at order 4 has size 16 → [16, 32).
-    const b = Buddy.Block{ .start = 24, .order = 3 };
-    const q = try Buddy.parentOf(b);
-    try testing.expectEqual(@as(usize, 16), q.start);
-    try testing.expectEqual(@as(u8, 4), q.order);
-}
-
-test "unit: Buddy.parentOf overflow when parent unrepresentable" {
-    const bits = @bitSizeOf(usize);
-    // Order at max representable: parent's blockSize would overflow.
-    const top: u8 = @intCast(bits - 1);
-    const block = Buddy.Block{ .start = 0, .order = top };
-    try testing.expectError(error.Overflow, Buddy.parentOf(block));
-}
-
-test "unit: Buddy.split returns left/right children with exact starts and order" {
-    const block = Buddy.Block{ .start = 16, .order = 3 }; // size 8
-    const kids = try Buddy.split(block);
-    try testing.expectEqual(@as(usize, 16), kids[0].start);
-    try testing.expectEqual(@as(u8, 2), kids[0].order);
-    try testing.expectEqual(@as(usize, 20), kids[1].start);
-    try testing.expectEqual(@as(u8, 2), kids[1].order);
-}
-
-test "unit: Buddy.split of order 0 returns InvalidRequest" {
-    const block = Buddy.Block{ .start = 0, .order = 0 };
-    try testing.expectError(error.InvalidRequest, Buddy.split(block));
-}
-
-test "unit: Buddy.canCoalesce true for siblings, false otherwise" {
-    // True: order 2, size 4. starts 0 and 4 share parent at 0/order 3.
-    try testing.expect(Buddy.canCoalesce(
-        .{ .start = 0, .order = 2 },
-        .{ .start = 4, .order = 2 },
-    ));
-    // True: starts 8 and 12 share parent at 8/order 3.
-    try testing.expect(Buddy.canCoalesce(
-        .{ .start = 8, .order = 2 },
-        .{ .start = 12, .order = 2 },
-    ));
-    // False: same order, not buddies (different parents).
-    try testing.expect(!Buddy.canCoalesce(
-        .{ .start = 4, .order = 2 },
-        .{ .start = 8, .order = 2 },
-    ));
-    // False: different orders.
-    try testing.expect(!Buddy.canCoalesce(
-        .{ .start = 0, .order = 2 },
-        .{ .start = 4, .order = 3 },
-    ));
-}
-
 // ---- Model tests --------------------------------------------------------
 
 const Strategy = enum { first, best, worst };
@@ -364,7 +241,7 @@ fn referenceSelect(
     strategy: Strategy,
     free_ranges: []const Range,
     request: Request,
-) allocation.Error!?Selection {
+) placement.Error!?Selection {
     if (request.len == 0) return error.InvalidRequest;
     if (request.alignment == 0) return error.InvalidAlignment;
     // Power-of-two check via popcount.
@@ -494,14 +371,12 @@ test "model: fragmented no-fit returns null across all strategies" {
     try checkAgainstReference(&ranges, .{ .len = 100 });
 }
 
-test "compile: public surface exposes spec namespace" {
-    _ = allocation.Range;
-    _ = allocation.Error;
-    _ = allocation.Request;
-    _ = allocation.Selection;
-    _ = allocation.FirstFit;
-    _ = allocation.BestFit;
-    _ = allocation.WorstFit;
-    _ = allocation.Buddy;
-    _ = allocation.Buddy.Block;
+test "compile: public surface exposes placement namespace" {
+    _ = placement.Range;
+    _ = placement.Error;
+    _ = placement.Request;
+    _ = placement.Selection;
+    _ = placement.FirstFit;
+    _ = placement.BestFit;
+    _ = placement.WorstFit;
 }
