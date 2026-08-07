@@ -11,7 +11,7 @@ owns the actual spin/yield/sleep.
 `Backoff` is a value, not a scheduler. It does not spin, does not yield,
 does not sleep, and never touches the clock beyond querying the deadline.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -27,7 +27,7 @@ This spec owns:
   `stdx.core.debug.checksEnabled`;
 - required tests.
 
-## Deferred scope and non-goals
+## What this spec is not
 
 This spec does not own:
 
@@ -40,10 +40,6 @@ This spec does not own:
   composites;
 - `std.Io` integration;
 - dynamic allocation — every `Backoff` is a caller-owned value;
-- root promotion of `Backoff`.
-
-If jitter, outcome tracking, or an async composite becomes necessary, that
-is a separate spec.
 
 ## Public namespace
 
@@ -53,12 +49,6 @@ is a separate spec.
 stdx.time.Backoff
 stdx.time.Backoff.Policy
 stdx.time.Backoff.Step
-```
-
-It is not root-promoted:
-
-```zig
-stdx.Backoff // not exported
 ```
 
 Source ownership:
@@ -80,7 +70,7 @@ pub const Backoff = backoff.Backoff;
 `src/time.zig` is a thin facade. It contains no logic beyond re-exporting
 and aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const Backoff = struct {
@@ -197,15 +187,12 @@ past `max_wait` saturate.
    - increment `attempt`;
    - return `.sleep(Duration.fromNanos(wait_ns))`.
 
-Notes:
-
-- The deadline check runs *first*; a caller who is already past the
-  deadline never enters spin or yield phases.
-- Sleep-phase deadline clipping is per-step: `.sleep(Duration)` is
-  guaranteed to not overshoot the deadline.
-- Increment of `attempt` on `.timeout` is intentionally omitted so that
-  `attempts()` reports the count of "productive" attempts, not the count
-  of `next` calls.
+- The deadline check runs first. A deadline that is already expired produces
+  `.timeout` before any spin or yield step.
+- Sleep-phase clipping is per step. A returned `.sleep(Duration)` does not
+  exceed the deadline.
+- `.timeout` does not increment `attempt`; `attempts()` reports productive
+  steps rather than calls to `next`.
 
 ### Reset
 
@@ -257,135 +244,11 @@ supplied clock backend and yield hook (if any) are safe from that
 context. The primitive itself performs no allocation, no locking, no
 syscall, and no atomic operation.
 
-## Debug assertion behavior
+## Testing
 
-`Backoff.init` calls `policy.assertValid()` under
-`stdx.core.debug.checksEnabled(.build_mode)`. Explicit
-`Backoff.assertValid` calls run unconditionally, matching the
-`assertValid` convention in `core/debug.md`.
+Testing MUST use a caller-controlled `FakeClock` and observe phase selection and deadline clipping without executing spin, yield, or sleep. This method isolates the state machine from scheduler behavior.
 
-Common misconfigurations caught by the debug check:
-
-- `initial_wait > max_wait`;
-- negative `initial_wait` or `max_wait`;
-- `next_wait` drifted above `max_wait` due to caller mutation.
-
-## std.Io lane
-
-`Backoff` serves both lanes declared in the spec queue:
-
-1. Composes inside a downstream `std.Io` backend where the `yield` hook
-   wraps the runtime's yield primitive and `.sleep(Duration)` is
-   translated into an `Io`-issued sleep.
-2. Serves freestanding consumers (`Policy.yield = null`) in kernel init,
-   hypervisor setup, firmware pre-runtime, device polling, and interrupt
-   handlers, where `.sleep(Duration)` is executed against a
-   caller-controlled clock or busy-loop.
-
-Distinct from `std.Io`-native backoff: no vtable, no runtime, no
-allocation, freestanding-safe.
-
-## Examples
-
-Spin then sleep, deadline-bounded, freestanding:
-
-```zig
-const stdx = @import("stdx");
-const time = stdx.time;
-
-const policy: time.Backoff.Policy = .{
-    .spin_iterations = 32,
-    .yield_iterations = 0,
-    .yield = null,
-    .initial_wait = try time.Duration.fromMicros(1),
-    .max_wait = try time.Duration.fromMillis(1),
-    .growth_shift = 1,
-};
-
-fn waitReady(dev: *Device, clock: anytype) !void {
-    var bo = time.Backoff.init(policy);
-    const deadline = try time.Deadline.now(
-        clock,
-        try time.Duration.fromMillis(500),
-    );
-    while (!dev.isReady()) {
-        switch (bo.next(deadline, clock)) {
-            .spin => std.atomic.spinLoopHint(),
-            .yield => unreachable, // yield disabled
-            .sleep => |d| clock.sleep(d),
-            .timeout => return error.Timeout,
-        }
-    }
-}
-```
-
-Hosted use with a runtime-provided yield:
-
-```zig
-const policy: time.Backoff.Policy = .{
-    .spin_iterations = 8,
-    .yield_iterations = 8,
-    .yield = &std.Thread.yield,
-    .initial_wait = try time.Duration.fromMicros(10),
-    .max_wait = try time.Duration.fromMillis(10),
-    .growth_shift = 2,
-};
-```
-
-Reset for a fresh retry loop:
-
-```zig
-var bo = time.Backoff.init(policy);
-// ... first attempt loop ...
-bo.reset();
-// ... second attempt loop, from initial_wait again ...
-```
-
-Overwriting policy in place before reset:
-
-```zig
-bo.policy.max_wait = try time.Duration.fromMillis(50);
-bo.reset();
-```
-
-## Required tests
-
-Tests live in `test/time/backoff_test.zig`.
-
-Required tests:
-
-- `Backoff.init(policy)` with `spin_iterations=3`, `yield_iterations=2`,
-  `yield` set, produces the phase sequence
-  `spin, spin, spin, yield, yield, sleep(initial_wait), ...` under a
-  `Deadline.never`;
-- The sleep values are `initial_wait`, `initial_wait << growth_shift`,
-  `(initial_wait << growth_shift) << growth_shift`, ..., saturated at
-  `max_wait`;
-- `Policy.yield = null` with `yield_iterations = 2` skips yield entirely:
-  phase sequence is `spin, spin, spin, sleep(initial_wait), ...`;
-- Deadline clipping: `initial_wait = 100ms`, deadline with remaining
-  `30ms` → `.sleep(30ms)`, next call → `.timeout`;
-- Already-expired deadline: first `next` call returns `.timeout` and
-  `attempts()` stays `0`;
-- Exact-boundary deadline (`remaining == 0`) → `.timeout`;
-- `reset()` restores `attempt = 0` and `next_wait = initial_wait`; policy
-  unchanged; a subsequent `next` returns `.spin` (assuming
-  `spin_iterations > 0`);
-- `attempts()` matches the count of non-`.timeout` `next` results;
-- `Backoff.assertValid` traps under `checksEnabled(.build_mode)` when
-  `initial_wait > max_wait`;
-- `Backoff.assertValid` traps under `checksEnabled(.build_mode)` when
-  `next_wait` is mutated above `max_wait`;
-- `growth_shift = 0` produces constant `next_wait` across sleep steps;
-- Compile-only: passing a clock without `now(*Self) Instant` is rejected;
-- Compile-only: `@sizeOf(Policy)` and `@sizeOf(Backoff)` are stable
-  (recorded as invariants; test asserts against a fixed number so a size
-  regression is caught);
-- Non-x86 build compiles the module.
-
-Tests use a `FakeClock` returning a caller-controlled `Instant`; no real
-monotonic clock is required.
-
-## Open questions
-
-None.
+- Phase-transition tests exercise spin, configured yield, skipped yield, sleep, constant growth, geometric growth, and saturation. They verify that `next` returns the prescribed action and updates `attempt` and `next_wait` only for productive steps.
+- Deadline-boundary tests use already-expired, exact-boundary, and positive-remaining deadlines. They verify that timeout takes precedence, sleep duration is clipped to the remaining duration, and `.timeout` does not increment `attempt`.
+- Reset and validation tests verify restoration of `attempt` and `next_wait`, preservation of `policy`, and debug validation of invalid policy or caller-mutated state. They prove the state-machine reset and invariant contracts.
+- Compile-time tests reject invalid clock shapes, assert the fixed `Policy` and `Backoff` size constraints, and compile the module for a non-x86 target. They prove the clock seam and representation constraints.

@@ -7,7 +7,7 @@ wrappers around a payload type. They exist for callers that need to place
 individually contended fields on separate cache lines without hand-writing the
 `align(...)` + trailing-padding pair at every use site.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -17,7 +17,7 @@ This spec owns:
 - alignment source;
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
 - allocator alignment policy;
 - the concrete numeric cache-line value;
@@ -26,20 +26,13 @@ This spec does not own:
 - placement of specific fields inside downstream primitives (each such
   primitive owns whether it uses `CachePad`).
 
-## Public namespace
+## Public namespace and source ownership
 
 Cache-line alignment factories live under `stdx.mem`:
 
 ```zig
 stdx.mem.CachePad
 stdx.mem.CacheAlign
-```
-
-They are not root-promoted:
-
-```zig
-stdx.CachePad // not exported
-stdx.CacheAlign // not exported
 ```
 
 Source ownership:
@@ -58,7 +51,7 @@ pub const CachePad = cache.CachePad;
 pub const CacheAlign = cache.CacheAlign;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub fn CachePad(comptime T: type) type;
@@ -200,7 +193,8 @@ Implementation must:
 - add no runtime code;
 - store no metadata beyond the payload field and, for `CachePad`, the padding array.
 
-## Required tests
+## Testing
+Verification uses comptime layout assertions and runtime payload access for representative scalar, pointer-sized, and atomic payloads. The checks prove alignment, padding, array stride, field names, and atomic composition across target-defined cache-line sizes; compile-fail checks prove the payload restrictions.
 
 Required for a small integer payload (`u32`), a pointer-sized payload
 (`usize`), and an atomic payload (`std.atomic.Value(usize)`).
@@ -240,12 +234,7 @@ Required for a small integer payload (`u32`), a pointer-sized payload
 
 ### Compile-time and type tests
 
-Where practical:
-
-- `void` payload is rejected;
-- zero-sized struct payload is rejected;
-- a payload type whose natural alignment exceeds `std.atomic.cache_line` is
-  rejected;
+The test suite instantiates only supported payload types. Rejection of `void`, zero-sized struct payloads, and payload types whose natural alignment exceeds `std.atomic.cache_line` is a compile-time contract and is not exercised by a compile-fail test.
 - comptime evaluation works:
 
 ```zig
@@ -255,7 +244,3 @@ comptime {
     std.debug.assert(@alignOf(stdx.mem.CacheAlign(u32)) == std.atomic.cache_line);
 }
 ```
-
-## Open questions
-
-None.

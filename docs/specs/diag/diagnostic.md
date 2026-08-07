@@ -2,102 +2,40 @@
 
 Status: Approved.
 
-`stdx.diag.Diagnostics` is a type family for static diagnostics instances. A
-participating fallible function opens one frame at function entry, registers any
-static or formatted detail with that frame, and marks the frame from `errdefer`
-only when an error propagates through it.
+`stdx.diag.Diagnostics` stores bounded, function-scoped context for one propagated error path and renders the retained frames deterministically.
 
-The primitive is intentionally narrow: function-scope error context and
-deterministic rendering, not logging and not handled-error aggregation.
+## What this spec is
 
-## Owned scope
+This specification defines the `stdx.diag` scoped-diagnostics namespace, inline frame and formatted-detail storage, scoped error unwinding, deterministic rendering, the null adapter, ownership, capacity degradation, and required verification.
 
-This spec owns:
+## What this spec is not
 
-- the `stdx.diag` namespace surface for scoped diagnostics;
-- `diag.Diagnostics.Static`, `diag.Scope`, `diag.FormattedDetail`, `diag.fmt`,
-  and `diag.scope`;
-- inline frame storage and inline formatted-detail arena bytes owned by the
-  `Diagnostics.Static(config)` value;
-- the required `defer frame.pop()` and `errdefer |err| frame.unwind(err)` usage
-  pattern;
-- lazy formatted detail registered through `scope()` and materialized by
-  `Scope.unwind()` only on the error path;
-- null diagnostics adapter behavior;
-- deterministic text rendering to `*std.Io.Writer`;
-- capacity-failure degradation to no-op diagnostics or omitted details;
-- source-location rendering when provided;
-- required tests.
+This specification does not define logging, severity, filtering, structured payloads other than label and detail strings, sinks other than `*std.Io.Writer`, automatic stack traces, handled-error aggregation, retry reporting, record or rollback operations, caller-provided frame storage, allocator-backed construction, internal locking, or panic-safe logging. `docs/specs/diag/panic_log.md` defines panic-safe logging.
 
-## Deferred scope and non-goals
+## Public namespace and source ownership
 
-This spec does not own:
+The public names are `stdx.diag.Diagnostics`, `stdx.diag.Scope`, `stdx.diag.FormattedDetail`, `stdx.diag.fmt`, and `stdx.diag.scope`. `stdx.diag` is re-exported by `src/stdx.zig`.
 
-- severity levels;
-- log filtering;
-- structured payloads beyond label/detail strings;
-- sinks beyond `*std.Io.Writer`;
-- multi-thread coordination or internal locking;
-- integration with `std.log`;
-- invariant checkers, trace ring buffers, or panic-safe logs;
-- root promotion of diagnostic types or functions;
-- automatic compiler stack traces;
-- handled-error aggregation, retry reports, `record`, or mark/rollback APIs;
-- standalone `unwind` functions that allocate frames during `errdefer`;
-- caller-provided diagnostics frame storage;
-- allocator-wrapped diagnostics construction.
+The implementation is `src/diag/diagnostic.zig`. The required tests are in `test/diag/diagnostic_test.zig`. `src/diag.zig` is a thin facade that re-exports the public names.
 
-Structured subsystem diagnostics MAY exist next to this primitive later. This
-primitive owns only scoped context for one propagated error path.
+## Data structures and representation
 
-## Public namespace
+`Diagnostics.Static(config)` returns a concrete type that owns inline frame slots and an inline formatted-detail arena. The type does not guarantee the layout of its frames or arena.
 
-`Diagnostics`, `Scope`, `FormattedDetail`, `fmt`, and `scope` live under
-`stdx.diag`:
+Each retained frame contains a borrowed label, an optional borrowed or arena-owned detail, an optional copied `SourceLocation`, an optional error, and parent/child/sibling links. Retained roots and siblings preserve insertion order.
 
-```zig
-stdx.diag.Diagnostics
-stdx.diag.Scope
-stdx.diag.FormattedDetail
-stdx.diag.fmt
-stdx.diag.scope
-```
+## Global invariants
 
-They are not root-promoted:
+- `config.frames` and `config.arena_bytes` MUST be greater than zero; either zero value is a compile error.
+- A diagnostics value owns its frame slots, topology state, and formatted-detail arena bytes.
+- Label bytes and eager detail bytes are borrowed and MUST remain valid until `clear()` or `deinit()` invalidates the report.
+- Formatted detail bytes remain valid until `clear()` or `deinit()` resets the arena.
+- A diagnostics value MUST NOT move while formatted detail allocations are live.
+- Failed diagnostic work MUST NOT replace the originating error or corrupt retained frame topology.
+- `clear()` and `deinit()` invalidate all previous frame and detail pointers.
+- Scopes form a strict LIFO stack. A caller that pops a scope out of LIFO order has a programmer error.
 
-```zig
-stdx.Diagnostics // not exported
-stdx.Scope       // not exported
-stdx.fmt         // not exported
-```
-
-The root package facade exports the `diag` namespace:
-
-```zig
-pub const diag = @import("diag.zig");
-```
-
-## Source ownership
-
-```text
-src/diag.zig
-src/diag/diagnostic.zig
-test/diag/diagnostic_test.zig
-```
-
-`src/diag.zig` is a thin facade:
-
-```zig
-pub const diagnostic = @import("diag/diagnostic.zig");
-
-pub const Diagnostics = diagnostic.Diagnostics;
-pub const Scope = diagnostic.Scope;
-pub const FormattedDetail = diagnostic.FormattedDetail;
-pub const fmt = diagnostic.fmt;
-pub const scope = diagnostic.scope;
-```
-
-## Approved API
+## API
 
 ```zig
 const std = @import("std");
@@ -106,7 +44,6 @@ const SourceLocation = std.builtin.SourceLocation;
 
 pub fn FormattedDetail(comptime Args: type, comptime format: []const u8) type;
 pub fn fmt(comptime format: []const u8, args: anytype) FormattedDetail(@TypeOf(args), format);
-
 pub fn scope(diag: anytype, options: anytype) Scope(@TypeOf(diag), @TypeOf(options));
 
 pub const Diagnostics = struct {
@@ -127,106 +64,7 @@ pub fn Scope(comptime Diag: type, comptime Options: type) type {
 }
 ```
 
-There is no public `ScopeOptions` type. Diagnostic entry points MUST accept a
-structural options value.
-
-`Diagnostics.Static(config)` returns a concrete diagnostics type with inline
-frame slots and inline detail-arena bytes. `config.frames` and
-`config.arena_bytes` MUST both be greater than zero. A zero value for either
-field is a compile error.
-
-## Options shape
-
-`scope` and `Diagnostics.Static(...).scope` accept an options struct with:
-
-- required `.label: []const u8`;
-- optional `.source: ?SourceLocation`;
-- optional `.detail`, either eager bytes (`[]const u8` or `?[]const u8`) or
-  `fmt(format, args)`.
-
-`.label` MUST be non-empty. `.source = @src()` SHOULD be used when call-site
-location is useful.
-
-`FormattedDetail` is a generic detail-format value. Callers SHOULD create it only
-through `fmt(format, args)`; the concrete return type is inferred at the call
-site.
-
-## Construction
-
-The only user-facing construction API is `Diagnostics.Static(config).init()`:
-
-```zig
-const Diag = stdx.diag.Diagnostics.Static(.{
-    .frames = diag_frame_capacity,
-    .arena_bytes = diag_detail_capacity,
-});
-
-var diag = Diag.init();
-```
-
-or inline:
-
-```zig
-var diag = stdx.diag.Diagnostics.Static(.{
-    .frames = diag_frame_capacity,
-    .arena_bytes = diag_detail_capacity,
-}).init();
-```
-
-The diagnostics value owns its frame slots and detail arena. It MUST NOT be moved
-while formatted detail allocations are live; this matches the pointer-stability
-contract of `stdx.mem.alloc.Arena.Static`.
-
-## Common usage: scoped propagated-error unwind
-
-Every participating fallible function SHOULD use this pattern for propagated
-errors:
-
-```zig
-fn loadFirmware(path: []const u8, diag: anytype) !Firmware {
-    var frame = stdx.diag.scope(diag, .{
-        .label = "load firmware",
-        .source = @src(),
-        .detail = stdx.diag.fmt("{s}", .{path}),
-    });
-    defer frame.pop();
-    errdefer |err| frame.unwind(err);
-
-    const bytes = try readFile(path);
-    return parseFirmware(bytes, diag);
-}
-```
-
-`stdx.diag.scope(null, options)` returns a no-op scope, so call sites do not need
-an `if (diag)` branch. When `diag` is null, no diagnostic frame is allocated, no
-formatted detail is materialized, and `pop`, `unwind`, and `detail` are no-ops.
-
-`defer frame.pop()` MUST be registered before `errdefer |err| frame.unwind(err)`
-so `unwind` runs before `pop` on the error path.
-
-`fmt(format, args)` does not format or allocate. It stores `args` by value in the
-returned scope handle. `Scope.unwind(err)` materializes the detail only if the
-error path is taken. Argument expressions are still evaluated when `scope()` is
-called; callers that need to defer expensive argument computation should compute
-that value inside an explicit `errdefer` block and call `frame.detail(...)` before
-`frame.unwind(err)`.
-
-Nested scopes render as a nested domain stack trace. Because frames are opened at
-function entry, retained diagnostics follow live function-stack order:
-
-```text
-  at load firmware: /boot/fw.bin (src/fw.zig:10) -> InvalidFirmware
-    at parse firmware (src/fw.zig:21) -> InvalidFirmware
-      at parse header (src/fw.zig:44) -> InvalidFirmware
-```
-
-`Diagnostics` values are single-report accumulators. After a report has been
-consumed, call `clear()` or `deinit()` before reusing the same value for an
-unrelated operation.
-
-## Static diagnostics semantics
-
-A `Diagnostics.Static(config)` value exposes:
+`Diagnostics.Static(config)` exposes:
 
 ```zig
 pub fn init() Self;
@@ -237,122 +75,61 @@ pub fn scope(self: *Self, options: anytype) Scope(*Self, @TypeOf(options));
 pub fn format(self: *const Self, w: *std.Io.Writer) std.Io.Writer.Error!void;
 ```
 
-`scope(diag, options)` and `diag.scope(options)` push a frame immediately when
-`diag` is non-null and frame capacity remains. They do not materialize formatted
-detail at scope entry.
+`scope` and `Diagnostics.Static(...).scope` accept a structural options value with a required non-empty `.label: []const u8`, optional `.source: ?SourceLocation`, and optional `.detail`. `.detail` is eager bytes (`[]const u8` or `?[]const u8`) or `fmt(format, args)`. There is no public `ScopeOptions` type.
 
-`Scope.unwind(err)` stores `err` on the frame. If the scope options contain
-`.detail` and `Scope.detail(...)` has not already set a detail, `unwind` applies
-that option detail first. Formatted option detail is allocated from the inline
-arena only during `unwind`.
+## Scoped operations
 
-`Scope.detail(detail)` sets or replaces the frame detail immediately:
+### `scope` and `pop`
 
-- eager byte details are borrowed;
-- formatted details are materialized from the inline arena;
-- `null` clears the current detail;
-- arena exhaustion leaves the previous detail unchanged.
+When a non-null diagnostics value has frame capacity, `scope` MUST push a frame immediately. It MUST NOT materialize formatted option detail at entry. When capacity is exhausted, `scope` MUST return a no-op scope.
 
-Calling `Scope.detail(...)` suppresses later materialization of the `.detail`
-value registered in the original scope options.
+`scope(null, options)` returns a no-op scope. Its `pop`, `unwind`, and `detail` methods are no-ops; it allocates no frame and materializes no formatted detail.
 
-`Scope.pop()` moves the active scope back to the popped scope's parent. If the
-frame has no error, the frame and its descendants are discarded. If the frame has
-an error, it remains linked in the retained diagnostics tree.
+`pop` restores the parent as the active scope. It discards a frame and its descendants when the frame has no error. It retains an errored frame in the diagnostics tree.
 
-Scopes are a strict stack. Popping out of LIFO order is programmer error.
+### `unwind` and `detail`
 
-## Allocation and ownership
+`unwind(err)` stores `err` in the active frame. Unless `detail` has already been called, `unwind` applies the option `.detail` first. It materializes formatted option detail only on this error path.
 
-The diagnostics value owns:
+`detail(value)` immediately sets or replaces the active-frame detail. Eager detail is borrowed. Formatted detail is materialized in the inline arena. `null` clears the detail. Arena exhaustion leaves the prior detail unchanged. Calling `detail` suppresses later materialization of the option detail.
 
-- frame slot storage;
-- frame occupancy and topology state;
-- inline arena bytes for formatted details.
+`fmt(format, args)` stores `args` by value and neither formats nor allocates. Its argument expressions are evaluated at the `scope` call. A caller that must defer expensive argument computation MUST compute it in an explicit `errdefer` block before calling `detail` and `unwind`.
 
-The diagnostics value borrows:
+For a participating fallible function, the caller MUST register `defer frame.pop()` before `errdefer |err| frame.unwind(err)` so that `unwind` runs before `pop` on an error path.
 
-- label bytes;
-- eager detail bytes;
-- source-location values are copied by value.
+### Capacity, allocation, and lifetime
 
-Label bytes and eager detail bytes MUST remain valid until the diagnostics report
-is no longer formatted or until `clear()`/`deinit()` invalidates the report.
-Formatted detail bytes live in the diagnostics inline arena and remain valid
-until `clear()`/`deinit()` resets that arena.
+`scope` and `diag.scope` are infallible. Frame exhaustion produces a no-op scope. Formatted-detail arena exhaustion omits a new option detail or preserves the existing explicit detail; it does not remove the frame or its error. The API performs no heap allocation.
 
-`scope` and `diag.scope` are infallible. If frame capacity is exhausted, they
-return a no-op scope. If formatted detail materialization exhausts the inline
-arena, the detail is omitted or left unchanged; the frame and originating error
-remain intact.
+`clear()` removes retained frames, resets frame occupancy and the formatted-detail arena, and invalidates all retained report data. Calling `clear()` while a scope is open is programmer error. `deinit()` performs `clear()` and invalidates the diagnostics value. A caller MUST call `clear()` or `deinit()` before using a consumed diagnostics value for an unrelated operation.
 
-Diagnostics MUST NOT replace a real failure with a diagnostic `OutOfMemory`
-failure. Failed diagnostic additions MUST NOT corrupt the retained frame
-topology.
+### Rendering
 
-`clear()` removes all retained frames, resets frame occupancy, resets the inline
-arena, and invalidates all previous frame/detail pointers. Calling `clear()` while
-a scope is open is programmer error.
-
-`deinit()` performs `clear()` and invalidates the diagnostics value.
-
-## Rendering
-
-`format(w)` renders retained frames in deterministic DFS pre-order. Empty
-diagnostics render nothing.
-
-Each frame renders as:
+`format(w)` renders retained frames in deterministic depth-first pre-order. Empty diagnostics render no bytes. Each frame has this form:
 
 ```text
 <indent>at <label>[: <detail>] [(file:line)] [-> <err>]
 ```
 
-Rules:
+- Root frames use two spaces of indentation; each child depth adds two spaces.
+- Siblings render in insertion order.
+- Labels and details use `std.zig.fmtString` escaping.
+- A source suffix renders only when `source != null`; `SourceLocation.fn_name` is not rendered.
+- An error suffix renders only when the frame has an error; error tags use `{t}` formatting.
+- The final frame has no trailing newline.
 
-- root/top-level frames use two spaces of indentation;
-- each child depth adds two more spaces;
-- siblings preserve insertion order;
-- label and detail bytes are escaped with `std.zig.fmtString`;
-- source location renders only when `source != null`;
-- the error suffix renders only when `err != null`;
-- error tags use `{t}` formatting;
-- no trailing newline is written after the last frame.
+### Concurrency
 
-Example:
+`Diagnostics` is single-owner. Concurrent callers MUST synchronize outside this type. The type provides no internal locking.
 
-```text
-  at prepare host resources (src/host/resources.zig:73) -> FileNotFound
-    at firmware code: ./boot.fd (relative to /home/me/example) (src/host/resources.zig:198) -> FileNotFound
-```
+## Implementation constraints
 
-`SourceLocation.fn_name` is stored but not rendered by this spec.
+The implementation MUST use only the inline frame slots and formatted-detail arena owned by `Diagnostics.Static(config)`. It MUST retain error-path frames in the parent/child topology and discard successful scopes. It MUST preserve the originating error when diagnostic capacity or arena capacity is exhausted.
 
-## Threading
+## Testing
 
-`Diagnostics` values are single-owner and externally synchronized. Concurrent
-callers MUST coordinate above this type. Internal locking is not provided.
+Tests MUST verify the observable frame representation by rendering empty, single-frame, nested, sourced, unsourced, and escaped frames. These tests prove rendering order, indentation, optional fields, escaping, and absence of a final newline.
 
-## Required tests
+Tests MUST verify scope transitions: a null scope is safe and does not materialize formatted detail; a successful scope is discarded; an error unwind retains the frame; nested unwinds retain the outer-to-inner chain; and an explicit detail overrides option detail. These tests prove the error-path-only materialization and retention contract.
 
-The implementation MUST cover:
-
-1. empty diagnostics render nothing;
-2. `scope(null, ...)` returns a no-op scope whose methods are safe;
-3. null scopes do not evaluate formatted details;
-4. single `errdefer frame.unwind(err)` renders one retained frame;
-5. nested scoped unwinds render an outer-to-inner chain;
-6. successful scoped calls do not evaluate formatted details;
-7. successful scoped calls do not consume arena bytes for scoped formatted
-   details;
-8. frame capacity exhaustion preserves the originating error and omits the frame;
-9. formatted detail arena exhaustion preserves the originating error and omits
-   only the detail;
-10. successful scoped leaf frames are discarded on `pop`;
-11. direct detail replacement renders only the latest detail;
-12. `fmt` option detail renders on retained frames;
-13. explicit `Scope.detail(fmt(...))` renders formatted detail;
-14. `Scope.detail(...)` overrides option detail;
-15. `clear` removes retained frames, resets frame occupancy, and resets arena
-   usage;
-16. source location renders when present and is omitted when null;
-17. label/detail escaping covers control characters and backslashes.
+Tests MUST exhaust frame capacity and formatted-detail arena capacity. They MUST confirm that the original error and retained topology survive, while only the unavailable frame or detail is omitted. Tests MUST also verify that `clear()` resets retained frames and arena use before reuse. These failure and boundary tests prove bounded, allocation-free degradation.

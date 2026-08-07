@@ -2,54 +2,34 @@
 
 Status: Approved.
 
-`stdx.addr.Address(Tag, Int)` is a zero-cost strong integer type for
-address-like domains. It prevents accidental mixing of values that share the
-same integer representation but have different meanings.
+`stdx.addr.Address(Tag, Int)` defines a zero-cost, strongly typed unsigned-integer address domain. A tag prevents implicit mixing of address values from different domains.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This spec defines `addr.Address`, the built-in physical, virtual, and DMA address aliases, checked arithmetic, alignment operations, representation, and their required verification.
 
-- `addr.Address(Tag, Int)`;
-- built-in `addr.PhysAddr`, `addr.VirtAddr`, and `addr.DmaAddr` aliases;
-- tag-based type identity;
-- unsigned integer type restrictions;
-- raw integer conversion;
-- checked address arithmetic;
-- address alignment helpers;
-- required tests.
+## What this spec is not
 
-This spec does not own:
+This spec does not define page-aligned addresses, page sizes, page counts, frames, or ranges; see `docs/specs/addr/pages.md`. It does not define address ranges, pointer provenance or lifetime validation, MMIO or volatile access, parsing, formatting, canonical-address validation, IOMMU mapping, or saturating, wrapping, or unchecked arithmetic.
 
-- page-aligned address types;
-- page sizes, page counts, frames, or page ranges;
-- address ranges;
-- pointer spans or non-null pointer wrappers;
-- pointer provenance or lifetime validation;
-- MMIO or volatile access;
-- formatting or parsing policy;
-- architecture-specific canonical-address validation;
-- saturating, wrapping, or unchecked arithmetic variants.
+## Terminology
 
-## Public namespace
+- **address domain**: The set of `Address` values with one `Tag` and one `Int`.
+- **raw integer**: The `Int` value that represents an address value.
+- **aligned**: A raw integer that is an exact multiple of a specified alignment.
 
-Address primitives live under `stdx.addr`:
+## Public namespace and source ownership
+
+The public namespace is `stdx.addr`:
 
 ```zig
 stdx.addr.Address
 stdx.addr.PhysAddr
 stdx.addr.VirtAddr
-stdx.addr.DmaAddr
+stdx.addr.DMAAddr
 ```
 
-They are not root-promoted:
-
-```zig
-stdx.Address // not exported
-stdx.PhysAddr // not exported
-```
-
-Source ownership:
+Source ownership is:
 
 ```text
 src/addr.zig
@@ -57,27 +37,41 @@ src/addr/address.zig
 test/addr/address_test.zig
 ```
 
-`src/addr.zig` re-exports:
+`src/addr.zig` re-exports the `address` module and its `Address`, `PhysAddr`, `VirtAddr`, and `DMAAddr` declarations.
+
+## Cross-spec relationships
+
+`docs/specs/addr/pages.md` composes `Address` domains into page families. This specification does not own that page behavior.
+
+## Data structures and representation
+
+`Address(Tag, Int)` returns `enum(Int) { _ }`. The raw representation is exactly `Int`; the tag is not stored. `TagType` exists only for compile-time introspection. The type has no additional runtime state.
+
+Two instantiations with different tags are distinct Zig types, even when their raw integer types match. Two instantiations with the same `Tag` and `Int` are the same type.
+
+## Global invariants
+
+- `Int` is an unsigned integer type accepted by Zig. An invalid `Int` causes a compile error when `Address` instantiates.
+- Every value representable by `Int` is a valid address value in its address domain.
+- Address operations preserve the receiver's address domain.
+- The helpers allocate no memory, wait, access hidden globals, perform atomics, or issue memory barriers.
+- Each operation has constant time and does not invalidate values.
+
+## API
 
 ```zig
-pub const address = @import("addr/address.zig");
+pub const PhysTag = opaque {};
+pub const VirtTag = opaque {};
+pub const DMATag = opaque {};
 
-pub const Address = address.Address;
-pub const PhysAddr = address.PhysAddr;
-pub const VirtAddr = address.VirtAddr;
-pub const DmaAddr = address.DmaAddr;
-```
+pub const PhysAddr = Address(PhysTag, u64);
+pub const VirtAddr = Address(VirtTag, usize);
+pub const DMAAddr = Address(DMATag, u64);
 
-## Approved API
-
-```zig
 pub fn Address(comptime Tag: type, comptime Int: type) type;
 ```
 
-`Int` must be an unsigned integer type. Signed integers, floats, bools, enums,
-pointers, and comptime integers without an explicit `Int` are compile errors.
-
-Returned type:
+`Address` returns this public type:
 
 ```zig
 pub const Self = enum(Int) {
@@ -91,7 +85,6 @@ pub const Self = enum(Int) {
 
     pub fn fromInt(value: Int) Self;
     pub fn raw(self: Self) Int;
-
     pub fn zero() Self;
     pub fn max() Self;
 
@@ -105,275 +98,56 @@ pub const Self = enum(Int) {
 };
 ```
 
-Built-in aliases:
+`PhysAddr` represents a physical-address value. `VirtAddr` uses `usize` and represents a host virtual-address value. `DMAAddr` represents the address value provided to a device descriptor. A caller selects the mapping policy that produces a `DMAAddr`; this API does not convert physical addresses to DMA addresses.
 
-```zig
-pub const PhysTag = opaque {};
-pub const VirtTag = opaque {};
-pub const DmaTag = opaque {};
+## Conversion and comparison
 
-pub const PhysAddr = Address(PhysTag, u64);
-pub const VirtAddr = Address(VirtTag, usize);
-pub const DmaAddr = Address(DmaTag, u64);
-```
+`fromInt` returns the address-domain value represented by `value`. `raw` returns the exact raw integer. Neither operation validates address meaning outside this primitive.
 
-`VirtAddr` is pointer-width because it models host virtual address values. Guest
-virtual addresses, firmware virtual addresses, and other address domains should
-use their own tag and integer width.
+`zero` returns raw value `0`. `max` returns `std.math.maxInt(Int)` in the address domain.
 
-`DmaAddr` is the address value a device receives in a descriptor. On systems
-without an IOMMU it equals the physical address of the mapped host memory. On
-systems with an IOMMU it is the I/O virtual address returned by the caller's
-mapping backend. This spec does not own how a `DmaAddr` value is produced;
-IOMMU mapping, bounce buffering, page pinning, and cache maintenance are
-downstream policy. `DmaAddr` is the value type that both sides of that policy
-boundary speak.
-
-`PhysAddr`, `VirtAddr`, and `DmaAddr` are distinct Zig types even though
-`PhysAddr` and `DmaAddr` share `u64`. Converting between them is an explicit
-`DmaAddr.fromInt(phys.raw())` (or the reverse) at the call site; there is no
-implicit conversion helper because the direction is caller policy.
-
-## Tag identity
-
-`Tag` gives the returned type its domain identity. It is never stored and has no
-runtime cost or behavior.
-
-Recommended tags are zero-sized unique types:
-
-```zig
-const GpaTag = opaque {};
-const Gpa = stdx.addr.Address(GpaTag, u64);
-```
-
-Small enum or struct tag types are also valid when that matches project style:
-
-```zig
-const PioPort = stdx.addr.Address(enum { pio_port }, u16);
-```
-
-Different tags produce different address types, even when `Int` is the same.
-Where practical, assigning one tagged address type to another must fail at
-compile time.
-
-`TagType` is exposed only for compile-time introspection.
-
-## Conversion
-
-`fromInt(value)` is infallible. Every value representable by `Int` is a valid
-address value for this primitive.
-
-`raw()` returns the exact backing integer. It performs no validation and does
-not change the address domain.
-
-`zero()` returns address value `0`.
-
-`max()` returns `std.math.maxInt(Int)` in the address domain.
-
-## Equality and ordering
-
-Equality uses Zig's native same-type equality:
-
-```zig
-if (address == other_address) {
-    // Equal.
-}
-```
-
-This spec intentionally does not add `eql`, `lessThan`, or `compare` methods.
-Ordering is explicit at the call site:
-
-```zig
-if (address.raw() < limit.raw()) {
-    // Below limit.
-}
-```
-
-Collection or algorithm callbacks should be defined by the consumer when needed:
-
-```zig
-fn lessAddress(_: void, lhs: *const Gpa, rhs: *const Gpa) bool {
-    return lhs.raw() < rhs.raw();
-}
-```
+The API does not provide equality or ordering methods. Callers use Zig same-type equality and compare raw integers when ordering is required. A caller MUST explicitly convert through `raw` and `fromInt` to cross address domains.
 
 ## Arithmetic
 
-`add(self, amount)` returns `self.raw() + amount` in the same address domain.
-It returns `error.Overflow` when the addition would overflow `Int`.
+`add` returns `self.raw() + amount` in the same address domain. It returns `error.Overflow` if the addition is not representable by `Int`.
 
-`sub(self, amount)` returns `self.raw() - amount` in the same address domain.
-It returns `error.Overflow` when the subtraction would underflow `Int`.
+`sub` returns `self.raw() - amount` in the same address domain. It returns `error.Overflow` if the subtraction underflows `Int`.
 
-`diff(self, base)` returns `self.raw() - base.raw()` as `Int`. It returns
-`error.Overflow` when `self.raw() < base.raw()`.
-
-Underflow maps to `error.Overflow`; there is no separate underflow error.
+`diff` returns `self.raw() - base.raw()`. It returns `error.Overflow` when `self.raw() < base.raw()`. Underflow has no distinct error.
 
 ## Alignment
 
-Address alignment follows the same validity rule as `stdx.mem` alignment:
+A valid alignment is nonzero and a power of two in `Int`:
 
 ```zig
 alignment != 0 and stdx.bits.isPowerOfTwo(Int, alignment)
 ```
 
-All alignment operations return `error.InvalidAlignment` when `alignment` is
-zero or not a power of two.
+`alignUp` returns the smallest valid-alignment multiple greater than or equal to `self`. It returns `error.InvalidAlignment` for an invalid alignment and `error.Overflow` when rounding up is not representable by `Int`.
 
-`alignUp(self, alignment)` returns the smallest aligned address greater than or
-equal to `self`. It returns `error.Overflow` when rounding up would exceed
-`std.math.maxInt(Int)`.
+`alignDown` returns the greatest valid-alignment multiple less than or equal to `self`. It returns `error.InvalidAlignment` for an invalid alignment and cannot overflow after validation.
 
-`alignDown(self, alignment)` returns the greatest aligned address less than or
-equal to `self`. It cannot overflow after alignment validity has been checked.
+`isAligned` returns whether `self.raw()` is a multiple of `alignment`. The caller MUST provide a valid alignment. An invalid alignment violates the caller contract and triggers debug assertions; `isAligned` does not return `error.InvalidAlignment`.
 
-`isAligned(self, alignment)` returns true iff `self.raw()` is a multiple of
-`alignment`.
+Alignment `1` is valid. It leaves `alignUp` and `alignDown` unchanged, and `isAligned` returns `true` for every address value.
 
-`alignment == 1` is valid. It is a no-op for `alignUp` and `alignDown`, and
-`isAligned` returns true for every address value.
+## Errors and fault behavior
 
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `fromInt` | never | never | O(1) | none | value type | none |
-| `raw` | never | never | O(1) | none | value type | none |
-| `zero` | never | never | O(1) | none | value type | none |
-| `max` | never | never | O(1) | none | value type | none |
-| `add` | never | never | O(1) | none | value type | none |
-| `sub` | never | never | O(1) | none | value type | none |
-| `diff` | never | never | O(1) | none | value type | none |
-| `alignUp` | never | never | O(1) | none | value type | none |
-| `alignDown` | never | never | O(1) | none | value type | none |
-| `isAligned` | never | never | O(1) | none | value type | none |
-
-These helpers perform no allocation, waiting, hidden global access, atomics, or
-barriers.
-
-## Error behavior
-
-- `add` returns `error.Overflow` on addition overflow;
-- `sub` returns `error.Overflow` on subtraction underflow;
-- `diff` returns `error.Overflow` when `self < base`;
-- `alignUp` returns `error.Overflow` when rounding up overflows;
-- invalid alignment returns `error.InvalidAlignment`;
-- invalid `Int` is a compile error.
-
-`fromInt`, `raw`, `zero`, and `max` do not fail.
-
-`alignDown` and `isAligned` do not return `error.Overflow`.
+- `add`, `sub`, and `diff` return `error.Overflow` for unrepresentable arithmetic.
+- `alignUp` returns `error.Overflow` for unrepresentable upward rounding.
+- `alignUp` and `alignDown` return `error.InvalidAlignment` for zero or non-power-of-two alignment.
+- An invalid `Int` causes a compile error.
+- `fromInt`, `raw`, `zero`, and `max` do not fail.
 
 ## Implementation constraints
 
-Implementation must:
+The implementation MUST use `enum(Int) { _ }` for each address type, reject a non-unsigned `Int` at compile time, and not store a `Tag` value. It MUST use checked arithmetic where arithmetic can overflow or underflow. It MUST implement alignment validity as nonzero power-of-two validation. It MUST not use loops and MUST support every unsigned integer width Zig supports.
 
-- use `enum(Int) { _ }` for the returned type;
-- reject non-unsigned-integer `Int` types at compile time;
-- never store a `Tag` value;
-- avoid unchecked arithmetic overflow and underflow;
-- reuse or exactly match `stdx.mem` alignment semantics;
-- avoid loops;
-- compile for all unsigned integer widths Zig supports.
+## Testing
 
-## Usage
+Tests MUST instantiate custom small and wide address domains and the built-in address aliases. Compile-time checks MUST demonstrate tag-based type identity, same-instantiation identity, `TagType` and `Raw` metadata, and rejection of invalid raw integer types where Zig permits the check.
 
-Custom address domains:
+Runtime tests MUST round-trip zero, an interior value, and the maximum raw value through conversion; verify `zero` and `max`; and distinguish same-domain equal and unequal values. These checks prove representation preservation and strong-type boundaries.
 
-```zig
-const Gpa = stdx.addr.Address(enum { gpa }, u64);
-const PioPort = stdx.addr.Address(enum { pio_port }, u16);
-
-const base = Gpa.fromInt(0x1000);
-const next = try base.add(0x100);
-
-const port = PioPort.fromInt(0x3f8);
-_ = port;
-_ = next;
-```
-
-Built-in aliases:
-
-```zig
-const pa = stdx.addr.PhysAddr.fromInt(0x1000);
-const va = stdx.addr.VirtAddr.fromInt(@intFromPtr(ptr));
-const dma = stdx.addr.DmaAddr.fromInt(pa.raw()); // identity map; IOMMU users call their backend.
-
-_ = pa;
-_ = va;
-_ = dma;
-```
-
-Alignment:
-
-```zig
-const aligned = try pa.alignUp(4096);
-if (try aligned.isAligned(4096)) {
-    // Page aligned.
-}
-```
-
-## Required tests
-
-Required for a custom `u64` address type, a custom `u16` address type,
-`PhysAddr`, `VirtAddr`, and `DmaAddr`.
-
-### Type identity
-
-- two address types with different tags are not assignment-compatible where
-  practical;
-- two address types with the same `Tag` and `Int` are the same type;
-- `TagType` and `Raw` expose the expected compile-time types;
-- invalid `Int` types fail to instantiate where practical.
-
-### Conversion and constants
-
-- `fromInt` and `raw` round trip `0`, a middle value, and max value;
-- `zero().raw()` returns `0`;
-- `max().raw()` returns `std.math.maxInt(Int)`.
-
-### Equality and ordering
-
-- same-type `==` distinguishes equal and unequal addresses;
-- examples use `.raw()` for ordering instead of an address method.
-
-### Arithmetic
-
-- `add` succeeds for in-range additions;
-- `add` returns `error.Overflow` at the top of the integer range;
-- `sub` succeeds for in-range subtractions;
-- `sub` returns `error.Overflow` at the bottom of the integer range;
-- `diff` returns the distance when `self >= base`;
-- `diff` returns `error.Overflow` when `self < base`.
-
-### Alignment
-
-- alignment `0` returns `error.InvalidAlignment`;
-- non-power-of-two alignment returns `error.InvalidAlignment`;
-- alignment `1` is accepted;
-- `alignUp` returns aligned values unchanged;
-- `alignUp` rounds unaligned values up;
-- `alignUp` catches overflow;
-- `alignDown` returns aligned values unchanged;
-- `alignDown` rounds unaligned values down;
-- `isAligned` covers aligned and unaligned values.
-
-### Compile-time behavior
-
-Where practical:
-
-```zig
-comptime {
-    const A = stdx.addr.Address(enum { a }, u8);
-
-    std.debug.assert(A.fromInt(4).raw() == 4);
-    std.debug.assert((try A.fromInt(7).alignUp(4)).raw() == 8);
-    std.debug.assert((try A.fromInt(7).alignDown(4)).raw() == 4);
-    std.debug.assert(try A.fromInt(8).isAligned(4));
-}
-```
-
-## Open questions
-
-None.
+Arithmetic tests MUST exercise successful addition, subtraction, and difference plus each representability boundary that returns `error.Overflow`. Alignment tests MUST cover zero, non-power-of-two, and unit alignment; unchanged aligned values; upward and downward rounding; and upward-rounding overflow. These boundary checks prove that the API neither wraps nor accepts invalid fallible-alignment inputs. Tests for `isAligned` MUST pass only valid alignments and distinguish aligned from unaligned raw values.

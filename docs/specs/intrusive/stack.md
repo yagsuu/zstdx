@@ -2,88 +2,52 @@
 
 Status: Approved.
 
-`stdx.intrusive.Stack(T, field)` is a caller-node-backed LIFO stack. It never
-allocates, never moves parent objects, and stores membership in an embedded
-`stdx.intrusive.List.SinglyLinkedNode` field owned by the caller's object.
+`stdx.intrusive.Stack(T, field)` is a caller-node-backed LIFO stack. It stores stack membership in a `stdx.intrusive.List.SinglyLinkedNode` field embedded in each caller-owned object.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This specification defines `intrusive.Stack(T, field)`, its LIFO top and mutation operations, its node-membership rules, and the required verification.
 
-- `intrusive.Stack(T, field)`;
-- LIFO top semantics over caller-owned objects;
-- stack use of `intrusive.List.SinglyLinkedNode` as the embedded node type;
-- top access, push, pop, clearing, and topology validation;
-- allocation, waiting, invalidation, concurrency, and ordering behavior;
-- required tests.
+## What this spec is not
 
-This spec does not own:
+This specification does not define `intrusive.List`, `intrusive.Queue`, `intrusive.Deque`, or `intrusive.FreeList`; a `StackNode` type; removal from the stack interior; capacity or full-stack policy; allocation policy for parent objects; synchronization; or ABI, wire, or packed-layout guarantees for parent objects.
 
-- `intrusive.List`, `intrusive.Queue`, `intrusive.Deque`, or
-  `intrusive.FreeList`;
-- a distinct `StackNode` type;
-- arbitrary removal or cancellation from the middle of a stack;
-- bounded capacity, full-state behavior, overwrite-on-full behavior, or
-  drop-oldest policy;
-- scalar-value stacks, fixed rings, guest rings, or descriptor rings;
-- parser, AST, rollback, device, firmware, allocator, slab, or object-pool
-  policy;
-- free-list poisoning, generation counters, handles, tombstones, or ownership
-  tracking;
-- managed or unmanaged heap allocation;
-- worker wakeups, eventfds, locks, atomics, SPSC, MPSC, MPMC, or externally
-  locked behavior;
-- ABI, wire, or packed layout guarantees for parent objects.
+## Terminology
 
-## Public namespace
+- **selected node**: The `List.SinglyLinkedNode` field named by `field`.
+- **detached**: A selected node whose `next` field is `null`.
+- **stacked**: A parent object reachable from `top` through selected-node `next` links.
 
-`Stack` lives under `stdx.intrusive`:
+## Public namespace and source ownership
 
-```zig
-stdx.intrusive.Stack
-```
+The public path is `stdx.intrusive.Stack`. `src/intrusive.zig` re-exports `Stack` from `src/intrusive/stack.zig`. Required tests are in `test/intrusive/stack_test.zig`.
 
-It is not root-promoted. Callers use the intrusive namespace explicitly.
+## Cross-spec relationships
 
-Source ownership:
+`Stack` depends on `intrusive.List.SinglyLinkedNode` for its selected node. The stack does not own list operations or another intrusive primitive's membership chain. A parent object MAY participate in independent intrusive chains only when each chain uses a distinct embedded node field.
 
-```text
-src/intrusive.zig
-src/intrusive/stack.zig
-test/intrusive/stack_test.zig
-```
+## Data structures and representation
 
-`src/intrusive.zig` re-exports:
+The returned value has a `top` endpoint pointer that identifies the most recently pushed object. The stack stores no count, backing storage, or parent object.
 
-```zig
-pub const stack = @import("intrusive/stack.zig");
+## Global invariants
 
-pub const Stack = stack.Stack;
-```
+- No cycle is reachable from `top` in a valid stack.
+- The stack owns only its top pointer and topology. The caller owns every parent object and MUST keep a stacked object alive until the object is detached and until all borrowed pointers to it are no longer used.
+- The stack MUST NOT allocate, free, move, copy, destroy, zero, poison, or otherwise manage parent objects.
+- The caller MUST NOT move a stacked parent object. The caller MUST NOT mutate a selected node while it is stacked except through this stack.
+- The caller MUST use one authoritative mutable `Stack` value for each membership chain. Copying a stack copies the top pointer, not membership; divergent mutable copies are outside this contract.
+- All public operations are non-thread-safe. Concurrent access requires caller-owned external synchronization.
 
-`src/stdx.zig` re-exports the namespace only:
-
-```zig
-pub const intrusive = @import("intrusive.zig");
-```
-
-There is no `stdx.Stack`, `stdx.StackNode`, or
-`stdx.intrusive.StackNode` alias.
-
-## Approved API
+## API
 
 ```zig
 pub fn Stack(comptime T: type, comptime node_field: []const u8) type;
-```
 
-Returned type:
-
-```zig
 pub const Self = struct {
     top: ?*T = null,
 
     pub fn init() Self;
-
     pub fn isEmpty(self: *const Self) bool;
 
     pub fn peek(self: *Self) ?*T;
@@ -91,279 +55,51 @@ pub const Self = struct {
 
     pub fn push(self: *Self, item: *T) void;
     pub fn pop(self: *Self) ?*T;
-
     pub fn clear(self: *Self) void;
-
     pub fn assertValid(self: *const Self) void;
 };
 ```
 
-There is no `len`, `capacity`, `remaining`, `isFull`, `first`, `last`,
-`front`, `back`, `next`, `enqueue`, `dequeue`, `remove`, `pushAssumeCapacity`,
-`popAll`, `asSlice`, or iterator API.
+There is no `len`, `capacity`, `remaining`, `isFull`, `front`, `back`, `next`, `enqueue`, `dequeue`, `remove`, `popAll`, iterator, or backing-storage API.
 
 ## Type and node-field contract
 
-`Stack(T, field)` requires `field` to name an addressable field of type
-`List.SinglyLinkedNode` within `T`.
+`Stack(T, field)` requires `field` to name an addressable `List.SinglyLinkedNode` field in `T`. Invalid field names, wrong node types, non-addressable fields, and incompatible packed layouts MUST produce compile errors.
 
-Invalid field names, wrong node types, non-addressable fields, and incompatible
-packed layouts are compile errors where practical.
+Before its first insertion, the caller MUST initialize the selected node to `.{}`. Before `push(item)`, the caller MUST ensure that `item`'s selected node is detached. The caller MUST NOT insert a selected node that is stacked by this or another intrusive object. A violation is a programmer error; the implementation MAY assert it and does not provide runtime owner tracking.
 
-The selected node field stores stack membership. Each independent intrusive
-membership requires a distinct embedded node field.
+## Operations
 
-Example:
+### Construction and access
 
-```zig
-const Frame = struct {
-    id: u32,
-    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-    free_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-};
+`init()` and `.{}` create an empty stack with `top = null`. `isEmpty()` returns `top == null`.
 
-const ReadyStack = stdx.intrusive.Stack(Frame, "ready_node");
-const FreeStack = stdx.intrusive.Stack(Frame, "free_node");
+`peek()` returns a borrowed pointer to the most recently pushed object, or `null` when the stack is empty. `constPeek()` returns the read-only equivalent. Access operations do not mutate the stack. Returned pointers borrow caller-owned parent objects and remain subject to the caller's lifetime obligations.
 
-var ready = ReadyStack.init();
-var free = FreeStack.init();
-var frame: Frame = .{ .id = 1 };
+### `push`
 
-ready.push(&frame);
-free.push(&frame);
-```
+The caller MUST provide a detached selected node. `push(item)` links `item` before the current top and sets `top` to `item`. It preserves LIFO order and runs in O(1) time.
 
-A node must be initialized to `.{}` before its first insertion. `push(item)`
-requires the selected node to be detached. `pop()` and `clear()` detach nodes
-before returning.
+### `pop`
 
-## Ownership and lifetime
+`pop()` returns `null` without mutation when the stack is empty. Otherwise, it removes and returns the most recently pushed object and advances `top`. Before return, it MUST detach the removed object's selected node. Remaining objects retain their addresses and LIFO order. The operation runs in O(1) time.
 
-The stack value owns only the top pointer and structural invariants. It does not
-own, allocate, free, move, copy, or destroy parent objects.
+### `clear`
 
-The caller owns each parent object and must keep it alive while it is stacked and
-while any pointer returned by the stack is used.
+`clear()` traverses the stack from newest to oldest, detaches every selected node, and sets `top` to `null`. It does not destroy, free, move, zero, or poison parent objects. `clear()` runs in O(n) time for `n` stacked objects. There is no O(1) reset operation, `clearRetainingCapacity`, `clearAndFree`, or `deinit`.
 
-Moving a stack value does not move parent objects. Moving a parent object while
-it is stacked is outside the contract because embedded node pointers in other
-objects may still point at the old address.
+### `assertValid`
 
-Copying a stack value copies the top pointer, not membership. Divergent mutable
-copies over the same nodes are outside this primitive's contract. Use one
-authoritative mutable stack value for each intrusive membership chain.
-
-External mutation of node fields while stacked is outside the contract unless
-the mutation preserves every invariant owned by the stack.
-
-## Construction
-
-`init()` is equivalent to `.{}`. Both create an empty stack with `top = null`.
-
-`isEmpty()` returns `top == null`.
-
-There is no capacity. The stack can link only caller-owned objects that already
-exist, so exhaustion policy belongs to the owner domain.
-
-## Top access
-
-`peek()` returns the most recently pushed object, or `null` when empty.
-
-`constPeek()` returns the read-only equivalent.
-
-Pointers borrow from the caller-owned parent objects, not from stack storage. The
-stack does not move those objects.
-
-## Push semantics
-
-`push(item)` links `item` before the current top in O(1).
-
-When the stack is empty, `push(item)` sets `top = item`.
-
-When the stack is not empty, `push(item)` links `item` to the old top and sets
-`top = item`.
-
-`push(item)` requires `item`'s selected node to be detached before the call.
-There is no full state, so `push(item)` has no error return.
-
-## Pop semantics
-
-`pop()` removes and returns the most recently pushed object. It returns `null`
-when empty.
-
-When the removed object was the only stacked object, the stack becomes empty.
-When more objects remain, `top` advances to the next stacked object.
-
-The removed object's selected node is detached before return.
-
-## Clearing
-
-`clear()` walks the stack from newest to oldest, detaches every stacked node, and
-then sets `top = null`.
-
-`clear()` does not destroy, zero, free, poison, or move parent objects.
-
-There is no `clearRetainingCapacity` because intrusive stacks have no capacity
-and own no backing storage. There is no `clearAndFree` or `deinit` because
-intrusive stacks own no resources.
-
-There is no O(1) reset operation. Dropping `top` without detaching nodes leaves
-stale embedded links inside caller-owned objects and is outside this primitive's
-contract.
-
-## Invalidation and ordering
-
-Intrusive stacks do not invalidate parent-object pointers by moving objects. They
-only change stack membership and link-neighbor relationships.
-
-`push(item)` changes the new item's successor relationship. It changes `top` to
-point at `item`.
-
-`pop()` invalidates the removed object's stack membership and its former neighbor
-relationship. Remaining objects stay at the same addresses.
-
-`clear()` invalidates every membership in the stack and detaches every node.
-
-LIFO order is the reverse order of successful `push(item)` calls not yet removed.
-`pop()` returns objects in LIFO order. There is no reordering.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `Stack` | never | never | comptime | none | type factory | none |
-| `init` | never | never | O(1) | none | caller-owned value | empty |
-| `isEmpty` | never | never | O(1) | none | caller-owned value | none |
-| top access | never | never | O(1) | none | caller-owned value | LIFO top |
-| `push` | never | never | O(1) | top endpoint | caller-owned value | adds newest |
-| `pop` | never | never | O(1) | removed top | caller-owned value | removes newest |
-| `clear` | never | never | O(n) | all memberships | caller-owned value | empty |
-| `assertValid` | never | never | O(n) | none | caller-owned value | verifies topology |
-
-These operations perform no heap allocation, waiting, hidden global access,
-atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
-
-## Error behavior
-
-The public API has no error set.
-
-- empty top access returns `null`;
-- empty pops return `null`;
-- invalid type and field combinations are compile errors where practical;
-- double insert is a programmer error;
-- using the same node field in another intrusive object while stacked is a
-  programmer error;
-- externally corrupted links are a programmer error.
-
-Operations with programmer-error preconditions may assert those preconditions
-when practical, but the spec does not require runtime owner tracking.
-
-## Debug assertion behavior
-
-`assertValid()` checks local topology reachable from this stack's top. It does
-not prove node ownership, detect all double inserts, or make wrong-stack use
-safe.
-
-`assertValid()` checks where practical:
-
-- no cycle is reachable from `top`;
-- every reached link uses the selected embedded node field.
-
-Mutating operations may call `assertValid()` before and after mutation when
-`core.checksEnabled(opts.safety)` or an equivalent module safety option requires
-runtime invariant checks.
+`assertValid()` verifies that no cycle is reachable from `top`. It runs in O(n) time and does not mutate the stack. It does not prove exclusive node ownership, detect every double insertion, or make wrong-stack use safe.
 
 ## Implementation constraints
 
-Stack may reuse internal intrusive-list helper code, but the returned public type
-must not expose an inner `List.SinglyLinked` value. The public value exposes only
-the top endpoint and stack operations.
+The implementation MAY reuse internal list helpers, but the public type MUST NOT expose an inner `List.SinglyLinked` value. The implementation MUST NOT maintain a count. `clear()` MUST detach every selected node; it MUST NOT only set `top = null`. Every operation performs no heap allocation, waiting, hidden global access, atomics, barriers, volatile access, target probing, syscalls, locks, callbacks, or I/O.
 
-Implementations must not maintain a count. A count would add a store to every
-push and pop while providing no primitive-level capacity or exhaustion behavior.
+## Testing
 
-`clear()` must detach every linked node. Implementations must not optimize clear
-by only setting `top = null`.
+Tests MUST construct empty, one-item, and multi-item stacks and verify `init()` equivalence, null results for empty access and removal, LIFO top observations, LIFO removal order, and the transition from one item to empty. These tests prove the observable top and ordering contract at its empty and singleton boundaries.
 
-## Examples
+Tests MUST execute each mutating operation (`push`, `pop`, and `clear`) and call `assertValid()` after each successful mutation. Tests MUST verify that `pop` and `clear` detach selected nodes and that detached nodes can be inserted again. These invariant tests prove that mutations preserve the acyclic-topology requirement while restoring detached membership.
 
-Free-object stack:
-
-```zig
-const Slot = struct {
-    id: u16,
-    free_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-};
-
-const FreeSlots = stdx.intrusive.Stack(Slot, "free_node");
-
-var free = FreeSlots.init();
-var slot_a: Slot = .{ .id = 1 };
-var slot_b: Slot = .{ .id = 2 };
-
-free.push(&slot_a);
-free.push(&slot_b);
-
-const slot = free.pop() orelse return error.OutOfSlots;
-consume(slot);
-```
-
-Parser work stack:
-
-```zig
-const Frame = struct {
-    offset: usize,
-    stack_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-};
-
-const Frames = stdx.intrusive.Stack(Frame, "stack_node");
-
-var frames = Frames.init();
-var root: Frame = .{ .offset = 0 };
-
-frames.push(&root);
-
-while (frames.pop()) |frame| {
-    parse(frame);
-}
-```
-
-## Required tests
-
-Construction tests:
-
-- empty stack;
-- `init()` equals default initialization;
-- top access on an empty stack returns `null`;
-- `pop()` on an empty stack returns `null`.
-
-LIFO tests:
-
-- push one item;
-- push two items;
-- `peek()` tracks the newest item after pushes;
-- `pop()` returns items in reverse push order;
-- `pop()` from a one-item stack clears `top`;
-- `pop()` from a multi-item stack preserves remaining LIFO order.
-
-Clearing tests:
-
-- clear an empty stack;
-- clear a one-item stack;
-- clear a multi-item stack;
-- cleared nodes are detached;
-- reinsertion after clear succeeds.
-
-Cross-cutting tests:
-
-- stack uses `List.SinglyLinkedNode` fields;
-- wrong field type fails to compile where practical;
-- multi-membership through distinct embedded node fields;
-- parent object addresses stay stable across stack operations;
-- popped and cleared nodes are detached;
-- `assertValid()` succeeds after every public mutation;
-- structural corruption tests where practical for broken links and cycles.
-
-## Open questions
-
-None.
+Tests MUST verify independent membership through distinct embedded node fields and stable parent-object addresses. When the test harness supports expected compile failures, it MUST reject an incompatible node field. A corruption test MAY inject a reachable cycle when the harness supports assertion capture. These mutation and corruption methods verify the invariant the checker claims to detect; they do not claim exclusive-ownership detection.

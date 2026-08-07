@@ -5,8 +5,6 @@ Status: Approved.
 `stdx.collections.List.Bounded(T)` is a caller-storage-backed sequence with
 runtime capacity. It preserves insertion order by default and never allocates.
 
-The root facade may expose the same family as `stdx.List.Bounded(T)`.
-
 ## Owned scope
 
 This spec owns:
@@ -39,12 +37,6 @@ This spec does not own:
 stdx.collections.List
 ```
 
-It is root-promoted by the first-slice root facade:
-
-```zig
-stdx.List
-```
-
 Source ownership:
 
 ```text
@@ -69,7 +61,7 @@ pub const collections = @import("collections.zig");
 pub const List = collections.List;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const List = struct {
@@ -123,8 +115,8 @@ its backing storage.
 
 ## Type and capacity contract
 
-`T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
-are compile errors where practical.
+`T` MUST be a runtime value type with `@sizeOf(T) > 0`; a zero-sized element
+type is a compile error.
 
 `wrap(buffer)` returns an empty list backed by `buffer`. `buffer.len` is the
 runtime item capacity. A zero-length buffer is valid; the list is both empty and
@@ -291,18 +283,15 @@ atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
 - out-of-bounds insert, remove, and pointer access return `error.OutOfBounds`;
 - `pop()` uses `null` for empty instead of an error;
 - `appendAssumeCapacity` reports full capacity as a programmer error;
-- invalid `T` categories are compile errors where practical;
-- corrupted `count` is a programmer error caught by `assertValid` where practical.
+- a zero-sized `T` is a compile error;
+- a corrupted `count` violates the caller contract; `assertValid` asserts the
+  capacity invariant.
 
 All error returns leave the list unchanged.
 
 ## Debug assertion behavior
 
 `assertValid()` asserts `count <= buffer.len`.
-
-Public mutating operations may call `assertValid()` before and after mutation
-when `core.checksEnabled(opts.safety)` or an equivalent module safety option
-requires runtime invariant checks.
 
 ## Implementation constraints
 
@@ -315,97 +304,31 @@ Implementation must:
 - leave the list unchanged on error;
 - use overlap-safe moves for insert and ordered removal;
 - never read or expose spare storage as initialized elements;
-- set vacated spare slots to `undefined` where practical;
 - avoid self-referential owner layouts that would stale the backing slice;
 - avoid hidden globals, atomics, fences, volatile operations, target probes, and I/O.
 
-## Planned use
+## Testing
 
-Caller-owned scratch slices that materialize validated references and
-return the initialized prefix as a borrowed view.
+Tests MUST wrap empty, partial, full, and zero-length backing slices to verify
+that runtime capacity equals `buffer.len`. They MUST verify the capacity helpers
+and `error.Full`; compile-fail coverage for zero-sized `T` proves the element
+type boundary.
 
-Memory maps, handle/protocol/event/relocation tables, and duplicate-detection
-lists share the same capacity-first mutation pattern. Inline compile-time
-capacity cases use `List.Static`; caller-provided scratch variants use
-`List.Bounded`.
+Mutation tests MUST append individual items and slices, insert at the first,
+middle, and terminal valid indexes, and remove from each applicable index.
+They MUST compare the initialized prefix in the caller buffer after each
+operation. These tests prove insertion order, ordered removal, swap removal,
+and no mutation after each reported `error.Full` or `error.OutOfBounds`.
 
-## Examples
+Access and ownership tests MUST compare `asSlice`, `asConstSlice`, `at`, and
+`constAt` with the initialized prefix, verify out-of-bounds errors, and show
+that mutable access changes the caller buffer. They MUST retain views and
+pointers across append, insert, each removal form, and clear. Invalidation
+checks MUST verify the documented stable and invalidated ranges without
+dereferencing an invalid view. Copy and move checks MUST establish that the
+backing buffer does not move and that divergent mutable copies are excluded.
 
-```zig
-const stdx = @import("stdx");
-
-const TableList = stdx.List.Bounded(Table);
-
-var scratch: [16]Table = undefined;
-var tables = TableList.wrap(scratch[0..]);
-
-try tables.append(table0);
-try tables.append(table1);
-
-const indexed = tables.asConstSlice();
-_ = indexed;
-```
-
-```zig
-const EntryList = stdx.List.Bounded(Entry);
-
-const storage = try arena.allocSlice(Entry, entry_count);
-var entries = EntryList.wrap(storage);
-
-try entries.appendSlice(initial_entries);
-const removed = try entries.orderedRemove(0);
-_ = removed;
-```
-
-## Required tests
-
-### Construction and capacity
-
-- `wrap(buffer)` starts empty;
-- `capacity()` equals `buffer.len`;
-- zero-length buffers are both empty and full;
-- `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,
-  full, and zero-capacity lists;
-- zero-sized `T` fails to compile where the compile-fail harness supports it.
-
-### Append and insert
-
-- `append` succeeds into empty and non-empty lists;
-- `append` returns `error.Full` without mutation when full;
-- `appendAssumeCapacity` appends after a caller capacity check;
-- `appendSlice` succeeds for empty, partial, exact-fill, and empty-source cases;
-- `appendSlice` returns `error.Full` without mutation when the whole slice does
-  not fit;
-- `insert` covers front, middle, and end insertion;
-- `insert` returns `error.OutOfBounds` for `index > len` without mutation;
-- `insert` returns `error.Full` for valid indexes in a full list without mutation.
-
-### Removal
-
-- `pop` returns `null` when empty;
-- `pop` returns items from the end;
-- `orderedRemove` covers front, middle, and last indexes;
-- `orderedRemove` preserves relative order;
-- `swapRemove` covers middle and last indexes;
-- `swapRemove` moves the old last item into the removed slot when needed;
-- both remove methods return `error.OutOfBounds` without mutation for invalid
-  indexes.
-
-### Access, invalidation, and invariants
-
-- `asSlice` exposes initialized items and allows element mutation;
-- `asConstSlice` exposes initialized items read-only;
-- `at` and `constAt` cover valid and out-of-bounds indexes;
-- append preserves earlier element addresses in the same backing buffer;
-- moving the bounded list value does not move the backing buffer;
-- copying the bounded list value is safe for read-only access but divergent
-  mutable copies are outside the contract;
-- insert and ordered removal invalidate at and after the mutation point;
-- swap removal preserves unrelated element addresses where practical;
-- `clearRetainingCapacity` invalidates all prior initialized-element views;
-- `assertValid` succeeds after every public mutation sequence;
-- `assertValid` catches a manually corrupted `count` where practical.
-
-## Open questions
-
-None.
+Invariant tests MUST call `assertValid` after mutation sequences, including
+sequences that fill, drain, and refill the list. Where assertions can be
+observed, a deliberately invalid `count` MUST make `assertValid` fail. These
+tests prove the initialized-prefix and capacity invariants.

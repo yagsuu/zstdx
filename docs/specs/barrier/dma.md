@@ -2,55 +2,44 @@
 
 Status: Approved.
 
-`stdx.barrier` exposes ordering primitives for host-observable interactions
-with device MMIO and DMA-visible memory. This spec approves seven operations
-across three sub-namespaces:
+`stdx.barrier` provides compiler and CPU ordering operations for host accesses
+that interact with MMIO registers or DMA-visible memory. The operations do not
+perform an MMIO or DMA access.
 
-- `stdx.barrier.compiler` — a compiler reorder barrier with no ISA emission;
-- `stdx.barrier.mmio.release`, `stdx.barrier.mmio.acquire`,
-  `stdx.barrier.mmio.releaseAcquire` — fences paired with MMIO writes and
-  reads;
-- `stdx.barrier.dma.release`, `stdx.barrier.dma.acquire`,
-  `stdx.barrier.dma.releaseAcquire` — fences paired with DMA-visible writes
-  and reads.
+## What this spec is
 
-The seven operations compose with `stdx.io.Mmio.Register` and with any DMA
-staging buffer owned by the caller. This spec does not own SMP thread-to-thread
-memory barriers, cache-maintenance sequences, or arch-specific fence spelling
-beyond the x86_64 mapping approved here.
+This specification defines the public `stdx.barrier.compiler`,
+`stdx.barrier.mmio`, and `stdx.barrier.dma` operations. It defines their x86_64
+instruction mappings, compiler-ordering effects, CPU-ordering effects,
+non-x86_64 availability, and required tests.
 
-## Owned scope
+## What this spec is not
 
-This spec owns:
+This specification does not define:
 
-- `stdx.barrier.compiler`;
-- `stdx.barrier.mmio.release`, `mmio.acquire`, `mmio.releaseAcquire`;
-- `stdx.barrier.dma.release`, `dma.acquire`, `dma.releaseAcquire`;
-- the x86_64 instruction mapping for each op;
-- inline-lowering requirements;
-- composition rules with `stdx.io.Mmio` and DMA-visible caller memory;
-- required tests.
+- SMP thread-to-thread synchronization or the `stdx.barrier.smp.*` operations;
+- MMIO access wrappers, which `docs/specs/io/mmio.md` owns;
+- DMA-buffer ownership or DMA-memory allocation;
+- cache-maintenance sequences, including `clflush`, `clwb`, and `clflushopt`;
+- non-coherent-architecture coherency policy;
+- aarch64 or riscv instruction mappings;
+- Zig `@fence(order)` mappings;
+- doorbell or polling-loop primitives; or
+- protocol-specific aliases for these operations.
 
-## Deferred scope and non-goals
+## Terminology
 
-This spec does not own:
+- **Caller memory** is memory that the caller reads or writes through ordinary
+  host accesses.
+- **DMA-visible memory** is caller-owned memory that a device can read or
+  write through DMA.
+- **Prior** and **subsequent** describe program order in the CPU that calls a
+  barrier.
+- **MMIO access** is a volatile access through `stdx.io.MMIO.Register`.
 
-- SMP thread-to-thread memory barriers under `stdx.barrier.smp.*`
-  (`loadLoad`, `storeStore`, `loadStore`, `storeLoad`, `full`);
-- cache-maintenance sequences (`clflush`/`clwb`/`clflushopt` loops around
-  DMA-shared buffers);
-- coherency-model policy on non-coherent architectures;
-- aarch64 and riscv instruction mappings — those arrive with
-  `docs/specs/arch/aarch64.md` and `docs/specs/arch/riscv.md`;
-- Zig `@fence(order)` mapping;
-- doorbell primitives — `stdx.io.Mmio.Doorbell` is a future spec;
-- polling loop primitives — `stdx.io.PollUntil` is a future spec;
-- protocol vocabulary aliases such as `doorbellRelease` — consumers alias
-  locally when they want protocol-flavored names.
+## Public namespace and source ownership
 
-## Public namespace
-
-Barrier primitives live under `stdx.barrier`:
+The public operations are under `stdx.barrier`:
 
 ```zig
 stdx.barrier.compiler
@@ -64,14 +53,7 @@ stdx.barrier.dma.acquire
 stdx.barrier.dma.releaseAcquire
 ```
 
-They are not root-promoted:
-
-```zig
-stdx.compiler // not exported
-stdx.mmio // not exported
-```
-
-Source ownership:
+The owned source and test files are:
 
 ```text
 src/barrier.zig
@@ -83,22 +65,40 @@ test/barrier/mmio_test.zig
 test/barrier/dma_test.zig
 ```
 
-`src/barrier.zig`:
+`src/barrier.zig` is a facade that re-exports these operations. It contains no
+implementation logic.
 
-```zig
-//! Barrier primitives. Specs: docs/specs/barrier.md and
-//! docs/specs/barrier/dma.md.
+## Cross-spec relationships
 
-pub const compiler = @import("barrier/compiler.zig").compiler;
+This specification depends on `docs/specs/barrier.md` for shared ordering
+vocabulary and test limitations. It composes with `docs/specs/io/mmio.md`:
+the caller performs an MMIO access through `stdx.io.MMIO.Register` and places
+the applicable barrier in the caller's protocol.
 
-pub const mmio = @import("barrier/mmio.zig");
-pub const dma = @import("barrier/dma.zig");
-```
+The caller owns DMA-buffer lifetime, device protocol, notification, and cache
+maintenance. These barriers do not make `Signal` notifications establish data
+visibility. Ring, signal, and other concurrent primitives retain ownership of
+their own publication and acquisition protocols.
 
-`src/barrier.zig` is a thin facade. It contains no logic beyond re-exporting
-and aliasing.
+## Global invariants
 
-## Approved API
+- Every operation is `pub inline fn` and is infallible.
+- No operation allocates, waits, sleeps, blocks, yields, invokes a callback,
+  accesses a scheduler, or accesses a hidden global.
+- No operation reads or writes MMIO or DMA-visible memory.
+- Each operation is reentrant. Concurrent callers need no serialization for
+  the operation itself.
+- No operation establishes a host-thread-to-host-thread happens-before edge.
+  A caller that needs such an edge MUST use the synchronization primitive that
+  owns its publication protocol.
+- A barrier orders accesses by the calling CPU; it does not cause a device to
+  start, stop, or acknowledge DMA.
+- A barrier does not flush, invalidate, clean, or otherwise maintain a cache.
+  When a device or platform requires cache maintenance, the caller MUST perform
+  the required cache-maintenance sequence at the boundary required by that
+  device or platform protocol.
+
+## API
 
 ```zig
 // src/barrier/compiler.zig
@@ -115,313 +115,176 @@ pub inline fn acquire() void;
 pub inline fn releaseAcquire() void;
 ```
 
-Every operation is `pub inline fn`. Inlining is required so hot paths compile
-to the single ISA instruction (or nothing, for `compiler`) plus its memory
-clobber; a real function call at every barrier site is not acceptable for
-NVMe-class submission paths.
+## `compiler`
 
-## `compiler` semantics
+### Contract
 
-`compiler()` emits no ISA instruction. It compiles down to
-`asm volatile ("" ::: .{ .memory = true })` — an empty inline assembly block
-with a `memory` clobber that constrains only compiler reordering.
+`compiler()` emits no ISA instruction. The compiler MUST NOT reorder any memory
+access across the call. `compiler()` does not impose CPU or device ordering and
+does not establish a happens-before edge.
 
-`compiler` is the primitive that all `mmio.*` and `dma.*` operations layer on
-top of. It is exposed as a named primitive so that consumers who need only the
-compiler-side effect (e.g. splitting a sequence of independent volatile
-accesses across a phase boundary) have a discoverable spelling.
+### Implementation constraints
 
-Required behavior:
+The implementation MUST lower `compiler()` to
+`asm volatile ("" ::: .{ .memory = true })`, with no register operands and no
+other clobbers. `compiler()` MUST compile on every target.
 
-- no ISA instruction emitted;
-- compiler must not reorder any memory access across this call;
-- inline lowering into the caller;
-- compiles on every target.
+## `mmio.release`
 
-## `mmio.release` semantics
+### Contract
 
-`mmio.release()` orders prior stores to caller memory before a following MMIO
-store reaches the device.
+Before a caller performs a following MMIO store, the caller MUST call
+`mmio.release()` after the caller's stores to the related caller memory. On
+x86_64, the CPU orders those prior stores before subsequent stores from that
+CPU. The compiler MUST NOT reorder memory accesses across the operation.
 
-Consumer pattern:
+For a device to observe the ordered stores before the MMIO store, the caller's
+device protocol MUST make the MMIO store the observation or notification point.
+`mmio.release()` alone does not establish a device-to-host happens-before edge.
 
-```zig
-build_sqe(&sqe);                       // stores to DMA-visible host memory
-stdx.barrier.mmio.release();           // sfence on x86_64
-sq_tail_reg.store(new_tail_index);     // MMIO store to a doorbell register
-```
+### Architecture mapping
 
-Required behavior on x86_64:
+On x86_64, `mmio.release()` MUST emit `sfence` through
+`stdx.arch.x86_64.fence.sfence`.
 
-- emits `sfence`;
-- prior stores complete before subsequent stores from the same CPU;
-- compiler reordering across the fence is prohibited by the underlying
-  inline-asm memory clobber.
+## `mmio.acquire`
 
-`mmio.release` does not synchronize with other host CPUs beyond the ISA rules
-for `sfence`. It does not flush caches. Cache-maintenance for non-coherent
-DMA lives in a future `stdx.barrier.cache` spec.
+### Contract
 
-## `mmio.acquire` semantics
+After a caller performs an MMIO load, the caller MUST call `mmio.acquire()`
+before the caller reads related caller memory. On x86_64, the CPU orders prior
+loads before subsequent loads from that CPU. The compiler MUST NOT reorder
+memory accesses across the operation.
 
-`mmio.acquire()` orders a preceding MMIO load before following memory reads.
+The caller's device protocol MUST define when the MMIO value proves that the
+device has made the related memory available. `mmio.acquire()` alone does not
+establish a device-to-host happens-before edge.
 
-Consumer pattern:
+### Architecture mapping
 
-```zig
-while (true) {
-    const csts = regs.csts.load();     // MMIO load of controller status
-    stdx.barrier.mmio.acquire();       // lfence on x86_64
-    if (csts_ready(csts)) break;
-    stdx.arch.x86_64.cpu.pause();
-}
-```
+On x86_64, `mmio.acquire()` MUST emit `lfence` through
+`stdx.arch.x86_64.fence.lfence`.
 
-Required behavior on x86_64:
+## `mmio.releaseAcquire`
 
-- emits `lfence`;
-- prior loads complete before subsequent loads from the same CPU;
-- compiler reordering across the fence is prohibited by the memory clobber.
+### Contract
 
-`mmio.acquire` does not synchronize with other host CPUs beyond the ISA rules
-for `lfence`.
+For a mixed MMIO sequence, a caller MUST call `mmio.releaseAcquire()` between
+the ordering-dependent prior accesses and subsequent accesses. On x86_64, the
+CPU orders prior loads and stores before subsequent loads and stores from that
+CPU. The compiler MUST NOT reorder memory accesses across the operation.
 
-## `mmio.releaseAcquire` semantics
+`mmio.release()` and `mmio.acquire()` provide the individual ordering
+directions. `mmio.releaseAcquire()` does not establish a host-thread or device
+happens-before edge by itself.
 
-`mmio.releaseAcquire()` orders prior stores before subsequent MMIO accesses
-and prior MMIO accesses before subsequent memory reads.
+### Architecture mapping
 
-Consumer pattern:
+On x86_64, `mmio.releaseAcquire()` MUST emit `mfence` through
+`stdx.arch.x86_64.fence.mfence`.
 
-```zig
-regs.some_register.store(new_value);
-stdx.barrier.mmio.releaseAcquire();    // mfence on x86_64
-const observed = other_reg.load();
-```
+## `dma.release`
 
-Required behavior on x86_64:
+### Contract
 
-- emits `mfence`;
-- prior stores and loads complete before subsequent stores and loads from the
-  same CPU;
-- compiler reordering across the fence is prohibited by the memory clobber.
+Before a caller publishes a DMA-visible store that a device can observe, the
+caller MUST call `dma.release()` after the caller stores the related
+DMA-visible data. On x86_64, the CPU orders those prior stores before
+subsequent stores from that CPU. The compiler MUST NOT reorder memory accesses
+across the operation.
 
-This op exists for the mixed direction — a store followed by a load in the same
-device-interaction sequence — where neither `release` nor `acquire` alone is
-sufficient. Consumers who only need one direction use the cheaper `release` or
-`acquire`.
+The caller's device protocol MUST identify the publication store and MUST
+ensure that the device observes it. `dma.release()` does not establish a
+host-thread-to-device happens-before edge by itself.
 
-## `dma.release` semantics
+### Architecture mapping
 
-`dma.release()` orders prior stores to caller memory before a following store
-that the device will observe via DMA.
+On x86_64, `dma.release()` MUST emit `sfence` through
+`stdx.arch.x86_64.fence.sfence`.
 
-Consumer pattern:
+## `dma.acquire`
 
-```zig
-build_sgl_chain(&sgl);                 // populate SGL descriptors
-stdx.barrier.dma.release();            // sfence on x86_64
-sgl.head.next = new_segment;           // last store is the linkage the device races on
-```
+### Contract
 
-Required behavior on x86_64:
+After a caller loads DMA-written state that proves related DMA-visible memory
+is available, the caller MUST call `dma.acquire()` before the caller reads that
+related memory. On x86_64, the CPU orders prior loads before subsequent loads
+from that CPU. The compiler MUST NOT reorder memory accesses across the
+operation.
 
-- emits `sfence`;
-- prior stores complete before subsequent stores from the same CPU;
-- compiler reordering across the fence is prohibited by the memory clobber.
+The caller's device protocol MUST define which loaded state proves
+availability. `dma.acquire()` does not establish a device-to-host
+happens-before edge by itself.
 
-The x86_64 mapping is identical to `mmio.release`. The two operations are
-distinct APIs because their semantic contracts and consumer sites differ; a
-future non-x86_64 arch may lower them differently (`dsb oshst` vs `dsb oshst`
-with distinct scopes on aarch64, for example).
+### Architecture mapping
 
-## `dma.acquire` semantics
+On x86_64, `dma.acquire()` MUST emit `lfence` through
+`stdx.arch.x86_64.fence.lfence`.
 
-`dma.acquire()` orders a preceding load of DMA-written data before subsequent
-loads from related caller memory.
+## `dma.releaseAcquire`
 
-Consumer pattern:
+### Contract
 
-```zig
-const phase = cqe.status.native();     // DMA-loaded CQE status (phase tag)
-if (phase_matches(phase, expected_phase)) {
-    stdx.barrier.dma.acquire();        // lfence on x86_64
-    const result = cqe.result.native();
-    // ... safe to consume the rest of the CQE
-}
-```
+For a mixed DMA-memory sequence, a caller MUST call `dma.releaseAcquire()`
+between the ordering-dependent prior accesses and subsequent accesses. On
+x86_64, the CPU orders prior loads and stores before subsequent loads and
+stores from that CPU. The compiler MUST NOT reorder memory accesses across the
+operation.
 
-Required behavior on x86_64:
+`dma.release()` and `dma.acquire()` provide the individual ordering directions.
+`dma.releaseAcquire()` does not establish a host-thread or device
+happens-before edge by itself.
 
-- emits `lfence`;
-- prior loads complete before subsequent loads from the same CPU;
-- compiler reordering across the fence is prohibited by the memory clobber.
+### Architecture mapping
 
-## `dma.releaseAcquire` semantics
+On x86_64, `dma.releaseAcquire()` MUST emit `mfence` through
+`stdx.arch.x86_64.fence.mfence`.
 
-`dma.releaseAcquire()` orders prior DMA-visible stores before subsequent
-DMA-visible loads on the same CPU.
-
-Required behavior on x86_64:
-
-- emits `mfence`;
-- prior stores and loads complete before subsequent stores and loads from the
-  same CPU;
-- compiler reordering across the fence is prohibited by the memory clobber.
-
-This op exists for the mixed direction on DMA-visible memory: a caller store
-followed by an ordering-dependent load of DMA-updated state.
-
-## Per-target instruction table
-
-| Op | x86_64 | aarch64 | riscv64 |
-| --- | --- | --- | --- |
-| `compiler()` | `asm volatile ("" ::: .{ .memory = true })` | same | same |
-| `mmio.release()` | `sfence` | future | future |
-| `mmio.acquire()` | `lfence` | future | future |
-| `mmio.releaseAcquire()` | `mfence` | future | future |
-| `dma.release()` | `sfence` | future | future |
-| `dma.acquire()` | `lfence` | future | future |
-| `dma.releaseAcquire()` | `mfence` | future | future |
-
-Only x86_64 is normative in this spec. Referencing any `mmio.*` or `dma.*`
-operation on a non-x86_64 target produces a `@compileError` with a message
-naming the missing arch spec.
+## Target availability and fault behavior
 
 `compiler()` compiles on every target.
 
-## Composition rules
-
-Consumers combine barriers with volatile MMIO access and with caller-owned
-DMA-visible memory:
-
-```zig
-// Submission path.
-build_sqe(&sqe);                       // stores to DMA-visible SQE buffer
-stdx.barrier.mmio.release();
-sq_tail_reg.store(new_tail_index);
-
-// Completion path.
-const phase = cqe.status.native();
-if (phase_matches(phase, expected_phase)) {
-    stdx.barrier.dma.acquire();
-    const result = cqe.result.native();
-    // ...
-}
-```
-
-Barriers do not replace `stdx.io.Mmio.Register.load`/`store`. Barriers do not
-imply MMIO or DMA access. The primitives are independent and callers compose
-them.
-
-Barriers do not participate in `Signal`'s data-visibility protocol. Ring and
-signal ordering remains owned by their respective specs.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- |
-| `compiler` | never | never | O(1) | pure | compiler-only reorder barrier; no ISA emission |
-| `mmio.release` | never | never | O(1) | pure | release before following MMIO store; `sfence` on x86_64 |
-| `mmio.acquire` | never | never | O(1) | pure | acquire after preceding MMIO load; `lfence` on x86_64 |
-| `mmio.releaseAcquire` | never | never | O(1) | pure | mixed direction across MMIO; `mfence` on x86_64 |
-| `dma.release` | never | never | O(1) | pure | release before DMA-visible store; `sfence` on x86_64 |
-| `dma.acquire` | never | never | O(1) | pure | acquire after DMA-visible load; `lfence` on x86_64 |
-| `dma.releaseAcquire` | never | never | O(1) | pure | mixed direction across DMA memory; `mfence` on x86_64 |
-
-Every operation is infallible, reentrant, and adds zero allocation, sleeping,
-blocking, hidden global access, or scheduler interaction.
-
-## Error behavior
+On a non-x86_64 target, instantiating any `mmio.*` or `dma.*` operation MUST
+produce `@compileError`. The compile-error message MUST state that the
+`stdx.barrier.mmio` or `stdx.barrier.dma` target is unsupported and requires an
+architecture specification beyond `arch/x86_64`. Importing `stdx.barrier` alone
+MUST remain portable.
 
 No operation returns an error.
 
-Referencing any `mmio.*` or `dma.*` operation on a non-x86_64 target produces
-`@compileError` with a message that names the required arch spec (for example,
-`"stdx.barrier.mmio.release: unsupported target; requires docs/specs/arch/aarch64.md"`).
-
-`compiler()` compiles on every target and never errors.
-
 ## Implementation constraints
 
-Implementation must:
+The implementation MUST:
 
-- expose every op as `pub inline fn`;
-- lower `compiler()` to `asm volatile ("" ::: .{ .memory = true })` with no
-  other clobbers and no register operands;
-- lower each x86_64 `mmio.*` and `dma.*` op through the corresponding
-  `stdx.arch.x86_64.fence` operation, which carries the `memory` clobber;
-- gate non-x86_64 bodies with `@compileError` referencing the missing arch
-  spec so that mere imports of `stdx.barrier` stay portable;
-- never introduce runtime target probing;
-- never call scheduler, kernel, or userspace waiting APIs;
-- never allocate;
-- never touch device memory itself.
+- expose each operation as `pub inline fn`;
+- lower each x86_64 MMIO and DMA operation through the corresponding
+  `stdx.arch.x86_64.fence` operation, whose inline assembly has a `memory`
+  clobber;
+- gate each non-x86_64 MMIO and DMA operation with `@compileError`;
+- avoid runtime target probing; and
+- avoid scheduler, kernel, or userspace waiting APIs.
 
-## Planned use
+## Testing
 
-NVMe-class driver paths use:
+The test suite MUST verify the public function type of each operation and that
+every operation compiles on x86_64. This compile-time method proves the API
+surface and required inline call convention, not hardware ordering.
 
-- `mmio.release()` before every submission-queue tail doorbell store;
-- `mmio.acquire()` in controller-enable → controller-ready handshakes and
-  fatal-status polling;
-- `dma.acquire()` after every DMA-written completion-entry phase-tag read;
-- `dma.release()` before publishing linked scatter/gather segment chains;
-- `mmio.releaseAcquire()` and `dma.releaseAcquire()` for mixed-direction
-  sequences.
+The test suite MUST invoke each x86_64 operation once in a target-gated
+execution test and verify that it returns without a trap. This method proves
+that the selected instruction is legal at user privilege on the test target. It
+does not prove CPU, device, or DMA ordering.
 
-Similar patterns arise wherever a driver programs MMIO registers paired with
-DMA-visible payloads, polls status bits, or races MSI-X mask/unmask against
-interrupt delivery.
+The target matrix MUST verify that `compiler()` compiles on every supported
+target. When a non-x86_64 target is available, the test suite MUST use a
+compile-fail test to verify that instantiating each `mmio.*` and `dma.*`
+operation produces `@compileError` while importing `stdx.barrier` alone remains
+valid. This method proves the availability boundary and portable-import
+requirement.
 
-## Required tests
-
-Following `docs/specs/barrier.md` §"Required tests for future APIs",
-tests must not claim to prove CPU or DMA ordering. They exercise API shape,
-target gating, and lowering.
-
-### API shape (compile-only)
-
-- `stdx.barrier.compiler` is `pub inline fn`;
-- `stdx.barrier.mmio.release`, `mmio.acquire`, `mmio.releaseAcquire` are
-  `pub inline fn`;
-- `stdx.barrier.dma.release`, `dma.acquire`, `dma.releaseAcquire` are
-  `pub inline fn`;
-- calling every op compiles in every optimize mode on x86_64;
-- calling `compiler` compiles on every target.
-
-### x86_64 execution
-
-- `compiler()` executes once and returns;
-- `mmio.release()` executes once and returns;
-- `mmio.acquire()` executes once and returns;
-- `mmio.releaseAcquire()` executes once and returns;
-- `dma.release()` executes once and returns;
-- `dma.acquire()` executes once and returns;
-- `dma.releaseAcquire()` executes once and returns.
-
-Execution tests demonstrate that the emitted instructions are legal at user
-privilege and do not trap. They do not prove ordering.
-
-### Instruction mapping (compile-only)
-
-On x86_64:
-
-- `mmio.release` and `dma.release` reference `stdx.arch.x86_64.fence.sfence`;
-- `mmio.acquire` and `dma.acquire` reference `stdx.arch.x86_64.fence.lfence`;
-- `mmio.releaseAcquire` and `dma.releaseAcquire` reference
-  `stdx.arch.x86_64.fence.mfence`.
-
-Implementations satisfy this test by lowering each barrier through the
-corresponding `stdx.arch.x86_64.fence.*` function; the test asserts referential
-equivalence at compile time rather than inspecting emitted bytes.
-
-### Target gating
-
-- on a non-x86_64 test target (if added to the matrix), referencing any
-  `mmio.*` or `dma.*` op produces `@compileError`;
-- `compiler()` still compiles.
-
-## Open questions
-
-None.
+The test suite MUST use compile-time mapping checks to verify that x86_64
+`release`, `acquire`, and `releaseAcquire` operations lower through `sfence`,
+`lfence`, and `mfence`, respectively. The checks MUST inspect the chosen
+lowering or its emitted code; referential equivalence alone does not prove an
+instruction mapping. This method proves the architecture-mapping contract
+without claiming to prove the hardware ordering guarantee.

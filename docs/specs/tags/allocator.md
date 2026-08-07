@@ -2,64 +2,46 @@
 
 Status: Approved.
 
-`stdx.tags.TagAllocator` is a fixed-capacity allocator of small-integer tags. A
-tag is a strongly typed identifier (`Tag(Domain, Int)`) for a hardware command
-slot, queue entry, transaction id, or other protocol-defined fixed-width
-identifier that consumers exchange with external devices or peers.
+`stdx.tags.TagAllocator` manages a fixed set of strongly typed, integer tag values. It records whether each tag is allocated. It does not own the resources identified by tags.
 
-The allocator owns allocation state only. It does not own the resources tags
-identify, does not perform allocation of backing memory in the `Bounded` form,
-and does not enforce any protocol-level rule beyond tag uniqueness and
-domain-tagged identity.
+## What this spec is
 
-## Owned scope
+This specification defines:
 
-This spec owns:
+- the `stdx.tags` public namespace;
+- `Tag(Domain, Int)` tag identity and conversion;
+- fixed-capacity `TagAllocator.Static` and borrowed-storage `TagAllocator.Bounded` allocators;
+- capacity, allocation, reservation, release, query, clearing, and validity contracts;
+- error and no-mutation-on-error behavior;
+- tag invalidation and caller synchronization requirements; and
+- required contract verification.
 
-- the `stdx.tags` namespace and its public surface in this spec;
-- `tags.Tag(Domain, Int)` strong tag value type;
-- `tags.TagAllocator.Static(Domain, Int, capacity)`;
-- `tags.TagAllocator.Bounded(Domain, Int)`;
-- the `Int`/`Domain` parameterization rules;
-- the lowest-free-index allocation order;
-- single-tag allocation, reserve, free, and query operations;
-- the error set covering exhaustion, bounds, double-allocate, and double-free;
-- no-mutation-on-error behavior;
-- zero-capacity behavior;
-- `clearRetainingCapacity` semantics;
-- `isValid`/`assertValid` invariants;
-- required tests.
+## What this spec is not
 
-## Deferred scope and non-goals
+This specification does not define:
 
-This spec does not own:
-
-- `tags.CommandTracker` (TagAllocator plus parallel typed payload slab) — a
-  separate spec, deferred until a concrete payload-bearing consumer exists;
-- `tags.DynamicTagAllocator` (allocator-backed dynamic capacity) — a separate
-  spec, deferred until at least one `mem` primitive establishes a `Dynamic`
-  precedent compatible with first-slice constraints;
-- contiguous range allocation (`allocRange`/`reserveRange`/`freeRange`);
-- alternative allocation orders such as round-robin, randomized, or hint-based
-  placement;
+- ownership, destruction, or lifetime of resources identified by tags;
+- protocol-specific reuse, completion, queue-pairing, or visibility rules;
+- payload storage, timestamps, completion state, statistics, tracing, or leak detection;
+- range allocation or allocation orders other than lowest-free-index order;
 - generation counters, ABA protection, or stale-handle detection;
-- queue-state metadata beyond raw allocation state (no payloads, no timestamps,
-  no completion bits);
-- atomic or concurrent tag allocation;
-- protocol-specific tag semantics (NVMe CID reuse rules, AHCI slot ordering,
-  SQ/CQ pairing);
-- byte allocation, typed object construction, or destructors;
-- DMA, IOMMU, MMIO, or device-notification policy;
-- `std.mem.Allocator` views or interop;
-- allocation statistics, tracing, or leak detection.
+- dynamic capacity, `std.mem.Allocator` interoperation, byte allocation, or typed-object construction;
+- atomic or concurrent allocation, scheduling, waiting, or callback policy; or
+- DMA, IOMMU, MMIO, and device-notification policy.
 
-A tag domain that requires reordering, payload binding, retry semantics, or
-completion tracking is the consumer's responsibility or the responsibility of a
-later spec that explicitly owns those behaviors.
+A caller that maps a tag to a resource owns the mapping and the resource lifetime.
 
-## Public namespace
+## Terminology
 
-`Tag` and `TagAllocator` live under `stdx.tags`:
+- **tag:** A `Tag(Domain, Int)` value. Its raw value identifies an index in an allocator when the raw value is less than the allocator capacity.
+- **allocated tag:** An in-bounds tag whose allocation bit is set.
+- **free tag:** An in-bounds tag whose allocation bit is clear.
+- **logical word:** A `u64` bitmap word that contains one or more tag bits. A final logical word can contain unused high bits.
+- **stale tag:** A tag value for which the caller no longer has an allocation claim because the caller released the tag or cleared its allocator. The allocator cannot distinguish a stale tag from a current tag with the same raw value.
+
+## Public namespace and source ownership
+
+The public import paths are:
 
 ```zig
 stdx.tags.Tag
@@ -68,14 +50,7 @@ stdx.tags.TagAllocator.Static
 stdx.tags.TagAllocator.Bounded
 ```
 
-They are not root-promoted:
-
-```zig
-stdx.Tag           // not exported
-stdx.TagAllocator  // not exported
-```
-
-## Source ownership
+The implementation and tests are in:
 
 ```text
 src/tags.zig
@@ -85,20 +60,33 @@ test/tags/tag_test.zig
 test/tags/allocator_test.zig
 ```
 
-`src/tags.zig` re-exports:
+`src/tags.zig` is a thin facade. It may import, re-export, and alias this public surface, but it MUST NOT implement allocator logic.
 
-```zig
-pub const tag = @import("tags/tag.zig");
-pub const allocator = @import("tags/allocator.zig");
+## Cross-spec relationships
 
-pub const Tag = tag.Tag;
-pub const TagAllocator = allocator.TagAllocator;
-```
+`TagAllocator` composes with consumers that associate tags with protocol resources. Those consumers own resource lifetime and protocol reuse rules. `TagAllocator` does not depend on, or define public behavior for, another allocator specification.
 
-`src/tags.zig` is a thin facade. It contains no logic beyond re-exporting and
-aliasing.
+## Data structures and representation
 
-## Approved API
+`Tag(Domain, Int)` is an enum with `Int` as its integer representation. `Domain` is a phantom type used only for type identity.
+
+`Static` owns an inline bitmap of `u64` words. `Bounded` borrows a caller-provided `[]u64` bitmap. The representation of a tag allocator, apart from the public associated constants and methods below, is not a public layout guarantee.
+
+For either variant, bit `n` represents raw tag value `n`. A final logical word has unused high bits when the capacity is not a multiple of 64. Those bits are not tags.
+
+## Global invariants
+
+Every public operation MUST preserve these invariants:
+
+- `allocated() + remaining() == capacity()`.
+- `allocated()` equals the number of set bits in the logical bitmap region.
+- A tag is in bounds exactly when `tag.raw() < capacity()`.
+- Every unused high bit in the final logical word is zero.
+- `allocOne()` returns only in-bounds tags.
+- `Static` and `Bounded` use the same allocation semantics for the same domain, integer type, capacity, and allocation state.
+- `Bounded` MUST treat words after the logical bitmap region as non-tag storage. Its public operations MUST NOT allocate or query tags in those words.
+
+## API
 
 ```zig
 pub fn Tag(comptime Domain: type, comptime Int: type) type;
@@ -117,475 +105,175 @@ pub const TagAllocator = struct {
 };
 ```
 
-### `Tag(Domain, Int)` returned type
+### `Tag(Domain, Int)`
 
 ```zig
-pub const Self = enum(Int) {
-    _,
+pub const Domain = Domain;
+pub const Int = Int;
 
-    pub const Domain = Domain;
-    pub const Int = Int;
-
-    pub fn fromInt(value: Int) Self;
-    pub fn raw(self: Self) Int;
-};
+pub fn fromInt(value: Int) Self;
+pub fn raw(self: Self) Int;
 ```
 
-`Domain` may be any Zig type; it is used solely as a type-identity phantom.
-`Int` must be an unsigned integer type (`u1` through `u64` inclusive). Signed
-integers, floats, bools, enums, pointers, and comptime integers without an
-explicit `Int` are compile errors.
+`Domain` can be any Zig type. `Int` MUST be an unsigned integer type with a width from `u1` through `u64`. An invalid `Int` argument is a compile error.
 
-`Tag(A, u16)` and `Tag(B, u16)` are distinct types for distinct `Domain` types
-even when `Int` matches. Comparison, conversion, and any other cross-domain
-operation requires explicit `raw()` access and reconstruction.
+Distinct `(Domain, Int)` pairs produce distinct `Tag` types. A caller MUST use `raw()` and `fromInt()` to move a raw value between distinct tag types. A tag value does not imply that the tag is in bounds or allocated by any allocator.
 
-`Tag(D, I).fromInt` is infallible. Every value of `Int` is a representable tag
-value; this spec does not assert that the value is allocatable or that the
-target allocator's capacity covers it.
+`fromInt` is infallible. Every `Int` value is representable by the returned `Tag` type.
 
-### `Static(Domain, Int, capacity)` returned type
+### `TagAllocator.Static(Domain, Int, capacity)`
 
 ```zig
-pub const Self = struct {
-    words: [word_count]Word = [_]Word{0} ** word_count,
-    allocated_count: usize = 0,
+pub const Domain = Domain;
+pub const Int = Int;
+pub const Tag = stdx.tags.Tag(Domain, Int);
+pub const tag_capacity: usize;
+pub const Word = u64;
+pub const word_bits: usize;
+pub const word_count: usize;
 
-    pub const Domain = Domain;
-    pub const Int = Int;
-    pub const Tag = stdx.tags.Tag(Domain, Int);
-    pub const tag_capacity: usize = capacity;
+pub const AllocError = error{OutOfTags};
+pub const ReserveError = error{ OutOfBounds, AlreadyAllocated };
+pub const FreeError = error{ OutOfBounds, NotAllocated };
+pub const Error = AllocError || ReserveError || FreeError;
 
-    pub const Word = u64;
-    pub const word_bits = @bitSizeOf(Word);
-    pub const word_count = capacity / word_bits +
-        @intFromBool(capacity % word_bits != 0);
-
-    pub const AllocError = error{OutOfTags};
-    pub const ReserveError = error{ OutOfBounds, AlreadyAllocated };
-    pub const FreeError = error{ OutOfBounds, NotAllocated };
-    pub const Error = AllocError || ReserveError || FreeError;
-
-    pub fn init() Self;
-
-    pub fn capacity(self: *const Self) usize;
-    pub fn allocated(self: *const Self) usize;
-    pub fn remaining(self: *const Self) usize;
-    pub fn isEmpty(self: *const Self) bool;
-    pub fn isFull(self: *const Self) bool;
-
-    pub fn isAllocated(self: *const Self, tag: Tag) bool;
-    pub fn isFree(self: *const Self, tag: Tag) bool;
-
-    pub fn allocOne(self: *Self) AllocError!Tag;
-    pub fn reserveOne(self: *Self, tag: Tag) ReserveError!void;
-    pub fn freeOne(self: *Self, tag: Tag) FreeError!void;
-
-    pub fn clearRetainingCapacity(self: *Self) void;
-
-    pub fn isValid(self: *const Self) bool;
-    pub fn assertValid(self: *const Self) void;
-};
+pub fn init() Self;
+pub fn capacity(self: *const Self) usize;
+pub fn allocated(self: *const Self) usize;
+pub fn remaining(self: *const Self) usize;
+pub fn isEmpty(self: *const Self) bool;
+pub fn isFull(self: *const Self) bool;
+pub fn isAllocated(self: *const Self, tag: Tag) bool;
+pub fn isFree(self: *const Self, tag: Tag) bool;
+pub fn allocOne(self: *Self) AllocError!Tag;
+pub fn reserveOne(self: *Self, tag: Tag) ReserveError!void;
+pub fn freeOne(self: *Self, tag: Tag) FreeError!void;
+pub fn clearRetainingCapacity(self: *Self) void;
+pub fn isValid(self: *const Self) bool;
+pub fn assertValid(self: *const Self) void;
 ```
 
-`capacity` must satisfy `1 <= capacity <= std.math.maxInt(Int) + 1` at compile
-time. A capacity outside that range is a compile error.
+`capacity` MUST satisfy `1 <= capacity <= std.math.maxInt(Int) + 1`. A value outside this range is a compile error. `tag_capacity` equals `capacity`. `word_bits` is `@bitSizeOf(Word)`. `word_count` is the number of `Word` values required to represent `capacity` tags.
 
-### `Bounded(Domain, Int)` returned type
+`init()` and a default `Static` struct literal produce an empty allocator.
+
+### `TagAllocator.Bounded(Domain, Int)`
 
 ```zig
-pub const Self = struct {
-    words: []Word,
-    tag_capacity: usize,
-    allocated_count: usize,
+pub const Domain = Domain;
+pub const Int = Int;
+pub const Tag = stdx.tags.Tag(Domain, Int);
+pub const Word = u64;
+pub const word_bits: usize;
 
-    pub const Domain = Domain;
-    pub const Int = Int;
-    pub const Tag = stdx.tags.Tag(Domain, Int);
+pub const WrapError = error{OutOfBounds};
+pub const AllocError = error{OutOfTags};
+pub const ReserveError = error{ OutOfBounds, AlreadyAllocated };
+pub const FreeError = error{ OutOfBounds, NotAllocated };
+pub const Error = WrapError || AllocError || ReserveError || FreeError;
 
-    pub const Word = u64;
-    pub const word_bits = @bitSizeOf(Word);
-
-    pub const WrapError = error{OutOfBounds};
-    pub const AllocError = error{OutOfTags};
-    pub const ReserveError = error{ OutOfBounds, AlreadyAllocated };
-    pub const FreeError = error{ OutOfBounds, NotAllocated };
-    pub const Error = WrapError || AllocError || ReserveError || FreeError;
-
-    pub fn wrap(words: []Word, tag_capacity: usize) WrapError!Self;
-
-    pub fn capacity(self: *const Self) usize;
-    pub fn allocated(self: *const Self) usize;
-    pub fn remaining(self: *const Self) usize;
-    pub fn isEmpty(self: *const Self) bool;
-    pub fn isFull(self: *const Self) bool;
-
-    pub fn isAllocated(self: *const Self, tag: Tag) bool;
-    pub fn isFree(self: *const Self, tag: Tag) bool;
-
-    pub fn allocOne(self: *Self) AllocError!Tag;
-    pub fn reserveOne(self: *Self, tag: Tag) ReserveError!void;
-    pub fn freeOne(self: *Self, tag: Tag) FreeError!void;
-
-    pub fn clearRetainingCapacity(self: *Self) void;
-
-    pub fn isValid(self: *const Self) bool;
-    pub fn assertValid(self: *const Self) void;
-};
+pub fn wrap(words: []Word, tag_capacity: usize) WrapError!Self;
+pub fn capacity(self: *const Self) usize;
+pub fn allocated(self: *const Self) usize;
+pub fn remaining(self: *const Self) usize;
+pub fn isEmpty(self: *const Self) bool;
+pub fn isFull(self: *const Self) bool;
+pub fn isAllocated(self: *const Self, tag: Tag) bool;
+pub fn isFree(self: *const Self, tag: Tag) bool;
+pub fn allocOne(self: *Self) AllocError!Tag;
+pub fn reserveOne(self: *Self, tag: Tag) ReserveError!void;
+pub fn freeOne(self: *Self, tag: Tag) FreeError!void;
+pub fn clearRetainingCapacity(self: *Self) void;
+pub fn isValid(self: *const Self) bool;
+pub fn assertValid(self: *const Self) void;
 ```
 
-`Static` and `Bounded` have identical observable allocation semantics. They
-differ only in storage ownership.
+`wrap(words, tag_capacity)` borrows `words`. The caller MUST keep the borrowed storage valid for the lifetime of the returned allocator.
 
-## Type and capacity contract
+`wrap` returns `error.OutOfBounds` without modifying `words` when either condition is true:
 
-`Tag` is the only value type returned by allocation operations. It is the only
-value type accepted by `reserveOne`, `freeOne`, `isAllocated`, and `isFree`.
-`Tag` values from a different `Domain` or different `Int` width are different
-types and cannot be passed without explicit `raw()` reconstruction.
+- `tag_capacity > words.len * word_bits`; or
+- `tag_capacity > std.math.maxInt(Int) + 1`.
 
-For both variants, the capacity invariant is:
+Otherwise, `wrap` clears every word in `words` and returns an empty allocator with capacity `tag_capacity`. A bounded allocator with `tag_capacity == 0` is valid.
 
-```zig
-allocated() + remaining() == capacity()
-```
+## Queries
 
-For `Static`, `capacity()` returns the `capacity` type parameter. For
-`Bounded`, `capacity()` returns the `tag_capacity` field set at `wrap`.
+`capacity()` returns the fixed tag capacity. `allocated()` returns the number of allocated tags. `remaining()` returns `capacity() - allocated()`. `isEmpty()` returns `allocated() == 0`. `isFull()` returns `remaining() == 0`.
 
-`Static` with `capacity == 0` and `Bounded.wrap(&.{}, 0)` are valid; the
-allocator is empty and full simultaneously.
+A zero-capacity `Bounded` allocator is both empty and full.
 
-`Int` must accommodate every representable tag value. Because `tag_capacity`
-units are addressed by indexes `0..tag_capacity`, the implementation never
-emits a `Tag` whose raw value would not fit in `Int`. This is enforced by:
+`isAllocated(tag)` returns true only when `tag` is in bounds and allocated. `isFree(tag)` returns true only when `tag` is in bounds and free. Both methods return false for an out-of-bounds tag. Query methods do not mutate the allocator and do not return errors.
 
-- compile-time checks in `Static` against `Int`'s range;
-- runtime checks in `Bounded.wrap` that reject capacities larger than
-  `std.math.maxInt(Int) + 1` with `error.OutOfBounds`.
+## Allocation
 
-## Storage model
+### `allocOne`
 
-`Static` owns inline `[word_count]Word` storage. A default struct literal and
-`init()` both produce an empty allocator.
+`allocOne()` MUST allocate and return the lowest-index free tag. If no free tag exists, it MUST return `error.OutOfTags` and MUST NOT mutate the allocator.
 
-`Bounded.wrap(words, tag_capacity)` borrows `words`, clears every borrowed
-word, and returns an empty allocator over the first `tag_capacity` tags. It
-returns:
+A successful call sets the returned tag allocation bit and increments `allocated()` by one. The tag remains allocated until `freeOne` or `clearRetainingCapacity` changes its state.
 
-- `error.OutOfBounds` when `tag_capacity > words.len * word_bits`;
-- `error.OutOfBounds` when `tag_capacity > std.math.maxInt(Int) + 1`.
+### `reserveOne`
 
-For both variants, direct mutation of `words` must preserve the unused-bit
-invariant and the allocated-count invariant.
+`reserveOne(tag)` MUST mark an in-bounds free `tag` as allocated and increment `allocated()` by one. It returns:
 
-## Unused-bit invariant
+- `error.OutOfBounds` when `tag.raw() >= capacity()`; and
+- `error.AlreadyAllocated` when `tag` is allocated.
 
-When `capacity()` is not a multiple of `word_bits`, the final logical word has
-unused high bits. Those bits must be zero after every public operation.
+On either error, `reserveOne` MUST NOT mutate the allocator.
 
-Words beyond the logical capacity in a `Bounded` allocator are borrowed
-storage, but their bits are not allocatable tags. `wrap` clears them. Public
-operations must not expose them as allocated or free tags.
+### `freeOne`
 
-`assertValid()` asserts that unused high bits are zero and that
-`tag_capacity <= words.len * word_bits` for `Bounded`.
+`freeOne(tag)` MUST mark an in-bounds allocated `tag` as free and decrement `allocated()` by one. It returns:
 
-`isValid()` returns whether the structural invariants hold.
+- `error.OutOfBounds` when `tag.raw() >= capacity()`; and
+- `error.NotAllocated` when `tag` is free.
 
-## Query semantics
+On either error, `freeOne` MUST NOT mutate the allocator. `freeOne` invalidates the caller's allocation claim for `tag`. The allocator can subsequently allocate the same raw value to another caller.
 
-`capacity()` returns the fixed tag capacity.
+### `clearRetainingCapacity`
 
-`allocated()` returns the number of currently allocated tags.
+`clearRetainingCapacity()` MUST clear all allocation bits and set `allocated()` to zero. It MUST preserve the allocator capacity and, for `Bounded`, the identity of the borrowed storage.
 
-`remaining()` returns `capacity() - allocated()`.
+The operation invalidates every current allocation claim. It does not destroy resources, release handles, unmap memory, notify devices, or clear resource contents.
 
-`isEmpty()` returns `allocated() == 0`.
+## Validity checks
 
-`isFull()` returns `remaining() == 0`.
+`isValid()` returns true exactly when all global invariants hold. `assertValid()` asserts the same condition.
 
-For zero-capacity allocators, `isEmpty()` and `isFull()` both return `true`.
+For `Bounded`, validity also requires that the capacity fits in `Int`, the logical word count does not exceed `words.len`, and every word after the logical bitmap region is zero. `assertValid()` is a diagnostic operation. Allocator operations do not unconditionally invoke it.
 
-`isAllocated(tag)` returns true only when `tag.raw() < capacity()` and the
-underlying tag bit is set. It returns false for out-of-bounds tags.
+## Concurrency, allocation, and progress
 
-`isFree(tag)` returns true only when `tag.raw() < capacity()` and the
-underlying tag bit is clear. It returns false for out-of-bounds tags.
+The allocator performs no hidden memory allocation, freeing, waiting, sleeping, spinning, blocking, callback invocation, syscall, scheduler operation, target probe, atomic operation, barrier, volatile access, or hidden global access.
 
-These query methods do not mutate the allocator and do not raise errors.
+Concurrent access to a mutable allocator is outside this contract. Callers MUST externally synchronize every shared allocator when any concurrent operation can mutate it. Read-only queries of an immutable allocator require no synchronization beyond ordinary Zig aliasing rules.
 
-## Allocation semantics
-
-`allocOne()` allocates and returns the lowest-index free tag.
-
-If no free tag exists, it returns `error.OutOfTags` and does not mutate the
-allocator.
-
-The placement order is deterministic lowest-index first. This spec does not
-approve round-robin, randomized, hint-based, or implementation-defined orders.
-
-`allocOne` is O(word_count) in the worst case, dominated by a forward scan for
-the first non-full word. Single-word capacities are O(1).
-
-## Reserve semantics
-
-`reserveOne(tag)` marks a caller-selected tag allocated.
-
-It returns:
-
-- `error.OutOfBounds` when `tag.raw() >= capacity()`;
-- `error.AlreadyAllocated` when the tag is already allocated.
-
-On error, it does not mutate the allocator.
-
-## Free semantics
-
-`freeOne(tag)` marks a caller-selected tag free.
-
-It returns:
-
-- `error.OutOfBounds` when `tag.raw() >= capacity()`;
-- `error.NotAllocated` when the tag is already free.
-
-On error, it does not mutate the allocator.
-
-## Clearing
-
-`clearRetainingCapacity()` clears every allocated tag. Capacity and backing
-storage identity do not change. After the call:
-
-- `allocated() == 0`;
-- `remaining() == capacity()`;
-- every previously valid `Tag` value referencing this allocator is logically
-  invalidated (the allocator no longer treats it as allocated).
-
-`clearRetainingCapacity()` is O(word_count). There is no `clearAndFree` and no
-`deinit`; the allocator owns no heap allocation.
-
-## Behavior contract
-
-| Operation              | Allocation | Waiting | Bounds        | Invalidation                | Concurrency           | Ordering            |
-| ---------------------- | ---------- | ------- | ------------- | --------------------------- | --------------------- | ------------------- |
-| construction           | never      | never   | O(word_count) | none                        | caller-owned          | none                |
-| `capacity`/`allocated`/`remaining`/`isEmpty`/`isFull` | never | never | O(1)/O(word_count) | none | caller-owned | none |
-| `isAllocated`/`isFree` | never      | never   | O(1)          | none                        | caller-owned          | none                |
-| `allocOne`             | never      | never   | O(word_count) | none                        | caller-owned          | lowest free index   |
-| `reserveOne`           | never      | never   | O(1)          | target tag only             | caller-owned          | explicit index      |
-| `freeOne`              | never      | never   | O(1)          | target tag only             | caller-owned          | explicit index      |
-| `clearRetainingCapacity` | never    | never   | O(word_count) | every allocated tag         | caller-owned          | empty               |
-| `isValid`/`assertValid`| never      | never   | O(word_count) | none                        | caller-owned          | none                |
-
-The allocator performs no hidden allocation, waiting, sleeping, spinning,
-blocking, syscalls, target probing, atomics, barriers, volatile access, or
-hidden global access.
-
-Concurrent mutation is outside the contract. Callers must externally
-synchronize shared allocators. Immutable queries over immutable allocator
-values require no synchronization beyond ordinary Zig aliasing rules.
-
-A returned `Tag` is a logical identifier. Allocating or freeing other tags
-does not move allocated tags. Freeing a tag invalidates the caller's claim to
-that identifier; subsequent reuse may return the same raw value to a different
-caller.
-
-## Error behavior
-
-```zig
-error{
-    OutOfTags,
-    OutOfBounds,
-    AlreadyAllocated,
-    NotAllocated,
-}
-```
-
-- `OutOfTags`: `allocOne` cannot find a free tag.
-- `OutOfBounds`: `Bounded.wrap` received an invalid `tag_capacity`; or
-  `reserveOne`/`freeOne` received a `tag` whose raw value is `>= capacity()`.
-- `AlreadyAllocated`: `reserveOne` would mark an allocated tag.
-- `NotAllocated`: `freeOne` would clear a free tag.
-
-Every error-returning operation must leave the allocator unchanged on error.
-
-`OutOfTags` is intentionally distinct from `mem.alloc.BitmapAllocator`'s
-`OutOfMemory`. A consumer at the wire level knows about tags, not memory; the
-error names match the contract.
-
-## Debug assertion behavior
-
-`assertValid()` checks:
-
-- `allocated_count <= capacity()`;
-- the set bit count of `words` equals `allocated_count`;
-- unused high bits in the final logical word are zero;
-- for `Bounded`, `tag_capacity <= words.len * word_bits` and
-  `tag_capacity <= std.math.maxInt(Int) + 1`.
-
-`isValid()` returns the boolean equivalent without asserting.
-
-Operations do not call `assertValid()` unconditionally on hot paths.
+`allocOne()` is O(`word_count`) in the worst case and O(1) for a single logical word. `reserveOne`, `freeOne`, `isAllocated`, and `isFree` are O(1). `clearRetainingCapacity`, `isValid`, and `assertValid` are O(`word_count`).
 
 ## Implementation constraints
 
-Implementations must:
+An implementation MUST:
 
-- use `u64` words;
-- support zero-capacity allocators;
-- enforce `capacity <= std.math.maxInt(Int) + 1` at compile time for `Static`
-  and at runtime in `Bounded.wrap`;
-- compute `word_count` without unchecked overflow;
+- use `u64` bitmap words;
+- enforce the stated capacity bounds at compile time for `Static` and at runtime for `Bounded.wrap`;
+- avoid unchecked overflow when it computes the logical word count;
 - keep unused high bits clear after every public operation;
-- accept and return only `Tag(Domain, Int)` values from the allocator's own
-  `Tag` type alias; cross-domain calls are compile errors;
-- avoid hidden allocation, hidden globals, atomics, barriers, syscalls, and
-  target probing;
-- avoid public bit-scan wrappers around Zig builtins.
+- accept and return only the allocator `Tag` alias; and
+- preserve the no-allocation and no-concurrency-effects contract.
 
-Implementations may share private helper code with
-`stdx.bits.BitSet.Static` or `stdx.mem.alloc.BitmapAllocator` per those specs'
-private-helper clauses, but `TagAllocator` owns its public semantics and its
-own error set.
+The implementation MAY share private helpers with `stdx.bits.BitSet.Static` or `stdx.mem.alloc.BitmapAllocator`. It MUST retain the `TagAllocator` public surface and error set defined here.
 
-## Consumer requirements
+## Testing
 
-A caller that maps tags to external resources owns that mapping and the
-lifetime of those resources.
+Tests MUST verify the observable contract for both allocator variants. They MUST compare allocation state, returned tags, counts, errors, and backing storage before and after each operation where the contract requires no mutation.
 
-`freeOne` and `clearRetainingCapacity` do not call destructors, release
-handles, unmap memory, notify devices, or zero resource contents.
+Construction and capacity tests MUST verify `Static` initialization and default construction, `Bounded.wrap` storage clearing, capacity bounds, exact maximum capacity for an `Int` width, and the valid zero-capacity `Bounded` state. Rejected `Bounded.wrap` calls MUST prove that borrowed words remain unchanged. These tests prove capacity ownership and failure atomicity.
 
-Protocol-specific tag-reuse rules (e.g. NVMe CID reuse after completion,
-descriptor visibility ordering) are not enforced. The allocator only tracks
-allocation state.
+Tag-identity tests MUST verify raw-value round trips at zero, a non-boundary value, and the maximum `Int` value; distinct `Domain` and `Int` arguments; and compile-time rejection of invalid integer types. Compile-time checks MUST also verify that allocator operations accept only their allocator `Tag` type. These tests prove type-safe tag identity independently of allocation membership.
 
-## Examples
+Allocation tests MUST use capacities of 1, 64, 65, a non-word multiple, and an `Int`-width maximum. They MUST prove ascending initial allocation, lowest-free reuse after partial release, exhaustion without mutation, and the in-bounds return condition. Reserve and release tests MUST prove each success transition, each specified error, query behavior for out-of-bounds tags, no mutation on error, and reuse after release. These tests prove the allocation state machine and error contract.
 
-```zig
-const stdx = @import("stdx");
-const tags = stdx.tags;
+Invariant tests MUST cover empty, partially allocated, full, and zero-capacity states. They MUST verify `allocated() + remaining() == capacity()`, clearing behavior, unused-high-bit preservation, and detection of corrupted bitmap state by `assertValid()`. These tests prove count consistency and bitmap boundaries.
 
-// NVMe-style command id namespace.
-const NvmeCid = struct {};
-const NvmeCidAllocator = tags.TagAllocator.Static(NvmeCid, u16, 256);
-var cids = NvmeCidAllocator.init();
-
-const c0 = try cids.allocOne();      // c0.raw() == 0
-const c1 = try cids.allocOne();      // c1.raw() == 1
-try cids.reserveOne(NvmeCidAllocator.Tag.fromInt(64));
-try cids.freeOne(c0);
-
-// AHCI-style slot namespace, 5-bit wire width.
-const AhciSlot = struct {};
-const AhciSlotAllocator = tags.TagAllocator.Static(AhciSlot, u5, 32);
-var slots = AhciSlotAllocator.init();
-const s0 = try slots.allocOne();
-
-// Cross-domain mixing is a compile error:
-// _ = try cids.reserveOne(s0); // error: expected Tag(NvmeCid, u16),
-//                              //   found Tag(AhciSlot, u5)
-```
-
-`Bounded` over caller-provided storage:
-
-```zig
-const Domain = struct {};
-const T = tags.TagAllocator.Bounded(Domain, u16);
-var backing: [4]u64 = [_]u64{0} ** 4;
-var alloc = try T.wrap(&backing, 200);
-const t = try alloc.allocOne();
-try alloc.freeOne(t);
-```
-
-## Required tests
-
-Required capacities:
-
-- `Static(..., 0)`;
-- `Static(..., 1)`;
-- `Static(..., 64)`;
-- `Static(..., 65)`;
-- a non-word multiple such as `Static(..., 129)`;
-- a width-bounded capacity such as `Static(D, u5, 32)`;
-- `Bounded` with zero capacity;
-- `Bounded` with a runtime capacity smaller than `words.len * word_bits`;
-- `Bounded` with `tag_capacity > std.math.maxInt(Int) + 1` rejected.
-
-### Tag type
-
-- `Tag(D, u16).fromInt`/`raw` round-trip for `0`, a mid value, and
-  `std.math.maxInt(u16)`;
-- `Tag(A, u16)` and `Tag(B, u16)` are distinct types for distinct `Domain`
-  arguments;
-- `Tag(D, u16)` and `Tag(D, u32)` are distinct types for distinct `Int`
-  arguments;
-- declaring `Tag(D, i32)` or `Tag(D, f32)` is a compile error.
-
-### Construction and capacity
-
-- `Static.init()` is empty;
-- a default `Static` struct literal is empty;
-- `Bounded.wrap` clears borrowed words;
-- `Bounded.wrap` rejects `tag_capacity > words.len * word_bits` with
-  `error.OutOfBounds`;
-- `Bounded.wrap` rejects `tag_capacity > std.math.maxInt(Int) + 1` with
-  `error.OutOfBounds`;
-- rejected `Bounded.wrap` leaves borrowed words unchanged;
-- zero-capacity allocators are both empty and full;
-- `allocated() + remaining() == capacity()` after construction;
-- `Static(D, u8, 257)` is a compile error.
-
-### Allocation
-
-- `allocOne` returns ascending tag values from an empty allocator;
-- `allocOne` returns the lowest free tag after partial frees;
-- `allocOne` returns `error.OutOfTags` without mutation when full;
-- the returned `Tag`'s `raw()` always satisfies `raw() < capacity()`;
-- the returned `Tag` is the allocator's `Tag` type, not a bare `Int`.
-
-### Reserve and free
-
-- `reserveOne` succeeds for a free in-bounds tag;
-- `reserveOne` rejects out-of-bounds tags with `error.OutOfBounds`;
-- `reserveOne` rejects an allocated tag with `error.AlreadyAllocated`
-  without mutation;
-- `freeOne` succeeds for an allocated tag;
-- `freeOne` rejects out-of-bounds tags with `error.OutOfBounds`;
-- `freeOne` rejects a free tag with `error.NotAllocated` without mutation;
-- `isAllocated` and `isFree` return false for out-of-bounds tags;
-- after `freeOne(t)`, `allocOne` may return a tag with `t.raw()` again.
-
-### Counts, clearing, invariants
-
-- `allocated`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,
-  full, and zero-capacity states;
-- `clearRetainingCapacity` clears all tags and preserves capacity;
-- `assertValid` succeeds after every public mutation;
-- unused high bits remain clear after allocation, reserve, free, and clear;
-- corrupted unused high bits are detected by `assertValid` where practical.
-
-### Type identity
-
-- `TagAllocator.Bounded(A, u16)` and `TagAllocator.Bounded(B, u16)` are
-  distinct types;
-- `TagAllocator.Static(D, u16, 64)` and `TagAllocator.Static(D, u16, 128)`
-  are distinct types;
-- `TagAllocator.Static(D, u16, 64).Tag` equals
-  `TagAllocator.Bounded(D, u16).Tag` (both are `Tag(D, u16)`).
-
-### Model tests
-
-A model test compares `Static` and `Bounded` behavior against a simple
-bool-array tag allocator over randomized sequences of:
-
-- `allocOne`;
-- `reserveOne`;
-- `freeOne`;
-- `clearRetainingCapacity`.
-
-The model must assert identical success/error results, allocated tag sets,
-counts, and no-mutation-on-error behavior.
-
-## Open questions
-
-None.
+A deterministic randomized model test MUST compare `Static` and `Bounded` allocators with a simple boolean-array model over `allocOne`, `reserveOne`, `freeOne`, and `clearRetainingCapacity`. After every operation, the test MUST compare success or error result, allocated tag set, counts, and no-mutation-on-error behavior. The model test proves that both storage variants preserve the same state-machine contract across mixed sequences.

@@ -36,7 +36,6 @@ This spec does not own:
 - IRQ save/restore (no `cli`/`sti`); the caller owns interrupt state;
 - metrics, observability, or telemetry hooks;
 - alternative backends (`sync.futex.Backend`, `sync.io.Backend`, etc.);
-- root promotion of `sync.spin`.
 
 ## Public namespace
 
@@ -45,13 +44,6 @@ This spec does not own:
 ```zig
 stdx.sync.spin
 stdx.sync.spin.Backend
-```
-
-It is not root-promoted:
-
-```zig
-stdx.spin        // not exported
-stdx.Backend     // not exported
 ```
 
 Source ownership:
@@ -88,11 +80,11 @@ pub fn wakeAll(self: *Backend, state: *const State) void;
 ```
 
 Each consuming primitive substitutes its own `State` and `Token` types
-(`Signal.State`/`Signal.Token`, `sync.once.State`/`sync.once.Token`, etc.) and validates
-at factory instantiation that `backend.wait(state_ptr, observed)` and
-`backend.wakeAll(state_ptr)` are callable. A backend may accept the concrete
-primitive state/token types or more generic parameters such as
-`*const anyopaque` / `anytype` when it does not inspect them.
+(`Signal.State`/`Signal.Token`, `sync.once.State`/`sync.once.Token`, and
+equivalent types). The primitive's `wait` and `wakeAll` calls are type-checked
+when those calls are compiled. A backend may accept the concrete primitive
+state/token types or more generic parameters such as `*const anyopaque` /
+`anytype` when it does not inspect them.
 
 `WaitError` must be an explicit error set. `anyerror` is not approved. An
 empty error set (`error{}`) is legal; the primitive-side `try` monomorphizes
@@ -118,7 +110,7 @@ Semantic requirements on `Backend.wakeAll`:
 - must wake every waiter currently blocked in `Backend.wait` for the same
   primitive instance identified by `state`, or otherwise make them return.
 
-## Approved API
+## API
 
 ```zig
 pub const Backend = struct {
@@ -227,26 +219,10 @@ controller polling loops, interrupt handlers. Lane-1 composition inside a
 `std.Io` backend requires a different backend that yields to the scheduler;
 that backend is a separate spec.
 
-## Required tests
+## Testing
 
-Tests live in `test/sync/spin_test.zig`.
+Compile-time tests MUST verify that `Backend` has zero size, that `WaitError` is the explicit empty error set, and that the backend type-checks as the backend for every approved wait-capable primitive. These checks prove the representation and generic-backend contracts without depending on a scheduler.
 
-Required tests:
+Deterministic runtime tests MUST call `wait` with arbitrary state and token types, then call `wakeAll`. The tests MUST verify that `wait` returns without an error after one `std.atomic.spinLoopHint()` iteration and that `wakeAll` does not access its state argument. These tests prove that the backend supplies recheck progress rather than a wake event.
 
-- `@sizeOf(sync.spin.Backend) == 0`;
-- `sync.spin.Backend.WaitError` equals `error{}` (checked via `@typeInfo`);
-- `sync.spin.Backend{}.wait(&dummy_state, dummy_observed)` returns without
-  error, exercised against a `dummy_state` of arbitrary pointee type and a
-  `dummy_observed` of arbitrary value type;
-- `sync.spin.Backend{}.wakeAll(&dummy_state)` returns;
-- compile-only instantiation of `Signal.Manual(sync.spin.Backend)` and every
-  other approved wait-capable primitive against `sync.spin.Backend`; a build
-  failure of any of those instantiations is a spec violation of the failing
-  primitive, not this spec;
-- the `sync.spin` module compiles on every supported target, including
-  non-x86 targets, with no target-specific asm emission beyond what
-  `std.atomic.spinLoopHint` itself emits.
-
-## Open questions
-
-None.
+Cross-target compilation MUST include a non-x86 target. It proves that the contract relies on `std.atomic.spinLoopHint()` rather than target-specific assembly.

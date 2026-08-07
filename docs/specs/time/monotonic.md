@@ -11,7 +11,7 @@ timeouts, retry loops) one vocabulary. The wrapper enforces the monotonic
 contract on `now` and forwards a backend-supplied `sleep` verbatim when
 present. Both methods reduce to a direct backend call in release builds.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -26,7 +26,7 @@ This spec owns:
   `core.debug.checksEnabled`;
 - required tests.
 
-## Deferred scope and non-goals
+## What this spec is not
 
 This spec does not own:
 
@@ -56,14 +56,6 @@ stdx.time.Clock
 stdx.time.Clock.Monotonic
 ```
 
-They are not root-promoted:
-
-```zig
-stdx.Instant // not exported
-stdx.Duration // not exported
-stdx.Clock // not exported
-```
-
 Source ownership:
 
 ```text
@@ -87,7 +79,7 @@ pub const Clock = monotonic.Clock;
 `src/time.zig` is a thin facade. It contains no logic beyond re-exporting and
 aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const Instant = enum(u64) {
@@ -421,143 +413,18 @@ Implementation must:
   single-owner, not lock-free;
 - lower `Clock.Monotonic.now` and `Clock.Monotonic.sleep` to direct backend
   calls in release builds.
+## Testing
 
-## Planned use
+Testing MUST use fixed values and caller-controlled backend sequences. This method verifies arithmetic and wrapper behavior without hardware clocks or scheduler timing.
 
-A driver composes `Clock.Monotonic(HpetBackend)` — where `HpetBackend`
-reads an HPET main counter — into its controller for handshake timeouts,
-status-polling backoff, and admin/completion command timeouts.
+### Value-domain boundaries
 
-Similar deadlines arise in ACPI GPE polling and PM timer waits, PCI MSI-X
-programming, and firmware runtime-services windows.
+Tests exercise zero, positive, negative, equality, `u64` endpoint, signed-duration endpoint, and unit-conversion overflow values. They prove `Instant.add`, `Instant.since`, `Instant.afterOrEq`, `Duration` conversion, sign, and overflow contracts at their domain boundaries.
 
-Test consumers construct a `TestBackend` that increments a counter on each
-`now()` call. Test backends are per-test scaffolding, not part of this spec.
+### Backend interface model
 
-## Examples
+Compile-time fixtures provide valid and invalid backend shapes. They verify required `now`, optional `sleep`, receiver and return types, rejection of error unions and `anyerror`, and absence of generated `sleep` when unsupported. These fixtures prove that the wrapper accepts only its stated clock contract.
 
-Backend shape:
+### Clock transitions
 
-```zig
-const HpetBackend = struct {
-    counter: *volatile stdx.io.Mmio.Register(u64),
-    period_fs: u64, // femtoseconds per tick, from HPET capability register
-
-    pub fn now(self: *HpetBackend) stdx.time.Instant {
-        const ticks = self.counter.load();
-        const ns = (ticks * self.period_fs) / 1_000_000;
-        return .fromNanos(ns);
-    }
-};
-```
-
-Wrapper composition:
-
-```zig
-const HpetClock = stdx.time.Clock.Monotonic(HpetBackend);
-
-var clock: HpetClock = .init(.{ .counter = counter_reg, .period_fs = period });
-const start = clock.now();
-```
-
-Deadline loop:
-
-```zig
-const start = clock.now();
-const deadline = try start.add(try stdx.time.Duration.fromMillis(500));
-
-while (true) {
-    const csts = regs.csts.load();
-    stdx.barrier.mmio.acquire();
-    if (csts_ready(csts)) break;
-
-    if (clock.now().afterOrEq(deadline)) return error.Timeout;
-    stdx.arch.x86_64.cpu.pause();
-}
-```
-
-Elapsed check:
-
-```zig
-const elapsed = clock.now().since(start);
-if (elapsed.isNegative()) {
-    // Backend violated monotonic contract; caught by debug assertion in debug builds.
-}
-```
-
-## Required tests
-
-### `Instant`
-
-- `fromNanos(0).nanos() == 0`;
-- `fromNanos(1).nanos() == 1`;
-- `fromNanos(maxInt(u64)).nanos() == maxInt(u64)`;
-- `zero() == fromNanos(0)`;
-- `add(fromNanos(0), fromNanos(0))` returns `fromNanos(0)`;
-- `add(fromNanos(100), fromNanos(50))` returns `fromNanos(150)`;
-- `add(fromNanos(100), fromNanos(-50))` returns `fromNanos(50)`;
-- `add(fromNanos(maxInt(u64)), fromNanos(1))` returns `error.Overflow`;
-- `add(fromNanos(0), fromNanos(-1))` returns `error.Overflow`;
-- `since(fromNanos(100), fromNanos(50)).nanos() == 50`;
-- `since(fromNanos(50), fromNanos(100)).nanos() == -50`;
-- `since(fromNanos(100), fromNanos(100)).nanos() == 0`;
-- `afterOrEq` covers strictly less, equal, and strictly greater.
-
-### `Duration`
-
-- `fromNanos(0).nanos() == 0`;
-- `fromNanos(1_000).nanos() == 1_000`;
-- `fromNanos(-1_000).nanos() == -1_000`;
-- `zero.nanos() == 0`;
-- `fromMicros(1).nanos() == 1_000`;
-- `fromMillis(1).nanos() == 1_000_000`;
-- `fromSeconds(1).nanos() == 1_000_000_000`;
-- `fromMillis(maxInt(i64) / 1_000_000 + 1)` returns `error.Overflow`;
-- `fromMicros(maxInt(i64) / 1_000 + 1)` returns `error.Overflow`;
-- `fromSeconds(maxInt(i64) / 1_000_000_000 + 1)` returns `error.Overflow`;
-- `isPositive` and `isNegative` cover positive, zero, and negative values.
-
-### `Clock.Monotonic(Backend)` compile-time validation
-
-- a backend with `pub fn now(self: *Backend) Instant` compiles;
-- a backend missing `now` produces a compile error;
-- a backend whose `now` returns `!Instant` produces a compile error;
-- a backend whose `now` returns `anyerror!Instant` produces a compile error;
-- a backend whose `now` takes no argument or a wrong-typed argument produces a
-  compile error.
-- a backend with a matching `pub fn sleep(self: *Backend, delta: Duration) void`
-  produces a `Clock.Monotonic(Backend)` exposing `sleep`;
-- a backend without `sleep` produces a `Clock.Monotonic(Backend)` without
-  `sleep`; a callsite invoking `Self.sleep` fails to compile;
-- a backend whose `sleep` returns `!void` produces a compile error;
-- a backend whose `sleep` returns `anyerror!void` produces a compile error;
-- a backend whose `sleep` takes wrong-typed arguments produces a compile
-  error.
-
-### `Clock.Monotonic(Backend)` runtime
-
-A `TestBackend` returning a caller-controlled sequence drives the wrapper.
-
-- `init(backend)` stores the backend by value;
-- `now()` returns exactly what the backend returned;
-- calling `now()` 1000 times against a strictly increasing backend produces
-  the same 1000 values;
-- calling `now()` against a constant backend produces the same value on every
-  call and does not fault under `core.debug.checksEnabled`;
-- under `core.debug.checksEnabled == true`, a decreasing backend causes the
-  second `now()` call to trip an assertion;
-- under `core.debug.checksEnabled == false`, the same decreasing backend does
-  not trip an assertion;
-- under `core.debug.checksEnabled == false`,
-  `@sizeOf(Clock.Monotonic(TestBackend)) == @sizeOf(TestBackend)`.
-- against a backend recording every `sleep(delta)` call: `clock.sleep(d)`
-  forwards `d` unchanged to the backend;
-- under `core.debug.checksEnabled == true`,
-  `clock.sleep(Duration.fromNanos(-1))` trips the debug assertion;
-- under `core.debug.checksEnabled == false`, the same call forwards to the
-  backend without a trap;
-- `clock.sleep(Duration.zero)` forwards to the backend and returns.
-
-## Open questions
-
-None.
+A caller-controlled backend supplies increasing, constant, and decreasing readings, and records forwarded sleep durations. Tests verify by-value backend ownership, exact `now` forwarding, the debug-only monotonicity assertion, its release-mode absence, debug-only negative-sleep assertion, unchanged sleep forwarding, and removal of debug storage in release builds. These transitions prove the wrapper adds only the stated debug checks to backend behavior.

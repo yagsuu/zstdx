@@ -2,14 +2,7 @@
 
 Status: Approved.
 
-`stdx.arch.x86_64.svm` owns thin, inline-asm-only wrappers for AMD SVM
-(Secure Virtual Machine) instructions. Consumers reach every primitive through the lower-case `stdx.arch.x86_64.svm` namespace.
-
-Every wrapper models exactly one instruction with the same "just the ISA,
-no policy" contract as `docs/specs/arch/x86_64.md` and
-`docs/specs/arch/x86_64/vmx.md`. Unlike VMX, SVM instructions do not use
-`RFLAGS.CF`/`ZF` to report failure; faults surface as CPU exceptions
-(`#UD`, `#GP`). Every wrapper's Zig signature is therefore infallible.
+`stdx.arch.x86_64.svm` owns inline-assembly wrappers for AMD SVM instructions. SVM faults are CPU exceptions (`#UD`, `#GP`) rather than Zig error-union results.
 
 ## Owned scope
 
@@ -52,7 +45,6 @@ This spec does not own:
   encrypted guest register state);
 - runtime execution on the host test suite — SVM instructions require
   CPL 0 with `EFER.SVME = 1`, which the host runner cannot provide;
-- root promotion of any svm symbol.
 
 ## Public namespace
 
@@ -63,9 +55,6 @@ stdx.arch.x86_64.svm
 stdx.arch.x86_64.svm.PhysAddr
 stdx.arch.x86_64.svm.Vmcb
 ```
-
-None are root-promoted. Consumers reach SVM primitives only through the
-`stdx.arch.x86_64.svm` path.
 
 `svm.PhysAddr` and `stdx.arch.x86_64.vmx.PhysAddr` are distinct types.
 
@@ -90,7 +79,7 @@ Operations whose semantics do not depend on the instruction set —
 `PhysAddr.fromInt`/`raw` and the `Vmcb` region type — compile on any
 target so type layouts and constants remain portable.
 
-## Approved API
+## API
 
 ```zig
 pub const svm = struct {
@@ -216,16 +205,6 @@ The wrapper uses a memory clobber. VMCB state written by the CPU on
 visible to subsequent host code through ordinary loads; the compiler
 must not reorder host memory operations across `vmrun`.
 
-Typical host loop:
-
-```zig
-while (true) {
-    prepareGuest(&vmcb);
-    svm.vmrun(vmcb_phys);
-    handleVmExit(&vmcb);
-}
-```
-
 ### vmload and vmsave
 
 `svm.vmload(vmcb)` executes `vmload`. Loads a subset of processor state
@@ -239,15 +218,6 @@ from the VMCB state save area:
 
 `svm.vmsave(vmcb)` executes `vmsave` and saves the same set from the
 processor into the VMCB state save area.
-
-Typical use pattern brackets `vmrun` to preserve host state that
-`vmrun`/`#VMEXIT` do not automatically save:
-
-```zig
-svm.vmsave(host_save_phys);   // capture host-side state
-svm.vmrun(guest_vmcb_phys);
-svm.vmload(host_save_phys);   // restore host-side state
-```
 
 Both wrappers use a memory clobber.
 
@@ -264,14 +234,6 @@ privileged (CPL 0).
 
 Both wrappers use a memory clobber to prevent the compiler from reordering
 memory operations across the boundary.
-
-Typical use:
-
-```zig
-svm.clgi();
-// Sensitive host code — global interrupt delivery is disabled.
-svm.stgi();
-```
 
 ### invlpga
 
@@ -377,92 +339,6 @@ instructions inside interrupt-off regions is caller policy.
 
 None.
 
-## Examples
+## Testing
 
-Prepare and enter a guest, dispatch on VM exit:
-
-```zig
-const stdx = @import("stdx");
-const x86 = stdx.arch.x86_64;
-const svm = x86.svm;
-
-// Caller-owned VMCB (typically page-aligned in a page allocator).
-var vmcb: svm.Vmcb = std.mem.zeroes(svm.Vmcb);
-const vmcb_phys: svm.PhysAddr = .fromInt(physicalAddressOf(&vmcb));
-
-// Program VMCB control and state areas via overlays owned by the
-// consumer (not by stdx). See AMD APM Vol.2 §15.5 for layouts.
-consumerProgramVmcb(&vmcb, guest_state);
-
-while (true) {
-    svm.vmrun(vmcb_phys);           // returns after #VMEXIT
-    const exit_code = consumerReadExitCode(&vmcb);
-    if (consumerHandleVmExit(&vmcb, exit_code)) break;
-}
-```
-
-Bracket sensitive host code with GIF clear:
-
-```zig
-svm.clgi();
-// Global interrupt delivery is masked here.
-performSensitiveHostOperation();
-svm.stgi();
-```
-
-Preserve host state around a `vmrun`:
-
-```zig
-const host_save_phys: svm.PhysAddr = .fromInt(physicalAddressOf(host_save_area));
-
-svm.vmsave(host_save_phys);
-svm.vmrun(vmcb_phys);
-svm.vmload(host_save_phys);
-```
-
-Invalidate one TLB entry in a guest ASID:
-
-```zig
-svm.invlpga(guest_linear_addr, guest_asid);
-```
-
-Launch a Secure Loader image (typically from an initial boot loader):
-
-```zig
-svm.skinit(sl_image_physical_base);
-// unreachable — control transfers to the SL image.
-```
-
-## Required tests
-
-Tests live in `test/arch/x86_64_svm_test.zig`. Every test is compile-only
-in the default host suite. Runtime execution requires CPL 0 with
-`EFER.SVME = 1`, which the host runner cannot provide; a privileged
-runner is outside this spec's scope.
-
-Required tests:
-
-- `PhysAddr.fromInt`/`raw` round-trip for `0`, a non-zero mid value, and
-  `std.math.maxInt(u64)`; the round-trip compiles on any target;
-- `@sizeOf(svm.Vmcb) == 4096`, `@alignOf(svm.Vmcb) == 4096`,
-  `svm.Vmcb.alignment == 4096`;
-- `@offsetOf(svm.Vmcb, "control") == 0x000`;
-- `@offsetOf(svm.Vmcb, "state") == 0x400`;
-- `svm.Vmcb` compiles on any target (portable value type);
-- On x86_64, every wrapper instantiates with the declared signature:
-  - `svm.vmrun(svm.PhysAddr) void`;
-  - `svm.vmload(svm.PhysAddr) void`;
-  - `svm.vmsave(svm.PhysAddr) void`;
-  - `svm.stgi() void`;
-  - `svm.clgi() void`;
-  - `svm.invlpga(u64, u32) void`;
-  - `svm.skinit(u32) noreturn`;
-- Non-x86_64 build: importing `stdx.arch.x86_64` compiles; every
-  asm-emitting wrapper produces a compile error only when referenced,
-  matching `base.md`/`vmx.md` gating.
-
-The default host test suite must not execute any SVM instruction.
-
-## Open questions
-
-None.
+Compile-time tests MUST verify `PhysAddr` round trips; the 4 KiB size, 4 KiB alignment, and documented offsets of `Vmcb`; and that `Vmcb` compiles on every target. x86_64 compile tests MUST instantiate each wrapper with its declared signature. Non-x86_64 tests MUST verify facade import succeeds and each assembly wrapper fails only when referenced. These tests prove value representation, VMCB ABI layout, public signatures, and target gating. The default host suite MUST NOT execute SVM instructions because execution requires CPL 0 with `EFER.SVME = 1`.

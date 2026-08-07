@@ -28,9 +28,9 @@ This spec owns:
 This spec does not own:
 
 - wait/wake surface, park/unpark, or scheduler composition;
-- cache-line padding — that is a per-consumer decision (`PerCpu`, MPSC
+- cache-line padding — that is a per-consumer decision (`PerCPU`, MPSC
   slots);
-- MMIO ordering — that is owned by `stdx.io.Mmio.Register`;
+- MMIO ordering — that is owned by `stdx.io.MMIO.Register`;
 - architecture-specific fences — callers reach for
   `stdx.arch.x86_64.fence.*` directly when needed;
 - hidden retry loops on `cmpxchgWeak` — callers write the loop;
@@ -46,12 +46,6 @@ This spec does not own:
 
 ```zig
 stdx.sync.AtomicCell
-```
-
-It is not root-promoted:
-
-```zig
-stdx.AtomicCell // not exported
 ```
 
 Source ownership:
@@ -73,7 +67,7 @@ pub const AtomicCell = atomic_cell.AtomicCell;
 `src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
 and aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub fn AtomicCell(comptime T: type) type;
@@ -249,7 +243,7 @@ out of this spec's ordering guarantees for that operation.
 
 `AtomicCell(T)` performs no forced padding. Callers who need cache-line
 isolation wrap `AtomicCell(T)` in a padded struct or use a higher-level
-primitive (`PerCpu`, MPSC ring slot) that provides padding.
+primitive (`PerCPU`, MPSC ring slot) that provides padding.
 
 ## Behavior contract
 
@@ -359,49 +353,12 @@ const cell = stdx.sync.AtomicCell(u32).fromStd(&std_cell);
 cell.storeRelease(7);
 ```
 
-## Required tests
+## Testing
 
-Tests live in `test/sync/atomic_cell_test.zig`.
+Compile-time tests MUST verify the size and alignment equivalence with `std.atomic.Value(T)`, the supported and rejected `T` categories, and that arithmetic operations are available only for integer cells. These tests prove the representation and type-gating contracts.
 
-Required tests:
+Deterministic operation tests MUST verify initialization, each load and store ordering family, swaps, compare-and-exchange success and mismatch behavior, all arithmetic operation families, and `fromStd` aliasing. Mismatch tests MUST verify that compare-and-exchange leaves the cell unchanged. Weak-CAS tests MUST retry after every reported observed value. These tests prove returned values, state transitions, no-mutation-on-mismatch, and interoperation with the underlying storage.
 
-- Compile-only: `@sizeOf(AtomicCell(u32)) == @sizeOf(std.atomic.Value(u32))`;
-- Compile-only: `@alignOf(AtomicCell(u64)) == @alignOf(std.atomic.Value(u64))`;
-- Compile-only: `AtomicCell(u8)`, `AtomicCell(u16)`, `AtomicCell(u32)`,
-  `AtomicCell(u64)`, `AtomicCell(usize)`, `AtomicCell(bool)`,
-  `AtomicCell(enum(u32) { a, b, _ })`, `AtomicCell(*u32)`, and
-  `AtomicCell(?*u32)` each instantiate;
-- Compile-only: `AtomicCell(f32)` and `AtomicCell(struct { a: u32, b: u32 })`
-  each fail to instantiate with a diagnostic naming the rejected category;
-- Compile-only: every arithmetic ordering suffix (`AcqRel`, `Acquire`,
-  `Release`, `Monotonic`) is present on `AtomicCell(u32)` and absent on
-  `AtomicCell(bool)`, `AtomicCell(enum(u32) { _ })`, and `AtomicCell(*u32)`;
-- Runtime: `init` + `loadAcquire` round-trip for each supported integer
-  width;
-- Runtime: `storeRelease` + `loadAcquire` round-trip preserves the value;
-- Runtime: `storeMonotonic` + `loadMonotonic` round-trip preserves the
-  value;
-- Runtime: `swapAcqRel` returns the previous value and installs the new
-  one;
-- Runtime: `cmpxchgStrongAcqRel` returns `null` on match and stores;
-  returns the observed value on mismatch and leaves the cell unchanged;
-- Runtime: `cmpxchgWeakAcqRel` retry-loop model — repeatedly retry until
-  the observed value equals `expected`;
-- Runtime: `cmpxchgStrongRelease` fails without release ordering side effects
-  and leaves the cell unchanged on mismatch;
-- Runtime: `fetchAddMonotonic` in an N-thread loop produces exactly `N * K`
-  increments;
-- Runtime: `fetchSubMonotonic`, `fetchAndAcqRel`, `fetchAndAcquire`,
-  `fetchOrRelease`, `fetchOrMonotonic`, `fetchXorAcquire`, and
-  `fetchXorRelease` each return the pre-op value and leave the cell in the
-  expected post-op state;
-- Model: acquire/release synchronizes-with — writer sets a paired flag with
-  `storeRelease` after a payload write; every reader that `loadAcquire`s
-  the flag as true observes the payload write;
-- Runtime: `fromStd(ptr).loadAcquire()` observes stores written through
-  the underlying `std.atomic.Value` and vice versa;
-- Non-x86 build compiles the module.
+Memory-model tests MUST publish a payload before a release store and read it after an acquire load that observes the publication. The reader MUST observe the payload. This test proves the required release/acquire synchronizes-with edge.
 
-## Open questions
-
-None.
+Stress tests MUST run concurrent monotonic read-modify-write operations and verify the exact final value. They exercise contention without asserting an ordering that monotonic operations do not provide. Cross-target compilation MUST include a non-x86 target.

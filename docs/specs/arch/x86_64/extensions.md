@@ -1,12 +1,8 @@
 # x86_64 architecture extensions
 
-Status: Superseded.
+Status: Superseded by `docs/specs/arch/x86_64/cpu.md` and `docs/specs/arch/x86_64/registers.md`.
 
-This spec is no longer normative. Its owned surfaces were split into semantic x86_64 specs as part of the lower-case namespace and source-layout migration.
+The replacement specifications own these declarations:
 
-Current owners:
-
-- `stdx.arch.x86_64.cpu.tsc` and `stdx.arch.x86_64.cpu.tlb` are owned by `docs/specs/arch/x86_64/cpu.md`.
-- `stdx.arch.x86_64.registers.dr0` and `stdx.arch.x86_64.registers.ldtr` are owned by `docs/specs/arch/x86_64/registers.md`.
-
-Do not implement new public API from this file. Update the owning current spec instead.
+- `stdx.arch.x86_64.cpu.tsc` and `stdx.arch.x86_64.cpu.tlb`: `docs/specs/arch/x86_64/cpu.md`.
+- `stdx.arch.x86_64.registers.dr0` and `stdx.arch.x86_64.registers.ldtr`: `docs/specs/arch/x86_64/registers.md`.

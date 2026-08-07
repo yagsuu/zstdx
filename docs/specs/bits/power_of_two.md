@@ -1,61 +1,33 @@
-# Bits power-of-two
+# Power-of-two integer helpers
 
 Status: Approved.
 
-`stdx.bits` owns power-of-two integer helpers used by alignment, ring capacities, bitsets, hash maps, and other low-level primitives.
+`stdx.bits` provides unsigned-integer predicates and rounding for powers of two.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This spec defines `stdx.bits.isPowerOfTwo`, `stdx.bits.nextPowerOfTwo`, their unsigned-integer type restriction, overflow behavior, and required tests.
 
-- `bits.isPowerOfTwo`;
-- `bits.nextPowerOfTwo`;
-- unsigned integer type restrictions;
-- overflow behavior;
-- required tests.
+## What this spec is not
 
-This spec does not own:
+This spec does not define alignment helpers, integer `log2` helpers, bit scans, popcount wrappers, saturating or wrapping rounding, or signed-integer support.
 
-- alignment helpers;
-- integer `log2` helpers;
-- bit scans;
-- popcount wrappers;
-- saturating next-power-of-two variants;
-- wrapping next-power-of-two variants;
-- signed integer support.
-
-## Public namespace
-
-Power-of-two helpers live under `stdx.bits`:
+## Public namespace and source ownership
 
 ```zig
 stdx.bits.isPowerOfTwo
 stdx.bits.nextPowerOfTwo
 ```
 
-They are not root-promoted:
+`src/bits.zig` re-exports the declarations from `src/bits/power_of_two.zig`. The tests are in `test/bits/power_of_two_test.zig`.
 
-```zig
-stdx.isPowerOfTwo // not exported
-```
+## Global invariants
 
-Source ownership:
+`T` MUST be an unsigned integer type. Signed integers, floats, bools, enums, pointers, and comptime integers without an explicit `T` are compile errors.
 
-```text
-src/bits.zig
-src/bits/power_of_two.zig
-```
+The functions do not allocate, wait, access hidden globals, perform atomics or barriers, or invalidate caller state. Each operation has $O(1)$ time complexity.
 
-`src/bits.zig` re-exports:
-
-```zig
-pub const power_of_two = @import("bits/power_of_two.zig");
-
-pub const isPowerOfTwo = power_of_two.isPowerOfTwo;
-pub const nextPowerOfTwo = power_of_two.nextPowerOfTwo;
-```
-
-## Approved API
+## API
 
 ```zig
 pub const Error = error{
@@ -66,121 +38,18 @@ pub fn isPowerOfTwo(comptime T: type, value: T) bool;
 pub fn nextPowerOfTwo(comptime T: type, value: T) Error!T;
 ```
 
-`T` must be an unsigned integer type. Signed integers, floats, bools, enums, pointers, and comptime integers without an explicit `T` are compile errors.
-
-Usage:
-
-```zig
-if (stdx.bits.isPowerOfTwo(usize, capacity)) {
-    // capacity is a power of two.
-}
-
-const next = try stdx.bits.nextPowerOfTwo(usize, requested);
-```
-
-## `isPowerOfTwo` semantics
-
-`isPowerOfTwo(T, value)` returns true iff `value` is a non-zero power of two.
-
-Required behavior:
-
-```zig
-isPowerOfTwo(T, 0) == false
-isPowerOfTwo(T, 1) == true
-isPowerOfTwo(T, 2) == true
-isPowerOfTwo(T, 3) == false
-```
-
-Canonical rule:
-
-```zig
-value != 0 and (value & (value - 1)) == 0
-```
-
-## `nextPowerOfTwo` semantics
-
-`nextPowerOfTwo(T, value)` returns the smallest power of two greater than or equal to `value`.
-
-Required behavior:
-
-```zig
-try nextPowerOfTwo(T, 0) == 1
-try nextPowerOfTwo(T, 1) == 1
-try nextPowerOfTwo(T, 2) == 2
-try nextPowerOfTwo(T, 3) == 4
-```
-
-Overflow behavior:
-
-- returns `error.Overflow` when no representable power of two exists.
-
-For `u8`:
-
-```zig
-try nextPowerOfTwo(u8, 128) == 128
-nextPowerOfTwo(u8, 129) == error.Overflow
-```
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `isPowerOfTwo` | never | never | O(1) | none | pure function | none |
-| `nextPowerOfTwo` | never | never | O(1) | none | pure function | none |
-
-These functions perform no allocation, waiting, hidden global access, atomics, or barriers.
-
-## Implementation constraints
-
-Implementation must:
-
-- avoid unchecked overflow;
-- not use loops proportional to integer value;
-- compile for all unsigned integer widths Zig supports;
-- treat `0` as a special case returning `1` for `nextPowerOfTwo`;
-- produce a compile error for invalid `T`.
-
-Acceptable implementation approaches:
-
-- `@clz` and bit-width based computation;
-- checked shifts;
-- a standard-library primitive only if behavior exactly matches this spec.
-
-## Required tests
-
-Required for `usize`, `u8`, and at least one non-native width such as `u17`.
-
 ### `isPowerOfTwo`
 
-- `0` returns false;
-- `1` returns true;
-- exact powers return true;
-- values adjacent to powers return false;
-- max value behavior is covered for the type.
+`isPowerOfTwo(T, value)` returns `true` exactly when `value` is a non-zero power of two. It returns `false` for zero and values with more than one set bit.
 
 ### `nextPowerOfTwo`
 
-- `0` returns `1`;
-- `1` returns `1`;
-- exact powers return themselves;
-- non-powers round up;
-- highest representable power returns itself;
-- values above the highest representable power return `error.Overflow`.
+`nextPowerOfTwo(T, value)` returns the smallest representable power of two greater than or equal to `value`. It returns `1` for `value == 0` and `value == 1`. It returns `value` when `value` is already a power of two. It returns `error.Overflow` when no representable power of two satisfies the result contract; for example, `nextPowerOfTwo(u8, 129)` returns `error.Overflow`.
 
-### Compile-time and type tests
+## Implementation constraints
 
-Where practical:
+The implementation MUST avoid unchecked overflow, support every Zig unsigned-integer width, and reject an invalid `T` at comptime. It MUST not use work proportional to the integer value.
 
-- signed integer instantiation fails;
-- bool and floats are rejected;
-- comptime evaluation works:
+## Testing
 
-```zig
-comptime {
-    std.debug.assert((try stdx.bits.nextPowerOfTwo(u8, 7)) == 8);
-}
-```
-
-## Open questions
-
-None.
+Tests MUST evaluate `usize`, `u8`, and one non-native width such as `u17` to verify width-independent behavior. Tests MUST verify zero, one, exact powers, and values adjacent to powers for `isPowerOfTwo`; these cases distinguish the non-zero predicate from single-bit and multi-bit inputs. Tests MUST verify zero, one, exact powers, round-up values, the highest representable power, and the next value for `nextPowerOfTwo`; these cases prove rounding and the overflow boundary. Compile-time tests MUST verify comptime evaluation. When the test harness supports expected compile failures, it MUST reject signed, boolean, and floating-point types.

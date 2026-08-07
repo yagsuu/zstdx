@@ -2,74 +2,44 @@
 
 Status: Approved.
 
-`stdx.intrusive.List.SinglyLinked(T, field)` and
-`stdx.intrusive.List.DoublyLinked(T, field)` are caller-node-backed linked
-lists. They never allocate, never move parent objects, and store membership in an
-embedded node field owned by the caller's object.
+`stdx.intrusive.List.SinglyLinked(T, field)` and `stdx.intrusive.List.DoublyLinked(T, field)` are caller-node-backed linked lists. They store membership in an embedded node field of each caller-owned object.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This specification defines `intrusive.List`, its node types, parent-object recovery, endpoint and traversal access, insertion, removal, clearing, topology validation, and required verification.
 
-- `intrusive.List`;
-- `intrusive.List.SinglyLinkedNode`;
-- `intrusive.List.DoublyLinkedNode`;
-- `intrusive.List.SinglyLinked(T, field)`;
-- `intrusive.List.DoublyLinked(T, field)`;
-- parent-object recovery from an embedded node field;
-- local list topology invariants;
-- endpoint access, insertion, removal, clearing, and traversal semantics;
-- allocation, waiting, invalidation, concurrency, and ordering behavior;
-- required tests.
+## What this spec is not
 
-This spec does not own:
+This specification does not define `intrusive.Queue`, `intrusive.Stack`, `intrusive.Deque`, or `intrusive.FreeList`; allocation of parent objects; automatic owner tracking; sorted or unique insertion; synchronization; or ABI, wire, or packed-layout guarantees for parent objects.
 
-- `intrusive.Queue`, `intrusive.Stack`, `intrusive.Deque`, or
-  `intrusive.FreeList`;
-- hash-list, tree, heap, interval-tree, or LRU policy;
-- managed or unmanaged heap allocation;
-- owner pointers, generation counters, handles, tombstones, or poisoning;
-- automatic node-state tracking for double-insert or double-remove detection;
-- sorted insertion, key extraction, comparison callbacks, or uniqueness checks;
-- lock-free, atomic, SPSC, MPSC, MPMC, or externally locked behavior;
-- ABI, wire, or packed layout guarantees for parent objects.
+## Terminology
 
-## Public namespace
+- **selected node**: The embedded node field named by `field`.
+- **detached singly linked node**: A `List.SinglyLinkedNode` whose `next` field is `null`.
+- **detached doubly linked node**: A `List.DoublyLinkedNode` whose `prev` and `next` fields are `null`.
+- **linked**: A parent object reachable from `head` through selected-node `next` links.
 
-`List` lives under `stdx.intrusive`:
+## Public namespace and source ownership
 
-```zig
-stdx.intrusive.List
-```
+The public path is `stdx.intrusive.List`. `src/intrusive.zig` re-exports `List` from `src/intrusive/list.zig`. Required tests are in `test/intrusive/list_test.zig`.
 
-It is not root-promoted. Callers use the intrusive namespace explicitly.
+## Data structures and representation
 
-Source ownership:
+`SinglyLinked` and `DoublyLinked` values each have `head` and `tail` endpoint pointers. A list stores no count, backing storage, or parent object. `SinglyLinkedNode` is `std.SinglyLinkedList.Node`; `DoublyLinkedNode` is `std.DoublyLinkedList.Node`.
 
-```text
-src/intrusive.zig
-src/intrusive/list.zig
-test/intrusive/list_test.zig
-```
+## Global invariants
 
-`src/intrusive.zig` re-exports:
+- A valid list satisfies `head == null` if and only if `tail == null`.
+- In a non-empty singly linked list, `tail` is reachable from `head`, `tail`'s selected-node `next` field is `null`, and no cycle is reachable from `head`.
+- In a non-empty doubly linked list, `head`'s selected-node `prev` field is `null`, `tail`'s selected-node `next` field is `null`, forward and backward links are symmetric, and no cycle is reachable from `head`.
+- The list owns only endpoint pointers and topology. The caller owns every parent object and MUST keep a linked object alive until the object is detached and until all borrowed pointers to it are no longer used.
+- The list MUST NOT allocate, free, move, copy, destroy, zero, poison, or otherwise manage parent objects.
+- The caller MUST NOT move a linked parent object. The caller MUST NOT mutate a selected node while it is linked except through its list.
+- The caller MUST use one authoritative mutable list value for each membership chain. Copying a list copies endpoint pointers, not membership; divergent mutable copies are outside this contract.
+- A parent object MAY participate in independent intrusive chains only when each chain uses a distinct embedded node field.
+- All public operations are non-thread-safe. Concurrent access requires caller-owned external synchronization.
 
-```zig
-pub const list = @import("intrusive/list.zig");
-
-pub const List = list.List;
-```
-
-`src/stdx.zig` re-exports the namespace only:
-
-```zig
-pub const intrusive = @import("intrusive.zig");
-```
-
-There is no `stdx.List.SinglyLinked`, `stdx.SinglyLinkedList`, or
-`stdx.DoublyLinkedList` root alias.
-
-## Approved API
+## API
 
 ```zig
 pub const List = struct {
@@ -81,471 +51,104 @@ pub const List = struct {
 };
 ```
 
-Returned `SinglyLinked` type:
-
 ```zig
 pub const Self = struct {
     head: ?*T = null,
     tail: ?*T = null,
-
     pub fn init() Self;
-
     pub fn isEmpty(self: *const Self) bool;
-
     pub fn front(self: *Self) ?*T;
     pub fn constFront(self: *const Self) ?*const T;
     pub fn back(self: *Self) ?*T;
     pub fn constBack(self: *const Self) ?*const T;
-
     pub fn next(item: *T) ?*T;
     pub fn constNext(item: *const T) ?*const T;
-
     pub fn pushFront(self: *Self, item: *T) void;
     pub fn pushBack(self: *Self, item: *T) void;
     pub fn insertAfter(self: *Self, previous: *T, item: *T) void;
-
     pub fn popFront(self: *Self) ?*T;
     pub fn tryRemove(self: *Self, item: *T) bool;
-
     pub fn clear(self: *Self) void;
-
     pub fn assertValid(self: *const Self) void;
 };
 ```
 
-Returned `DoublyLinked` type:
-
 ```zig
 pub const Self = struct {
     head: ?*T = null,
     tail: ?*T = null,
-
     pub fn init() Self;
-
     pub fn isEmpty(self: *const Self) bool;
-
     pub fn front(self: *Self) ?*T;
     pub fn constFront(self: *const Self) ?*const T;
     pub fn back(self: *Self) ?*T;
     pub fn constBack(self: *const Self) ?*const T;
-
     pub fn next(item: *T) ?*T;
     pub fn constNext(item: *const T) ?*const T;
     pub fn previous(item: *T) ?*T;
     pub fn constPrevious(item: *const T) ?*const T;
-
     pub fn pushFront(self: *Self, item: *T) void;
     pub fn pushBack(self: *Self, item: *T) void;
     pub fn insertBefore(self: *Self, next_item: *T, item: *T) void;
     pub fn insertAfter(self: *Self, previous_item: *T, item: *T) void;
-
     pub fn popFront(self: *Self) ?*T;
     pub fn popBack(self: *Self) ?*T;
     pub fn remove(self: *Self, item: *T) void;
-
     pub fn clear(self: *Self) void;
-
     pub fn assertValid(self: *const Self) void;
 };
 ```
 
-There is no `len`, `capacity`, `remaining`, `isFull`, `asSlice`, `peek`,
-`enqueue`, `dequeue`, `orderedRemove`, `swapRemove`, `append`, `prepend`,
-`popFirst`, `popLast`, `first`, or `last` alias.
+There is no `len`, `capacity`, `remaining`, `isFull`, `asSlice`, iterator, sorted-insertion, or backing-storage API.
 
 ## Type and node-field contract
 
-`SinglyLinked(T, field)` requires `field` to name an addressable field of type
-`List.SinglyLinkedNode` within `T`.
+`SinglyLinked(T, field)` requires `field` to name an addressable `List.SinglyLinkedNode` field in `T`. `DoublyLinked(T, field)` requires an addressable `List.DoublyLinkedNode` field in `T`. Invalid field names, wrong node types, non-addressable fields, and incompatible packed layouts MUST produce compile errors.
 
-`DoublyLinked(T, field)` requires `field` to name an addressable field of type
-`List.DoublyLinkedNode` within `T`.
+Before first insertion, the caller MUST initialize a selected node to `.{}`. Before an insertion, the caller MUST provide a detached selected node. The caller MUST NOT insert a selected node that is linked by this or another intrusive object. A violation is a programmer error; the implementation MAY assert it and does not provide runtime owner tracking.
 
-Invalid field names, wrong node types, non-addressable fields, and incompatible
-packed layouts are compile errors where practical.
+## Operations
 
-The node field stores list membership. Each independent intrusive membership
-requires a distinct embedded node field.
+### Construction, endpoints, and traversal
 
-Example:
+`init()` and `.{}` create an empty list with both endpoints `null`. `isEmpty()` returns `head == null`.
 
-```zig
-const Task = struct {
-    id: u32,
-    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-    all_node: stdx.intrusive.List.DoublyLinkedNode = .{},
-};
+`front()` and `back()` return borrowed pointers to the endpoint objects, or `null` when empty. `constFront()` and `constBack()` return read-only equivalents. These operations do not mutate the list.
 
-const ReadyList = stdx.intrusive.List.SinglyLinked(Task, "ready_node");
-const AllList = stdx.intrusive.List.DoublyLinked(Task, "all_node");
+`next(item)` returns the parent object represented by `item`'s selected-node `next` link, or `null` if that link is null. `constNext()` returns the read-only equivalent. `DoublyLinked.previous(item)` and `constPrevious()` provide the corresponding `prev` traversal. The caller MUST use traversal helpers only for an object linked in the expected list or for a detached node with null links. Returned pointers borrow caller-owned parent objects.
 
-var ready = ReadyList.init();
-var all = AllList.init();
-var task: Task = .{ .id = 1 };
+### Singly linked insertion and removal
 
-ready.pushBack(&task);
-all.pushBack(&task);
-```
+`pushFront(item)` inserts `item` before the old head. `pushBack(item)` inserts `item` after the old tail. Both set both endpoints to `item` when the list was empty. `insertAfter(previous, item)` inserts `item` immediately after `previous`; the caller MUST provide a `previous` object linked in this list. If `previous` was the tail, `item` becomes the tail. These operations run in O(1) time and preserve the relative order of existing objects.
 
-A node must be initialized to `.{}` before its first insertion. Insert operations
-require the selected node to be detached. Pop, remove, and clear operations
-detach nodes before returning.
+`popFront()` returns `null` without mutation when the list is empty. Otherwise, it removes and returns the head, updates both endpoints when the removed object was the only object, and detaches the removed selected node before return. It runs in O(1) time.
 
-## Ownership and lifetime
+`tryRemove(item)` searches from `head`. If it finds `item`, it unlinks and detaches `item`, updates affected endpoints, preserves the relative order of remaining objects, and returns `true`. If it does not find `item`, it returns `false` and MUST NOT mutate the list or `item`. It runs in O(n) time.
 
-The list value owns only endpoint pointers and structural invariants. It does not
-own, allocate, free, move, copy, or destroy parent objects.
+### Doubly linked insertion and removal
 
-The caller owns each parent object and must keep it alive while it is linked and
-while any pointer returned by the list is used.
+`pushFront(item)` inserts `item` before the old head. `pushBack(item)` inserts `item` after the old tail. Both set both endpoints to `item` when the list was empty. `insertBefore(next_item, item)` inserts `item` immediately before `next_item`; the caller MUST provide a `next_item` object linked in this list. `insertAfter(previous_item, item)` inserts `item` immediately after `previous_item`; the caller MUST provide a `previous_item` object linked in this list. These operations update affected neighbors and endpoints, run in O(1) time, and preserve the relative order of existing objects.
 
-Moving a list value does not move parent objects. Moving a parent object while it
-is linked is outside the contract because embedded node pointers in neighboring
-objects would still point at the old address.
+`popFront()` and `popBack()` return `null` without mutation when the list is empty. Otherwise, each removes and returns its respective endpoint and detaches the selected node before return. Each runs in O(1) time.
 
-Copying a list value copies endpoint pointers, not membership. Divergent mutable
-copies over the same nodes are outside this primitive's contract. Use one
-authoritative mutable list value for each intrusive membership chain.
+`remove(item)` unlinks `item` in O(1) time. The caller MUST provide an `item` linked in this list. Before return, `remove` MUST set both fields of the removed selected node to `null`. It preserves the relative order and addresses of remaining objects.
 
-External mutation of node fields while linked is outside the contract unless the
-mutation preserves every invariant owned by the list.
+### `clear`
 
-## Construction
+`clear()` traverses the list, detaches every selected node, and sets both endpoints to `null`. It does not destroy, free, move, zero, or poison parent objects. It runs in O(n) time. There is no O(1) reset operation, `clearRetainingCapacity`, `clearAndFree`, or `deinit`.
 
-`init()` is equivalent to `.{}`. Both create an empty list with
-`head = null` and `tail = null`.
+### `assertValid`
 
-`isEmpty()` returns `head == null`. A valid list satisfies `head == null` iff
-`tail == null`.
-
-## Endpoint and traversal access
-
-`front()` returns `head`, or `null` when empty.
-
-`constFront()` returns the read-only equivalent.
-
-`back()` returns `tail`, or `null` when empty.
-
-`constBack()` returns the read-only equivalent.
-
-`next(item)` returns the next parent object stored in `item`'s embedded node, or
-`null` when `item` has no next object.
-
-`constNext(item)` returns the read-only equivalent.
-
-`DoublyLinked.previous(item)` returns the previous parent object stored in
-`item`'s embedded node, or `null` when `item` has no previous object.
-
-`constPrevious(item)` returns the read-only equivalent.
-
-Calling traversal helpers on an object whose selected node is not linked in the
-expected list is outside the contract unless the node is detached and all links
-are null.
-
-## Singly linked insertion
-
-`pushFront(item)` inserts `item` before the current head. When the list is empty,
-it sets both `head` and `tail` to `item`.
-
-`pushBack(item)` inserts `item` after the current tail in O(1). When the list is
-empty, it sets both `head` and `tail` to `item`.
-
-`insertAfter(previous, item)` inserts `item` immediately after `previous`.
-`previous` must be linked in this list. If `previous` is the tail, `item` becomes
-the new tail.
-
-All singly linked insertion operations require `item`'s selected node to be
-detached.
-
-## Singly linked removal
-
-`popFront()` removes and returns the head object. It returns `null` when empty.
-When the removed object was the tail, the list becomes empty.
-
-`tryRemove(item)` scans from `head`. If `item` is found, it unlinks `item`, updates
-`head` and `tail` as needed, detaches `item`'s selected node, and returns `true`.
-If `item` is not found, it leaves the list unchanged and returns `false`. The
-`Try` prefix marks the scan-and-report contract; `DoublyLinked.remove` is the
-O(1) precondition counterpart.
-
-Singly linked removal preserves the relative order of remaining objects.
-
-## Doubly linked insertion
-
-`pushFront(item)` inserts `item` before the current head. When the list is empty,
-it sets both `head` and `tail` to `item`.
-
-`pushBack(item)` inserts `item` after the current tail. When the list is empty, it
-sets both `head` and `tail` to `item`.
-
-`insertBefore(next_item, item)` inserts `item` immediately before `next_item`.
-`next_item` must be linked in this list. If `next_item` is the head, `item`
-becomes the new head.
-
-`insertAfter(previous_item, item)` inserts `item` immediately after
-`previous_item`. `previous_item` must be linked in this list. If `previous_item`
-is the tail, `item` becomes the new tail.
-
-All doubly linked insertion operations require `item`'s selected node to be
-detached.
-
-## Doubly linked removal
-
-`popFront()` removes and returns the head object. It returns `null` when empty.
-When the removed object was the tail, the list becomes empty.
-
-`popBack()` removes and returns the tail object. It returns `null` when empty.
-When the removed object was the head, the list becomes empty.
-
-`remove(item)` unlinks `item` in O(1). `item` must be linked in this list. The
-removed object's selected node is detached before return.
-
-Doubly linked removal preserves the relative order of remaining objects.
-
-## Clearing
-
-`clear()` walks the list, detaches every linked node, and then sets
-`head = null` and `tail = null`.
-
-`clear()` does not destroy, zero, free, poison, or move parent objects.
-
-There is no `clearRetainingCapacity` because intrusive lists have no capacity and
-own no backing storage. There is no `clearAndFree` or `deinit` because intrusive
-lists own no resources.
-
-## Invalidation and ordering
-
-Intrusive lists do not invalidate parent-object pointers by moving objects. They
-only change list membership and link-neighbor relationships.
-
-Insertion changes endpoint pointers when inserting before the old head or after
-the old tail. It changes the predecessor or successor relationship at the
-insertion point.
-
-Removing an object invalidates that object's list membership and its former
-neighbor relationships. Remaining objects stay at the same addresses.
-
-`clear()` invalidates every membership in the list and detaches every node.
-
-Iteration order is link order from `front()` through repeated `next()` calls.
-`DoublyLinked` reverse order is link order from `back()` through repeated
-`previous()` calls.
-
-## Behavior contract
-
-Singly linked operations:
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `SinglyLinked` | never | never | comptime | none | type factory | none |
-| `init` | never | never | O(1) | none | caller-owned value | empty |
-| `isEmpty` | never | never | O(1) | none | caller-owned value | none |
-| endpoint access | never | never | O(1) | none | caller-owned value | link order |
-| `next` | never | never | O(1) | none | caller-owned value | link order |
-| `pushFront` | never | never | O(1) | head endpoint | caller-owned value | inserts at head |
-| `pushBack` | never | never | O(1) | tail endpoint | caller-owned value | inserts at tail |
-| `insertAfter` | never | never | O(1) | successor of anchor | caller-owned value | inserts after anchor |
-| `popFront` | never | never | O(1) | removed head | caller-owned value | removes head |
-| `tryRemove` | never | never | O(n) | removed item | caller-owned value | preserves order |
-| `clear` | never | never | O(n) | all memberships | caller-owned value | empty |
-| `assertValid` | never | never | O(n) | none | caller-owned value | verifies topology |
-
-Doubly linked operations:
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `DoublyLinked` | never | never | comptime | none | type factory | none |
-| `init` | never | never | O(1) | none | caller-owned value | empty |
-| `isEmpty` | never | never | O(1) | none | caller-owned value | none |
-| endpoint access | never | never | O(1) | none | caller-owned value | link order |
-| `next` / `previous` | never | never | O(1) | none | caller-owned value | link order |
-| `pushFront` | never | never | O(1) | head endpoint | caller-owned value | inserts at head |
-| `pushBack` | never | never | O(1) | tail endpoint | caller-owned value | inserts at tail |
-| `insertBefore` | never | never | O(1) | predecessor of anchor | caller-owned value | inserts before anchor |
-| `insertAfter` | never | never | O(1) | successor of anchor | caller-owned value | inserts after anchor |
-| `popFront` | never | never | O(1) | removed head | caller-owned value | removes head |
-| `popBack` | never | never | O(1) | removed tail | caller-owned value | removes tail |
-| `remove` | never | never | O(1) | removed item | caller-owned value | preserves order |
-| `clear` | never | never | O(n) | all memberships | caller-owned value | empty |
-| `assertValid` | never | never | O(n) | none | caller-owned value | verifies topology |
-
-These operations perform no heap allocation, waiting, hidden global access,
-atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
-
-## Error behavior
-
-The public API has no error set.
-
-- empty endpoint access returns `null`;
-- empty pops return `null`;
-- `SinglyLinked.tryRemove(item)` returns `false` when `item` is not found;
-- invalid type and field combinations are compile errors where practical;
-- double insert is a programmer error;
-- removing a node through the wrong list is a programmer error;
-- using an insertion anchor that is not linked in the list is a programmer error;
-- externally corrupted links are a programmer error.
-
-Operations with programmer-error preconditions may assert those preconditions
-when practical, but the spec does not require runtime owner tracking.
+`SinglyLinked.assertValid()` verifies endpoint symmetry, tail reachability, a null terminal link, and no reachable cycle. `DoublyLinked.assertValid()` additionally verifies null outer links and forward/backward link symmetry. Each runs in O(n) time, does not mutate the list, and does not prove exclusive node ownership or make wrong-list removal safe.
 
 ## Implementation constraints
 
-- intrusive list values do not maintain a `count`. Operations that would require a count must not exist on the public surface.
-- intrusive list values do not embed another `List.SinglyLinked`, `Queue`, or `Stack` value.
-- `clear()` must detach every node's selected field; dropping endpoint pointers without detaching is prohibited.
-- `popFront`, `popBack`, `tryRemove`, and `remove` must detach the returned node's selected `next` and `prev` fields to `null` before returning.
-- the public `Self` value does not expose anything beyond endpoints and the operations declared above.
+The implementation MUST NOT maintain a count or embed another `List.SinglyLinked`, `Queue`, or `Stack` value in public `Self`. `clear()` MUST detach every selected node; it MUST NOT only discard endpoints. Removal operations MUST detach every link of their removed node before return. Every operation performs no heap allocation, waiting, hidden global access, atomics, barriers, volatile access, target probing, syscalls, locks, callbacks, or I/O.
 
-## Concurrency
+## Testing
 
-Intrusive lists are not thread-safe. Concurrent access from multiple threads requires caller-owned external synchronization. Immutable reads through an immutable list value require no synchronization beyond ordinary Zig aliasing rules.
+Tests MUST construct empty, one-item, and multi-item singly and doubly linked lists. Tests MUST verify initialization, null endpoints and removal on empty lists, insertion at endpoints and interior anchors, forward and reverse traversal where applicable, endpoint transitions, order preservation, and the no-mutation result of a failed `tryRemove`. These boundary and model tests prove the public ordering, traversal, and error contracts.
 
-## Iteration with removal
+Tests MUST execute every mutating operation and call `assertValid()` after each successful mutation. Tests MUST verify that every pop, successful removal, and clear detaches the selected node and permits reinsertion. These invariant tests prove that list mutations preserve endpoint, terminal-link, and link-symmetry requirements while restoring detached membership.
 
-`tryRemove` and `remove` invalidate the removed object's link neighbors. A caller iterating via `next()`/`previous()` MUST cache the next pointer before calling `tryRemove`/`remove` on the current item:
-
-```zig
-var it: ?*T = list.front();
-while (it) |item| {
-    const next_item = ReadyList.next(item);
-    if (shouldRemove(item)) _ = list.tryRemove(item);
-    it = next_item;
-}
-```
-
-Alternatively, callers may drain via destructive `while (list.popFront()) |item| { ... }` iteration when relative order is not required.
-
-## Shared node-type aliasing
-
-`List.SinglyLinkedNode` is the embedded node type for `List.SinglyLinked`, `Queue`, and `Stack`. The comptime type check is identical across the three primitives. The same physical `SinglyLinkedNode` field MUST NOT be wired into more than one `List.SinglyLinked`, `Queue`, or `Stack` instance simultaneously. Comptime type checking is not sufficient to prevent this; reuse is a programmer-error precondition and may be detected by `assertValid` in some configurations but is not guaranteed.
-
-## Debug assertion behavior
-
-`assertValid()` checks local topology reachable from this list's endpoints. It
-does not prove node ownership, detect all double inserts, or make removal through
-the wrong list safe.
-
-`SinglyLinked.assertValid()` checks where practical:
-
-- `head == null` iff `tail == null`;
-- if non-empty, `tail` is reachable from `head`;
-- if non-empty, `tail.next == null`;
-- no cycle is reachable from `head`.
-
-`DoublyLinked.assertValid()` checks where practical:
-
-- `head == null` iff `tail == null`;
-- if non-empty, `head.prev == null`;
-- if non-empty, `tail.next == null`;
-- every forward link's `next.prev` points back to the current node;
-- every backward link's `prev.next` points forward to the current node;
-- no cycle is reachable from `head`.
-
-Mutating operations may call `assertValid()` before and after mutation when
-`core.checksEnabled(opts.safety)` or an equivalent module safety option requires
-runtime invariant checks.
-
-## Examples
-
-Singly linked ready list:
-
-```zig
-const Thread = struct {
-    id: u32,
-    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-};
-
-const ReadyList = stdx.intrusive.List.SinglyLinked(Thread, "ready_node");
-
-var ready = ReadyList.init();
-var thread_a: Thread = .{ .id = 1 };
-var thread_b: Thread = .{ .id = 2 };
-
-ready.pushBack(&thread_a);
-ready.pushBack(&thread_b);
-
-while (ready.popFront()) |thread| {
-    consume(thread);
-}
-```
-
-Doubly linked all-objects list:
-
-```zig
-const Device = struct {
-    id: u32,
-    all_node: stdx.intrusive.List.DoublyLinkedNode = .{},
-};
-
-const Devices = stdx.intrusive.List.DoublyLinked(Device, "all_node");
-
-var devices = Devices.init();
-var device: Device = .{ .id = 7 };
-
-devices.pushBack(&device);
-devices.remove(&device);
-```
-
-Multi-membership:
-
-```zig
-const Task = struct {
-    id: u32,
-    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-    all_node: stdx.intrusive.List.DoublyLinkedNode = .{},
-};
-
-const Ready = stdx.intrusive.List.SinglyLinked(Task, "ready_node");
-const All = stdx.intrusive.List.DoublyLinked(Task, "all_node");
-```
-
-## Required tests
-
-Construction tests:
-
-- empty singly linked list;
-- empty doubly linked list;
-- `init()` equals default initialization;
-- endpoint access on empty lists returns `null`.
-
-Singly linked tests:
-
-- pushFront into empty list;
-- pushBack into empty list;
-- pushFront before existing head;
-- pushBack after existing tail;
-- insert after head, interior item, and tail;
-- pop the only item;
-- pop head from a multi-item list;
-- remove head, interior item, and tail;
-- `tryRemove` of a missing item returns `false` and preserves the list;
-- reinsert an item after removal;
-- clear empty, one-item, and multi-item lists;
-- traversal with repeated `next()` observes link order.
-
-Doubly linked tests:
-
-- pushFront into empty list;
-- pushBack into empty list;
-- insert before head, interior item, and tail;
-- insert after head, interior item, and tail;
-- popFront from one-item and multi-item lists;
-- popBack from one-item and multi-item lists;
-- remove head, interior item, and tail;
-- reinsert an item after removal;
-- clear empty, one-item, and multi-item lists;
-- forward traversal with repeated `next()` observes link order;
-- reverse traversal with repeated `previous()` observes reverse link order.
-
-Cross-cutting tests:
-
-- multi-membership through distinct embedded node fields;
-- parent object addresses stay stable across list operations;
-- removed and cleared nodes are detached;
-- `assertValid()` succeeds after every public mutation;
-- structural corruption tests where practical for broken endpoint and link
-  symmetry.
-
-## Open questions
-
-None.
+Tests MUST verify distinct-field multi-membership and stable parent-object addresses. When the test harness supports expected compile failures, it MUST reject an incompatible node field. A corruption test MAY inject reachable cycles, inconsistent endpoints, and broken forward/backward symmetry when the harness supports assertion capture. These mutation and corruption methods verify the invariants each validator claims to check; they do not claim exclusive-ownership detection.

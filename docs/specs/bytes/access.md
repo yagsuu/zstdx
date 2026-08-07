@@ -2,47 +2,32 @@
 
 Status: Approved.
 
-`stdx.bytes` provides overflow-safe, bounds-checked random access to caller-owned byte buffers.
+`stdx.bytes` provides bounds-checked access to byte-slice windows at runtime offsets.
 
-The module provides only the behavior that Zig 0.16 standard primitives do not provide directly:
+## What this spec is
 
-- a fallible borrowed slice at a runtime offset;
-- a fallible, all-or-nothing slice copy at a runtime offset;
-- defined behavior for overlapping source and destination slices.
+This spec defines:
 
-Callers use `std.mem` for fixed-window value conversion and `std.Io.Reader` or `std.Io.Writer` for sequential access.
-
-## Owned scope
-
-This spec owns:
-
-- `bytes.loadSlice`;
-- `bytes.storeSlice`;
-- overflow-safe bounds checks for runtime offsets and lengths;
-- the shared bounds error;
-- overlap-safe slice copying;
-- no-allocation, no-waiting, and no-hidden-state behavior;
+- `stdx.bytes.Error`;
+- `stdx.bytes.loadSlice` and `stdx.bytes.storeSlice`;
+- bounds, overflow, and overlap behavior;
+- ownership, lifetime, allocation, waiting, and concurrency behavior; and
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
-- typed value loads or stores;
-- native object-representation conversion;
-- endian conversion;
-- sequential readers, writers, or cursors;
-- byte builders or growth policy;
-- variable-length integers;
-- bit readers or bit writers;
+This spec does not define:
+
+- typed-value or endian conversion;
+- sequential access or buffer growth;
+- variable-length integer or bit access;
 - pointer reinterpretation;
-- alignment policy;
-- address arithmetic;
-- volatile, MMIO, or atomic access;
-- diagnostics;
-- root exports.
+- volatile, MMIO, or atomic access; or
+- synchronization policy.
 
-## Public namespace
+## Public namespace and source ownership
 
-The helpers and their error set live under `stdx.bytes`:
+The public declarations are:
 
 ```zig
 stdx.bytes.Error
@@ -50,23 +35,7 @@ stdx.bytes.loadSlice
 stdx.bytes.storeSlice
 ```
 
-They are not root-promoted:
-
-```zig
-stdx.Error      // not exported
-stdx.loadSlice  // not exported
-stdx.storeSlice // not exported
-```
-
-Source ownership:
-
-```text
-src/bytes.zig
-src/bytes/access.zig
-test/bytes/access_test.zig
-```
-
-`src/bytes.zig` re-exports:
+`src/bytes/access.zig` implements the declarations. `src/bytes.zig` MUST re-export them as follows:
 
 ```zig
 pub const access = @import("bytes/access.zig");
@@ -75,7 +44,25 @@ pub const loadSlice = access.loadSlice;
 pub const storeSlice = access.storeSlice;
 ```
 
-## Approved API
+`test/bytes/access_test.zig` contains the required tests.
+
+## Cross-spec relationships
+
+This API does not convert a byte slice to a typed value. A caller MAY compose a successful `loadSlice` result with a standard-library conversion operation.
+
+This API does not provide sequential access. A caller MAY use `std.Io.Reader` or `std.Io.Writer` for sequential access.
+
+## Global invariants
+
+Each operation MUST preserve the following invariants:
+
+- The operation MUST NOT access bytes outside the requested window.
+- The operation MUST NOT allocate or free memory.
+- The operation MUST NOT wait, block, sleep, spin, invoke a callback, access hidden mutable state, issue a syscall, or read a clock.
+- The operation MUST NOT perform an atomic, volatile, or barrier operation.
+- The operation MUST NOT provide synchronization or memory-ordering guarantees.
+
+## API
 
 ```zig
 pub const Error = error{EndOfStream};
@@ -93,89 +80,82 @@ pub fn storeSlice(
 ) Error!void;
 ```
 
-## Bounds semantics
+## Bounds contract
 
-The implementation must verify `offset <= bytes.len` before it computes `bytes.len - offset`.
+For a requested length `len`, an operation succeeds only when:
 
-The implementation must return `error.EndOfStream` when `len > bytes.len - offset`. For `storeSlice`, `len` is `src.len`.
+```zig
+offset <= bytes.len and len <= bytes.len - offset
+```
 
-The implementation must not use unchecked `offset + len` arithmetic before these checks. An overflowing or out-of-bounds request must return `error.EndOfStream`.
+The implementation MUST verify `offset <= bytes.len` before it evaluates `bytes.len - offset`. The implementation MUST NOT evaluate unchecked `offset + len` before it verifies the bounds condition.
 
-A zero-length operation at `offset == bytes.len` must succeed. A zero-length operation at `offset > bytes.len` must return `error.EndOfStream`.
+The operation MUST return `error.EndOfStream` when the bounds condition is false. A zero-length operation at `offset == bytes.len` MUST succeed. A zero-length operation at `offset > bytes.len` MUST return `error.EndOfStream`.
 
-## `loadSlice` semantics
+## `loadSlice`
 
-After a successful bounds check, `loadSlice(bytes, offset, len)` returns:
+### Contract
+
+On success, `loadSlice(bytes, offset, len)` MUST return:
 
 ```zig
 bytes[offset..][0..len]
 ```
 
-The returned slice borrows from `bytes`. `loadSlice` must not copy the bytes.
+The returned slice MUST borrow storage from `bytes`. `loadSlice` MUST NOT copy the requested bytes.
 
-## `storeSlice` semantics
+### Errors and fault behavior
 
-After a successful bounds check, `storeSlice(bytes, offset, src)` copies `src` into:
+`loadSlice` MUST return `error.EndOfStream` when the bounds condition is false.
+
+### Invalidation and lifetime
+
+`loadSlice` MUST NOT invalidate `bytes` or a slice returned by an earlier `loadSlice` call. The caller MUST keep `bytes` alive for the lifetime of each returned slice.
+
+### Complexity and progress
+
+`loadSlice` MUST have O(1) time complexity and MUST NOT wait.
+
+## `storeSlice`
+
+### Contract
+
+On success, `storeSlice(bytes, offset, src)` MUST copy `src` into:
 
 ```zig
 bytes[offset..][0..src.len]
 ```
 
-The function must produce `memmove` semantics when `src` overlaps the destination. The function must select the copy direction before it copies the first byte.
+`storeSlice` MUST preserve bytes outside the destination window. When `src` overlaps the destination window, the result MUST be equivalent to `memmove`. An empty `src` MUST NOT mutate `bytes`.
 
-The function must not mutate `bytes` when the bounds check fails. An empty `src` must not mutate `bytes`.
+### Errors and fault behavior
 
-## Standard-library composition
+`storeSlice` MUST return `error.EndOfStream` when the bounds condition is false. On `error.EndOfStream`, `storeSlice` MUST NOT mutate `bytes`.
 
-Use `std.mem.readInt` and `std.mem.writeInt` for endian-aware integer access after obtaining a checked window:
+### Concurrency effects
 
-```zig
-const window = try stdx.bytes.loadSlice(table, offset, @sizeOf(u32));
-const value = std.mem.readInt(u32, window[0..4], .little);
-```
+The caller MUST externally synchronize concurrent access when at least one access can mutate the same storage.
 
-```zig
-var encoded: [4]u8 = undefined;
-std.mem.writeInt(u32, &encoded, value, .little);
-try stdx.bytes.storeSlice(table, offset, &encoded);
-```
+### Complexity and progress
 
-Use `std.mem.bytesToValue` and `std.mem.toBytes` only when native object-representation semantics are intentional and valid for the type.
+`storeSlice` MUST have O(`src.len`) time complexity and MUST NOT wait.
 
-Use `std.Io.Reader.fixed` for sequential access to a fixed byte slice. Use `std.Io.Writer.fixed` for sequential writes to a fixed byte buffer.
+## Implementation constraints
 
-## Behavior contract
+The implementation MUST preserve the specified overlap behavior without undefined behavior.
 
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `loadSlice` | never | never | O(1) | none | caller-owned buffer | none |
-| `storeSlice` | never | never | O(`src.len`) | destination window | caller-owned buffer | byte copy order only |
+## Testing
 
-These helpers must not allocate, wait, access hidden globals, target-probe, use atomics, use barriers, or perform volatile access.
+Tests MUST call the public operations with observable byte slices and compare returned slices, returned errors, and resulting destination bytes. This method verifies the public contract without depending on private helpers.
 
-Concurrent access to the same mutable buffer requires caller-owned synchronization. The helpers provide no atomicity, fences, or progress guarantee.
+### Bounds and errors
 
-## Ownership and lifetime
+Tests MUST exercise a full-length load at offset zero and zero-length load and store operations at `bytes.len`. Tests MUST exercise `offset > bytes.len`, a requested length greater than the remaining length, and an offset that would overflow unchecked end arithmetic. These cases prove the bounds predicate, including its overflow-safe evaluation, and `error.EndOfStream` behavior.
 
-The caller owns `bytes` and its lifetime. A slice returned by `loadSlice` must not outlive `bytes`.
+### Mutation and borrowing
 
-The helpers never own or free memory.
+Tests MUST compare the complete destination before and after a failing store and an empty store. Tests MUST compare bytes outside a successful destination window. Tests MUST retain a successful load result across a later `loadSlice` call and compare its bytes. These comparisons prove no mutation on error, empty-store behavior, window isolation, and borrowed-slice validity.
 
-## Required tests
+### Overlap
 
-Tests must verify:
-
-- a full-length load from offset zero;
-- an empty load at `bytes.len`;
-- an empty store at `bytes.len`;
-- `error.EndOfStream` when `offset > bytes.len`;
-- `error.EndOfStream` when the requested window exceeds the remaining bytes;
-- `error.EndOfStream` for an offset that would make unchecked end arithmetic overflow;
-- no destination mutation after a failed store;
-- no destination mutation after an empty store;
-- preservation of bytes outside the destination window;
-- forward-overlap and backward-overlap copy behavior.
-
-## Open questions
-
-None.
+Tests MUST perform forward- and backward-overlap stores and compare the complete destination bytes with the corresponding `memmove` result. These cases prove the required copy direction behavior without depending on an implementation helper.

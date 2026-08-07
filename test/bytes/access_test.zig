@@ -19,6 +19,13 @@ test "unit: loadSlice returns borrowed full and empty windows" {
     );
 }
 
+test "unit: loadSlice does not invalidate an earlier borrowed slice" {
+    const buf = [_]u8{ 1, 2, 3, 4 };
+    const first = try bytes.loadSlice(&buf, 0, 2);
+    _ = try bytes.loadSlice(&buf, 2, 2);
+    try testing.expectEqualSlices(u8, &.{ 1, 2 }, first);
+}
+
 test "unit: storeSlice copies after successful bounds check only" {
     var buf = [_]u8{ 1, 2, 3, 4 };
     try bytes.storeSlice(&buf, 1, &.{ 9, 8 });

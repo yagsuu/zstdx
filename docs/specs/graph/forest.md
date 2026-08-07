@@ -2,95 +2,116 @@
 
 Status: Approved.
 
-`stdx.graph.Forest` owns reusable forest topology. It provides dense node-id
-forests for caller payload side arrays and pointer-linked forests for
-caller-owned objects with embedded nodes.
+`stdx.graph.Forest` provides allocation-free forest topology. `Static` and
+`Bounded` store topology by dense node identifier. `Linked` stores topology in
+caller-owned objects with embedded link nodes.
 
-A forest is zero or more roots. Every node has at most one parent, an ordered
-child list, and an ordered next-sibling link. Root and child lists store both
-`head` and `tail`, so appending roots or children is `O(1)`.
+## What this spec is
 
-## Owned scope
+This specification defines the `stdx.graph.Forest` namespace, its static,
+bounded, and intrusive linked variants, their topology, mutation and accessor
+operations, ownership and invalidation rules, complexity, and required tests.
 
-This spec owns:
+## What this spec is not
 
-- the `stdx.graph` namespace surface for forest topology;
-- `graph.Forest`;
-- `graph.Forest.Static(capacity)`;
-- `graph.Forest.Bounded()`;
-- `graph.Forest.LinkedNode`;
-- `graph.Forest.Linked(T, node_field)`;
-- parent, child-list, and next-sibling topology;
-- root-list ownership;
-- append-root, append-child, remove/detach, clear, validation, and accessor
-  operations;
-- no-allocation behavior for all variants;
-- no-mutation-on-error behavior for dense variants;
-- pointer stability and invalidation contracts;
-- deterministic sibling order;
-- required tests.
+This specification does not define:
 
-## Deferred scope and non-goals
+- payload storage or payload lifetime for dense forests;
+- dynamic forest storage or node allocation;
+- general directed graphs, multi-parent edges, sorting, uniqueness, key
+  extraction, or lookup policy;
+- traversal iterator objects or DFS, BFS, preorder, or postorder helpers;
+- linked-forest owner tracking that detects every double insertion;
+- locking, atomics, or internal synchronization; or
+- ABI, wire-format, packed-layout, or field-layout guarantees.
 
-This spec does not own:
+`docs/specs/graph/traversal.md` owns generic traversal helpers.
 
-- payload storage;
-- managed dynamic forests;
-- node allocation;
-- general directed graphs or multi-parent edges;
-- traversal iterator objects;
-- DFS/BFS/preorder/postorder traversal helpers;
-- sorting, uniqueness, key extraction, or lookup policy;
-- owner tracking for perfect double-insert detection in linked forests;
-- lock-free, atomic, or internally synchronized access;
-- ABI, wire, or packed layout guarantees.
+## Terminology
 
-Generic traversal helpers belong to `docs/specs/graph/traversal.md`.
+- A **root** is a node in the forest root list.
+- A **child** is a node in a parent node's child list.
+- A **sibling list** is an ordered list with `head`, `tail`, and
+  `next_sibling` links.
+- A **detached node** has no parent and no next sibling. A detached node can
+  have children.
+- A **source list** is the root list or child list from which `remove` detaches
+  a node.
 
-## Public namespace
+## Public namespace and source ownership
 
-`Forest` lives under `stdx.graph`:
+The public import path is `stdx.graph.Forest`. `src/graph.zig` is a thin
+facade that exports `forest` and `Forest` from `src/graph/forest.zig`.
 
-```zig
-stdx.graph.Forest
-stdx.graph.Forest.Static
-stdx.graph.Forest.Bounded
-stdx.graph.Forest.Linked
-```
+This specification owns `src/graph.zig`, `src/graph/forest.zig`, and
+`test/graph/forest_test.zig`.
 
-It is not root-promoted:
+## Cross-spec relationships
 
-```zig
-stdx.Forest // not exported
-```
+This specification composes with caller-owned payload storage. Dense forests
+use payload side arrays indexed by `NodeID`; this specification does not own
+those arrays or their elements. Linked forests compose with caller-owned
+objects and do not own those objects.
 
-The root package facade exports the `graph` namespace:
+## Data structures and representation
 
-```zig
-pub const graph = @import("graph.zig");
-```
+A forest contains zero or more ordered roots. Each node has at most one parent,
+an ordered child list, and one next-sibling link. Root and child lists retain
+both `head` and `tail` so that append operations are `O(1)`.
 
-## Source ownership
+`Static(capacity_nodes)` stores its links in inline storage for exactly
+`capacity_nodes` nodes. `capacity_nodes` MUST be nonzero; a zero value is a
+compile error.
 
-```text
-src/graph.zig
-src/graph/forest.zig
-test/graph/forest_test.zig
-```
+`Bounded()` borrows a caller-provided `[]Links` slice. `wrap(links)` clears each
+element of `links` before it returns an empty forest with `links.len` capacity.
+A zero-length slice is valid.
 
-`src/graph.zig` is a thin facade:
+`Linked(T, node_field)` stores links in the `Forest.LinkedNode` field named by
+`node_field` in each caller-owned `T`. `node_field` MUST name an addressable
+`Forest.LinkedNode` field in `T`. Invalid field names, an incompatible field
+type, non-addressable fields, and incompatible packed layouts are compile
+errors where the language can diagnose them.
 
-```zig
-pub const forest = @import("graph/forest.zig");
+Each independent linked-forest membership requires a distinct embedded node
+field. The caller MUST keep an inserted linked object alive and pointer-stable
+until that object is removed or the forest and object storage are abandoned
+together.
 
-pub const Forest = forest.Forest;
-```
+## Global invariants
 
-## Approved API
+Every operation that completes normally preserves these invariants:
+
+- Each sibling list has `head == null` if and only if `tail == null`.
+- A nonempty sibling list's `tail` is the final node reached from `head` by
+  `next_sibling`; that node has `next_sibling == null`.
+- Each sibling chain is in append order and has no cycle.
+- A child node's parent link identifies the node whose child list contains the
+  child.
+- A root has no parent.
+- A node belongs to at most one root or child list.
+- `remove` detaches only its argument from its source list. It leaves the
+  argument's child list and each descendant's parent link unchanged.
+- No variant allocates or frees memory.
+
+Dense variants reject any `NodeID` whose integer index is outside capacity with
+`error.OutOfBounds`. Dense mutation operations leave all topology unchanged
+when they return an error.
+
+Linked operations require valid membership and detached-node preconditions as
+specified below. Violating these preconditions is a programmer error. The
+implementation uses debug assertions or an unreachable condition; it does not
+return an error. A linked forest cannot reliably detect insertion into a
+different forest that uses the same embedded node field.
+
+All variants are externally synchronized. The caller MUST coordinate concurrent
+mutation through the same forest or through the same linked nodes.
+
+## API
 
 ```zig
 pub const Forest = struct {
-    pub fn Static(comptime capacity: usize) type;
+    pub fn Static(comptime capacity_nodes: usize) type;
     pub fn Bounded() type;
 
     pub const LinkedNode = struct {
@@ -108,53 +129,39 @@ pub const Forest = struct {
 };
 ```
 
-### `Static(capacity)` returned type
+### `Static(capacity_nodes)` returned type
 
 ```zig
 pub const Self = struct {
     roots: SiblingList = .{},
-    links: [capacity]Links = [_]Links{.{}} ** capacity,
-
-    pub const node_capacity = capacity;
-
-    pub const NodeId = enum(usize) { _ };
-
-    pub const SiblingList = struct {
-        head: ?NodeId = null,
-        tail: ?NodeId = null,
-    };
-
+    links: [capacity_nodes]Links = [_]Links{.{}} ** capacity_nodes,
+    pub const node_capacity = capacity_nodes;
+    pub const NodeID = enum(usize) { _ };
+    pub const SiblingList = struct { head: ?NodeID = null, tail: ?NodeID = null };
     pub const Links = struct {
-        parent: ?NodeId = null,
+        parent: ?NodeID = null,
         children: SiblingList = .{},
-        next_sibling: ?NodeId = null,
+        next_sibling: ?NodeID = null,
     };
-
     pub const BoundsError = error{OutOfBounds};
     pub const AppendError = error{ OutOfBounds, AlreadyLinked };
     pub const RemoveError = error{ OutOfBounds, NotLinked };
     pub const Error = BoundsError || AppendError || RemoveError;
 
     pub fn init() Self;
-
     pub fn capacity(self: *const Self) usize;
     pub fn isEmpty(self: *const Self) bool;
-
-    pub fn nodeId(self: *const Self, index: usize) BoundsError!NodeId;
-    pub fn indexOf(node: NodeId) usize;
-
-    pub fn firstRoot(self: *const Self) ?NodeId;
-    pub fn lastRoot(self: *const Self) ?NodeId;
-
-    pub fn appendRoot(self: *Self, node: NodeId) AppendError!void;
-    pub fn appendChild(self: *Self, parent: NodeId, child: NodeId) AppendError!void;
-    pub fn remove(self: *Self, node: NodeId) RemoveError!void;
-
-    pub fn parent(self: *const Self, node: NodeId) BoundsError!?NodeId;
-    pub fn firstChild(self: *const Self, node: NodeId) BoundsError!?NodeId;
-    pub fn lastChild(self: *const Self, node: NodeId) BoundsError!?NodeId;
-    pub fn nextSibling(self: *const Self, node: NodeId) BoundsError!?NodeId;
-
+    pub fn nodeId(self: *const Self, index: usize) BoundsError!NodeID;
+    pub fn indexOf(node: NodeID) usize;
+    pub fn firstRoot(self: *const Self) ?NodeID;
+    pub fn lastRoot(self: *const Self) ?NodeID;
+    pub fn appendRoot(self: *Self, item: NodeID) AppendError!void;
+    pub fn appendChild(self: *Self, parent_item: NodeID, child_item: NodeID) AppendError!void;
+    pub fn remove(self: *Self, item: NodeID) RemoveError!void;
+    pub fn parent(self: *const Self, item: NodeID) BoundsError!?NodeID;
+    pub fn firstChild(self: *const Self, item: NodeID) BoundsError!?NodeID;
+    pub fn lastChild(self: *const Self, item: NodeID) BoundsError!?NodeID;
+    pub fn nextSibling(self: *const Self, item: NodeID) BoundsError!?NodeID;
     pub fn clearRetainingCapacity(self: *Self) void;
     pub fn assertValid(self: *const Self) void;
 };
@@ -166,45 +173,32 @@ pub const Self = struct {
 pub const Self = struct {
     roots: SiblingList = .{},
     links: []Links,
-
-    pub const NodeId = enum(usize) { _ };
-
-    pub const SiblingList = struct {
-        head: ?NodeId = null,
-        tail: ?NodeId = null,
-    };
-
+    pub const NodeID = enum(usize) { _ };
+    pub const SiblingList = struct { head: ?NodeID = null, tail: ?NodeID = null };
     pub const Links = struct {
-        parent: ?NodeId = null,
+        parent: ?NodeID = null,
         children: SiblingList = .{},
-        next_sibling: ?NodeId = null,
+        next_sibling: ?NodeID = null,
     };
-
     pub const BoundsError = error{OutOfBounds};
     pub const AppendError = error{ OutOfBounds, AlreadyLinked };
     pub const RemoveError = error{ OutOfBounds, NotLinked };
     pub const Error = BoundsError || AppendError || RemoveError;
 
     pub fn wrap(links: []Links) Self;
-
     pub fn capacity(self: *const Self) usize;
     pub fn isEmpty(self: *const Self) bool;
-
-    pub fn nodeId(self: *const Self, index: usize) BoundsError!NodeId;
-    pub fn indexOf(node: NodeId) usize;
-
-    pub fn firstRoot(self: *const Self) ?NodeId;
-    pub fn lastRoot(self: *const Self) ?NodeId;
-
-    pub fn appendRoot(self: *Self, node: NodeId) AppendError!void;
-    pub fn appendChild(self: *Self, parent: NodeId, child: NodeId) AppendError!void;
-    pub fn remove(self: *Self, node: NodeId) RemoveError!void;
-
-    pub fn parent(self: *const Self, node: NodeId) BoundsError!?NodeId;
-    pub fn firstChild(self: *const Self, node: NodeId) BoundsError!?NodeId;
-    pub fn lastChild(self: *const Self, node: NodeId) BoundsError!?NodeId;
-    pub fn nextSibling(self: *const Self, node: NodeId) BoundsError!?NodeId;
-
+    pub fn nodeId(self: *const Self, index: usize) BoundsError!NodeID;
+    pub fn indexOf(node: NodeID) usize;
+    pub fn firstRoot(self: *const Self) ?NodeID;
+    pub fn lastRoot(self: *const Self) ?NodeID;
+    pub fn appendRoot(self: *Self, item: NodeID) AppendError!void;
+    pub fn appendChild(self: *Self, parent_item: NodeID, child_item: NodeID) AppendError!void;
+    pub fn remove(self: *Self, item: NodeID) RemoveError!void;
+    pub fn parent(self: *const Self, item: NodeID) BoundsError!?NodeID;
+    pub fn firstChild(self: *const Self, item: NodeID) BoundsError!?NodeID;
+    pub fn lastChild(self: *const Self, item: NodeID) BoundsError!?NodeID;
+    pub fn nextSibling(self: *const Self, item: NodeID) BoundsError!?NodeID;
     pub fn clearRetainingCapacity(self: *Self) void;
     pub fn assertValid(self: *const Self) void;
 };
@@ -215,27 +209,18 @@ pub const Self = struct {
 ```zig
 pub const Self = struct {
     roots: RootList = .{},
-
     pub const Node = Forest.LinkedNode;
-
-    pub const RootList = struct {
-        head: ?*T = null,
-        tail: ?*T = null,
-    };
+    pub const RootList = struct { head: ?*T = null, tail: ?*T = null };
 
     pub fn init() Self;
-
     pub fn isEmpty(self: *const Self) bool;
-
     pub fn firstRoot(self: *Self) ?*T;
     pub fn constFirstRoot(self: *const Self) ?*const T;
     pub fn lastRoot(self: *Self) ?*T;
     pub fn constLastRoot(self: *const Self) ?*const T;
-
     pub fn appendRoot(self: *Self, item: *T) void;
-    pub fn appendChild(parent: *T, child: *T) void;
+    pub fn appendChild(parent_item: *T, child_item: *T) void;
     pub fn remove(self: *Self, item: *T) void;
-
     pub fn parent(item: *T) ?*T;
     pub fn constParent(item: *const T) ?*const T;
     pub fn firstChild(item: *T) ?*T;
@@ -247,160 +232,115 @@ pub const Self = struct {
 };
 ```
 
-`Linked(T, node_field).Node` is an alias for `Forest.LinkedNode`. Caller structs
-use the standalone node type to avoid recursive type construction:
+`Linked(T, node_field).Node` aliases `Forest.LinkedNode`. For example:
 
 ```zig
 const Item = struct {
     node: stdx.graph.Forest.LinkedNode = .{},
 };
-
 const ItemForest = stdx.graph.Forest.Linked(Item, "node");
 ```
 
-## Dense forest model
+### Construction and accessors
 
-`Static` and `Bounded` store topology in dense link tables. Payloads live in
-caller-owned side arrays indexed by `NodeId`.
+`Static.init()` and `Linked.init()` return empty forests. `Bounded.wrap()`
+returns an empty forest after clearing the borrowed links. `isEmpty()` is true
+exactly when the root list is empty. `capacity()` returns the dense forest
+capacity. `nodeId(index)` returns the `NodeID` for `index` or
+`error.OutOfBounds` when `index >= capacity()`. `indexOf(node)` returns the raw
+integer representation and does not validate it.
 
-`Static(capacity)` owns inline `[capacity]Links` storage. `capacity` must be
-greater than zero.
+The root, parent, child, and sibling accessors return the corresponding link or
+`null`. Dense link accessors return `error.OutOfBounds` for an out-of-capacity
+argument and do not mutate the forest. Linked `const*` accessors return const
+pointers and otherwise have the same result as their mutable counterparts.
 
-`Bounded.wrap(links)` borrows `links`, clears every entry, and returns an empty
-forest with `links.len` capacity. A zero-length slice is valid.
+Accessors allocate nothing, wait for nothing, and run in `O(1)` time.
 
-`NodeId` is a strong type nested under each returned forest type. Methods reject
-`NodeId` values whose integer index is outside the forest capacity with
-`error.OutOfBounds`.
+### `appendRoot` and `appendChild`
 
-`nodeId(index)` returns `error.OutOfBounds` when `index >= capacity()`.
-`indexOf(node)` returns the raw dense index and does not validate capacity.
+`appendRoot` appends its node to the root list. `appendChild` appends its child
+to the specified parent's child list and sets the child's parent link. Both
+operations preserve append order.
 
-Dense operations return:
+For dense variants, `appendRoot` returns `error.OutOfBounds` when `item` is
+outside capacity and `error.AlreadyLinked` when `item` is already linked.
+`appendChild` returns `error.OutOfBounds` when either argument is outside
+capacity. It returns `error.AlreadyLinked` when both arguments identify the
+same node or when `child_item` is already linked. On either error, the dense
+forest remains unchanged.
 
-- `error.OutOfBounds` for any out-of-range node id;
-- `error.AlreadyLinked` when inserting a node already linked into that forest;
-- `error.NotLinked` when removing a node that is not linked as either a root or
-  a child of its recorded parent.
+For linked variants, the caller MUST pass a detached `item` to `appendRoot`.
+The caller MUST pass distinct objects and a detached `child_item` to
+`appendChild`. Violating either condition is a programmer error.
 
-Dense operations must leave the forest unchanged on error.
+These operations allocate nothing, wait for nothing, and run in `O(1)` time.
 
-## Linked forest model
+### `remove`
 
-`Linked` stores topology in caller objects via an embedded `Forest.LinkedNode`
-field. It never allocates and never moves parent objects.
+`remove` detaches `item` from its source list. On success, it clears `item`'s
+parent and next-sibling links. It does not clear `item`'s children list.
+Removing an item with children detaches the complete subtree, and descendant
+parent links remain within that detached subtree.
 
-`node_field` must name an addressable `Forest.LinkedNode` field inside `T`.
-Invalid field names, wrong node types, non-addressable fields, and incompatible
-packed layouts are compile errors where practical.
+For dense variants, `remove` returns `error.OutOfBounds` for an out-of-capacity
+item and `error.NotLinked` when the item is neither a root nor a member of its
+recorded parent list. On either error, the dense forest remains unchanged.
 
-Each independent forest membership requires a distinct embedded node field.
-Inserted objects must remain alive and pointer-stable until removed or until the
-whole forest is abandoned with the object storage.
+For linked variants, the caller MUST pass an item that is a root of `self` or a
+member of its recorded parent's child list. Violating this condition is a
+programmer error.
 
-Linked invalid membership operations are programmer errors and use debug
-assertions, matching existing intrusive structures.
+`remove` allocates nothing, waits for nothing, and runs in `O(number of nodes
+in the source list)` time.
 
-## Operation semantics
+### `clearRetainingCapacity` and `assertValid`
 
-`init()` returns an empty `Static` or `Linked` forest. `wrap()` returns an empty
-`Bounded` forest over caller-provided storage.
+`clearRetainingCapacity` applies only to dense variants. It empties the root
+list and clears every dense link without releasing `Static` storage or changing
+the borrowed `Bounded` slice. It invalidates all existing dense topology:
+every node becomes detached. It allocates nothing, waits for nothing, and runs
+in `O(capacity)` time.
 
-`isEmpty()` is true when no top-level root exists.
+`assertValid` applies only to dense variants. It asserts that every stored node
+identifier is in bounds; that all root and child lists have consistent head and
+tail links; that sibling chains are acyclic within capacity; that every child
+records its owning parent; and that an empty forest has an empty root head and
+tail. It allocates nothing, waits for nothing, and runs in
+`O(capacity + sibling edges)` time. Linked forests intentionally do not expose
+whole-forest validation.
 
-`firstRoot()` and `lastRoot()` return the root list head and tail. Root siblings
-are reached through `nextSibling`.
+## Implementation constraints
 
-`appendRoot(node)` appends `node` to the top-level root list in `O(1)`. Root
-siblings preserve append order.
+The implementation MUST retain root and child-list heads and tails. Dense
+variants MUST use their supplied fixed storage only. Linked variants MUST store
+topology in the specified embedded nodes and MUST NOT move caller objects. No
+operation may allocate or free memory.
 
-`appendChild(parent, child)` appends `child` to `parent.children` in `O(1)`.
-Child siblings preserve append order. The child's parent link becomes `parent`.
+## Testing
 
-`remove(node)` detaches `node` from its parent child list or from the top-level
-root list. It clears the removed node's parent and next-sibling links. It does
-not clear the removed node's children list; removing a node with children
-detaches the whole subtree. Descendant parent links remain pointed at their
-existing parent inside the detached subtree.
+Tests MUST exercise each dense variant against a small reference forest model.
+After each generated or enumerated sequence of valid root appends, child
+appends, removals, and clears, tests MUST compare root order, child order,
+parent links, sibling links, and empty-state results to the model. This method
+proves that mutations preserve the topology and ordering contract across state
+transitions, not only for isolated operations.
 
-`clearRetainingCapacity()` on dense forests clears every link and sets the root
-list empty without releasing storage.
+Dense tests MUST verify `nodeId` boundaries, including the valid zero-length
+`Bounded` backing slice and the compile-time nonzero `Static` capacity rule.
+They MUST verify `wrap` clears every borrowed link, error values for invalid
+identifiers and invalid mutation, and no mutation on each error path. Tests
+MUST call `assertValid` after successful public mutations and after error paths
+to verify the dense representation invariants.
 
-## Invariants
+Tests MUST cover removal from the head, middle, and tail of root and child
+lists, and removal of a node with descendants. These boundaries prove correct
+head/tail repair, sibling repair, subtree detachment, and descendant-link
+retention.
 
-For every root or child sibling list, `head == null` if and only if
-`tail == null`.
-
-For every linked child, `parent(child)` points at the node whose child list
-contains it.
-
-For every sibling list, each `next_sibling` points at the next node in insertion
-order or `null` at the tail. The list's `tail` is the final node in that chain.
-
-Dense `assertValid()` asserts:
-
-- every stored node id is in bounds;
-- every root and child list has consistent `head`/`tail` fields;
-- root and child sibling chains are acyclic within capacity;
-- every child chain member records the owning parent;
-- empty forests have empty root head and tail.
-
-Linked forests do not expose `assertValid()` in this slice. Full linked-tree
-validation needs traversal and owner policy beyond the local mutation contracts.
-
-## Complexity
-
-Dense variants:
-
-- `capacity`, `isEmpty`, `nodeId`, `indexOf`, root and link accessors: `O(1)`;
-- `appendRoot`, `appendChild`: `O(1)`;
-- `remove`: `O(number of siblings in the source list)`;
-- `clearRetainingCapacity`: `O(capacity)`;
-- `assertValid`: `O(capacity + sibling edges)`.
-
-Linked variant:
-
-- root and link accessors: `O(1)`;
-- `appendRoot`, `appendChild`: `O(1)`;
-- `remove`: `O(number of siblings in the source list)`.
-
-No variant allocates or frees memory.
-
-## Threading
-
-All variants are externally synchronized. Concurrent mutation through the same
-forest or through the same linked nodes must be coordinated by the caller.
-
-## Required tests
-
-Static tests must cover:
-
-1. zero capacity is empty and rejects node ids;
-2. nonzero init is empty;
-3. `nodeId` rejects out-of-bounds indexes;
-4. root append preserves sibling order and root tail;
-5. child append preserves sibling order, child tail, and parent links;
-6. removing a leaf child repairs the sibling chain and child tail;
-7. removing a top-level root repairs the root chain and root tail;
-8. removing a node with children detaches the subtree;
-9. invalid operations return errors without mutation;
-10. `clearRetainingCapacity` clears topology;
-11. `assertValid` succeeds after public mutations.
-
-Bounded tests must cover the same behavior plus:
-
-1. `wrap` clears caller-provided links;
-2. capacity comes from `links.len`;
-3. zero-length backing is valid.
-
-Linked tests must cover:
-
-1. initialized forest is empty;
-2. appending roots preserves sibling order and root tail;
-3. appending children sets parent links and preserves child order and child tail;
-4. removing a child clears embedded parent/next links and repairs child tail;
-5. removing a root repairs the root chain and root tail;
-6. removing a subtree leaves descendant parent links intact;
-7. custom node field names work;
-8. const accessors mirror mutable accessors;
-9. operations do not allocate.
+Linked tests MUST construct objects with the default and a custom embedded node
+field. They MUST verify root and child append order, parent and sibling links,
+root and child removal repair, subtree detachment, and agreement between each
+mutable accessor and its const accessor. Tests MUST verify that all variants
+perform no allocation; this proves that callers can use the variants without an
+allocator or hidden allocation path.

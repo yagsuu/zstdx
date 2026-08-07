@@ -10,7 +10,7 @@ each acquired slot. It does not allocate, wait, or call destructors.
 caller-owned `[]Slot` storage. Both share every observable behavior except
 construction.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -25,7 +25,7 @@ This spec owns:
 - `assertValid` invariants;
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
 - destructors, release callbacks, or value finalizers;
 - generation counters or stale-handle detection;
@@ -39,7 +39,7 @@ This spec does not own:
 - bulk acquire/release helpers;
 - `std.mem.Allocator` views.
 
-## Public namespace
+## Public namespace and source ownership
 
 `SlabAllocator` lives under `stdx.mem.alloc`:
 
@@ -47,12 +47,6 @@ This spec does not own:
 stdx.mem.alloc.SlabAllocator
 stdx.mem.alloc.SlabAllocator.Static
 stdx.mem.alloc.SlabAllocator.Bounded
-```
-
-It is not root-promoted:
-
-```zig
-stdx.SlabAllocator // not exported
 ```
 
 Source ownership:
@@ -71,7 +65,7 @@ pub const allocator = @import("slab/allocator.zig");
 pub const SlabAllocator = allocator.SlabAllocator;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const SlabAllocator = struct {
@@ -81,7 +75,7 @@ pub const SlabAllocator = struct {
 ```
 
 `T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element
-types are compile errors where practical.
+types are compile errors.
 
 ### `Static(T, N)` returned type
 
@@ -309,7 +303,7 @@ synchronize shared mutable access.
 - `release` does not return an error; misuse is a programmer error;
 - zero-sized `T` is a compile error;
 - corrupted `free_head`, `bump_index`, `live_count`, or `Slot` tag is a
-  programmer error caught by `assertValid` where practical.
+  programmer error; `assertValid` detects violations of its listed structural invariants.
 
 All error returns leave the pool unchanged.
 
@@ -372,64 +366,8 @@ Implementation must:
   allocation, and unconditional payload writes on release builds;
 - compile for freestanding targets.
 
-## Usage
-
-Static pool:
-
-```zig
-const Frame = struct { id: u32, data: [256]u8 };
-var pool = stdx.mem.alloc.SlabAllocator.Static(Frame, 16).init();
-
-const f = try pool.acquire();
-f.* = .{ .id = 7, .data = undefined };
-// … use f …
-pool.release(f);
-```
-
-Bounded pool with caller storage:
-
-```zig
-const SlabT = stdx.mem.alloc.SlabAllocator.Bounded(Frame);
-var storage: [16]SlabT.Slot = undefined;
-var pool = SlabT.wrap(&storage);
-
-const f = try pool.acquire();
-f.* = .{ .id = 7, .data = undefined };
-pool.release(f);
-```
-
-Bounded pool over arena storage:
-
-```zig
-var arena = stdx.mem.alloc.Arena.Static(4096).init();
-const SlabT = stdx.mem.alloc.SlabAllocator.Bounded(Job);
-const storage = try arena.allocSlice(SlabT.Slot, 64);
-var jobs = SlabT.wrap(storage);
-```
-
-Exhaustion and reuse:
-
-```zig
-const SlabT = stdx.mem.alloc.SlabAllocator.Static(u32, 2);
-var p = SlabT.init();
-const a = try p.acquire();
-const b = try p.acquire();
-try std.testing.expectError(error.OutOfMemory, p.acquire());
-p.release(a);
-const c = try p.acquire(); // reuses a's slot (LIFO)
-_ = b;
-_ = c;
-```
-
-## Planned use
-
-- control blocks, event entries, and record structures that fit in a static
-  or bounded pool without hot-path heap allocation;
-- handle tables, request structures, and packet descriptors that need
-  pointer stability across long-lived phases;
-- namespace nodes, table descriptors, and parser scratch entries.
-
-## Required tests
+## Testing
+Verification uses boundary-capacity cases, raw storage inspection under enabled and disabled checks, invariant corruption, and repeated reuse sequences. It observes LIFO reuse, pointer alignment and stability, exhaustion atomicity, clear invalidation, and debug-fill boundaries; these methods prove free-list and count invariants without relying on private helper names.
 
 ### Construction and capacity
 
@@ -503,7 +441,3 @@ Required with a payload type large enough that the last byte lies beyond
   observed in the payload window after `acquire` or after `release`;
 - fills do not affect `len`, `remaining`, `bump_index`, `free_head`,
   LIFO reuse order, or `assertValid` results.
-
-## Open questions
-
-None.

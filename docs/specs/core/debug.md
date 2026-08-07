@@ -2,42 +2,19 @@
 
 Status: Approved.
 
-`stdx.core.debug` owns the minimal shared helper that maps `SafetyMode` to whether optional zstdx checks are compiled into an operation. Per-type invariant checks remain owned by each primitive.
+`stdx.core.debug.checksEnabled` maps `SafetyMode` to the compilation of optional zstdx checks. Each primitive owns its own invariants and invariant checks.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This specification defines `checksEnabled`, the `assertValid` and `assertValidDeep` conventions, assertion-versus-error behavior, and the `SafetyMode` rules for optional checks.
 
-- `stdx.core.debug.checksEnabled`;
-- the `assertValid` method convention;
-- assertion-versus-error rules;
-- `SafetyMode` interaction rules for debug checks;
-- required tests for debug-check behavior.
+## What this spec is not
 
-This spec does not own:
+This specification does not define diagnostics, generic invariant-checker frameworks, poisoning, statistics, panic or logging helpers, or the invariant details of an individual primitive.
 
-- diagnostics;
-- invariant checker frameworks;
-- poisoning;
-- stats;
-- panic/log helpers;
-- generic `anytype` assertion helpers;
-- per-primitive invariant details.
+## Public namespace and source ownership
 
-## Public namespace
-
-`checksEnabled` lives under `stdx.core.debug`:
-
-```zig
-stdx.core.debug.checksEnabled
-```
-
-It is not root-promoted:
-
-```zig
-stdx.debug // not exported
-stdx.checksEnabled // not exported
-```
+`checksEnabled` is available as `stdx.core.debug.checksEnabled`. It is not available as `stdx.debug` or `stdx.checksEnabled`.
 
 Source ownership:
 
@@ -46,19 +23,17 @@ src/core.zig
 src/core/debug.zig
 ```
 
-`src/core.zig` re-exports:
+`src/core.zig` exports `debug` from `core/debug.zig`.
 
-```zig
-pub const debug = @import("core/debug.zig");
-```
+## Cross-spec relationships
 
-## Approved API
+This specification depends on `docs/specs/core/options.md` for `SafetyMode`. A primitive specification that uses optional invariant checks depends on this specification and owns the checks it invokes.
+
+## API
 
 ```zig
 pub fn checksEnabled(comptime mode: stdx.core.SafetyMode) bool;
 ```
-
-Semantics:
 
 | Mode | Result |
 | --- | --- |
@@ -69,200 +44,66 @@ Semantics:
 | `.checked` | `true` |
 | `.unchecked` | `false` |
 
-Implementation shape:
-
-```zig
-const builtin = @import("builtin");
-
-const SafetyMode = @import("options.zig").SafetyMode;
-
-pub fn checksEnabled(comptime mode: SafetyMode) bool {
-    return switch (mode) {
-        .build_mode => switch (builtin.mode) {
-            .Debug, .ReleaseSafe => true,
-            .ReleaseFast, .ReleaseSmall => false,
-        },
-        .checked => true,
-        .unchecked => false,
-    };
-}
-```
-
-`mode` is comptime so disabled checks can compile out.
-
-## Usage pattern
-
-Cheap automatic check:
-
-```zig
-if (stdx.core.debug.checksEnabled(opts.safety)) {
-    self.assertValid();
-}
-```
-
-Expensive automatic check:
-
-```zig
-if (stdx.core.debug.checksEnabled(opts.safety)) {
-    self.assertValidDeep();
-}
-```
-
-Do not pass expensive predicates into a generic wrapper. Arguments would be evaluated before the wrapper call. This is why no `debug.assert(mode, condition)` helper is approved.
+`mode` is a `comptime` parameter. A caller MUST branch directly on `checksEnabled(mode)` when the caller needs disabled check code to compile out.
 
 ## `assertValid` convention
 
-Types with non-trivial invariants expose:
+A type with non-trivial invariants MUST expose this method unless its owning specification defines another explicit validation contract:
 
 ```zig
 pub fn assertValid(self: *const Self) void;
 ```
 
-Pure value types (no buffer or slice field) may use a value receiver when the owning spec approves it:
+A pure value type with no buffer or slice field MAY use a value receiver when its owning specification approves the receiver:
 
 ```zig
 pub fn assertValid(self: Self) void;
 ```
 
-Receiver rules:
+Containers, borrowed-buffer types, and stateful walkers MUST use `self: *const Self`. Pure value types, including `Range(T)`, `Address(Tag, Int)`, `EndianInt(T, endian)`, `Page(Addr, ps).Frame`, and `Page(Addr, ps).Count`, MAY use `self: Self`. The receiver choice depends on data shape, not size. A type that carries a backing slice, including `mem.alloc.Arena.Bounded`, MUST use `*const Self`.
 
-- containers, borrowed-buffer types, and stateful walkers use `self: *const Self`;
-- pure value types (`Range(T)`, `Address(Tag, Int)`, `EndianInt(T, endian)`, `Page(Addr, ps).Frame`, `Page(Addr, ps).Count`) use `self: Self`;
-- the choice follows the type's data shape, not its size.
-
-`mem.alloc.Arena.Bounded` and similar types that carry a backing slice are containers under this rule and use `*const Self`.
-
-`assertValid` requirements:
-
-- never allocates;
-- never waits, blocks, sleeps, or spins;
-- does not mutate logical state;
-- checks all cheap structural invariants owned by the type;
-- uses assertions for programmer errors;
-- is not a replacement for validation of external input.
+`assertValid` MUST NOT allocate, wait, block, sleep, spin, or mutate logical state. It MUST check each cheap structural invariant owned by the type. It MUST use assertions for programmer errors and MUST NOT replace validation of external input.
 
 ## `assertValidDeep` convention
 
-Types with O(n) structural invariants too costly for automatic checks may expose:
+A type with an $O(n)$ structural invariant that is too costly for automatic checks MAY expose:
 
 ```zig
 pub fn assertValidDeep(self: *const Self) void;
 ```
 
-`assertValidDeep` requirements:
+`assertValidDeep` MUST NOT allocate or mutate logical state. It MAY traverse every element or link. It complements `assertValid`; an integration or model test MAY call it when the test requires a deep structural check.
 
-- never allocates;
-- may be O(n) and walks every element or link;
-- does not mutate logical state;
-- complements `assertValid`; callers run `assertValidDeep` explicitly when integration tests or model tests need deeper verification.
+An explicit `assertValid()` or `assertValidDeep()` call always performs its check. `SafetyMode` controls only automatic invocations inside primitive operations.
 
-An explicit `assertValid()` or `assertValidDeep()` call always performs the check. `SafetyMode` controls only automatic invocations inside operations.
+## Errors and fault behavior
 
-## Assertion versus error rule
+A primitive MUST return an error or `null` for an expected runtime condition, including `error.Full`, `error.OutOfBounds`, capacity exhaustion, an expected lookup miss, and a stale handle when the API promises an error or `null` result.
 
-Use errors or `null` for expected runtime conditions:
+A primitive MUST use an assertion for a programmer contract violation, including an invalid internal structure after mutation, duplicate membership where membership must be unique, removal of an unlinked node where linked membership is required, an invalid unchecked range, or a documented precondition violation.
 
-```zig
-error.Full
-error.OutOfBounds
-null
-```
-
-Use assertions for programmer contract violations:
-
-- invalid internal structure after mutation;
-- double insert when the primitive spec says membership must be unique;
-- removing a node that is not linked when the API requires linked membership;
-- using an invalid unchecked range;
-- violating documented preconditions.
-
-Do not assert on:
-
-- malformed external bytes;
-- user-provided input data that the API promises to validate;
-- ordinary capacity exhaustion;
-- expected lookup misses;
-- stale handles when the API promises an error or `null` result.
+A primitive MUST NOT assert on malformed external bytes or user input that the API promises to validate.
 
 ## `SafetyMode` interaction
 
-A primitive using `SafetyMode` must state:
-
-| Check | Controlled by `SafetyMode`? | Behavior when disabled |
+| Check | `SafetyMode` control | Behavior when disabled |
 | --- | --- | --- |
-| public error conditions | no | still returns errors |
-| memory-safety requirements | no | still required |
-| internal invariant checks | usually yes | skipped |
-| expensive validation scans | yes if documented | skipped |
-| explicit `assertValid()` call | no | always checks |
+| Public error condition | No | The operation still returns its documented error. |
+| Memory-safety requirement | No | The requirement remains enforced. |
+| Internal invariant check | Usually yes | The operation omits the check. |
+| Expensive validation scan | Yes, when documented | The operation omits the scan. |
+| Explicit `assertValid()` call | No | The call performs the check. |
 
-`.unchecked` must not convert a safe error-returning API into unchecked memory unsafety unless the primitive spec explicitly marks the operation as unsafe or preconditioned.
+A primitive MUST state each optional check that `SafetyMode` controls. `.unchecked` MUST NOT make a safe error-returning API memory-unsafe unless the primitive specification explicitly marks the operation unsafe or preconditioned.
 
-## First-slice consumers
+## Implementation constraints
 
-### `Range(T)`
+A caller MUST NOT pass an expensive predicate to a generic assertion wrapper when the caller expects `SafetyMode` to omit the predicate evaluation. The caller MUST branch on `checksEnabled` before evaluating that predicate.
 
-- exposes `assertValid(self: Self)`;
-- asserts `start <= end`;
-- does not need a `SafetyMode` option.
+This specification does not approve `InvariantChecker`, `Diagnostic`, `PoisonPolicy`, `StatsPolicy`, `debug.assert(...)`, `debug.assertValid(anytype)`, or `debug.panic(...)` as public API.
 
-### `List.Static` and `List.Bounded`
+## Testing
 
-- expose `assertValid(self: *const Self)`;
-- check `len <= capacity`;
-- mutating operations may call `assertValid` when `checksEnabled(opts.safety)`.
+Tests for `stdx.core.debug` MUST verify at compile time that `checksEnabled(.checked)` is `true`, `checksEnabled(.unchecked)` is `false`, and `checksEnabled(.build_mode)` matches `builtin.mode`. Tests MUST also verify the `stdx.core.debug.checksEnabled` public path. These checks prove the compile-time safety-mode mapping and public export.
 
-### `Ring.Static` and `Ring.Bounded`
-
-- expose `assertValid(self: *const Self)`;
-- check `len <= capacity`, head/tail bounds, and wrap invariants;
-- mutating operations may call `assertValid` when `checksEnabled(opts.safety)`.
-
-### Intrusive structures
-
-- expose `assertValid(self: *const Self)` when the collection owns structural invariants;
-- may use `SafetyMode` for double-insert or double-remove checks if node state is tracked;
-- if node state is not tracked, the primitive spec must say those violations are unchecked preconditions.
-
-## Non-goals
-
-This spec does not approve:
-
-```zig
-InvariantChecker
-Diagnostic
-PoisonPolicy
-StatsPolicy
-debug.assert(...)
-debug.assertValid(anytype)
-debug.panic(...)
-```
-
-These are deferred until a concrete primitive or diagnostic spec needs them.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `checksEnabled` | never | never | O(1) comptime branch | none | value-only | none |
-| explicit `assertValid` convention | never | never | per primitive | none | per primitive | none |
-
-## Required tests
-
-For `stdx.core.debug`:
-
-- `checksEnabled(.checked)` is comptime `true`;
-- `checksEnabled(.unchecked)` is comptime `false`;
-- `checksEnabled(.build_mode)` matches `builtin.mode`;
-- function is public as `stdx.core.debug.checksEnabled`.
-
-For consumers:
-
-- each type with `assertValid` has at least one success test after normal public mutations;
-- if `SafetyMode` gates a check, one test exercises checked behavior where practical;
-- valid operation tests pass under `.checked` and `.unchecked` where the primitive exposes both;
-- tests must not use `.unchecked` to hide invalid state.
-
-## Open questions
-
-None.
+For each type that exposes `assertValid`, tests MUST call it after normal public mutations. When `SafetyMode` gates an invariant check, tests MUST exercise the enabled `.checked` path and MUST verify that valid operations work with `.checked` and `.unchecked` when both modes are public. Tests MUST NOT use `.unchecked` to conceal invalid state. These tests prove the valid-state contract independently of optional automatic checks.

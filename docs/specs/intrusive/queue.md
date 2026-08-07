@@ -2,86 +2,56 @@
 
 Status: Approved.
 
-`stdx.intrusive.Queue(T, field)` is a caller-node-backed FIFO queue. It never
-allocates, never moves parent objects, and stores membership in an embedded
-`stdx.intrusive.List.SinglyLinkedNode` field owned by the caller's object.
+`stdx.intrusive.Queue(T, field)` is a caller-node-backed FIFO queue. It stores queue membership in a `stdx.intrusive.List.SinglyLinkedNode` field embedded in each caller-owned object.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This specification defines `intrusive.Queue(T, field)`, its FIFO endpoint and mutation operations, its node-membership rules, and the required verification.
 
-- `intrusive.Queue(T, field)`;
-- FIFO endpoint semantics over caller-owned objects;
-- queue use of `intrusive.List.SinglyLinkedNode` as the embedded node type;
-- endpoint access, enqueue, dequeue, clearing, and topology validation;
-- allocation, waiting, invalidation, concurrency, and ordering behavior;
-- required tests.
+## What this spec is not
 
-This spec does not own:
+This specification does not define `intrusive.List`, `intrusive.Stack`, `intrusive.Deque`, or `intrusive.FreeList`; a `QueueNode` type; removal from the queue interior; capacity or full-queue policy; allocation policy for parent objects; synchronization; or ABI, wire, or packed-layout guarantees for parent objects.
 
-- `intrusive.List`, `intrusive.Stack`, `intrusive.Deque`, or
-  `intrusive.FreeList`;
-- a distinct `QueueNode` type;
-- arbitrary removal or cancellation from the middle of a queue;
-- bounded capacity, full-state behavior, overwrite-on-full behavior, or
-  drop-oldest policy;
-- scalar-value queues, fixed rings, guest rings, or descriptor rings;
-- priority queues, sorted insertion, key extraction, or uniqueness checks;
-- managed or unmanaged heap allocation;
-- worker wakeups, eventfds, locks, atomics, SPSC, MPSC, MPMC, or externally
-  locked behavior;
-- ABI, wire, or packed layout guarantees for parent objects.
+## Terminology
 
-## Public namespace
+- **selected node**: The `List.SinglyLinkedNode` field named by `field`.
+- **detached**: A selected node whose `next` field is `null`.
+- **queued**: A parent object reachable from `head` through selected-node `next` links.
 
-`Queue` lives under `stdx.intrusive`:
+## Public namespace and source ownership
 
-```zig
-stdx.intrusive.Queue
-```
+The public path is `stdx.intrusive.Queue`. `src/intrusive.zig` re-exports `Queue` from `src/intrusive/queue.zig`. Required tests are in `test/intrusive/queue_test.zig`.
 
-It is not root-promoted. Callers use the intrusive namespace explicitly.
+## Cross-spec relationships
 
-Source ownership:
+`Queue` depends on `intrusive.List.SinglyLinkedNode` for its selected node. The queue does not own list operations or another intrusive primitive's membership chain. A parent object MAY participate in independent intrusive chains only when each chain uses a distinct embedded node field.
 
-```text
-src/intrusive.zig
-src/intrusive/queue.zig
-test/intrusive/queue_test.zig
-```
+## Data structures and representation
 
-`src/intrusive.zig` re-exports:
+The returned value has `head` and `tail` endpoint pointers. `head` identifies the oldest queued object and `tail` identifies the newest queued object. The queue stores no count, backing storage, or parent object.
 
-```zig
-pub const queue = @import("intrusive/queue.zig");
+## Global invariants
 
-pub const Queue = queue.Queue;
-```
+- A valid queue satisfies `head == null` if and only if `tail == null`.
+- In a non-empty valid queue, `tail` is reachable from `head` through selected-node `next` links, and `tail`'s selected-node `next` field is `null`.
+- No cycle is reachable from `head` in a valid queue.
+- Every queued object has exactly one predecessor relationship in this queue, except `head`, which has none.
+- The queue owns only endpoint pointers and topology. The caller owns every parent object and MUST keep a queued object alive until the object is detached and until all borrowed pointers to it are no longer used.
+- The queue MUST NOT allocate, free, move, copy, destroy, zero, poison, or otherwise manage parent objects.
+- The caller MUST NOT move a queued parent object. The caller MUST NOT mutate a selected node while it is queued except through this queue.
+- The caller MUST use one authoritative mutable `Queue` value for each membership chain. Copying a queue copies endpoint pointers, not membership; divergent mutable copies are outside this contract.
+- All public operations are non-thread-safe. Concurrent access requires caller-owned external synchronization.
 
-`src/stdx.zig` re-exports the namespace only:
-
-```zig
-pub const intrusive = @import("intrusive.zig");
-```
-
-There is no `stdx.Queue`, `stdx.QueueNode`, or
-`stdx.intrusive.QueueNode` alias.
-
-## Approved API
+## API
 
 ```zig
 pub fn Queue(comptime T: type, comptime node_field: []const u8) type;
-```
 
-Returned type:
-
-```zig
 pub const Self = struct {
     head: ?*T = null,
     tail: ?*T = null,
 
     pub fn init() Self;
-
     pub fn isEmpty(self: *const Self) bool;
 
     pub fn front(self: *Self) ?*T;
@@ -91,281 +61,51 @@ pub const Self = struct {
 
     pub fn pushBack(self: *Self, item: *T) void;
     pub fn popFront(self: *Self) ?*T;
-
     pub fn clear(self: *Self) void;
-
     pub fn assertValid(self: *const Self) void;
 };
 ```
 
-There is no `len`, `capacity`, `remaining`, `isFull`, `pushFront`, `popBack`,
-`peek`, `enqueue`, `dequeue`, `remove`, `pushBackAssumeCapacity`,
-`pushBackOverwriteOldest`, `asSlice`, or iterator API.
+There is no `len`, `capacity`, `remaining`, `isFull`, `pushFront`, `popBack`, `peek`, `enqueue`, `dequeue`, `remove`, iterator, or backing-storage API.
 
 ## Type and node-field contract
 
-`Queue(T, field)` requires `field` to name an addressable field of type
-`List.SinglyLinkedNode` within `T`.
+`Queue(T, field)` requires `field` to name an addressable `List.SinglyLinkedNode` field in `T`. Invalid field names, wrong node types, non-addressable fields, and incompatible packed layouts MUST produce compile errors.
 
-Invalid field names, wrong node types, non-addressable fields, and incompatible
-packed layouts are compile errors where practical.
+Before its first insertion, the caller MUST initialize the selected node to `.{}`. Before `pushBack(item)`, the caller MUST ensure that `item`'s selected node is detached. The caller MUST NOT insert a selected node that is queued by this or another intrusive object. A violation is a programmer error; the implementation MAY assert it and does not provide runtime owner tracking.
 
-The selected node field stores queue membership. Each independent intrusive
-membership requires a distinct embedded node field.
+## Operations
 
-Example:
+### Construction and access
 
-```zig
-const Task = struct {
-    id: u32,
-    ready_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-    free_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-};
+`init()` and `.{}` create an empty queue with `head = null` and `tail = null`. `isEmpty()` returns `head == null`.
 
-const ReadyQueue = stdx.intrusive.Queue(Task, "ready_node");
-const FreeQueue = stdx.intrusive.Queue(Task, "free_node");
+`front()` returns a borrowed pointer to the oldest queued object, or `null` when the queue is empty. `back()` returns a borrowed pointer to the newest queued object, or `null` when the queue is empty. `constFront()` and `constBack()` return read-only equivalents. Access operations do not mutate the queue. Returned pointers borrow caller-owned parent objects and remain subject to the caller's lifetime obligations.
 
-var ready = ReadyQueue.init();
-var free = FreeQueue.init();
-var task: Task = .{ .id = 1 };
+### `pushBack`
 
-ready.pushBack(&task);
-free.pushBack(&task);
-```
+The caller MUST provide a detached selected node. `pushBack(item)` appends `item` after the current tail. For an empty queue, it sets both endpoints to `item`. For a non-empty queue, it changes the old tail's successor to `item` and sets `tail` to `item`. The operation preserves FIFO order and runs in O(1) time.
 
-A node must be initialized to `.{}` before its first insertion. `pushBack(item)`
-requires the selected node to be detached. `popFront()` and `clear()` detach
-nodes before returning.
+### `popFront`
 
-## Ownership and lifetime
+`popFront()` returns `null` without mutation when the queue is empty. Otherwise, it removes and returns the oldest queued object, advances `head`, and sets `tail` to `null` when the removed object was the sole object. Before return, it MUST detach the removed object's selected node. Remaining objects retain their addresses and FIFO order. The operation runs in O(1) time.
 
-The queue value owns only endpoint pointers and structural invariants. It does
-not own, allocate, free, move, copy, or destroy parent objects.
+### `clear`
 
-The caller owns each parent object and must keep it alive while it is queued and
-while any pointer returned by the queue is used.
+`clear()` traverses the queue in FIFO order, detaches every selected node, and sets both endpoints to `null`. It does not destroy, free, move, zero, or poison parent objects. `clear()` runs in O(n) time for `n` queued objects. There is no O(1) reset operation, `clearRetainingCapacity`, `clearAndFree`, or `deinit`.
 
-Moving a queue value does not move parent objects. Moving a parent object while
-it is queued is outside the contract because embedded node pointers in other
-objects may still point at the old address.
+### `assertValid`
 
-Copying a queue value copies endpoint pointers, not membership. Divergent
-mutable copies over the same nodes are outside this primitive's contract. Use one
-authoritative mutable queue value for each intrusive membership chain.
-
-External mutation of node fields while queued is outside the contract unless the
-mutation preserves every invariant owned by the queue.
-
-## Construction
-
-`init()` is equivalent to `.{}`. Both create an empty queue with
-`head = null` and `tail = null`.
-
-`isEmpty()` returns `head == null`. A valid queue satisfies `head == null` iff
-`tail == null`.
-
-There is no capacity. The queue can link only caller-owned objects that already
-exist, so exhaustion policy belongs to the owner domain.
-
-## Endpoint access
-
-`front()` returns the oldest queued object, or `null` when empty.
-
-`constFront()` returns the read-only equivalent.
-
-`back()` returns the newest queued object, or `null` when empty.
-
-`constBack()` returns the read-only equivalent.
-
-Pointers borrow from the caller-owned parent objects, not from queue storage. The
-queue does not move those objects.
-
-## Enqueue semantics
-
-`pushBack(item)` links `item` after the current tail in O(1).
-
-When the queue is empty, `pushBack(item)` sets both `head` and `tail` to `item`.
-
-When the queue is not empty, `pushBack(item)` links the old tail to `item` and
-sets `tail = item`.
-
-`pushBack(item)` requires `item`'s selected node to be detached before the call.
-There is no full state, so `pushBack(item)` has no error return.
-
-## Dequeue semantics
-
-`popFront()` removes and returns the oldest queued object. It returns `null` when
-empty.
-
-When the removed object was the only queued object, the queue becomes empty.
-When more objects remain, `head` advances to the next queued object.
-
-The removed object's selected node is detached before return.
-
-## Clearing
-
-`clear()` walks the queue in FIFO order, detaches every queued node, and then
-sets `head = null` and `tail = null`.
-
-`clear()` does not destroy, zero, free, poison, or move parent objects.
-
-There is no `clearRetainingCapacity` because intrusive queues have no capacity
-and own no backing storage. There is no `clearAndFree` or `deinit` because
-intrusive queues own no resources.
-
-## Invalidation and ordering
-
-Intrusive queues do not invalidate parent-object pointers by moving objects. They
-only change queue membership and link-neighbor relationships.
-
-`pushBack(item)` changes the old tail's successor relationship when the queue is
-not empty. It changes endpoint pointers when the queue was empty or when the back
-endpoint moves to `item`.
-
-`popFront()` invalidates the removed object's queue membership and its former
-neighbor relationship. Remaining objects stay at the same addresses.
-
-`clear()` invalidates every membership in the queue and detaches every node.
-
-FIFO order is the order of successful `pushBack(item)` calls not yet removed.
-`popFront()` returns objects in FIFO order. There is no reordering.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `Queue` | never | never | comptime | none | type factory | none |
-| `init` | never | never | O(1) | none | caller-owned value | empty |
-| `isEmpty` | never | never | O(1) | none | caller-owned value | none |
-| endpoint access | never | never | O(1) | none | caller-owned value | FIFO endpoints |
-| `pushBack` | never | never | O(1) | old tail endpoint | caller-owned value | appends newest |
-| `popFront` | never | never | O(1) | removed head | caller-owned value | removes oldest |
-| `clear` | never | never | O(n) | all memberships | caller-owned value | empty |
-| `assertValid` | never | never | O(n) | none | caller-owned value | verifies topology |
-
-These operations perform no heap allocation, waiting, hidden global access,
-atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
-
-## Error behavior
-
-The public API has no error set.
-
-- empty endpoint access returns `null`;
-- empty pops return `null`;
-- invalid type and field combinations are compile errors where practical;
-- double insert is a programmer error;
-- using the same node field in another intrusive object while queued is a
-  programmer error;
-- externally corrupted links are a programmer error.
-
-Operations with programmer-error preconditions may assert those preconditions
-when practical, but the spec does not require runtime owner tracking.
-
-## Debug assertion behavior
-
-`assertValid()` checks local topology reachable from this queue's endpoints. It
-does not prove node ownership, detect all double inserts, or make wrong-queue use
-safe.
-
-`assertValid()` checks where practical:
-
-- `head == null` iff `tail == null`;
-- if non-empty, `tail` is reachable from `head`;
-- if non-empty, `tail.next == null`;
-- no cycle is reachable from `head`.
-
-Mutating operations may call `assertValid()` before and after mutation when
-`core.checksEnabled(opts.safety)` or an equivalent module safety option requires
-runtime invariant checks.
+`assertValid()` verifies topology reachable from this queue's endpoints: endpoint symmetry, tail reachability, a null terminal link, and absence of a reachable cycle. It runs in O(n) time and does not mutate the queue. It does not prove exclusive node ownership, detect every double insertion, or make wrong-queue use safe.
 
 ## Implementation constraints
 
-Queue may reuse internal intrusive-list helper code, but the returned public type
-must not expose an inner `List.SinglyLinked` value. The public value exposes only
-queue endpoints and queue operations.
+The implementation MAY reuse internal list helpers, but the public type MUST NOT expose an inner `List.SinglyLinked` value. The implementation MUST NOT maintain a count. Every operation performs no heap allocation, waiting, hidden global access, atomics, barriers, volatile access, target probing, syscalls, locks, callbacks, or I/O.
 
-Implementations should not maintain a count. A count would add a store to every
-enqueue and dequeue while providing no primitive-level capacity or exhaustion
-behavior.
+## Testing
 
-## Examples
+Tests MUST construct empty, one-item, and multi-item queues and verify `init()` equivalence, null results for empty access and removal, FIFO endpoint observations, FIFO removal order, and the transition from one item to empty. These tests prove the observable endpoint and ordering contract at its empty and singleton boundaries.
 
-Run queue:
+Tests MUST execute each mutating operation (`pushBack`, `popFront`, and `clear`) and call `assertValid()` after each successful mutation. Tests MUST verify that `popFront` and `clear` detach selected nodes and that detached nodes can be inserted again. These invariant tests prove that mutations preserve endpoint symmetry, reachability, terminal-link, and acyclic-topology requirements while restoring detached membership.
 
-```zig
-const Thread = struct {
-    id: u32,
-    runq_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-};
-
-const RunQueue = stdx.intrusive.Queue(Thread, "runq_node");
-
-var runq = RunQueue.init();
-var thread_a: Thread = .{ .id = 1 };
-var thread_b: Thread = .{ .id = 2 };
-
-runq.pushBack(&thread_a);
-runq.pushBack(&thread_b);
-
-while (runq.popFront()) |thread| {
-    run(thread);
-}
-```
-
-Free list queue discipline:
-
-```zig
-const Buffer = struct {
-    bytes: [4096]u8,
-    free_node: stdx.intrusive.List.SinglyLinkedNode = .{},
-};
-
-const FreeBuffers = stdx.intrusive.Queue(Buffer, "free_node");
-
-var free = FreeBuffers.init();
-var buffer: Buffer = .{ .bytes = undefined };
-
-free.pushBack(&buffer);
-const next = free.popFront() orelse return error.OutOfBuffers;
-```
-
-## Required tests
-
-Construction tests:
-
-- empty queue;
-- `init()` equals default initialization;
-- endpoint access on an empty queue returns `null`;
-- `popFront()` on an empty queue returns `null`.
-
-FIFO tests:
-
-- push one item;
-- push two items;
-- `front()` remains the oldest item after pushes;
-- `back()` tracks the newest item after pushes;
-- `popFront()` returns items in push order;
-- `popFront()` from a one-item queue clears both endpoints;
-- `popFront()` from a multi-item queue preserves remaining order.
-
-Clearing tests:
-
-- clear an empty queue;
-- clear a one-item queue;
-- clear a multi-item queue;
-- cleared nodes are detached;
-- reinsertion after clear succeeds.
-
-Cross-cutting tests:
-
-- queue uses `List.SinglyLinkedNode` fields;
-- wrong field type fails to compile where practical;
-- multi-membership through distinct embedded node fields;
-- parent object addresses stay stable across queue operations;
-- removed and cleared nodes are detached;
-- `assertValid()` succeeds after every public mutation;
-- structural corruption tests where practical for broken endpoints and cycles.
-
-## Open questions
-
-None.
+Tests MUST verify independent membership through distinct embedded node fields and stable parent-object addresses. When the test harness supports expected compile failures, it MUST reject an incompatible node field. A corruption test MAY inject reachable cycles and inconsistent endpoints when the harness supports assertion capture. These mutation and corruption methods verify the invariants the checker claims to detect; they do not claim exclusive-ownership detection.

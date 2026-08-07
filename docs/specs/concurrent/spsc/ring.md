@@ -2,61 +2,29 @@
 
 Status: Approved.
 
-`stdx.concurrent.spsc.Ring` is a bounded single-producer/single-consumer FIFO
-ring. It is for fixed-capacity work, event, and doorbell queues where exactly
-one producer context publishes items to exactly one consumer context without
-allocation, contention, or CAS.
+`stdx.concurrent.spsc.Ring` is a bounded single-producer/single-consumer FIFO ring. It transfers items between exactly one producer context and exactly one consumer context without allocation or compare-and-swap operations.
 
-The ring owns data movement and publication only. It never owns wake,
-scheduler, interrupt, or waiting policy. Pair it with `stdx.sync.Signal` or a
-downstream notification primitive when a consumer needs to park.
+The ring owns item movement and publication. It does not own wake, scheduler, interrupt, or waiting policy.
 
-`spsc.Ring` complements the approved `concurrent.mpsc.Ring`: SPSC is the
-cheapest ring in the family; MPSC handles the many-producer case with
-per-slot publication sequences.
-
-## Owned scope
+## What this spec is
 
 This spec owns:
 
-- `concurrent.spsc.Ring.Static(T, N)`;
-- `concurrent.spsc.Ring.Bounded(T)`;
+- `concurrent.spsc.Ring.Static(T, N)` and `concurrent.spsc.Ring.Bounded(T)`;
 - caller-provided `Bounded(T).Slot` storage;
-- one-attempt producer enqueue;
-- one-attempt consumer dequeue of published front items;
+- one-attempt producer enqueue and one-attempt consumer dequeue of published front items;
 - cache-line isolation of `head` and `tail` via `mem.CachePad`;
-- fixed capacity, full-capacity behavior, no-mutation-on-error behavior, and
-  required pointer-stability rules;
-- atomic publication/free ordering for ring slots;
-- required unit, model, and stress tests.
+- fixed-capacity, full-capacity, no-mutation-on-error, and pointer-stability contracts;
+- atomic slot-publication and slot-release ordering; and
+- required unit, model, ordering, and stress tests.
 
-## Deferred scope and non-goals
+## What this spec is not
 
-This spec does not own:
+This spec does not define MPSC, MPMC, work-stealing, intrusive queues, heap allocation, growth, reserve operations, blocking or retrying operations, wait integration, overwrite policy, bulk operations, iterators, live-element pointers, arbitrary removal, cancellation, handles, signal or scheduler policy, multi-producer or multi-consumer safety, or ABI, wire, or packed-layout guarantees.
 
-- MPSC, MPMC, work-stealing, or intrusive queues;
-- other primitives under `concurrent.spsc.*` such as `spsc.Queue`;
-- heap allocation, dynamic growth, shrinking, or reserve operations;
-- blocking push, blocking pop, spin-until-success push, or wait integration;
-- overwrite-on-full, drop-oldest, priority, coalescing, or duplicate policy;
-- bulk push, bulk drain, iterators, slice exposure, or pointer access to live
-  elements;
-- arbitrary removal, cancellation, handles, generation-stamped user handles,
-  or tombstones;
-- signal, wake, scheduler, interrupt, preemption, or wait-queue policy;
-- multi-producer or multi-consumer safety: two producer contexts or two
-  consumer contexts on the same ring is outside the contract;
-- ABI, wire, or packed layout guarantees for the ring or slot types;
-- opt-out of `head`/`tail` cache-line isolation.
+Two producer contexts or two consumer contexts on the same ring are outside this contract.
 
-If a consumer wants retry or backoff, it loops around `tryPushBack` and owns
-that policy. If a consumer wants notification, it calls a signal after
-successful publication.
-
-Future SPSC primitives (`spsc.Queue`, linked variants, etc.) live under the
-same `concurrent.spsc` namespace when they are approved by their own specs.
-
-## Public namespace
+## Public namespace and source ownership
 
 The SPSC family lives under `stdx.concurrent.spsc`:
 
@@ -65,13 +33,6 @@ stdx.concurrent.spsc
 stdx.concurrent.spsc.Ring
 stdx.concurrent.spsc.Ring.Static
 stdx.concurrent.spsc.Ring.Bounded
-```
-
-It is not root-promoted:
-
-```zig
-stdx.spsc     // not exported
-stdx.Ring     // reserved by stdx.collections.Ring; not this ring
 ```
 
 Source ownership:
@@ -100,7 +61,7 @@ const spsc = stdx.concurrent.spsc;
 `src/concurrent.zig` is a thin facade. It contains no logic beyond
 re-exporting.
 
-## Approved API
+## API
 
 ```zig
 pub const Ring = struct {
@@ -190,18 +151,13 @@ self.tail.value.store(new_tail, .release)
 
 ## Type and capacity contract
 
-`T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element
-types are compile errors where practical.
+`T` MUST be a runtime value type with `@sizeOf(T) > 0`. A zero-sized element type MUST produce a compile error.
 
-Capacity must be non-zero and a power of two.
+Capacity MUST be non-zero and a power of two.
 
-`Static(T, 0)` and `Static(T, N)` where `N` is not a power of two are compile
-errors.
+`Static(T, 0)` and `Static(T, N)` where `N` is not a power of two MUST produce compile errors.
 
-`Bounded(T).init(slots)` treats `slots.len == 0` or a non-power-of-two length
-as a programmer error and asserts where practical. The API does not return a
-capacity-shape error because the shared error vocabulary has no approved
-`InvalidCapacity` spelling.
+`Bounded(T).init(slots)` MUST treat `slots.len == 0` and non-power-of-two `slots.len` as programmer errors and MUST assert these preconditions when build-mode checks are enabled. The API does not return a capacity-shape error.
 
 `capacity()` returns `item_capacity` for `Static` and `slots.len` for
 `Bounded`.
@@ -301,9 +257,7 @@ when `tail == head`. The producer must not consult `isEmpty()` to decide
 whether to publish or signal; the producer is authoritative about full via
 `tryPushBack`'s return value.
 
-There is no `len` because an exact concurrent length is not needed; the
-consumer sees items in FIFO order via `popFront`. There is no `isFull`
-because `tryPushBack` is the authority for full-capacity behavior.
+There is no `len` or `isFull`. `popFront` exposes FIFO availability, and `tryPushBack` is authoritative for full-capacity behavior.
 
 ## Ordering contract
 
@@ -400,66 +354,23 @@ Implementation must:
 - avoid copying `T` more than required to store and return items;
 - store no allocator, policy object, signal pointer, waiter, or callback in
   the ring;
-- reject zero-sized `T` and non-power-of-two `Static` capacity at compile
-  time where practical.
+- reject zero-sized `T` and non-power-of-two `Static` capacity at compile time.
 
-## Planned use
+## Testing
 
-A bounded SPSC ring is the cheapest FIFO fabric in the concurrent family. It
-is used for pipeline stages between two fixed roles, for per-CPU work queues
-where a queue has a single dedicated producer core and a single dedicated
-consumer core, for interrupt-handler to worker handoff on architectures where
-one interrupt line has one bottom-half thread, and inside `std.Io` backends
-where a single scheduler thread produces work for a single worker.
+Tests MUST verify the observable FIFO, capacity, lifetime, and ordering contracts rather than implementation-only details.
 
-The owner pairs the ring with `stdx.sync.Signal` when the consumer must
-park:
+### Construction, boundaries, and errors
 
-```zig
-try work.tryPushBack(item);
-ready.set();
-```
+Compile-time tests MUST reject zero-sized `T`, `Static(T, 0)`, and non-power-of-two static capacities. They MUST verify that `Bounded(T).Slot` is available for caller storage and that `head` and `tail` are separated by at least `std.atomic.cache_line` in both variants. Runtime tests MUST verify initialization, capacity, empty dequeue, full-capacity `error.Full` with no state change, caller-provided bounded storage without allocation, and drain/refill across the wrap boundary. These tests prove the representation and fixed-capacity boundary contract.
 
-The signal is intentionally outside the ring.
+### Deterministic model and ordering
 
-## Required tests
+A deterministic single-producer/single-consumer model MUST compare every successful enqueue and dequeue with a reference FIFO. It MUST include empty dequeues, full capacity, wraparound, and reuse after the consumer advances `head`. The model MUST verify that a producer cannot overwrite a consumed slot until it acquire-observes the consumer's release-published `head`, and that the consumer reads an item only after it acquire-observes the producer's release-published `tail`. This proves FIFO order and both slot-ownership happens-before edges.
 
-Required compile-time checks:
+### Concurrent stress
 
-1. rejects zero-sized `T` where practical;
-2. rejects `Static(T, 0)`;
-3. rejects non-power-of-two `Static` capacity;
-4. exposes `Bounded(T).Slot` for caller storage;
-5. `head` and `tail` field offsets differ by at least `std.atomic.cache_line`
-   in both `Static` and `Bounded`.
-
-Required unit tests:
-
-1. `init` creates an empty ring with the approved capacity;
-2. single push and single pop preserve FIFO order;
-3. full ring returns `error.Full` and leaves contents unchanged;
-4. `popFront` returns `null` for an empty ring;
-5. wraparound preserves FIFO order;
-6. `Bounded` uses caller-provided slot storage and never allocates;
-7. drain-then-refill exercises the head-advance path.
-
-Required model tests:
-
-1. compare sequential successful pushes and pops against a reference FIFO;
-2. include wraparound, full capacity, empty pops, and the drain-then-refill
-   path.
-
-Required stress tests:
-
-1. one producer thread and one consumer thread move N items;
-2. the consumer observes every successfully pushed item exactly once and in
-   producer order;
-3. failed `Full` attempts are accounted for and retried by the test harness;
-4. tests cover at least the smallest useful capacity and a capacity that
-   forces multiple wraparounds.
-
-Stress tests demonstrate exercised behavior; the ordering contract in this
-spec is the normative proof obligation.
+Stress tests MUST run one producer and one consumer with a capacity of one and with a capacity that forces repeated wraparound. The producer MUST account for and retry every `error.Full`; the consumer MUST verify that every successful item occurs exactly once and in producer order. This exercises the specified roles and publication protocol under concurrent scheduling; it does not replace the deterministic ordering model.
 
 ## Examples
 
@@ -511,7 +422,3 @@ if (ring.popFront()) |item| {
 
 try ready.wait();
 ```
-
-## Open questions
-
-None.

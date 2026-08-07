@@ -38,7 +38,6 @@ This spec does not own:
 - data visibility for buffers, rings, or other structures published across
   the rendezvous point (parties own their own release/acquire on those
   structures);
-- root promotion of `sync.Rendezvous`.
 
 A backend may provide scheduler-specific waiter behavior. That behavior is
 explicit in the `Rendezvous(Backend)` type and is not owned by this spec.
@@ -54,12 +53,6 @@ types:
 stdx.sync.Rendezvous
 stdx.sync.rendezvous.State
 stdx.sync.rendezvous.Token
-```
-
-It is not root-promoted:
-
-```zig
-stdx.Rendezvous // not exported
 ```
 
 Source ownership:
@@ -81,7 +74,7 @@ pub const Rendezvous = rendezvous.Rendezvous;
 `src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
 and aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const State = struct {
@@ -205,9 +198,7 @@ The allocation, waiting, locking, interrupt, and scheduler behavior of
 backend functions is backend-owned. The rendezvous layer adds no heap
 allocation and no hidden global scheduler policy.
 
-Spin-only callers instantiate `Rendezvous(sync.spin.Backend)`; there is no
-`.Spin` alias, per rule 3 of the wait-capable naming convention in
-`docs/planning/spec-queue.md`.
+Spin-only callers MUST instantiate `Rendezvous(sync.spin.Backend)`. This API has no `.Spin` alias.
 
 ## State and token representation
 
@@ -231,9 +222,9 @@ generation differs from the token's generation.
 `State.remaining()` acquire-loads the current word and returns the remaining
 field. `State.generation()` acquire-loads and returns the generation field.
 
-Generation wrap at `2^32` is outside the primitive's practical test envelope
-and is a mathematical worst case only. Implementations use the full 32-bit
-generation space to make wrap unreachable in ordinary operation.
+Generation wrap can make `State.changedSince` report no change only after
+exactly `2^32` generation advances between a token observation and its
+comparison. Tests do not execute that many generation advances.
 
 ## Construction
 
@@ -424,7 +415,7 @@ Implementation must:
 - pack `remaining` in the low 32 bits and `generation` in the high 32 bits;
 - use a strong `Token` type rather than exposing raw `u64` tokens;
 - keep `Rendezvous(Backend)` free of runtime vtables;
-- validate backend declarations at compile time where practical;
+- at `Rendezvous(Backend)` factory instantiation, require `Backend` to declare `WaitError`, `wait`, and `wakeAll`, and require `WaitError` to be an explicit error set;
 - reserve `remaining` and install the next generation in one CAS on the
   last-arrival path, so no observer ever sees `remaining == 0`;
 - call `wakeAll(&state)` only after the generation advance is release-
@@ -497,63 +488,14 @@ var rv = Rv.init(worker_count, .{ .queue = &queue });
 try rv.arrive();
 ```
 
-## Required tests
+## Testing
 
-Tests live in `test/sync/rendezvous_test.zig`.
+Compile-time tests MUST reject `Static(0)`, reject capacities greater than `std.math.maxInt(u32)`, reject invalid backend declarations, and instantiate both storage variants with `sync.spin.Backend`. These tests prove capacity and backend-shape constraints.
 
-Required unit tests:
+Deterministic backend tests MUST use a controllable backend that records waits and wakes and can return a selected `WaitError`. Tests MUST verify initial capacity and generation, non-final arrival waiting, final-arrival reset and generation advance, exactly one final wake per generation, cyclic reuse, `Bounded` equivalence with `Static`, and the committed-arrival behavior when a backend wait returns an error. These tests prove the generation state machine, wake rule, and no-rollback error contract.
 
-- `@sizeOf(sync.rendezvous.State) == 8`;
-- `Rendezvous(sync.spin.Backend).Static(0)` is rejected at compile time;
-- `Rendezvous(sync.spin.Backend).Static(1)`: every `arrive` returns
-  immediately; `generation` increments by one each time;
-- `Static(N)` initial state: `pending() == N`, `capacity() == N`,
-  `generation() == 0`;
-- `Static(N)` non-last arriver observes `pending()` decrement and blocks in
-  a mock backend that reports every `wait` invocation;
-- `Static(N)` last arriver advances the generation, resets `pending()` to
-  `N`, and invokes `wakeAll` with `&self.state`;
-- cyclic reuse: `Static(N)` completes generation G, then a fresh set of N
-  arrivals completes generation G+1 with identical semantics;
-- `Bounded.init(N, backend)` mirrors `Static(N)` semantics for the same N;
-- `Bounded.init(0, backend)` traps under
-  `stdx.core.debug.checksEnabled(.build_mode)`;
-- `Bounded` and `Static` support the same generation-advance behavior on
-  repeat use;
-- mock backend `WaitError` propagates through `arrive` unchanged and leaves
-  the state committed (no rollback).
+Lost-wakeup model tests MUST enumerate arrival, waiter observation, waiter registration, and state recheck interleavings. They MUST verify that an advance before registration is detected by `changedSince` and that an advance after registration wakes the waiter.
 
-Required model tests:
+Memory-ordering tests MUST publish a payload before the final generation-advance CAS and read it after a waiting party acquire-observes the new generation. The waiting party MUST observe the payload. This test proves the generation transition's release/acquire edge.
 
-- simulate arrivals and waiter observe/enqueue/recheck races;
-- prove a last-arrival CAS between observe and backend registration is found
-  by `State.changedSince`;
-- prove a last arrival after backend registration wakes through
-  `wakeAll(&state)`;
-- prove that under contention on generation G, all non-last arrivers return
-  synchronizes-with the last arriver's release publication.
-
-Required stress tests:
-
-- against `sync.spin.Backend`: `M` threads run `K` rounds each on a
-  `Static(M)` and observe exactly `K` generation advances with no lost
-  wake and no double-release;
-- against `sync.spin.Backend`: `M` threads on `Bounded.init(M, ...)`
-  produce identical behavior to the `Static(M)` case;
-- non-x86 build compiles the module.
-
-Required compile-only tests:
-
-- `Rendezvous(sync.spin.Backend).Static(4)` and
-  `Rendezvous(sync.spin.Backend).Bounded` instantiate against
-  `sync.spin.Backend`;
-- rejection of a backend without `wait` / `wakeAll` or with a non-explicit
-  `WaitError`.
-
-Stress tests demonstrate exercised behavior; the lost-wakeup contract and
-generation-advance CAS invariant in this spec are the normative proof
-obligations.
-
-## Open questions
-
-None.
+Stress tests MUST run `M` parties for `K` generations against both storage variants with `sync.spin.Backend`. They MUST verify exactly `K` generation advances, one final wake per generation, no lost wake, and no double release. Cross-target compilation MUST include a non-x86 target. Stress tests exercise concurrent progress; the model tests prove the lost-wakeup protocol.

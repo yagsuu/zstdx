@@ -5,8 +5,6 @@ Status: Approved.
 `stdx.collections.List.Static(T, N)` is an inline fixed-capacity sequence.
 It owns its storage, preserves insertion order by default, and never allocates.
 
-The root facade may expose the same family as `stdx.List.Static(T, N)`.
-
 ## Owned scope
 
 This spec owns:
@@ -37,12 +35,6 @@ This spec does not own:
 stdx.collections.List
 ```
 
-It is root-promoted by the first-slice root facade:
-
-```zig
-stdx.List
-```
-
 Source ownership:
 
 ```text
@@ -67,7 +59,7 @@ pub const collections = @import("collections.zig");
 pub const List = collections.List;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const List = struct {
@@ -119,11 +111,9 @@ relative order matters and `swapRemove` when `O(1)` removal is more important.
 
 ## Type and capacity contract
 
-`T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
-are compile errors where practical.
-
-`capacity_items` is a comptime item count greater than zero. `Static(T, 0)`
-is a compile error.
+`T` MUST be a runtime value type with `@sizeOf(T) > 0`; a zero-sized element
+type is a compile error. `capacity_items` is a comptime item count greater than
+zero. `Static(T, 0)` is a compile error.
 
 A valid list satisfies:
 
@@ -265,18 +255,15 @@ atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
 - out-of-bounds insert, remove, and pointer access return `error.OutOfBounds`;
 - `pop()` uses `null` for empty instead of an error;
 - `appendAssumeCapacity` reports full capacity as a programmer error;
-- invalid `T` categories are compile errors where practical;
-- corrupted `count` is a programmer error caught by `assertValid` where practical.
+- a zero-sized `T` is a compile error;
+- a corrupted `count` violates the caller contract; `assertValid` asserts the
+  capacity invariant.
 
 All error returns leave the list unchanged.
 
 ## Debug assertion behavior
 
 `assertValid()` asserts `count <= item_capacity`.
-
-Public mutating operations may call `assertValid()` before and after mutation
-when `core.checksEnabled(opts.safety)` or an equivalent module safety option
-requires runtime invariant checks.
 
 ## Implementation constraints
 
@@ -289,90 +276,28 @@ Implementation must:
 - leave the list unchanged on error;
 - use overlap-safe moves for insert and ordered removal;
 - never read or expose spare storage as initialized elements;
-- set vacated spare slots to `undefined` where practical;
 - avoid hidden globals, atomics, fences, volatile operations, target probes, and I/O.
 
-## Planned use
+## Testing
 
-Fixed-capacity handle, protocol, event, relocation, memory-map, and variable
-tables shaped as `[max_entries]Entry` plus an initialized-item count. Small
-fixed diagnostic buffers and parser scratch reuse the same
-initialized-prefix model when text-specific behavior is not required.
+Tests MUST construct empty, partial, and full lists to verify the comptime
+capacity boundary, including compile-fail coverage for zero capacity and
+zero-sized `T`. These tests prove that the capacity helpers and `error.Full`
+distinguish the valid capacity states.
 
-## Examples
+Mutation tests MUST append individual items and slices, insert at the first,
+middle, and terminal valid indexes, and remove from each applicable index.
+They MUST compare the initialized prefix after each operation. These tests prove
+insertion order, ordered removal, swap removal, and no mutation after each
+reported `error.Full` or `error.OutOfBounds`.
 
-```zig
-const stdx = @import("stdx");
+Access tests MUST compare `asSlice`, `asConstSlice`, `at`, and `constAt` with
+the initialized prefix and MUST verify the out-of-bounds errors. Invalidation
+tests MUST retain views and pointers across append, insert, each removal form,
+clear, and movement of the list value. They MUST verify the documented stable
+and invalidated ranges without dereferencing an invalid view.
 
-const EventList = stdx.List.Static(Event, 64);
-
-var events = EventList.init();
-try events.append(.{ .id = 1 });
-try events.insert(0, .{ .id = 0 });
-
-const removed_ordered = try events.orderedRemove(0);
-_ = removed_ordered;
-
-const removed_unordered = try events.swapRemove(0);
-_ = removed_unordered;
-```
-
-```zig
-const FreeList = stdx.List.Static(u16, 32);
-
-var free = FreeList.init();
-free.appendAssumeCapacity(7);
-free.appendAssumeCapacity(9);
-
-const slot = free.pop() orelse unreachable;
-_ = slot;
-```
-
-## Required tests
-
-### Construction and capacity
-
-- default struct literal is empty;
-- `init()` is empty;
-- `Static(T, 0)` is a compile error;
-- `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,
-  and full lists;
-- zero-sized `T` fails to compile where the compile-fail harness supports it.
-
-### Append and insert
-
-- `append` succeeds into empty and non-empty lists;
-- `append` returns `error.Full` without mutation when full;
-- `appendAssumeCapacity` appends after a caller capacity check;
-- `appendSlice` succeeds for empty, partial, exact-fill, and empty-source cases;
-- `appendSlice` returns `error.Full` without mutation when the whole slice does
-  not fit;
-- `insert` covers front, middle, and end insertion;
-- `insert` returns `error.OutOfBounds` for `index > len` without mutation;
-- `insert` returns `error.Full` for valid indexes in a full list without mutation.
-
-### Removal
-
-- `pop` returns `null` when empty;
-- `pop` returns items from the end;
-- `orderedRemove` covers front, middle, and last indexes;
-- `orderedRemove` preserves relative order;
-- `swapRemove` covers middle and last indexes;
-- `swapRemove` moves the old last item into the removed slot when needed;
-- both remove methods return `error.OutOfBounds` without mutation for invalid
-  indexes.
-
-### Access, invalidation, and invariants
-
-- `asSlice` exposes initialized items and allows element mutation;
-- `asConstSlice` exposes initialized items read-only;
-- `at` and `constAt` cover valid and out-of-bounds indexes;
-- append preserves earlier element addresses while the list value is not moved;
-- insert and ordered removal invalidate at and after the mutation point;
-- swap removal preserves unrelated element addresses where practical;
-- `assertValid` succeeds after every public mutation sequence;
-- `assertValid` catches a manually corrupted `count` where practical.
-
-## Open questions
-
-None.
+Invariant tests MUST call `assertValid` after mutation sequences, including
+sequences that fill, drain, and refill the list. Where assertions can be
+observed, a deliberately invalid `count` MUST make `assertValid` fail. These
+tests prove the initialized-prefix and capacity invariants.

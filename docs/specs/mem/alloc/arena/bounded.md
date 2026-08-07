@@ -10,7 +10,7 @@ It borrows a `[]u8`, bumps forward, and may expose a narrow `std.mem.Allocator`
 view for interop. The stdx contract is the arena contract, not the full policy
 surface of `std.heap.FixedBufferAllocator`.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -23,7 +23,7 @@ This spec owns:
 - no-hidden-allocation and no-waiting behavior;
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
 - `mem.alloc.Arena.Static` (owned by `docs/specs/mem/alloc/arena/static.md`);
 - growable arenas;
@@ -34,19 +34,13 @@ This spec does not own:
 - firmware, ACPI, VM, filesystem, or protocol policy;
 - object initialization or destructors.
 
-## Public namespace
+## Public namespace and source ownership
 
 `Arena.Bounded` lives under `stdx.mem.alloc`:
 
 ```zig
 stdx.mem.alloc.Arena
 stdx.mem.alloc.Arena.Bounded
-```
-
-It is not root-promoted:
-
-```zig
-stdx.Arena // not exported
 ```
 
 Source ownership:
@@ -65,7 +59,7 @@ pub const arena = @import("alloc/arena.zig");
 pub const Arena = arena.Arena;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const Arena = struct {
@@ -185,9 +179,9 @@ slice with the correct element alignment when the return type requires one.
 `allocSlice(T, len)` returns `len` uninitialized `T` values stored contiguously
 in arena memory aligned to `@alignOf(T)`.
 
-Typed helpers must reject zero-sized `T` at compile time where practical. Invalid
-or unsupported `T` categories beyond zero-sized types are not rejected by this
-spec; the arena allocates storage and does not validate object semantics.
+Typed helpers must reject zero-sized `T` at compile time. Invalid or unsupported
+`T` categories beyond zero-sized types are not rejected by this spec; the arena
+allocates storage and does not validate object semantics.
 
 The byte count for typed allocation must use checked arithmetic:
 
@@ -265,7 +259,7 @@ atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
 - alignment rounding overflow returns `error.Overflow`;
 - typed byte-count overflow returns `error.Overflow`;
 - insufficient remaining capacity returns `error.OutOfMemory`;
-- invalid `T` categories owned by this spec are compile errors where practical;
+- zero-sized `T` is a compile error;
 - invalid marks and corrupted arena state are programmer errors.
 
 All error returns leave `index` unchanged.
@@ -285,47 +279,8 @@ Implementation must:
 - avoid unconditional invariant scans on hot paths;
 - compile for freestanding targets when `std.mem.Allocator` support is available.
 
-## Usage
-
-Build a temporary table list:
-
-```zig
-var scratch: [4096]u8 = undefined;
-var arena = stdx.mem.alloc.Arena.Bounded.wrap(&scratch);
-
-const tables = try arena.allocSlice(Table, table_count);
-```
-
-Rollback speculative parsing:
-
-```zig
-const mark = arena.mark();
-parseCandidate(&arena) catch |err| {
-    arena.restore(mark);
-    return err;
-};
-```
-
-Interop with allocator-taking code:
-
-```zig
-var scratch: [8192]u8 = undefined;
-var arena = stdx.mem.alloc.Arena.Bounded.wrap(&scratch);
-
-var list = std.ArrayListUnmanaged(u32){};
-try list.append(arena.allocator(), 42);
-```
-
-## Planned use
-
-- parse/build scratch for lowering pipelines, digest staging, and bounded
-  host-test fixtures without hot-path heap allocation;
-- early-phase scratch construction over fixed byte buffers before a heap
-  policy is available;
-- caller-owned scratch for table indexing and diagnostic buffers that return
-  borrowed views into caller storage.
-
-## Required tests
+## Testing
+Verification uses real byte buffers and `std.mem.Allocator` consumers to exercise allocation boundaries, alignment, overflow, rollback, invalidation, and invariant checks. These checks prove that the arena advances only after a successful allocation and that marks, reset, and allocator failure preserve the specified ownership and capacity state.
 
 ### Construction and capacity
 
@@ -339,19 +294,19 @@ try list.append(arena.allocator(), 42);
 
 - `allocBytes(0)` succeeds and does not advance;
 - `allocBytes(n)` returns the next `n` bytes and advances by `n`;
-- `allocAlignedBytes` inserts padding as needed;
+- `allocAlignedBytes` inserts the padding required for the requested alignment;
 - alignment `1` is a no-op;
 - invalid alignment returns `error.InvalidAlignment` and leaves `index` unchanged;
 - capacity exhaustion returns `error.OutOfMemory` and leaves `index` unchanged;
-- offset arithmetic overflow returns `error.Overflow` where practical to trigger.
+- operands that overflow checked offset arithmetic return `error.Overflow` and leave `index` unchanged.
 
 ### Typed allocations
 
 - `alloc(u8)`, `alloc(u32)`, and a layout-boundary extern struct succeed;
 - returned pointers satisfy `@alignOf(T)`;
 - `allocSlice(T, len)` returns `len` elements in contiguous storage;
-- typed byte-count overflow returns `error.Overflow` where practical to trigger;
-- zero-sized `T` fails to compile where the compile-fail harness supports it.
+- operands that overflow checked typed byte-count arithmetic return `error.Overflow` and leave `index` unchanged;
+- zero-sized `T` is a compile-time contract; the test suite instantiates only non-zero-sized types because it has no compile-fail test harness.
 
 ### Lifecycle
 
@@ -368,17 +323,10 @@ try list.append(arena.allocator(), 42);
 - allocator allocation failure leaves arena state unchanged;
 - tests use real byte buffers and real std containers, not mocks.
 
-### Debug and compile-time behavior
-
-Required when supported by the compile-fail test harness:
+### Debug behavior and compile-time contract
 
 - `assertValid` succeeds after every public mutation sequence;
 - `assertValid` catches a manually corrupted `index`;
 - invalid mark restore is caught as a programmer error;
-- invalid typed allocation categories owned by this spec fail at compile time;
-- a mark from a different arena is caught at runtime by the in-range
-  assertion inside `restore` when the index does not match.
-
-## Open questions
-
-None.
+- zero-sized `T` rejection is a compile-time contract and is not exercised by a compile-fail test;
+- a mark from a different arena is caught at runtime by the in-range assertion inside `restore` when the index does not match.

@@ -12,7 +12,7 @@ slot to that region's slab allocator without touching the region-source.
 `SlabCache` never hides allocation. `acquire` never calls the `RegionSource`.
 Growth is a caller decision expressed by `refill`.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -28,7 +28,7 @@ This spec owns:
   `refill`, and other regions' `drain`;
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
 - concrete region sources (page allocators, boot heaps, IOMMU-mapped
   regions, huge-page providers);
@@ -41,18 +41,12 @@ This spec does not own:
   inherited from `docs/specs/mem/alloc/slab/allocator.md`;
 - `std.mem.Allocator` views.
 
-## Public namespace
+## Public namespace and source ownership
 
 `SlabCache` lives under `stdx.mem.alloc`:
 
 ```zig
 stdx.mem.alloc.SlabCache
-```
-
-It is not root-promoted:
-
-```zig
-stdx.SlabCache // not exported
 ```
 
 Source ownership:
@@ -110,7 +104,7 @@ The cache never inspects, retains, or forwards `RegionSource` state beyond
 calling these two methods. The source pointer stored in the cache is used
 only to dispatch `refill` and `drain`.
 
-## Approved API
+## API
 
 ```zig
 pub fn SlabCache(comptime T: type, comptime RegionSource: type) type;
@@ -433,7 +427,7 @@ outstanding acquisitions.
 - `refill` propagates `RegionSource.Error` on source failure. Cache
   state unchanged.
 - `release`, `drain`, and `contains` do not return errors; misuse is a
-  programmer error caught by `assertValid` where practical.
+  programmer error. `assertValid` detects violations of its listed structural invariants.
 - zero-sized `T` is a compile error.
 - `slots_per_region == 0` is a compile error at
   `SlabCache(T, RegionSource)` instantiation.
@@ -480,68 +474,10 @@ Implementation MUST:
 - compile for freestanding targets;
 - avoid heap fallback and hidden globals.
 
-## Usage
+## Testing
+Verification uses a counted region source, layout boundary cases, deliberate metadata corruption, a randomized region model, and per-CPU concurrency scenarios. It observes region ownership, color capacity, list transitions, source-call boundaries, pointer lifetime, error atomicity, and local-cache accounting; the model proves that region and live-object totals remain consistent through refill, drain, acquire, and release.
 
-Typical shape — one cache per class, one region-source shared across
-classes:
-
-```zig
-const stdx = @import("stdx");
-
-const Cmd = struct { id: u32, opcode: u32, payload: [16]u8 };
-
-const CmdCache = stdx.mem.alloc.SlabCache(Cmd, PageFrameSource);
-
-var cache = CmdCache.init(&page_source);
-
-// Grow when needed.
-if (cache.remaining() == 0) try cache.refill();
-
-const cmd = try cache.acquire();
-cmd.* = .{ .id = 1, .opcode = 0x12, .payload = undefined };
-
-// … use cmd …
-
-cache.release(cmd);
-
-// Return empty regions to the source when the working set shrinks.
-cache.drain();
-```
-
-Composing over `FrameAllocator.FrameSource` (documented in
-`docs/specs/mem/alloc/frame.md`):
-
-```zig
-const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
-const FrameAlloc = stdx.mem.alloc.FrameAllocator.Static(
-    stdx.mem.alloc.BuddyAllocator.Static(1024, 6),
-    Phys4K,
-    try Phys4K.Frame.fromAddressInt(0x0010_0000),
-);
-
-var frames = FrameAlloc.init();
-var source = frames.frameSource(0);            // one 4 KiB region per acquire
-
-const NodeCache = stdx.mem.alloc.SlabCache(Node, @TypeOf(source));
-var cache = NodeCache.init(&source);
-```
-
-## Planned use
-
-- kernel typed-object allocation with page-backed growth (analog to
-  `kmem_cache_alloc`);
-- hypervisor typed pools whose backing region set grows and shrinks
-  across guest lifetimes;
-- firmware pre-runtime typed pools over caller-supplied physical
-  regions;
-- freestanding drivers that dispatch (size-class → cache) by pointer
-  ownership.
-
-## Required tests
-
-Tests live in `test/mem/alloc/slab/cache_test.zig`. A mock region source with
-recorded `acquire` / `release` counts backs every test unless a variant
-under test names its concrete source.
+A counted region source records each `acquire` and `release` call for tests that verify source-call boundaries and balancing. Tests that exercise a concrete source use that source.
 
 ### Construction
 
@@ -648,7 +584,3 @@ and `drain` grow and shrink the oracle by `slots_per_region`.
   `0xCD` / `0xFD` fill discipline as `SlabAllocator` under
   `checksEnabled(.build_mode) == true` — the test relies on the
   underlying `SlabAllocator.Bounded(T)` inside each region enforcing it.
-
-## Open questions
-
-None.

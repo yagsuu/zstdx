@@ -780,90 +780,22 @@ Implementation must:
 
 ## Testing
 
-### Required positive tests
+Tests MUST verify the observable participant-state, grace-period, reclamation-safety, ordering, and representation contracts. Tests MUST NOT treat QSBR as a payload-publication primitive.
 
-- `Static(N).init` sets capacity to `N`, generation to zero, and every
-  participant offline.
-- `Bounded.wrap` sets capacity to `slots.len`, generation to zero, and every
-  supplied slot offline.
-- With every participant offline, a new grace period completes immediately.
-- An online participant blocks a grace period until it reports `quiescent`.
-- `offline` causes a participant to stop blocking current and future grace
-  periods.
-- `online` after a grace period starts reports the current generation and does
-  not block that already-started grace period solely because it came online
-  later.
-- Multiple online participants must all report quiescence or go offline before
-  completion.
-- Completing a later grace period also completes earlier grace periods.
-- `Participant.index` and `GracePeriod.generation` return their stored values.
+### Deterministic state model and boundaries
 
-### Required negative tests
+A deterministic model MUST represent each participant as offline or online at a reported generation and MUST compare `isComplete` with the definition of completion for every modeled state. The model MUST cover capacity one, all slots offline, one online slot, multiple online slots, repeated `offline`, repeated `online`, overlapping grace periods, and reports at both an earlier and the latest target generation. It MUST verify that an online participant blocks a target until it reports a generation at or above that target or goes offline, that a later completed target implies completion of earlier targets, and that a participant that becomes online after a target begins does not block that target solely by becoming online. This proves the grace-period state machine and reclamation-safety predicate.
 
-- `Static(0)` fails at compile time.
-- `Static(N)` where `N` cannot be represented by `Participant` fails at compile
-  time.
-- `participant(index)` traps/asserts when checks are enabled and
-  `index >= capacity()`.
-- `Bounded.wrap` with an empty slot slice traps/asserts when checks are enabled.
-- `Bounded.wrap` with a slice length not representable by `Participant`
-  traps/asserts when checks are enabled.
+Compile-time tests MUST reject `Static(0)` and static capacities that `Participant` cannot represent. Runtime boundary tests MUST verify that `participant(index)` rejects indices at or above capacity and that `Bounded.wrap` rejects empty and unrepresentable slot slices when `stdx.core.debug.checksEnabled(.build_mode)` enables the relevant assertion. Tests MUST verify that `Static.init` and `Bounded.wrap` set generation zero and all slots offline. These tests prove construction and capacity fault behavior without requiring detection of caller-owned slot-ownership or false-quiescence violations.
 
-Misuse cases that require caller-owned execution-context proof, such as
-reporting `quiescent` while still holding a protected reference or duplicate
-concurrent slot ownership, are documented contract violations and are not
-required to be detected by tests.
+### Memory ordering and reclamation safety
 
-### Edge cases
+The model MUST place a participant report both before and after a writer begins a grace period. A report that observes the new generation MUST permit an acquire scan to observe completion; a report that races before the increment MUST NOT complete the new target until a later report observes that target. Tests MUST verify that an `offline` transition can satisfy a pending target and that a quiescent report preserves online state. This proves the release publication of participant state and the acquire observation used by `isComplete`; caller-owned pointer removal and payload publication remain outside the test contract.
 
-- Capacity one.
-- All participants offline.
-- One online participant and all other participants offline.
-- Repeated `offline` on an already-offline caller-owned participant.
-- Repeated `online` on an already-online caller-owned participant updates its
-  reported generation without creating nested state.
-- Overlapping grace periods where a participant reports only the first target
-  generation, leaving the second incomplete.
-- Overlapping grace periods where a participant reports the latest target
-  generation, completing both.
+### Concurrent stress and progress
 
-### Error and fault behavior
+Stress tests MUST run distinct participant slots concurrently with a writer that repeatedly begins and polls grace periods. They MUST also run concurrent `beginGracePeriod` callers and verify unique, monotonic returned generations. A stress case with an online participant that never reports quiescence MUST verify that `isComplete` returns false without blocking. These tests exercise independent-slot concurrency, the lock-free grace-period increment, and the bounded non-blocking scan; they do not prove scheduling fairness or caller compliance with protected-reference rules.
 
-- Runtime caller-contract violations listed above are exercised only in test
-  modes where `stdx.core.debug.checksEnabled(.build_mode)` enables the relevant
-  trap/assert behavior.
-- Tests must not require release builds to detect duplicate participant
-  ownership or quiescent-state lies.
+### Representation
 
-### Concurrency, model, and stress tests
-
-- Model two or more participants and one writer beginning grace periods while
-  participants transition online, quiescent, and offline.
-- Stress concurrent `quiescent` calls on distinct participant slots while a
-  writer repeatedly begins and polls grace periods.
-- Stress concurrent `beginGracePeriod` callers and verify returned generations
-  are unique and monotonic.
-- Verify `isComplete` remains non-blocking under a participant that stays online
-  and never reports quiescence.
-
-### Memory-ordering tests
-
-- Model that a participant quiescent report after observing a grace-period
-  generation is sufficient for `isComplete` to observe progress through acquire
-  loads.
-- Model that a participant quiescent report racing before `beginGracePeriod`
-  does not complete the new grace period unless a later report observes the new
-  generation.
-- Confirm QSBR tests do not assert payload publication guarantees that belong
-  to caller-owned pointer/table synchronization.
-
-### Layout and representation tests
-
-- `Static(N).Slot` and `Bounded.Slot` are `stdx.mem.CachePad(std.atomic.Value(u64))`.
-- Slot alignment equals `std.atomic.cache_line` through the `CachePad` contract.
-- Adjacent static slots occupy distinct cache-line-padded elements.
-- The global generation field is cache-line padded separately from participant
-  slots.
-- Encoded offline slots set the high bit; encoded online slots clear it and
-  contain the reported generation in the low bits.
-
+Representation tests MUST verify that `Static(N).Slot` and `Bounded.Slot` are `stdx.mem.CachePad(std.atomic.Value(u64))`, that slot alignment equals `std.atomic.cache_line`, that adjacent static slots occupy distinct padded elements, and that the global generation is padded separately. They MUST verify that offline encoding sets the high bit and online encoding clears it while retaining the reported low-bit generation. These tests prove the required isolation and state encoding without asserting an ABI for the enclosing domain.

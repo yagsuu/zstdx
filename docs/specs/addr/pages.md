@@ -2,41 +2,26 @@
 
 Status: Approved.
 
-`stdx.addr.Page(Addr, page_size)` is a zero-cost family for page-sized address domains. It binds an approved address type and a comptime page size, then exposes page-size metadata, page counts, page-aligned frames, and page-counted ranges. The page family uses `Addr.Raw` as the backing integer width, but public names distinguish byte addresses, page counts, and frame indices.
+`stdx.addr.Page(Addr, page_size)` defines a zero-cost page family for one address domain and one compile-time page size. The family distinguishes byte addresses, page counts, aligned frames, and half-open frame ranges.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This spec defines exact page-size constants, `addr.Page`, page-size validation, `Size` metadata, `Count`, `Frame`, `FrameRange`, checked byte/page conversion, checked frame arithmetic, and range operations.
 
-- common exact page-size constants under `stdx.addr.pages`;
-- `addr.Page(Addr, page_size)`;
-- page-size validation for `Page` instantiations;
-- nested `Page.Size` metadata;
-- nested `Page.Count` page-count values;
-- nested `Page.Frame` page-aligned address values;
-- nested `Page.FrameRange` page-counted half-open ranges;
-- checked byte/page conversions;
-- checked frame arithmetic by page count;
-- range containment and overlap semantics;
-- required tests.
+## What this spec is not
 
-This spec does not own:
+This spec does not define runtime-selected page sizes, page-table formats, TLB or cache behavior, allocation, address discovery, physical dereferencing, virtual-to-physical translation, DMA/IOMMU policy, MMIO access, or root exports. It does not classify guest memory or define UEFI memory policy.
 
-- runtime-selected page-size families;
-- architecture page-table formats;
-- TLB, cache, or hugepage availability policy;
-- UEFI memory types, attributes, descriptors, GCD policy, or map-key behavior;
-- guest memory classification such as usable RAM, reserved memory, MMIO, or DMA eligibility;
-- DMA/IOMMU mapping policy;
-- virtual-to-physical translation;
-- address discovery or physical-address dereferencing;
-- MMIO or volatile access;
-- page allocation algorithms;
-- root exports.
+## Terminology
 
-## Public namespace
+- **page family**: The namespace returned by `Page(Addr, page_size)`.
+- **frame**: A page-aligned address base in a page family.
+- **frame range**: A half-open range of frames.
+- **valid frame range**: A range whose base is valid and whose exclusive end is representable.
 
-Page primitives live under `stdx.addr` and `stdx.addr.pages`:
+## Public namespace and source ownership
+
+The public namespace is `stdx.addr` and `stdx.addr.pages`:
 
 ```zig
 stdx.addr.pages._4kib
@@ -44,18 +29,10 @@ stdx.addr.pages._16kib
 stdx.addr.pages._64kib
 stdx.addr.pages._2mib
 stdx.addr.pages._1gib
-
 stdx.addr.Page
 ```
 
-They are not root-promoted:
-
-```zig
-stdx.Page // not exported
-stdx.PageFrame // not exported
-```
-
-Source ownership:
+Source ownership is:
 
 ```text
 src/addr.zig
@@ -63,15 +40,29 @@ src/addr/pages.zig
 test/addr/pages_test.zig
 ```
 
-`src/addr.zig` re-exports:
+`src/addr.zig` re-exports the `pages` module and `pages.Page`.
 
-```zig
-pub const pages = @import("addr/pages.zig");
+## Cross-spec relationships
 
-pub const Page = pages.Page;
-```
+A page family depends on an address-compatible type as defined by `docs/specs/addr/address.md`. This specification composes address values into page concepts but does not own address-domain policy.
 
-## Approved API
+## Data structures and representation
+
+`Page` stores no runtime page-size field. `Size` is compile-time metadata. `Count` and `Frame` use `enum(AddressInt) { _ }`, where `AddressInt` is `Addr.Raw`. `FrameRange` stores a `Frame` base and a `Count` count. Its fields are intentionally public through the type definition shown in the API.
+
+A page family is identified by both `Addr` and `page_size`. Different address types produce different `Frame` and `FrameRange` types. Different page sizes also produce different `Frame` and `FrameRange` types.
+
+## Global invariants
+
+- `Addr` exposes an unsigned `Raw` type, `fromInt(Raw) Addr`, and `raw(Addr) Raw`; otherwise `Page` causes a compile error.
+- `page_size` is a nonzero power of two representable by `Addr.Raw`; otherwise `Page` causes a compile error.
+- `Count` may represent every `AddressInt` value, including zero.
+- A valid `Frame` has an address integer aligned to `Size.bytes`.
+- A valid `FrameRange` has a valid base and a representable exclusive end.
+- Operations allocate no memory, wait, sleep, spin, access hidden globals, issue atomics or barriers, make syscalls, or probe a target or architecture.
+- Each runtime operation has constant time and does not invalidate values.
+
+## API
 
 ```zig
 pub const _4kib = 4 * 1024;
@@ -83,28 +74,13 @@ pub const _1gib = 1024 * 1024 * 1024;
 pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type;
 ```
 
-`Addr` must be an `addr.Address`-compatible type. It must expose:
-
-```zig
-pub const Raw = unsigned_integer_type;
-pub fn fromInt(value: Raw) Addr;
-pub fn raw(self: Addr) Raw;
-```
-
-`page_size` must be non-zero and a power of two representable by `Addr.Raw`. Invalid `Addr` or invalid `page_size` is a compile error.
-
-Returned namespace:
+`Page` returns this public namespace:
 
 ```zig
 pub const Self = struct {
     pub const Address = Addr;
     pub const AddressInt = Addr.Raw;
-
-    pub const Error = error{
-        Misaligned,
-        Overflow,
-        OutOfBounds,
-    };
+    pub const Error = error{ Misaligned, Overflow, OutOfBounds };
 
     pub const Size = struct {
         pub const bytes: AddressInt = page_size;
@@ -114,503 +90,121 @@ pub const Self = struct {
 
     pub const Count = enum(AddressInt) {
         _,
-
-        const This = @This();
-
-        pub fn fromPages(value: AddressInt) This;
-        pub fn pages(self: This) AddressInt;
-
-        pub fn zero() This;
-        pub fn max() This;
-
-        pub fn fromBytesExact(bytes: AddressInt) Error!This;
-        pub fn fromBytesRoundUp(bytes: AddressInt) Error!This;
-        pub fn toBytes(self: This) Error!AddressInt;
+        pub fn fromPages(value: AddressInt) @This();
+        pub fn pages(self: @This()) AddressInt;
+        pub fn zero() @This();
+        pub fn max() @This();
+        pub fn fromBytesExact(bytes: AddressInt) Error!@This();
+        pub fn fromBytesRoundUp(bytes: AddressInt) Error!@This();
+        pub fn toBytes(self: @This()) Error!AddressInt;
     };
 
     pub const Frame = enum(AddressInt) {
         _,
-
-        const This = @This();
-
-        pub fn fromAddress(address: Addr) Error!This;
-        pub fn fromAddressInt(value: AddressInt) Error!This;
-
-        pub fn address(self: This) Addr;
-        pub fn addressInt(self: This) AddressInt;
-        pub fn frameIndex(self: This) AddressInt;
-
-        pub fn isValid(self: This) bool;
-        pub fn assertValid(self: This) void;
+        pub fn fromAddress(address: Addr) Error!@This();
+        pub fn fromAddressInt(value: AddressInt) Error!@This();
+        pub fn address(self: @This()) Addr;
+        pub fn addressInt(self: @This()) AddressInt;
+        pub fn frameIndex(self: @This()) AddressInt;
+        pub fn isValid(self: @This()) bool;
+        pub fn assertValid(self: @This()) void;
         pub fn isAlignedAddress(address: Addr) bool;
-        pub fn containingAddress(address: Addr) Error!This;
-        pub fn nextAlignedAddress(address: Addr) Error!This;
-
-        pub fn add(self: This, count: Count) Error!This;
-        pub fn sub(self: This, count: Count) Error!This;
+        pub fn containingAddress(address: Addr) Error!@This();
+        pub fn nextAlignedAddress(address: Addr) Error!@This();
+        pub fn add(self: @This(), count: Count) Error!@This();
+        pub fn sub(self: @This(), count: Count) Error!@This();
     };
 
     pub const FrameRange = struct {
         base: Frame,
         count: Count,
-
-        const This = @This();
-
-        pub fn fromBaseCount(base: Frame, count: Count) Error!This;
-        pub fn fromAddressBytes(base: Addr, bytes: AddressInt) Error!This;
-        pub fn fromAddressByteSpan(start: Addr, byte_len: AddressInt) Error!This;
-        pub fn empty(at: Frame) This;
-
-        pub fn isValid(self: This) bool;
-        pub fn assertValid(self: This) void;
-
-        pub fn isEmpty(self: This) bool;
-        pub fn byteLen(self: This) AddressInt;
-        pub fn end(self: This) Frame;
-
-        pub fn containsFrame(self: This, frame: Frame) bool;
-        pub fn containsAddress(self: This, address: Addr) bool;
-        pub fn containsFrameRange(self: This, other: This) bool;
-        pub fn overlaps(self: This, other: This) bool;
-        pub fn isAdjacent(self: This, other: This) bool;
-
-        pub fn intersection(self: This, other: This) ?This;
-        pub fn span(self: This, other: This) This;
-        pub fn splitAt(self: This, at: Frame) Error!struct { left: This, right: This };
+        pub fn fromBaseCount(base: Frame, count: Count) Error!@This();
+        pub fn fromAddressBytes(base: Addr, bytes: AddressInt) Error!@This();
+        pub fn fromAddressByteSpan(start: Addr, byte_len: AddressInt) Error!@This();
+        pub fn empty(at: Frame) @This();
+        pub fn isValid(self: @This()) bool;
+        pub fn assertValid(self: @This()) void;
+        pub fn isEmpty(self: @This()) bool;
+        pub fn byteLen(self: @This()) AddressInt;
+        pub fn end(self: @This()) Frame;
+        pub fn containsFrame(self: @This(), frame: Frame) bool;
+        pub fn containsAddress(self: @This(), address: Addr) bool;
+        pub fn containsFrameRange(self: @This(), other: @This()) bool;
+        pub fn overlaps(self: @This(), other: @This()) bool;
+        pub fn isAdjacent(self: @This(), other: @This()) bool;
+        pub fn intersection(self: @This(), other: @This()) ?@This();
+        pub fn span(self: @This(), other: @This()) @This();
+        pub fn splitAt(self: @This(), at: Frame) Error!struct { left: @This(), right: @This() };
     };
 };
 ```
 
-`Self` above describes the returned namespace. Implementations do not need to declare a public symbol named `Self`.
+## Page-size constants and `Size`
 
-## Page-size constants
+The constants are exact byte counts: `_4kib` is `4096`, `_16kib` is `16384`, `_64kib` is `65536`, `_2mib` is `2097152`, and `_1gib` is `1073741824`. They do not imply architecture support, allocation policy, a default page size, or page-table behavior.
 
-The constants under `addr.pages` are exact byte counts:
+`Size.bytes` equals `page_size`. `Size.mask` equals `Size.bytes - 1`. `Size.shift` equals `@ctz(Size.bytes)`, which is `log2(Size.bytes)` because page size is a power of two. `Size` performs no runtime work.
 
-| Constant | Value | Intended use |
-| --- | ---: | --- |
-| `_4kib` | `4096` | UEFI pages, common base pages |
-| `_16kib` | `16384` | common configurable base pages |
-| `_64kib` | `65536` | common configurable base pages |
-| `_2mib` | `2097152` | common large pages |
-| `_1gib` | `1073741824` | common large pages |
+## `Count` contract
 
-The constants do not imply architecture support, page-table support, hugepage availability, TLB behavior, allocation policy, or default page size. Consumers choose the exact constant their domain requires.
+`fromPages` wraps an `AddressInt` page count without validation. `pages` returns the exact backing count. `zero` returns zero, and `max` returns `std.math.maxInt(AddressInt)`.
 
-## Page family identity
+`fromBytesExact` converts a byte count to pages when the byte count is an exact multiple of `Size.bytes`; otherwise it returns `error.Misaligned`.
 
-`Page(Addr, page_size)` binds three facts into one namespace:
+`fromBytesRoundUp` returns the smallest page count with byte capacity greater than or equal to `bytes`. It returns zero for zero bytes. It returns `error.Overflow` if adding the rounding offset is not representable by `AddressInt`.
 
-- address domain: `Addr`;
-- address integer type: `Addr.Raw`, exposed in the page family as `AddressInt`;
-- page size in bytes: `page_size`.
+`toBytes` returns `pages() * Size.bytes`. It returns `error.Overflow` if the product is not representable by `AddressInt`.
 
-Different address domains produce different frame and range types even when `page_size` matches:
+## `Frame` contract
 
-```zig
-const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
-const Virt4K = stdx.addr.Page(stdx.addr.VirtAddr, stdx.addr.pages._4kib);
+`Frame` represents a page-aligned address base, not a page-frame number. `fromAddress` returns `error.Misaligned` unless the address is aligned to `Size.bytes`. `fromAddressInt` applies the same rule to `Addr.fromInt(value)`.
 
-// Phys4K.Frame and Virt4K.Frame are distinct types.
-```
+`address` returns the address-domain frame base. `addressInt` returns its raw integer. `frameIndex` returns `addressInt() >> Size.shift`.
 
-Different page sizes produce different frame and range types even when `Addr` matches:
+`isValid` returns whether the stored address integer is aligned. `assertValid` asserts that condition and is for programmer errors and internal invariant checks, not external input validation. `isAlignedAddress` returns whether its address argument is aligned.
 
-```zig
-const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
-const Phys2M = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._2mib);
+`containingAddress` returns the frame at the page boundary at or below `address`. `nextAlignedAddress` returns the frame at `address` when it is aligned; otherwise it returns the next page boundary. `nextAlignedAddress` returns `error.Overflow` if its rounding addition is not representable.
 
-// Phys4K.Frame and Phys2M.Frame are distinct types.
-```
+`add` and `sub` move a frame by `count` pages. They return `error.Overflow` if conversion of `count` to bytes or the resulting address arithmetic is not representable.
 
-## `Size` semantics
+## `FrameRange` contract
 
-`Size.bytes` is the exact comptime page size.
+A `FrameRange` represents `[base, base + count)`. `fromBaseCount` returns a range only when its exclusive end is representable; otherwise it returns `error.Overflow`.
 
-`Size.mask` is `Size.bytes - 1` and may be used for alignment checks.
+`fromAddressBytes` requires a page-aligned base and an exact page-multiple length. It returns the errors from `Frame.fromAddress`, `Count.fromBytesExact`, or `fromBaseCount`.
 
-`Size.shift` is `log2(Size.bytes)` and may be used for shifts where the implementation has already validated that `Size.bytes` is a power of two.
+`fromAddressByteSpan` covers the byte interval derived by rounding `start` down and `start + byte_len` up. It returns `error.Overflow` if addition of `byte_len` to `start` or upward rounding is not representable.
 
-`Size` performs no runtime work. It is metadata for the `Page` instantiation.
+`empty(at)` returns a valid zero-count range at `at`. `isValid` checks base alignment and representability of the exclusive end. `assertValid` asserts `isValid`.
 
-## `Count` semantics
+`isEmpty` returns whether the count is zero. `byteLen` returns the count in bytes. `end` returns the exclusive end frame. The receiver of `byteLen` and `end` MUST be valid; an invalid receiver is a programmer error.
 
-`Count` is a page count backed by `AddressInt` (`Addr.Raw`). Every `AddressInt` value is a valid count, including zero.
+`containsFrame` tests membership in `[base, end)`. `containsAddress` tests membership in `[base.addressInt(), end().addressInt())` and does not require alignment. `containsFrameRange` returns true when every frame in `other` is contained; an empty range is contained when its boundary is at or within either boundary of `self`.
 
-`fromPages(value)` wraps a page count without allocation or validation.
+`overlaps` returns true only for a non-empty intersection. Empty and merely adjacent ranges do not overlap. `isAdjacent` returns true when either exclusive end equals the other base; this rule also applies to empty ranges.
 
-`pages()` returns the exact backing page count.
+`intersection` returns the non-empty intersection or `null` for disjoint, adjacent, or empty inputs. `span` returns the smallest valid range that covers both inputs and any gap. `splitAt` returns `{ left, right }` with `left = [base, at)` and `right = [at, end)`. It returns `error.OutOfBounds` unless `at` is in `[base, end]`.
 
-`zero()` returns count `0`.
+Every `FrameRange` operation other than `isValid` and `assertValid` requires valid receivers. `splitAt` also requires a valid `at` frame. Invalid values violate the caller contract and can trigger debug assertions.
 
-`max()` returns `std.math.maxInt(AddressInt)` in the count domain.
+## Errors and fault behavior
 
-`fromBytesExact(bytes)` converts a byte count to pages. It returns `error.Misaligned` when `bytes` is not an exact multiple of `Size.bytes`.
-
-Required behavior:
-
-```zig
-(try Count.fromBytesExact(0)).pages() == 0
-(try Count.fromBytesExact(Size.bytes)).pages() == 1
-(try Count.fromBytesExact(Size.bytes * 2)).pages() == 2
-Count.fromBytesExact(Size.bytes + 1) == error.Misaligned
-```
-
-`fromBytesRoundUp(bytes)` returns the smallest page count whose byte capacity is greater than or equal to `bytes`. It returns `error.Overflow` when rounding up would overflow `AddressInt`.
-
-Required behavior:
-
-```zig
-(try Count.fromBytesRoundUp(0)).pages() == 0
-(try Count.fromBytesRoundUp(1)).pages() == 1
-(try Count.fromBytesRoundUp(Size.bytes)).pages() == 1
-(try Count.fromBytesRoundUp(Size.bytes + 1)).pages() == 2
-```
-
-`toBytes()` returns `pages() * Size.bytes`. It returns `error.Overflow` when multiplication overflows `AddressInt`.
-
-## `Frame` semantics
-
-`Frame` is a validated page-aligned address base represented as `enum(AddressInt)`. It is not a PFN-only or page-index value. `addressInt()` returns the aligned address integer; `index()` returns the page index.
-
-`fromAddress(address)` returns `error.Misaligned` when `address.raw()` is not a multiple of `Size.bytes`.
-
-`fromAddressInt(value)` is equivalent to:
-
-```zig
-Frame.fromAddress(Addr.fromInt(value))
-```
-
-`address()` returns the address-domain value for the frame base.
-
-`addressInt()` returns the aligned address integer.
-
-`index()` returns the page index:
-
-```zig
-addressInt() >> Size.shift
-```
-
-Because `Frame` stores an address base, `address()` and `addressInt()` are infallible for valid frames.
-
-`isValid()` returns true when the stored address integer is aligned to `Size.bytes`.
-
-`assertValid()` asserts `isValid()`. It is for programmer errors and internal invariant checks, not external input validation.
-
-`isAlignedAddress(address)` returns true iff `address.raw()` is aligned to `Size.bytes`.
-
-`add(count)` adds `count` pages to the frame. It returns `error.Overflow` when `count.toBytes()` overflows or adding the byte count to the frame address overflows.
-
-`sub(count)` subtracts `count` pages from the frame. It returns `error.Overflow` when `count.toBytes()` overflows or subtracting the byte count from the frame address underflows.
-
-`containingAddress(address)` returns the frame whose page contains `address`, rounding down to the previous `Size.bytes` boundary. Returns `error.Overflow` only when `Addr.alignDown` is fallible for the target address type (does not happen for built-in addresses).
-
-`nextAlignedAddress(address)` returns the frame at or after `address`, rounding up to the next `Size.bytes` boundary. Returns `error.Overflow` when `Addr.alignUp` overflows.
-
-## `FrameRange` semantics
-
-`FrameRange` is a half-open page range:
-
-```text
-[base, base + count)
-```
-
-`base` is the first frame in the range. `count` is the number of frames. A range is valid when `base.add(count)` succeeds.
-
-`fromBaseCount(base, count)` returns a valid range or `error.Overflow` when the exclusive end frame is not representable.
-
-`fromAddressBytes(base, bytes)` is equivalent to:
-
-```zig
-const frame = try Frame.fromAddress(base);
-const count = try Count.fromBytesExact(bytes);
-return FrameRange.fromBaseCount(frame, count);
-```
-
-`fromAddressByteSpan(start, byte_len)` covers `[start, start + byte_len)` in whole pages. It rounds `start` down to the previous page boundary and `start + byte_len` up to the next, then returns the resulting frame range. Returns `error.Overflow` when alignment rounding overflows.
-
-`empty(at)` returns a valid empty range at `at`.
-
-`isValid()` returns true when `base.add(count)` succeeds and `base` is valid.
-
-`assertValid()` asserts `isValid()`. It is for programmer errors and internal invariant checks, not external input validation.
-
-`isEmpty()` returns true when `count.pages() == 0`.
-
-`byteLen()` returns `count.toBytes()` unwrapped; valid ranges are guaranteed by the invariant to fit in `AddressInt`. Calling `byteLen()` on an invalid range is a programmer error.
-
-`end()` returns the exclusive end frame. Calling `end()` on an invalid range is a programmer error.
-
-`containsFrame(frame)` returns true when `frame` is in `[base, end)`.
-
-`containsAddress(address)` returns true when `address` is in the byte interval covered by the range:
-
-```zig
-base.addressInt() <= address.raw() and address.raw() < end().addressInt()
-```
-
-It does not require `address` to be page-aligned.
-
-`containsFrameRange(other)` returns true when every frame in `other` lies in `self`. Empty ranges are contained if their boundary lies inside the containing range or on either boundary.
-
-`overlaps(other)` returns true only for a non-empty frame intersection. Empty ranges never overlap.
-
-`isAdjacent(other)` returns true when the exclusive end of one range equals the base of the other range. Empty ranges may be adjacent by the same boundary rule.
-
-`intersection(other)` returns the non-empty intersection of `self` and `other`, or `null` when they do not overlap.
-
-`span(other)` returns the smallest range covering both inputs, including any gap. Never overflows because the resulting bounds already exist in `self` or `other`.
-
-`splitAt(at)` splits the range at frame `at`. Returns `{ left, right }` where `left = [base, at)` and `right = [at, end)`. Returns `error.OutOfBounds` when `at` lies outside `[base, end]`.
-
-Methods other than `isValid` and `assertValid` require a valid receiver. Implementations may call `assertValid` when automatic checks are enabled.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| constants | none | none | comptime | none | value-only | none |
-| `Page` instantiation | none | none | comptime | none | type-only | none |
-| `Size` metadata | none | none | comptime | none | value-only | none |
-| `Count.fromPages` | never | never | O(1) | none | value type | none |
-| `Count.pages` | never | never | O(1) | none | value type | none |
-| `Count.zero` | never | never | O(1) | none | value type | none |
-| `Count.max` | never | never | O(1) | none | value type | none |
-| `Count.fromBytesExact` | never | never | O(1) | none | value type | none |
-| `Count.fromBytesRoundUp` | never | never | O(1) | none | value type | none |
-| `Count.toBytes` | never | never | O(1) | none | value type | none |
-| `Frame.fromAddress` | never | never | O(1) | none | value type | none |
-| `Frame.fromAddressInt` | never | never | O(1) | none | value type | none |
-| `Frame.address` | never | never | O(1) | none | value type | none |
-| `Frame.addressInt` | never | never | O(1) | none | value type | none |
-| `Frame.frameIndex` | never | never | O(1) | none | value type | none |
-| `Frame.isValid` | never | never | O(1) | none | value type | none |
-| `Frame.assertValid` | never | never | O(1) | none | value type | none |
-| `Frame.isAlignedAddress` | never | never | O(1) | none | value type | none |
-| `Frame.add` | never | never | O(1) | none | value type | none |
-| `Frame.sub` | never | never | O(1) | none | value type | none |
-| `FrameRange.fromBaseCount` | never | never | O(1) | none | value type | none |
-| `FrameRange.fromAddressBytes` | never | never | O(1) | none | value type | none |
-| `FrameRange.empty` | never | never | O(1) | none | value type | none |
-| `FrameRange.isValid` | never | never | O(1) | none | value type | none |
-| `FrameRange.assertValid` | never | never | O(1) | none | value type | none |
-| `FrameRange.isEmpty` | never | never | O(1) | none | value type | none |
-| `FrameRange.byteLen` | never | never | O(1) | none | value type | none |
-| `FrameRange.end` | never | never | O(1) | none | value type | none |
-| `FrameRange.containsFrame` | never | never | O(1) | none | value type | none |
-| `FrameRange.containsAddress` | never | never | O(1) | none | value type | none |
-| `FrameRange.containsFrameRange` | never | never | O(1) | none | value type | none |
-| `FrameRange.overlaps` | never | never | O(1) | none | value type | none |
-| `FrameRange.isAdjacent` | never | never | O(1) | none | value type | none |
-| `Frame.containingAddress` | never | never | O(1) | none | value type | none |
-| `Frame.nextAlignedAddress` | never | never | O(1) | none | value type | none |
-| `FrameRange.fromAddressByteSpan` | never | never | O(1) | none | value type | none |
-| `FrameRange.intersection` | never | never | O(1) | none | value type | none |
-| `FrameRange.span` | never | never | O(1) | none | value type | none |
-| `FrameRange.splitAt` | never | never | O(1) | none | value type | none |
-
-These helpers perform no allocation, waiting, sleeping, spinning, hidden global access, atomics, barriers, syscalls, target probing, or architecture probing.
-
-## Error behavior
-
-- invalid `Addr` is a compile error;
-- invalid `page_size` is a compile error;
-- byte counts not exactly divisible by `Size.bytes` return `error.Misaligned` from exact conversions;
-- address integers or address values not aligned to `Size.bytes` return `error.Misaligned` from frame constructors;
-- arithmetic overflow or underflow returns `error.Overflow`;
-- `splitAt` boundaries outside `[base, end]` return `error.OutOfBounds`;
-- methods that require a valid receiver may assert on invalid `Frame` or `FrameRange` values.
-
-## Debug assertion behavior
-
-`Frame.assertValid()` checks frame alignment.
-
-`FrameRange.assertValid()` checks:
-
-- `base.isValid()`;
-- `base.add(count)` succeeds.
-
-Explicit `assertValid()` calls always perform the check.
-
-Automatic invariant checks inside operations, if implemented, must be gated through `stdx.core.debug.checksEnabled` when the operation exposes a `SafetyMode` option. This spec does not require `Page` operations to expose a `SafetyMode` option.
-
-Assertions document programmer errors. Malformed external inputs must use the error-returning constructors and conversion APIs.
+- Invalid `Addr` and `page_size` cause compile errors.
+- Exact byte conversion and frame construction return `error.Misaligned` for an unaligned value.
+- Checked conversion, rounding, range construction, and frame arithmetic return `error.Overflow` for unrepresentable arithmetic.
+- `splitAt` returns `error.OutOfBounds` outside its inclusive split boundaries.
+- Assertions identify invalid internal or caller-constructed `Frame` and `FrameRange` values; callers MUST use error-returning construction operations for malformed external input.
 
 ## Implementation constraints
 
-Implementation must:
+The implementation MUST validate `Addr.Raw` and `page_size` at compile time. It MUST not store a runtime page-size field. It MUST use `enum(AddressInt) { _ }` for `Count` and `Frame`, expose `AddressInt` rather than a page-family `Raw` alias, use checked arithmetic where overflow or underflow is possible, and avoid loops, target probing, and architecture probing. Page constants MUST remain policy-free exact byte counts.
 
-- validate `Addr.Raw` is an unsigned integer type at compile time;
-- validate `page_size` is non-zero and a power of two at compile time;
-- avoid storing a page-size runtime field;
-- use `enum(AddressInt) { _ }` for `Count`;
-- use `enum(AddressInt) { _ }` for `Frame`;
-- do not expose a page-family alias named `Raw`; use `AddressInt` for the `Addr.Raw` integer when the page namespace needs a public integer alias;
-- avoid unchecked arithmetic overflow and underflow;
-- avoid loops;
-- avoid target or architecture probing;
-- keep all page constants policy-free exact byte counts;
-- keep `Page` under `addr`, not root.
+## Testing
 
-Implementation may reuse `stdx.bits.isPowerOfTwo` and `stdx.addr.Address` arithmetic when behavior exactly matches this spec.
+Tests MUST instantiate physical and virtual four-KiB families, a custom wide address family, and a small unsigned address family. Compile-time checks MUST verify `Size` metadata and prove that family identity depends on both address type and page size. When the test harness supports expected compile failures, it MUST reject invalid page-size and address-family inputs. These methods verify strong type separation and compile-time validation.
 
-## Usage
+Constant tests MUST verify the exact byte representation and comptime usability of each public page-size constant. `Count` tests MUST verify page/raw round trips, zero and maximum values, exact conversion, round-up conversion, and multiplication at successful and overflowing boundaries. These tests prove that byte/page conversion retains units and reports unrepresentable results.
 
-Physical page family:
+`Frame` tests MUST verify aligned construction, rejection of unaligned construction, address and index conversion, alignment predicates, containing and next-boundary rounding, and page-count arithmetic at success and overflow boundaries. These tests prove that frames remain aligned and cannot wrap.
 
-```zig
-const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
-
-const base = try Phys4K.Frame.fromAddressInt(0x1000);
-const count = Phys4K.Count.fromPages(16);
-const range = try Phys4K.FrameRange.fromBaseCount(base, count);
-
-_ = range;
-```
-
-Custom guest-physical page family:
-
-```zig
-const GpaTag = opaque {};
-const Gpa = stdx.addr.Address(GpaTag, u64);
-const Gpa4K = stdx.addr.Page(Gpa, stdx.addr.pages._4kib);
-
-const base = try Gpa4K.Frame.fromAddress(Gpa.fromInt(0x0010_0000));
-const pages = try Gpa4K.Count.fromBytesExact(2 * stdx.addr.pages._4kib);
-const range = try Gpa4K.FrameRange.fromBaseCount(base, pages);
-
-_ = range;
-```
-
-Rounded byte capacity:
-
-```zig
-const Phys4K = stdx.addr.Page(stdx.addr.PhysAddr, stdx.addr.pages._4kib);
-
-const pages = try Phys4K.Count.fromBytesRoundUp(blob_len);
-const backing_bytes = try pages.toBytes();
-
-_ = backing_bytes;
-```
-
-Sub-page and unaligned wire addresses stay outside `Page`:
-
-```zig
-const hpet_register = stdx.addr.PhysAddr.fromInt(0xFED0_00F0);
-_ = hpet_register;
-```
-
-Callers must not force arbitrary MMIO windows, PIO windows, ACPI table addresses, or packed wire addresses into `Page.Frame` unless the owning domain has a real page-alignment contract.
-
-## Required tests
-
-Required for at least:
-
-- `Page(addr.PhysAddr, pages._4kib)`;
-- `Page(addr.VirtAddr, pages._4kib)` where practical;
-- one custom `Address(Tag, u64)` type;
-- one small custom `Address(Tag, u8)` or similar small unsigned width with a small page size such as `4`.
-
-### Constants
-
-- constants equal their exact byte counts;
-- constants are usable as comptime `page_size` arguments;
-- constants do not require architecture-specific imports.
-
-### Page instantiation
-
-Where practical:
-
-- invalid page size `0` fails to instantiate;
-- non-power-of-two page size fails to instantiate;
-- invalid `Addr` type fails to instantiate;
-- `Size.bytes`, `Size.mask`, and `Size.shift` match the page size.
-
-### Count
-
-- `fromPages` and `pages` round trip `0`, `1`, and a non-trivial value;
-- `zero().pages()` returns `0`;
-- `max().pages()` returns `std.math.maxInt(AddressInt)`;
-- `fromBytesExact(0)` returns `0` pages;
-- exact multiples convert to the expected count;
-- non-exact byte counts return `error.Misaligned`;
-- `fromBytesRoundUp(0)` returns `0` pages;
-- values smaller than one page round up to one page;
-- non-exact multiples round up;
-- round-up overflow returns `error.Overflow`;
-- `toBytes` returns expected byte counts;
-- `toBytes` overflow returns `error.Overflow`.
-
-### Frame
-
-- `fromAddressInt` accepts aligned address integers;
-- `fromAddressInt` rejects misaligned address integers;
-- `fromAddress` accepts aligned addresses;
-- `fromAddress` rejects misaligned addresses;
-- `addressInt` and `address` return the aligned base;
-- `index` returns `addressInt / Size.bytes`;
-- `isValid` distinguishes aligned and misaligned enum values where practical;
-- `assertValid` succeeds for a frame constructed through `fromAddressInt`;
-- `isAlignedAddress` covers aligned and unaligned addresses;
-- `add` advances by pages;
-- `add` catches overflow;
-- `sub` moves backward by pages;
-- `sub` catches underflow.
-
-### FrameRange
-
-- `fromBaseCount` accepts zero count and non-zero count;
-- `fromBaseCount` catches end overflow;
-- `fromAddressBytes` accepts aligned base and exact byte length;
-- `fromAddressBytes` rejects misaligned base;
-- `fromAddressBytes` rejects non-exact byte length;
-- `empty` creates a valid empty range;
-- `isValid` and `assertValid` cover valid ranges;
-- `isEmpty` covers empty and non-empty ranges;
-- `byteLen` covers zero and non-zero counts;
-- `end` returns the exclusive end frame;
-- `containsFrame` includes the base and excludes the end;
-- `containsAddress` includes byte addresses inside the range and excludes the end address;
-- `containsAddress` does not require the queried address to be page-aligned;
-- `containsFrameRange` handles empty ranges at start and end;
-- `overlaps` rejects adjacent ranges and empty intersections;
-- `isAdjacent` detects boundary contact;
-- `fromAddressByteSpan` rounds unaligned start down and end up;
-- `fromAddressByteSpan` catches rounding overflow;
-- `intersection` returns null for disjoint or adjacent ranges and returns the shared non-empty range;
-- `span` covers both ranges including gaps;
-- `splitAt` splits at start, middle, and end;
-- `splitAt` rejects frames outside `[base, end]` with `error.OutOfBounds`.
-
-### Type identity
-
-- same `Addr` and same `page_size` produce the same `Frame` and `FrameRange` types;
-- different `Addr` with the same `page_size` produces different `Frame` and `FrameRange` types;
-- same `Addr` with different `page_size` produces different `Frame` and `FrameRange` types;
-- `Phys4K.Frame` is not assignment-compatible with `Virt4K.Frame` where practical;
-- `Phys4K.FrameRange` is not assignment-compatible with `Phys2M.FrameRange` where practical.
-
-### Compile-time behavior
-
-Where practical:
-
-```zig
-comptime {
-    const A = stdx.addr.Address(enum { a }, u8);
-    const A4 = stdx.addr.Page(A, 4);
-
-    std.debug.assert(A4.Size.bytes == 4);
-    std.debug.assert(A4.Size.mask == 3);
-    std.debug.assert(A4.Size.shift == 2);
-
-    const frame = try A4.Frame.fromAddressInt(8);
-    std.debug.assert(frame.frameIndex() == 2);
-
-    const count = try A4.Count.fromBytesRoundUp(7);
-    std.debug.assert(count.pages() == 2);
-}
-```
-
-## Open questions
-
-None.
+`FrameRange` tests MUST verify valid empty and non-empty construction, exact-byte construction, rounded byte spans, end and byte length, half-open containment, empty-range containment, overlap, adjacency, intersection, spanning gaps, and splitting at both boundaries and an interior point. Tests MUST also verify overflow and `error.OutOfBounds` boundaries. These tests prove range representation, interval semantics, and no-wrap behavior.

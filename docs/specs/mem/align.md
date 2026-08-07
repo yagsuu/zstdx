@@ -5,7 +5,7 @@ Status: Approved.
 `stdx.mem` owns small unsigned-integer alignment helpers used by allocators,
 fixed storage, byte layout, address lowering, and bounded data structures.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -19,7 +19,7 @@ This spec owns:
 - overflow behavior;
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
 - pointer alignment wrappers;
 - allocator alignment policy;
@@ -29,7 +29,7 @@ This spec does not own:
 - non-power-of-two alignment;
 - signed integer support.
 
-## Public namespace
+## Public namespace and source ownership
 
 Alignment helpers live under `stdx.mem`:
 
@@ -39,12 +39,6 @@ stdx.mem.alignDown
 stdx.mem.isAligned
 stdx.mem.alignUpDelta
 stdx.mem.alignDownDelta
-```
-
-They are not root-promoted:
-
-```zig
-stdx.alignUp // not exported
 ```
 
 Source ownership:
@@ -66,7 +60,7 @@ pub const alignUpDelta = @"align".alignUpDelta;
 pub const alignDownDelta = @"align".alignDownDelta;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const AlignError = error{InvalidAlignment};
@@ -187,7 +181,8 @@ Implementation must:
 - compile for all unsigned integer widths Zig supports;
 - produce a compile error for invalid `T`.
 
-## Required tests
+## Testing
+Verification uses table-driven boundary cases for valid and invalid alignments, maximum unsigned values, and three integer widths; compile-time instantiation checks enforce the type restriction. These checks prove rounding identities, overflow reporting, and the assertion-only predicate contract without depending on a particular implementation expression.
 
 Required for `usize`, `u8`, and at least one non-native width such as `u17`.
 
@@ -222,10 +217,7 @@ Required for `usize`, `u8`, and at least one non-native width such as `u17`.
 
 ### Compile-time and type tests
 
-Where practical:
-
-- signed integer instantiation fails;
-- bool and floats are rejected;
+The test suite instantiates only supported unsigned integer types. Rejection of signed integers, `bool`, and floating-point types is a compile-time contract and is not exercised by a compile-fail test.
 - comptime evaluation works:
 
 ```zig
@@ -235,7 +227,3 @@ comptime {
     std.debug.assert(stdx.mem.isAligned(u8, 8, 4));
 }
 ```
-
-## Open questions
-
-None.

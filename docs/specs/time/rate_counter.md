@@ -14,7 +14,7 @@ owns any register storage, status bit, or interrupt delivery.
 never parks, and never touches the backend beyond calling
 `Backend.now()`.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -30,7 +30,7 @@ This spec owns:
   `stdx.core.debug.checksEnabled`;
 - required tests.
 
-## Deferred scope and non-goals
+## What this spec is not
 
 This spec does not own:
 
@@ -45,7 +45,6 @@ This spec does not own:
   `Clock.Monotonic`;
 - mutation of identity fields (`base`, `rate_hz`, `width_bits`) after
   `init`;
-- root promotion of `RateCounter`.
 
 ## Public namespace
 
@@ -55,12 +54,6 @@ This spec does not own:
 stdx.time.RateCounter
 stdx.time.RateCounter.Config
 stdx.time.RateCounter.Sample
-```
-
-It is not root-promoted:
-
-```zig
-stdx.RateCounter // not exported
 ```
 
 Source ownership:
@@ -82,7 +75,7 @@ pub const RateCounter = rate_counter.RateCounter;
 `src/time.zig` is a thin facade. It contains no logic beyond re-exporting
 and aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const RateCounter = struct {
@@ -119,12 +112,6 @@ pub const RateCounter = struct {
 inspection. Callers must not mutate them; a geometry change is a fresh
 `RateCounter`. `last_wrap_count` is mutated by `sample` and `reset`;
 callers must not write it.
-
-There is no `RateCounter.rate`, no `RateCounter.periodNanos`, and no
-identity-field setter. There is no wrap-boundary scheduling method;
-consumers that need wrap-boundary interrupts derive the next wrap
-`Instant` from `base`, `rate_hz`, `width_bits`, and `last_wrap_count`,
-then arm a `Deadline` or a hardware timer themselves.
 
 ## Clock parameter
 
@@ -248,121 +235,11 @@ via a projected `Config`. Runs unconditionally. `RateCounter.init` calls
 supplied clock backend is safe from that context. The primitive itself
 performs no allocation, no locking, no syscall, and no atomic operation.
 
-## Debug assertion behavior
+## Testing
 
-`RateCounter.init` calls `config.assertValid()` under
-`stdx.core.debug.checksEnabled(.build_mode)`. Explicit
-`RateCounter.assertValid` calls run unconditionally, matching the
-`assertValid` convention in `core/debug.md`.
+Testing MUST use a caller-controlled `FakeClock` and must not read a real clock. This method isolates the projection and wrap detector from backend timing.
 
-`RateCounter.peek` and `RateCounter.sample` assert
-`now.afterOrEq(self.base)` under
-`stdx.core.debug.checksEnabled(.build_mode)`.
-
-Common misconfigurations caught by the debug checks:
-
-- `rate_hz == 0`;
-- `width_bits == 0` or `width_bits > 64`;
-- `base` anchored ahead of the clock's current reading.
-
-## std.Io lane
-
-`RateCounter` is freestanding-safe: no vtable, no runtime, no
-allocation, no wait. It composes identically inside a downstream
-`std.Io` backend and outside one.
-
-## Examples
-
-ACPI PM timer emulation (24-bit @ 3.579545 MHz, wrap raises `TMR_STS`):
-
-```zig
-const stdx = @import("stdx");
-const time = stdx.time;
-
-var pm_timer: time.RateCounter = .init(.{
-    .base = clock.now(),
-    .rate_hz = 3_579_545,
-    .width_bits = 24,
-});
-
-fn readPmTmr(clock: anytype, pm1_sts: *PmStatus) u32 {
-    const s = pm_timer.sample(clock);
-    if (s.wrapped) pm1_sts.raiseTmrSts();
-    return @intCast(s.value);
-}
-```
-
-HPET main counter emulation (64-bit @ 10 MHz, no wrap in practice):
-
-```zig
-var hpet_main: time.RateCounter = .init(.{
-    .base = clock.now(),
-    .rate_hz = 10_000_000,
-    .width_bits = 64,
-});
-
-fn readHpetMain(clock: anytype) u64 {
-    return hpet_main.peek(clock);
-}
-```
-
-Re-anchoring on a virtual machine warm reset:
-
-```zig
-fn onVmReset(pm_timer: *time.RateCounter, clock: anytype) void {
-    pm_timer.reset(clock);
-}
-```
-
-## Required tests
-
-Tests live in `test/time/rate_counter_test.zig` and use a `FakeClock`
-returning a caller-controlled `Instant`; no real monotonic clock is
-required.
-
-Required tests:
-
-- `Config.assertValid` traps on `rate_hz == 0`;
-- `Config.assertValid` traps on `width_bits == 0`;
-- `Config.assertValid` traps on `width_bits > 64` for values `65..127`
-  within the `u7` domain;
-- `init(config)` under `checksEnabled(.build_mode)` traps on invalid
-  config;
-- `init(config)` sets `last_wrap_count = 0` and copies identity fields
-  verbatim;
-- `peek` at `clock.now() == base` returns `0`;
-- `peek` at `clock.now() == base + 1s` for `rate_hz = 10` returns `10`;
-- `peek` masks to `width_bits`: at `rate_hz = 3_579_545`,
-  `width_bits = 24`, and an elapsed sufficient to overflow 24 bits, the
-  returned value equals `unbounded_ticks & 0xFF_FFFF`;
-- `peek` at `width_bits = 64` returns the full unbounded tick count
-  within the `u64` domain;
-- Two consecutive `peek` calls at the same clock reading return the
-  same value;
-- `peek` does not update `last_wrap_count`: a `peek` between two
-  `sample` calls that straddle a wrap boundary still reports
-  `wrapped = true` on the second `sample`;
-- `sample` at `clock.now() == base` returns
-  `.{ .value = 0, .wrapped = false }`;
-- `sample` across one wrap boundary returns `wrapped = true` exactly
-  once;
-- `sample` across multiple wrap boundaries in one call returns
-  `wrapped = true` (single event, not per-wrap);
-- `sample` at `width_bits = 64` always returns `wrapped = false`;
-- `sample` exactly at the wrap boundary (unbounded ticks divisible by
-  `1 << width_bits`) counts as a wrap on that call;
-- `reset(clock)` re-anchors `base` and clears `last_wrap_count`; the
-  next `sample` reports `wrapped = false`;
-- `peek` and `sample` under `checksEnabled(.build_mode)` trap when
-  `clock.now()` returns an instant before `base`;
-- `peek` and `sample` under `checksEnabled == false` do not fault when
-  given the same `now < base` input;
-- Compile-only: passing a clock without `now(*Self) Instant` is
-  rejected;
-- Compile-only: `@sizeOf(RateCounter)` is stable, asserted against a
-  fixed value in the type body;
-- Non-x86 build compiles the module.
-
-## Open questions
-
-None.
+- Boundary and validation tests verify that invalid `rate_hz` and `width_bits` values trap, that `init` copies the identity fields and clears `last_wrap_count`, and that debug-only checks reject a clock reading before `base` while release-mode behavior does not add that trap.
+- Projection-model tests compare `peek` with the specified `u128` formula across the anchor, whole-second conversion, masked widths, and `width_bits == 64`. They prove masking and intermediate-overflow behavior without relying on a backend.
+- Transition tests drive the fake clock across zero, an exact wrap boundary, and multiple wrap intervals. They verify that `sample` reports one wrap event per sampling interval, `peek` does not alter detector state, and `reset` re-anchors and suppresses the next wrap report.
+- Compile-time tests reject clocks without `now(*Self) Instant`, verify the fixed `RateCounter` size assertion, and compile the module for a non-x86 target. These tests prove the clock seam and representation constraints.

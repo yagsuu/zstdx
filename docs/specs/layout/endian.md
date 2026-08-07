@@ -2,44 +2,34 @@
 
 Status: Approved.
 
-`stdx.layout.EndianInt(T, endian)` is a byte-stable integer storage type.
-`stdx.layout.Le(T)` and `stdx.layout.Be(T)` specialize it for little-endian
-and big-endian fields.
+`stdx.layout.EndianInt(T, endian)` defines an unsigned integer storage type with an explicit, byte-stable order.
 
-Endian wrappers model wire, ABI, and persisted integer lanes whose byte order is
-part of the data contract. They are storage types, not readers, cursors, or
-semantic validators.
+## What this spec is
 
-## Owned scope
+This spec defines:
 
-This spec owns:
-
-- `layout.EndianInt(T, endian)`;
-- `layout.Le(T)`;
-- `layout.Be(T)`;
-- endian integer storage wrappers;
-- unsigned byte-aligned integer type restrictions;
-- native integer conversion;
-- exact byte-count and alignment guarantees;
-- composition with standard byte-value conversion;
+- `stdx.layout.EndianInt(T, endian)`, `stdx.layout.Le(T)`, and `stdx.layout.Be(T)`;
+- accepted integer types;
+- storage representation, size, alignment, and byte order;
+- conversion between native integers and endian storage values;
+- allocation, waiting, concurrency, and error behavior; and
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
-- bounds-checked read or write helpers;
-- byte cursors, builders, readers, or writers;
-- variable-length integers;
-- bit readers or bit writers;
-- enum, packed-struct, or extern-struct endian wrappers;
+This spec does not define:
+
+- bounds-checked or sequential byte access;
+- variable-length integer or bit access;
+- enum, packed-struct, or extern-struct conversion;
 - pointer reinterpretation;
-- volatile or MMIO access;
-- semantic validation of loaded values;
-- checksum or reserved-bit policy;
-- root exports.
+- volatile, MMIO, or atomic access;
+- domain-specific integer validation; or
+- root namespace exports.
 
-## Public namespace
+## Public namespace and source ownership
 
-Endian integer wrappers live under `stdx.layout`:
+The public declarations are:
 
 ```zig
 stdx.layout.EndianInt
@@ -47,44 +37,27 @@ stdx.layout.Le
 stdx.layout.Be
 ```
 
-They are not root-promoted:
-
-```zig
-stdx.EndianInt // not exported
-stdx.Le // not exported
-stdx.Be // not exported
-```
-
-Source ownership:
-
-```text
-src/layout.zig
-src/layout/endian.zig
-test/layout/endian_test.zig
-```
-
-`src/layout.zig` re-exports:
+`src/layout/endian.zig` implements the declarations. `src/layout.zig` MUST re-export them as follows:
 
 ```zig
 pub const endian = @import("layout/endian.zig");
-
 pub const EndianInt = endian.EndianInt;
 pub const Le = endian.Le;
 pub const Be = endian.Be;
 ```
 
-## Approved API
+`test/layout/endian_test.zig` contains the required tests.
+
+## Cross-spec relationships
+
+`stdx.bytes.loadSlice` and `stdx.bytes.storeSlice` define runtime-offset bounds checks for byte slices. `std.mem.bytesToValue` and `std.mem.toBytes` define fixed-window object-representation conversion. This spec does not define those contracts.
+
+## Data structures and representation
+
+For valid `T` and `endian`, `EndianInt(T, endian)` MUST return an `extern struct` equivalent to:
 
 ```zig
-pub fn EndianInt(comptime T: type, comptime endian: std.builtin.Endian) type;
-pub fn Le(comptime T: type) type;
-pub fn Be(comptime T: type) type;
-```
-
-Returned type from `EndianInt`:
-
-```zig
-pub const Self = extern struct {
+extern struct {
     bytes: [count_bytes]u8,
 
     pub const Native = T;
@@ -94,46 +67,62 @@ pub const Self = extern struct {
 
     pub fn fromNative(value: T) Self;
     pub fn native(self: Self) T;
-};
+}
 ```
 
-Convenience factories:
+The returned type MUST satisfy:
 
 ```zig
-pub fn Le(comptime T: type) type {
-    return EndianInt(T, .little);
-}
-
-pub fn Be(comptime T: type) type {
-    return EndianInt(T, .big);
-}
+@sizeOf(EndianInt(T, endian)) == @bitSizeOf(T) / 8
+@alignOf(EndianInt(T, endian)) == 1
 ```
+
+The `bytes` field MUST be the only instance field. The type MUST contain no padding bytes.
+
+For `.little`, `bytes[0]` MUST contain the least-significant byte. For `.big`, `bytes[0]` MUST contain the most-significant byte. The representation MUST be independent of target native endianness.
+
+## Global invariants
+
+Every bit pattern of `bytes` MUST represent one valid `T` value.
+
+An operation on an endian integer value MUST NOT:
+
+- allocate or free memory;
+- wait, block, sleep, or spin;
+- access hidden mutable state;
+- issue a syscall;
+- read a clock;
+- perform an atomic, volatile, or barrier operation; or
+- invoke a callback.
+
+Endian integer values MAY be copied by value. A copy MUST preserve all representation bytes.
+
+## API
+
+```zig
+pub fn EndianInt(
+    comptime T: type,
+    comptime endian: std.builtin.Endian,
+) type;
+
+pub fn Le(comptime T: type) type;
+pub fn Be(comptime T: type) type;
+```
+
+`Le(T)` MUST return `EndianInt(T, .little)`. `Be(T)` MUST return `EndianInt(T, .big)`.
 
 ## Type contract
 
-`T` must be an unsigned byte-aligned integer type with a bit width from 8 to 128
-inclusive.
+`T` MUST be an unsigned integer type. `@bitSizeOf(T)` MUST be a multiple of 8 from 8 through 128, inclusive. `T` MUST NOT be `usize`, `isize`, or a comptime-only type.
 
-Allowed examples:
-
-```zig
-u8
-u16
-u24
-u32
-u40
-u64
-u128
-```
-
-Rejected type categories must fail at compile time where practical:
+Instantiation MUST fail at compile time for:
 
 - signed integers;
 - `usize` and `isize`;
-- `comptime_int`;
-- integer widths below 8 bits;
-- integer widths above 128 bits;
-- integer widths that are not a multiple of 8;
+- `comptime_int` and `comptime_float`;
+- integers narrower than 8 bits;
+- integers wider than 128 bits;
+- integer widths that are not multiples of 8;
 - bools;
 - floats;
 - enums;
@@ -143,207 +132,63 @@ Rejected type categories must fail at compile time where practical:
 - optionals;
 - error unions and error sets;
 - unions;
-- functions;
-- comptime-only types.
+- functions; and
+- `noreturn`, `null`, `undefined`, `type`, and `void`.
 
-Enums, packed flags, and domain types must convert through an explicit backing
-integer before using endian wrappers.
+A caller MUST convert an enum, packed field set, or domain type to an accepted unsigned integer before it instantiates an endian integer type.
 
-## Layout guarantees
+## `fromNative`
 
-For a valid `T`:
+### Contract
 
-```zig
-@sizeOf(stdx.layout.Le(T)) == @bitSizeOf(T) / 8
-@sizeOf(stdx.layout.Be(T)) == @bitSizeOf(T) / 8
-@alignOf(stdx.layout.Le(T)) == 1
-@alignOf(stdx.layout.Be(T)) == 1
-```
+`fromNative(value)` MUST return an endian integer whose `bytes` field encodes `value` in `byte_order`.
 
-The returned type is an `extern struct` wrapping exactly one field:
+For each byte index `i` in `0..count_bytes`, `.little` encoding MUST store bits `i * 8 .. i * 8 + 8` at `bytes[i]`. For each byte index `i` in `0..count_bytes`, `.big` encoding MUST store bits `(count_bytes - 1 - i) * 8 .. (count_bytes - i) * 8` at `bytes[i]`.
 
-```zig
-bytes: [@bitSizeOf(T) / 8]u8
-```
+### Errors and fault behavior
 
-`@sizeOf(T)` is not the wrapper byte count. Non-native integer widths use their
-bit width:
+`fromNative` MUST NOT return an error.
 
-```zig
-@sizeOf(stdx.layout.Le(u24)) == 3
-@sizeOf(stdx.layout.Be(u40)) == 5
-```
+### Complexity and progress
 
-## Byte order
+`fromNative` MUST have O(`count_bytes`) time complexity and MUST NOT wait.
 
-For `Le(T)`, `bytes[0]` contains the least significant byte of the integer.
+## `native`
 
-For `Be(T)`, `bytes[0]` contains the most significant byte of the integer.
+### Contract
 
-For `u8`, little-endian and big-endian encodings are identical.
+`native()` MUST decode `bytes` according to `byte_order` and return the corresponding `T` value.
 
-Byte order is independent of the host target's native endianness.
-
-## Conversion semantics
-
-`fromNative(value)` returns an endian wrapper whose bytes encode `value` in the
-wrapper's byte order.
-
-`native()` decodes the wrapper bytes into native integer `T`.
-
-Required round trip:
+For every valid `value`, this round trip MUST hold:
 
 ```zig
 EndianInt(T, endian).fromNative(value).native() == value
 ```
 
-Every byte pattern is valid because `T` is restricted to unsigned integers.
-Conversion never allocates, waits, validates external policy, or touches memory
-outside the wrapper value.
+### Errors and fault behavior
 
-## Struct field usage
+`native` MUST NOT return an error.
 
-Endian wrappers are intended for explicit wire and ABI fields:
+### Complexity and progress
 
-```zig
-const Header = extern struct {
-    length: stdx.layout.Le(u16),
-    generation: stdx.layout.Le(u64),
-};
-
-const length = header.length.native();
-header.generation = stdx.layout.Le(u64).fromNative(next_generation);
-```
-
-The wrapper's alignment is 1, so this models unaligned byte layouts without
-`u32 align(1)` fields plus local conversion code.
-
-## Byte conversion
-
-Use Zig standard primitives to convert between endian wrappers and exact byte windows:
-
-```zig
-const window = try stdx.bytes.loadSlice(bytes, pos, @sizeOf(stdx.layout.Le(u32)));
-const le = std.mem.bytesToValue(stdx.layout.Le(u32), window[0..4]);
-const value = le.native();
-
-const encoded = std.mem.toBytes(stdx.layout.Le(u32).fromNative(value));
-try stdx.bytes.storeSlice(bytes, pos, &encoded);
-```
-
-`stdx.bytes.loadSlice` and `stdx.bytes.storeSlice` provide runtime-offset bounds checks. `std.mem.bytesToValue` and `std.mem.toBytes` provide fixed-window object-representation conversion.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `fromNative` | never | never | O(`count_bytes`) | none | value type | none |
-| `native` | never | never | O(`count_bytes`) | none | value type | none |
-| `Le` | never | never | comptime | none | type factory | none |
-| `Be` | never | never | comptime | none | type factory | none |
-
-These helpers perform no allocation, waiting, hidden global access, atomics,
-barriers, volatile access, or target probing.
-
-## Error behavior
-
-These helpers have no error set.
-
-Invalid `T` categories are compile errors where practical.
-
-Semantic validation belongs to the consuming parser, view, builder, or domain
-type after converting to the native unsigned integer.
+`native` MUST have O(`count_bytes`) time complexity and MUST NOT wait.
 
 ## Implementation constraints
 
-Implementation must:
+The implementation MUST use `@bitSizeOf(T) / 8` as the representation byte count. The implementation MUST NOT use `@sizeOf(T)` as the integer lane width. The implementation MUST preserve exactly `count_bytes` representation bytes. The implementation MUST NOT reinterpret the byte array as a pointer to a more-aligned integer type. The implementation MUST compile for every target supported by the repository.
 
-- use `@bitSizeOf(T) / 8` as the byte count;
-- never use `@sizeOf(T)` as the integer lane width;
-- preserve exactly `count_bytes` bytes;
-- be independent of target native endianness;
-- avoid allocation, global state, atomics, fences, and volatile access;
-- avoid pointer reinterpretation as a larger aligned integer;
-- compile for all supported Zig targets;
-- produce compile errors for invalid `T` categories where practical.
+## Testing
 
-## Planned use
+Tests in `test/layout/endian_test.zig` MUST construct public endian types and compare compile-time layout queries, representation bytes, decoded values, and standard-library conversion results. These runtime and compile-time assertions verify the observable layout and conversion contract; this repository does not require compile-fail test infrastructure for rejected type arguments.
 
-Little-endian canonical digest and TLV fields, currently written with
-`std.mem.writeInt`, `std.mem.readInt`, and `std.mem.nativeToLittle`, compose
-cleanly through `Le(T)`.
+### Type and layout
 
-Little-endian record headers and GUID fields use `Le(T)`; big-endian
-command codecs use `Be(T)`.
+Tests MUST compare `@sizeOf` and `@alignOf` with `count_bytes` and 1 for native and non-native widths. Tests MUST embed `Le(u16)` and `Be(u32)` in an `extern struct` and compare field offsets and total size. These assertions prove the exact representation size, byte alignment, and composable extern layout.
 
-Little-endian on-disk table fields at non-natural alignment—for example, 64-bit entries after a 36-byte header—compose with `std.mem` byte conversion after bounds checking.
+### Byte order and round trips
 
-## Required tests
+Tests MUST compare little-endian and big-endian byte sequences for a non-palindromic `u32` value. Tests MUST decode an explicit byte sequence and round-trip zero, a maximum value, and a non-palindromic value. These cases prove byte order and preservation of the full supported value range.
 
-Required for `Le(u8)`, `Le(u16)`, `Le(u32)`, `Le(u64)`, `Be(u8)`, `Be(u16)`,
-`Be(u32)`, and `Be(u64)`.
+### Standard byte conversion
 
-### Byte order
-
-- `Le(u16).fromNative(0x1234).bytes` equals `.{ 0x34, 0x12 }`;
-- `Be(u16).fromNative(0x1234).bytes` equals `.{ 0x12, 0x34 }`;
-- `Le(u32)`, `Le(u64)`, `Be(u32)`, and `Be(u64)` match known constants;
-- `Le(u8)` and `Be(u8)` preserve the single byte.
-
-### Non-native widths
-
-- `Le(u24)` has size 3 and alignment 1;
-- `Be(u40)` has size 5 and alignment 1;
-- `Le(u24)` and `Be(u40)` match known byte constants;
-- `fromNative(...).native()` round trips for non-native widths.
-
-### Layout
-
-- `@alignOf(Le(u64)) == 1`;
-- `@alignOf(Be(u64)) == 1`;
-- an `extern struct` with `u8`, `Le(u16)`, and `Le(u64)` fields has expected
-  offsets and size;
-- an `extern struct` with `u8`, `Be(u16)`, and `Be(u64)` fields has expected
-  offsets and size.
-
-### Round trips
-
-- `fromNative(value).native()` returns `value` for every required width;
-- zero and max values round trip;
-- repeated conversion does not change bytes.
-
-### Byte conversion
-
-- `std.mem.bytesToValue(Le(u32), bytes[offset..][0..4]).native()` decodes the expected value at a deliberately unaligned offset;
-- `std.mem.toBytes(Le(u32).fromNative(value))` produces the expected byte window;
-- equivalent `Be(u32)` conversion cases are covered.
-
-### Packed flag lanes
-
-- load a `Le(u32)` value, convert to native, and `@bitCast` into a packed flag
-  struct;
-- convert a packed flag struct to its backing integer, then store as `Le(u32)`.
-
-### Compile-time behavior
-
-Where practical:
-
-```zig
-comptime {
-    const le = stdx.layout.Le(u16).fromNative(0x1234);
-    std.debug.assert(le.bytes[0] == 0x34);
-    std.debug.assert(le.bytes[1] == 0x12);
-    std.debug.assert(le.native() == 0x1234);
-}
-```
-
-### Invalid types
-
-Where practical, compile-fail tests cover signed integers, `usize`, `isize`,
-`comptime_int`, non-byte-aligned integer widths, integers wider than 128 bits,
-bools, floats, enums, structs, pointers, slices, optionals, unions, functions,
-and error types.
-
-## Open questions
-
-None.
+Tests MUST convert an endian value with `std.mem.toBytes`, recover it with `std.mem.bytesToValue`, and compare the decoded native value. This case proves that the exact object representation composes with standard byte-value conversion.

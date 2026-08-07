@@ -6,20 +6,11 @@ Status: Approved.
 
 ## What this spec is
 
-This spec owns:
-
-- `stdx.bits.mask.low(comptime T, count)`;
-- `stdx.bits.mask.single(comptime T, index)`;
-- `stdx.bits.mask.range(comptime T, first, last)`;
-- unsigned-integer type validation;
-- bounds assertions;
-- `src/bits/mask.zig` and `test/bits/mask_test.zig`.
+This spec defines `stdx.bits.mask.low`, `stdx.bits.mask.single`, and `stdx.bits.mask.range`, their unsigned-integer type restriction, and their bounds assertions.
 
 ## What this spec is not
 
-This spec does not own bitmap storage, word-index arithmetic, bit scans,
-mutation, typed bitfields, or hardware-register layouts.
-`docs/specs/bits/word.md` owns bitmap word operations.
+This spec does not define bitmap storage, word-index arithmetic, bit scans, bit mutation, typed bitfields, or hardware-register layouts. `docs/specs/bits/word.md` defines bitmap word operations.
 
 ## Public namespace and source ownership
 
@@ -30,29 +21,17 @@ stdx.bits.mask.single
 stdx.bits.mask.range
 ```
 
-`src/bits.zig` exports `mask`. No name is root-promoted.
-
-Source ownership:
-
-```text
-src/bits.zig
-src/bits/mask.zig
-test/bits/mask_test.zig
-```
+`src/bits.zig` exports `mask`. The implementation is `src/bits/mask.zig`. The tests are in `test/bits/mask_test.zig`.
 
 ## Global invariants
 
-`T` MUST be a non-zero-width unsigned integer type. Invalid `T` is a compile error.
+`T` MUST be a non-zero-width unsigned integer type. An invalid `T` is a compile error.
 
-`count` is a bit count in the inclusive range `0...@bitSizeOf(T)`. `index`,
-`first`, and `last` are zero-based bit positions. A valid position is less than
-`@bitSizeOf(T)`.
+`count` is in `0...@bitSizeOf(T)`. `index`, `first`, and `last` are zero-based bit positions; a valid position is less than `@bitSizeOf(T)`.
 
-`low` requires a valid `count`. `range` requires `first <= last`. Invalid
-counts, positions, or inverted ranges are caller contract violations. The
-implementation MUST assert these conditions.
+The caller MUST provide a valid `count` to `low`. The caller MUST provide valid positions and `first <= last` to `range`. The implementation MUST assert invalid counts, positions, and inverted ranges.
 
-The operations allocate never, wait never, mutate no caller state, and have no ordering or concurrency effects.
+The operations do not allocate, wait, mutate caller state, or establish ordering or concurrency effects.
 
 ## API
 
@@ -62,50 +41,16 @@ pub fn single(comptime T: type, index: usize) T;
 pub fn range(comptime T: type, first: usize, last: usize) T;
 ```
 
-### `low`
-
-`low(T, count)` returns `T` with its lowest `count` bits set. It returns zero
-when `count` is zero and all ones when `count == @bitSizeOf(T)`.
-
-```text
-low(u8, 0) == 0b0000_0000
-low(u8, 3) == 0b0000_0111
-low(u8, 8) == 0b1111_1111
-```
-
-### `single`
+`low(T, count)` returns `T` with its lowest `count` bits set. It returns zero for `count == 0` and all ones for `count == @bitSizeOf(T)`.
 
 `single(T, index)` returns `T` with only bit `index` set.
 
-```text
-single(u8, 0) == 0b0000_0001
-single(u8, 7) == 0b1000_0000
-```
-
-### `range`
-
 `range(T, first, last)` returns `T` with every bit from `first` through `last`, inclusive, set.
-
-```text
-range(u8, 0, 0) == 0b0000_0001
-range(u8, 2, 5) == 0b0011_1100
-range(u8, 0, 7) == 0b1111_1111
-```
 
 ## Implementation constraints
 
-The implementation MUST avoid a shift by `@bitSizeOf(T)`. `low` and `range`
-MUST return the all-ones value for a full-width mask.
+The implementation MUST not shift by `@bitSizeOf(T)`. `low` and `range` MUST return all ones for a full-width mask.
 
 ## Testing
 
-Tests MUST cover `u8`, `u32`, and `u64`.
-
-Tests MUST cover:
-
-- zero-, partial-, and full-width low masks;
-- first and last single bits;
-- an interior single bit;
-- an interior inclusive range;
-- the full-width range;
-- comptime evaluation.
+Tests MUST evaluate `u8`, `u32`, and `u64` to verify the type-width contract. Tests MUST verify zero, partial, and full-width `low` masks; first, interior, and last `single` masks; and interior and full-width inclusive ranges. These cases prove the inclusive bounds and the full-width no-invalid-shift behavior. Tests MUST also evaluate the operations at comptime to prove that the API supports comptime use.

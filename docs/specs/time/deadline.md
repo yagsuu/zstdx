@@ -10,7 +10,7 @@ matching the backend contract in `docs/specs/time/monotonic.md`.
 `Deadline` is a value, not a scheduler primitive. It never sleeps, never
 parks, and never touches the backend beyond calling `Backend.now()`.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -26,7 +26,7 @@ This spec owns:
 - monotonic-clock consumption contract;
 - required tests.
 
-## Deferred scope and non-goals
+## What this spec is not
 
 This spec does not own:
 
@@ -39,7 +39,6 @@ This spec does not own:
   "caller keeps clocks straight" stance;
 - deadline arithmetic beyond the factories named above; callers use
   `Instant`/`Duration` directly through `deadline.instant()`;
-- root promotion of `Deadline`.
 
 ## Public namespace
 
@@ -47,12 +46,6 @@ This spec does not own:
 
 ```zig
 stdx.time.Deadline
-```
-
-It is not root-promoted:
-
-```zig
-stdx.Deadline // not exported
 ```
 
 Source ownership:
@@ -74,7 +67,7 @@ pub const Deadline = deadline.Deadline;
 `src/time.zig` is a thin facade. It contains no logic beyond re-exporting
 and aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const Deadline = enum(u64) {
@@ -183,9 +176,8 @@ For `Deadline.never`:
 ### Expired predicate
 
 `deadline.expired(clock)` computes `clock.now().afterOrEq(deadline.instant())`
-and returns the result. Boundary: when `clock.now() == deadline.instant()`,
-`expired` returns `true`. Rationale: `afterOrEq` matches the "return
-timeout at the deadline" convention downstream consumers expect.
+and returns the result. When `clock.now() == deadline.instant()`, `expired`
+returns `true`.
 
 ### Remaining duration
 
@@ -214,9 +206,6 @@ while (!device.ready()) {
 }
 ```
 
-The error name is `Timeout`, matching the canonical spelling used across
-consumers.
-
 ## Behavior contract
 
 | Operation | Allocation | Waiting | Bounds | Concurrency | Ordering | Errors |
@@ -241,105 +230,11 @@ The monotonic-clock invariant (non-decreasing `now`) is owned and asserted
 by `stdx.time.Clock.Monotonic(Backend)` under
 `stdx.core.debug.checksEnabled`; `Deadline` does not repeat that check.
 
-## std.Io lane
+## Testing
 
-`Deadline` serves both lanes declared in the spec queue:
+Testing MUST use a caller-controlled `FakeClock` and observe deadline behavior without a real monotonic clock. This method isolates deadline semantics from backend timing.
 
-1. Composes inside a downstream `std.Io` backend whose `Instant` matches
-   `stdx.time.Instant`.
-2. Serves freestanding consumers (kernel init, hypervisor setup, firmware
-   pre-runtime, device polling) against any `Clock.Monotonic(Backend)`.
-
-Distinct from `std.Io.Deadline`: no `Io` vtable, no runtime, no
-allocation, freestanding-safe.
-
-## Examples
-
-Device init handshake with a bounded wait:
-
-```zig
-const stdx = @import("stdx");
-
-fn waitReady(dev: *Device, clock: anytype) !void {
-    const deadline = try stdx.time.Deadline.now(
-        clock,
-        try stdx.time.Duration.fromMillis(500),
-    );
-    while (!dev.isReady()) {
-        try deadline.expireBy(clock);
-    }
-}
-```
-
-Optional deadline composition using `never` as the sentinel:
-
-```zig
-fn drain(queue: *Queue, clock: anytype, timeout: ?stdx.time.Duration) !void {
-    const deadline = if (timeout) |d|
-        try stdx.time.Deadline.now(clock, d)
-    else
-        stdx.time.Deadline.never;
-
-    while (queue.pop()) |item| {
-        process(item);
-        try deadline.expireBy(clock);
-    }
-}
-```
-
-Signed remaining for backoff sizing:
-
-```zig
-fn attemptDelay(deadline: stdx.time.Deadline, clock: anytype) stdx.time.Duration {
-    const left = deadline.remaining(clock);
-    if (left.isNegative()) return stdx.time.Duration.zero;
-    // Cap the next backoff at half the remaining time.
-    const half_ns = @divFloor(left.nanos(), 2);
-    return stdx.time.Duration.fromNanos(half_ns);
-}
-```
-
-## Required tests
-
-Tests live in `test/time/deadline_test.zig`.
-
-Required tests:
-
-- `Deadline.at(inst).instant() == inst` for `Instant.fromNanos(0)`,
-  a mid value, and `Instant.fromNanos(maxInt(u64) - 1)`;
-- `Deadline.now(&fake_clock, Duration.fromMillis(10))` produces a deadline
-  exactly `10_000_000` nanoseconds past `fake_clock.now()`;
-- `Deadline.now(&fake_clock, Duration.fromNanos(-1))` produces a deadline
-  one nanosecond before `fake_clock.now()`, and `expired` returns `true`
-  on the very next call;
-- `Deadline.now(&fake_clock, Duration.fromNanos(maxInt(i64)))` where
-  `fake_clock.now()` is near `maxInt(u64)` returns `error.Overflow`;
-- `Deadline.never.isNever()` is `true`; `Deadline.at(Instant.zero()).isNever()`
-  is `false`;
-- `Deadline.never.expired(&fake_clock)` is `false` for any fake clock
-  reading below `maxInt(u64)`;
-- `Deadline.never.remaining(&fake_clock)` equals
-  `Duration.fromNanos(maxInt(i64))` for every clock reading in the
-  practical domain;
-- `Deadline.never.expireBy(&fake_clock)` returns `void`;
-- `expired(clock)` transitions from `false` to `true` exactly when
-  `clock.now() == deadline.instant()`;
-- `remaining(clock)` returns a positive duration before the deadline,
-  `Duration.zero` at exact boundary, and a negative duration after;
-- `expireBy(clock)` returns `error.Timeout` at and after the boundary,
-  `void` before;
-- Compile-only: `@typeInfo(@TypeOf(Deadline.expireBy)).@"fn".return_type.?`
-  is `Deadline.TimeoutError!void` and does not include `error.Overflow`;
-- Compile-only: passing a clock type without a `now(*Self) Instant`
-  method is rejected with `@compileError`;
-- Compile-only: passing a clock whose `now` returns `!Instant` is
-  rejected;
-- `@sizeOf(Deadline) == 8`;
-- Non-x86 build compiles the module.
-
-Tests use a `FakeClock` implementation that returns a caller-controlled
-`Instant`; no real monotonic clock is required.
-
-## Open questions
-
-None.
+- Representation and arithmetic boundary tests round-trip `Deadline.at`, construct deadlines before and after a clock reading, and exercise `Instant`-domain overflow. They prove the `u64` anchor contract and `Deadline.now` error boundary.
+- Sentinel tests exercise `Deadline.never` with finite clock readings. They verify `isNever`, non-expiration, saturated positive `remaining`, and successful `expireBy`.
+- Transition tests place the fake clock before, exactly at, and after a finite deadline. They verify the inclusive expiration boundary, the sign of `remaining`, and `error.Timeout` from `expireBy`.
+- Compile-time tests verify the exact `expireBy` error set, reject invalid clock shapes and fallible `now` methods, assert the one-word representation, and compile the module for a non-x86 target. They prove the API and clock-seam constraints.

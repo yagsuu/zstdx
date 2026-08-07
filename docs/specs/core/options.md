@@ -2,40 +2,19 @@
 
 Status: Approved.
 
-`stdx.core` owns shared option vocabulary only when a concrete primitive needs it. This spec approves `SafetyMode` and option-shape rules. Growth, poisoning, stats, allocation-policy, and concurrency-policy abstractions are not approved here.
+`stdx.core.SafetyMode` selects whether an operation compiles optional zstdx safety checks. This specification also defines requirements for type-specific option structs.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This specification defines `SafetyMode`, its public namespace, and the requirements for type-specific option structs that use it.
 
-- shared option naming rules;
-- `SafetyMode`;
-- rules for type-specific `Options` structs;
-- rules for option defaults;
-- deferred option categories.
+## What this spec is not
 
-This spec does not own:
+This specification does not define allocation, concurrency, growth, poisoning, statistics, or the checks that an individual primitive performs.
 
-- runtime metadata;
-- allocation policy enums;
-- concurrency policy enums;
-- growth algorithms;
-- debug/assert implementation details for each primitive;
-- whether a primitive is implemented.
+## Public namespace and source ownership
 
-## Public namespace
-
-`SafetyMode` lives under `stdx.core`:
-
-```zig
-stdx.core.SafetyMode
-```
-
-It is not root-promoted:
-
-```zig
-stdx.SafetyMode // not exported
-```
+`SafetyMode` is available as `stdx.core.SafetyMode`. It is not available as `stdx.SafetyMode`.
 
 Source ownership:
 
@@ -44,13 +23,19 @@ src/core.zig
 src/core/options.zig
 ```
 
-`src/core.zig` re-exports:
+`src/core.zig` re-exports `SafetyMode` from `core/options.zig`.
 
-```zig
-pub const SafetyMode = @import("core/options.zig").SafetyMode;
-```
+## Cross-spec relationships
 
-## Approved API
+A primitive that uses `SafetyMode` depends on this specification. `docs/specs/core/debug.md` defines how `SafetyMode` maps to the compilation of optional checks.
+
+## Global invariants
+
+`SafetyMode` controls zstdx optional checks only. It does not disable Zig language safety, allocator safety, atomic-ordering requirements, memory-safety obligations, or documented error-returning behavior unless the owning primitive specification explicitly defines an unsafe or preconditioned operation.
+
+`.unchecked` MUST NOT change a safe error-returning operation into memory-unsafe behavior unless the owning primitive specification explicitly marks that operation unsafe or preconditioned.
+
+## API
 
 ```zig
 pub const SafetyMode = enum {
@@ -60,39 +45,21 @@ pub const SafetyMode = enum {
 };
 ```
 
-## `SafetyMode` semantics
+## `SafetyMode` behavior
 
-| Mode | Meaning |
+| Mode | Behavior |
 | --- | --- |
-| `build_mode` | Enable zstdx optional safety checks in Debug and ReleaseSafe; disable them in ReleaseFast and ReleaseSmall. |
-| `checked` | Always enable zstdx optional safety checks. |
-| `unchecked` | Disable zstdx optional safety checks. |
+| `build_mode` | `stdx.core.debug.checksEnabled` enables optional checks in Debug and ReleaseSafe builds and disables them in ReleaseFast and ReleaseSmall builds. |
+| `checked` | `stdx.core.debug.checksEnabled` enables optional checks. |
+| `unchecked` | `stdx.core.debug.checksEnabled` disables optional checks. |
 
-`SafetyMode` controls zstdx library checks only.
+An owning primitive specification MUST state which checks `SafetyMode` controls, which errors and assertions remain enforced, which checks `.unchecked` omits, and whether any operation is unsafe or preconditioned.
 
-Examples of checks a primitive spec may put behind `SafetyMode`:
+## Type-specific options
 
-- invariant assertions;
-- double-insert checks;
-- double-remove checks;
-- stale-handle checks when implemented as optional debug checks;
-- precondition checks beyond Zig's own safety checks.
+A primitive that accepts options MUST define its option type beside the primitive or primitive family that consumes it. The type name MUST be `Options` unless the owning specification defines a more specific public name.
 
-`SafetyMode` does not disable:
-
-- Zig language safety;
-- allocator safety;
-- atomic ordering requirements;
-- memory-safety obligations;
-- documented error-returning behavior unless the owning primitive spec explicitly says so.
-
-`.unchecked` must not turn valid error-returning API behavior into memory unsafety unless the primitive spec marks the operation as unsafe or preconditioned.
-
-## Option struct rules
-
-Type-specific options live beside the type or family that consumes them. They are named `Options` unless the owning spec approves a more specific name.
-
-Default shape:
+A primitive that uses `SafetyMode` SHOULD use this default shape when no additional option is required:
 
 ```zig
 pub const Options = struct {
@@ -100,101 +67,25 @@ pub const Options = struct {
 };
 ```
 
-A primitive that accepts options must document:
+The owning primitive specification MUST document each option field, its default value, the operations that observe it, whether it changes public errors or only optional assertions, and whether it changes layout, ABI, or type identity.
 
-- every option field;
-- default value;
-- which operations observe the option;
-- whether the option changes public errors or only debug assertions;
-- whether the option affects layout, ABI, or type identity.
+An option that changes type layout or code generation MUST be a `comptime` parameter. A primitive that stores options at runtime MUST specify the required runtime behavior.
 
-Options that affect type layout or code generation should be `comptime` parameters. Runtime-stored options require an owning spec rationale.
-
-## Generic family option factories
-
-Zig generic family APIs should optimize for common usage while preserving an explicit options path.
-
-Preferred pattern when options are rarely changed:
+For a generic family whose options are rarely changed, the owning specification SHOULD provide a default factory and an explicit-options factory, for example:
 
 ```zig
 pub fn Static(comptime T: type, comptime N: usize) type;
 pub fn StaticWithOptions(comptime T: type, comptime N: usize, comptime opts: Options) type;
 ```
 
-A primitive spec may choose a different shape if the resulting API is clearer. The owning primitive spec decides the exact factory names.
+The owning primitive specification defines its factory names and may use a different API shape when that shape preserves an explicit options path.
 
-## Deferred options
+## Implementation constraints
 
-The following options are candidates only. They are not approved public API by this spec.
+`SafetyMode` contains exactly `build_mode`, `checked`, and `unchecked`.
 
-### `GrowthPolicy`
+## Testing
 
-Deferred until a dynamic container spec needs it.
+Tests for `SafetyMode` MUST verify that `stdx.core` exports the enum and that its values are exactly `build_mode`, `checked`, and `unchecked`. This proves the public compile-time vocabulary and prevents an incompatible value change.
 
-Candidate consumers:
-
-- `List.Managed`;
-- `Ring.Managed`;
-- `HashMap.Managed`;
-
-### `PoisonPolicy`
-
-Deferred until an allocator or container spec requires poisoning.
-
-Candidate consumers:
-
-- `mem.alloc.Arena.Bounded`;
-- `mem.BumpAllocator`;
-- `mem.alloc.SlabAllocator`;
-- `List.Static`;
-- `Ring.Static`.
-
-### `StatsPolicy`
-
-Deferred until diagnostics or allocator stats have concrete consumers.
-
-Candidate consumers:
-
-- `diag.AllocationStats`;
-- `mem.alloc.SlabAllocator`;
-- `HashMap.Managed`.
-
-## Rejected generic policies
-
-Do not create generic versions of these policies in `core`:
-
-```zig
-AllocationPolicy
-ConcurrencyPolicy
-```
-
-Allocation and concurrency semantics belong in each primitive's operation contract. Generic policy enums become vague metadata without forcing correctness.
-
-## Required behavior documentation
-
-Any primitive using `SafetyMode` must state:
-
-- which checks are controlled by `SafetyMode`;
-- which errors or assertions are always enforced;
-- which checks disappear under `.unchecked`;
-- whether `.unchecked` changes public error behavior or only debug assertions;
-- which operations are unsafe or preconditioned, if any.
-
-## Required tests
-
-For `SafetyMode` itself:
-
-- the enum is public through `stdx.core`;
-- values are exactly `build_mode`, `checked`, and `unchecked`.
-
-For every primitive using `SafetyMode`:
-
-- one test exercises checked behavior where practical;
-- one test proves normal valid operations work independent of mode;
-- no test relies on build-mode-dependent behavior unless the test target mode is explicit.
-
-Tests may use `.unchecked` for valid operation paths. Tests must not use `.unchecked` to hide broken invariants.
-
-## Open questions
-
-None.
+For each primitive that uses `SafetyMode`, tests MUST exercise enabled optional checks with `.checked` and normal valid operations with each supported mode. Tests that depend on `.build_mode` MUST use an explicit build mode. Tests MUST NOT use `.unchecked` to conceal an invalid invariant; this proves that disabled optional checks do not redefine the primitive's valid-state contract.

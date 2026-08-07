@@ -2,58 +2,19 @@
 
 Status: Approved.
 
-`stdx.core` owns zero-allocation callback type factories and semantic laws for ordering, equality, and hashing. These traits exist to keep collection and algorithm specs consistent without forcing runtime vtables or broad policy objects.
+`stdx.core` defines zero-allocation callback type factories and semantic laws for ordering, equality, and hashing. Consumers use these factories without runtime vtables or generic trait objects.
 
-The traits are concrete public API, but source implementation lands only when an approved consumer needs them.
+## What this spec is
 
-## Owned scope
+This specification defines the callback type factories, callback context rules, compile-time and runtime callback rules, ordering and hashing laws, and consumer requirements.
 
-This spec owns:
+## What this spec is not
 
-- public callback type factory names;
-- callback signatures;
-- ordering, equality, and hashing laws;
-- callback context rules;
-- compile-time versus runtime callback rules;
-- required documentation and tests for consumers.
+This specification does not define sort, heap, map, set, or tree APIs; default hash algorithms or comparators; callback allocation behavior beyond this contract; or callback-context storage for an individual container.
 
-This spec does not own:
+## Public namespace and source ownership
 
-- sort, heap, map, set, or tree APIs;
-- default hash algorithms;
-- default comparators;
-- allocation behavior of user callbacks beyond the contracts below;
-- storage of callback context inside individual containers.
-
-## Concrete consumers
-
-Approved future consumers include:
-
-- `algo.sortUnstable` and `algo.insertionSort` for `LessThan`;
-- `Heap.Binary`, `Heap.Dary`, and `Heap.Indexed` for `LessThan`;
-- `HashMap` and `HashSet` for `Hash` plus `Eql`;
-- `BTree.Map`, `BTree.Set`, range maps, and ordered structures for `Compare`;
-- intrusive ordered structures when key extraction is specified by their owning spec.
-
-No generic trait object or runtime interface is approved.
-
-## Public namespace
-
-Traits live under `stdx.core`:
-
-```zig
-stdx.core.Order
-stdx.core.Compare
-stdx.core.LessThan
-stdx.core.Eql
-stdx.core.Hash
-```
-
-They are not root-promoted:
-
-```zig
-stdx.Compare // not exported
-```
+The public namespace is `stdx.core.Order`, `stdx.core.Compare`, `stdx.core.LessThan`, `stdx.core.Eql`, and `stdx.core.Hash`.
 
 Source ownership:
 
@@ -62,17 +23,13 @@ src/core.zig
 src/core/traits.zig
 ```
 
-`src/core.zig` re-exports:
+`src/core.zig` re-exports these declarations from `core/traits.zig`.
 
-```zig
-pub const Order = @import("core/traits.zig").Order;
-pub const Compare = @import("core/traits.zig").Compare;
-pub const LessThan = @import("core/traits.zig").LessThan;
-pub const Eql = @import("core/traits.zig").Eql;
-pub const Hash = @import("core/traits.zig").Hash;
-```
+## Cross-spec relationships
 
-## Approved API
+A collection or algorithm that accepts one of these callbacks depends on this specification. The consumer specification owns callback storage, callback invocation order, and any permitted exception to this specification's default callback behavior.
+
+## API
 
 ```zig
 pub const Order = std.math.Order;
@@ -94,199 +51,73 @@ pub fn Hash(comptime Context: type, comptime T: type) type {
 }
 ```
 
-All value operands are `*const T` to avoid mandatory copies for large values and to make callback cost explicit. A consumer that needs by-value callbacks must justify that in its owning spec.
+Callback value operands are `*const T`. A consumer that requires by-value callbacks MUST define that distinct public contract in its own specification.
 
-## Context rules
+## Callback context and invocation
 
-`Context` is passed by value to callbacks.
+A consumer passes `Context` by value. A callback with no context MUST use `void` and receive `{}` as its context value. A callback that requires mutable or large context SHOULD use a pointer `Context` type.
 
-For callbacks with no context, use `void` and pass `{}`:
+A consumer MUST NOT store callback context unless its own specification defines the storage and lifetime. Otherwise, the consumer borrows context for the duration of the operation that receives it.
 
-```zig
-fn lessU32(_: void, lhs: *const u32, rhs: *const u32) bool {
-    return lhs.* < rhs.*;
-}
-```
+A callback MUST NOT assume stable pointer identity unless the consuming specification guarantees pointer stability.
 
-If mutable or large context is needed, the `Context` type should be a pointer:
-
-```zig
-const Ctx = *const LookupTables;
-```
-
-A primitive may store context only if its owning spec explicitly says so. Otherwise context is borrowed only for the duration of the operation that receives it.
-
-Callbacks must not assume that pointer identity is stable unless the consuming primitive's spec promises pointer stability.
-
-## Compile-time callback rule
-
-Default consumer APIs should take callbacks as comptime-known `fn` values, not runtime function pointers.
-
-Approved pattern:
-
-```zig
-pub fn sort(
-    comptime T: type,
-    items: []T,
-    context: anytype,
-    comptime lessThan: stdx.core.LessThan(@TypeOf(context), T),
-) void;
-```
-
-Options structs that include callback fields are comptime options unless the owning spec explicitly approves runtime storage.
-
-Runtime function pointers require an owning-spec rationale and must use explicit pointer types, e.g. `*const fn (...) ...`.
+A consumer SHOULD accept callbacks as comptime-known `fn` values. A consumer that stores callbacks in an options struct MUST make those fields `comptime` unless its specification explicitly defines runtime function-pointer storage. A consumer that uses runtime function pointers MUST use an explicit pointer type such as `*const fn (...) ...` and define the runtime storage behavior in its own specification.
 
 ## Callback behavior contract
 
-Unless the consuming spec explicitly permits otherwise, callbacks must:
+Unless the consumer specification explicitly permits an exception, a caller-provided callback MUST NOT allocate; wait, sleep, block, or spin on external state; mutate the collection or algorithm input under operation; or re-enter the same primitive instance. A callback MUST be deterministic for the period that values are resident in the consumer and MUST be total for every value the consumer can store or process.
 
-- not allocate;
-- not wait, sleep, block, or spin on external state;
-- not mutate the collection or algorithm input being operated on;
-- not re-enter the same primitive instance;
-- be deterministic for the lifetime required by the consuming primitive;
-- be total over every value that can be stored or processed by the consuming primitive.
-
-If a caller supplies a callback that violates these requirements, behavior is a caller contract violation. The primitive is not required to detect it.
-
-Callback behavior is caller-provided behavior. A primitive's own allocation/waiting contract does not include allocation or waiting performed inside caller callbacks; consumer specs must still state whether such callbacks are allowed.
+A callback that violates these requirements is a caller contract violation. A consumer is not required to detect it. A consumer's allocation and waiting contract excludes allocation and waiting performed by caller callbacks; the consumer specification MUST state whether callback allocation or waiting is permitted.
 
 ## Ordering laws
 
 ### `Compare`
 
-`Compare` defines a total order over `T` for the consuming primitive's domain.
+`Compare` defines a total order over the consumer domain. For every `lhs` and `rhs`, it MUST return exactly one of `.lt`, `.eq`, or `.gt`. It MUST be antisymmetric: `compare(a, b) == .lt` implies `compare(b, a) == .gt`. It MUST preserve equality symmetry: `compare(a, b) == .eq` implies `compare(b, a) == .eq`. It MUST be transitive for both ordering and equality. It MUST be deterministic while values are resident in the consumer.
 
-Required laws:
-
-- exactly one of `.lt`, `.eq`, or `.gt` is returned for any `lhs`, `rhs`;
-- antisymmetry: if `compare(a, b) == .lt`, then `compare(b, a) == .gt`;
-- equality symmetry: if `compare(a, b) == .eq`, then `compare(b, a) == .eq`;
-- transitivity: if `a < b` and `b < c`, then `a < c`;
-- equality transitivity: if `a == b` and `b == c`, then `a == c`;
-- deterministic result while values are resident in the consuming structure.
-
-Ordered maps and sets use `.eq` as key equivalence unless their owning spec defines a separate key extraction/equality rule.
+An ordered map or set MUST use `.eq` as key equivalence unless its owning specification defines another key-extraction or equality rule.
 
 ### `LessThan`
 
-`LessThan` defines a strict weak order.
+`LessThan` defines a strict weak order. It MUST be irreflexive, asymmetric, transitive, and transitively incomparable. It MUST be deterministic while values are resident in the consumer.
 
-Required laws:
-
-- irreflexive: `lessThan(a, a)` is false;
-- asymmetric: if `lessThan(a, b)` is true, `lessThan(b, a)` is false;
-- transitive: if `a < b` and `b < c`, then `a < c`;
-- transitive incomparability: if neither `a < b` nor `b < a`, and neither `b < c` nor `c < b`, then neither `a < c` nor `c < a`;
-- deterministic result while values are resident in the consuming structure.
-
-Heaps use `LessThan` to mean lower priority unless the heap spec states otherwise. Sort algorithms use `LessThan` to produce ascending order under the supplied relation.
+A heap MUST interpret `LessThan` as lower priority unless the heap specification defines another interpretation. A sort algorithm MUST produce ascending order under the supplied relation.
 
 ## Equality and hash laws
 
 ### `Eql`
 
-`Eql` defines equivalence over `T`.
-
-Required laws:
-
-- reflexive: `eql(a, a)` is true;
-- symmetric: `eql(a, b) == eql(b, a)`;
-- transitive: if `a == b` and `b == c`, then `a == c`;
-- deterministic result while values are resident in the consuming structure.
+`Eql` defines equivalence over the consumer domain. It MUST be reflexive, symmetric, transitive, and deterministic while values are resident in the consumer.
 
 ### `Hash`
 
-`Hash` returns a non-cryptographic `u64` hash unless the consuming spec explicitly requires a stronger property.
+`Hash` returns a non-cryptographic `u64` hash unless the consumer specification explicitly requires a stronger property. When a consumer pairs `Hash` with `Eql`, `eql(a, b) == true` MUST imply `hash(a) == hash(b)`. The hash MUST be deterministic while the value is resident in the consumer. Collisions are permitted. The hash MUST use semantic key identity rather than pointer address unless the consumer specification defines an identity map or set.
 
-Required laws when paired with `Eql`:
+This specification does not define seeding, keyed hashing, randomized hashing, or denial-of-service resistance. A hash-map specification owns those decisions.
 
-- if `eql(a, b)` is true, then `hash(a) == hash(b)`;
-- hash value is deterministic while the value is resident in the consuming structure;
-- collisions are allowed;
-- hash must be based on semantic key identity, not pointer address, unless the consuming spec defines an identity map/set.
+## Consumer naming and options
 
-`Hash` does not own seeding, keyed hashing, randomized hashing, or DoS-resistance policy. Hash-map specs own those decisions.
-
-## Naming conventions for consumers
-
-Consumers must use these field and parameter names unless their owning spec approves a stronger domain term:
+A consumer MUST use these names unless its owning specification defines a stronger domain term:
 
 | Concept | Name |
 | --- | --- |
-| strict ordering callback | `lessThan` |
-| three-way ordering callback | `compare` |
-| equality callback | `eql` |
-| hash callback | `hash` |
-| callback context | `context` |
-| left value | `lhs` |
-| right value | `rhs` |
-| hashed value | `value` |
+| Strict ordering callback | `lessThan` |
+| Three-way ordering callback | `compare` |
+| Equality callback | `eql` |
+| Hash callback | `hash` |
+| Callback context | `context` |
+| Left value | `lhs` |
+| Right value | `rhs` |
+| Hashed value | `value` |
 
-## Consumer option shapes
+A consumer with callback options MUST derive its options type from explicit `Context` and value types. It MUST preserve the callback names, pointer-operand convention, context semantics, and comptime-default rule unless its specification explicitly defines an override. The consumer specification owns exact option placement and factory signatures.
 
-A consumer that needs callbacks should derive its options type from explicit `Context` and value types. Callback fields are comptime fields unless the consumer spec approves runtime function-pointer storage.
+## Errors and fault behavior
 
-Strict ordering:
+Invalid trait laws are caller contract violations. A zstdx primitive is not required to detect non-transitive ordering, unstable hashing, or inconsistent equality. A consumer MAY add an optional debug check for an easy-to-detect violation when its safety options control that check.
 
-```zig
-pub fn Options(comptime Context: type, comptime T: type) type {
-    return struct {
-        context: Context = {},
-        comptime lessThan: stdx.core.LessThan(Context, T),
-    };
-}
-```
+## Testing
 
-Three-way ordering:
+Tests for `stdx.core` MUST verify that `Order` is public through `stdx.core`; that `Compare`, `LessThan`, `Eql`, and `Hash` compile for `Context = void` and a scalar `T`; that callbacks accept pointer operands without requiring value copies; and that a pointer context compiles. These compile-time checks prove the public callback type contracts.
 
-```zig
-pub fn Options(comptime Context: type, comptime T: type) type {
-    return struct {
-        context: Context = {},
-        comptime compare: stdx.core.Compare(Context, T),
-    };
-}
-```
-
-Hash/equality:
-
-```zig
-pub fn Options(comptime Context: type, comptime K: type) type {
-    return struct {
-        context: Context = {},
-        comptime hash: stdx.core.Hash(Context, K),
-        comptime eql: stdx.core.Eql(Context, K),
-    };
-}
-```
-
-Exact option placement and factory signatures are owned by each consuming primitive spec, but consumers must preserve the callback names, pointer operand convention, context semantics, and comptime-default rule unless their spec explicitly overrides them.
-
-## Error and safety behavior
-
-Invalid trait laws are caller contract violations. `zstdx` primitives are not required to detect non-transitive ordering, unstable hashing, or inconsistent equality.
-
-A consumer spec may add debug checks for easy-to-detect violations, but such checks are optional and controlled by that primitive's safety options.
-
-## Required tests
-
-For `stdx.core`:
-
-- `Order` is public through `stdx.core`;
-- `Compare`, `LessThan`, `Eql`, and `Hash` type factories compile for `Context = void` and a scalar `T`;
-- pointer operands are accepted without copying values;
-- a callback with pointer context compiles.
-
-For each consumer:
-
-- one test uses `Context = void`;
-- one test uses non-void context when the API exposes context;
-- one test covers equal values or duplicate keys where equality/order is involved;
-- hash-based consumers test that collisions do not break lookup;
-- ordering-based consumers test at least one non-trivial ordering different from natural integer ascending order.
-
-## Open questions
-
-None.
+For each consumer, tests MUST use `Context = void` and, when the API exposes context, a non-void context. Tests for equality or ordering MUST include equal values or duplicate keys. A hash-based consumer MUST exercise colliding hashes and verify that lookup remains correct. An ordering-based consumer MUST exercise a non-natural ordering. These tests prove that the consumer applies the callback and semantic laws rather than assuming natural integer order or unique hashes.

@@ -60,12 +60,6 @@ stdx.sync.RawSpinLock
 stdx.sync.RawSpinLock.State
 ```
 
-It is not root-promoted:
-
-```zig
-stdx.RawSpinLock // not exported
-```
-
 Source ownership:
 
 ```text
@@ -85,7 +79,7 @@ pub const RawSpinLock = raw_spin_lock.RawSpinLock;
 `src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
 and aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const RawSpinLock = struct {
@@ -214,10 +208,9 @@ pub fn isHeld(self: *const RawSpinLock) bool {
 }
 ```
 
-`isHeld` is a snapshot. The observed value may be stale by the time the
-caller reads it. Consumers use `isHeld` for diagnostics, invariant
-checks, and best-effort logging — not for correctness-critical control
-flow.
+`isHeld` is a snapshot. The observed value can be stale when the caller reads
+it. Consumers use `isHeld` for diagnostics, invariant checks, and logging that
+does not affect correctness-critical control flow.
 
 ### `assertHeld`
 
@@ -341,44 +334,12 @@ fn snapshot(lock: *const stdx.sync.RawSpinLock) Snapshot {
 }
 ```
 
-## Required tests
+## Testing
 
-Tests live in `test/sync/raw_spin_lock_test.zig`.
+Compile-time tests MUST verify the single-word representation, `State` tags and values, and that all-zero storage is an unlocked lock. These tests prove the representation and bulk-initialization contracts.
 
-Required tests:
+Deterministic transition tests MUST verify `init`, successful and failed `tryAcquire`, `acquire`, `release`, `isHeld`, and debug-mode traps for `release` or `assertHeld` on an unheld lock. The failed `tryAcquire` test MUST verify that it does not modify the lock state. These tests prove exclusive ownership and failure behavior.
 
-- Compile-only: `@sizeOf(RawSpinLock) == @sizeOf(stdx.sync.AtomicCell(u32))`;
-  alignment matches;
-- Compile-only: `RawSpinLock.State` has exactly `.unlocked` and `.locked`
-  tags with backing values `0` and `1`;
-- Compile-only: bulk-zero (`@memset` to `0`) of a `RawSpinLock` is a
-  valid unlocked lock, checked by round-trip through `isHeld`;
-- Runtime: `init()` returns a lock with `isHeld() == false`;
-- Runtime: after `acquire()`, `isHeld() == true`; after `release()`,
-  `isHeld() == false`;
-- Runtime: `tryAcquire()` on unlocked lock returns `true` and takes
-  the lock; on locked lock returns `false` and does not modify state;
-- Runtime: `release()` traps under `stdx.core.debug.checksEnabled(.build_mode)`
-  when called without prior acquire;
-- Runtime: `assertHeld()` traps under `stdx.core.debug.checksEnabled(.build_mode)`
-  on an unheld lock;
-- Model (N-thread stress): N threads each `acquire`, increment a
-  shared counter, `release`, in a loop of K iterations. Final counter
-  equals `N * K`;
-- Model: contended path — one thread holds the lock while `N-1`
-  threads spin in `acquire`; after the holder releases, exactly one
-  waiter wins and the remainder continue spinning until each has
-  acquired and released in turn;
-- Ordering (publish-through-lock): thread A writes a paired
-  `AtomicCell(u64)` payload with `storeRelease`, then `release()`s the
-  lock; thread B `acquire()`s and reads the payload with
-  `loadAcquire`; the value written by A is observed by B;
-- Non-x86 build compiles the module.
+An ordering test MUST have one holder publish a payload before `release` and a subsequent holder read it after `acquire`. The subsequent holder MUST observe the payload. This test proves the release/acquire critical-section edge.
 
-The default host test suite runs the stress test with a modest N and K
-to avoid wall-clock flakiness. Contention-fairness is not asserted;
-this is a raw spinlock and fairness is explicitly out of scope.
-
-## Open questions
-
-None.
+Stress tests MUST run multiple contenders that increment a shared counter while holding the lock and verify the exact final count. A coordinated contention test MUST hold the lock while other callers enter `acquire`, then release it and verify that each caller eventually completes one critical section. These tests exercise progress under contention without asserting fairness. Cross-target compilation MUST include a non-x86 target.

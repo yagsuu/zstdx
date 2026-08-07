@@ -2,8 +2,7 @@
 
 Status: Approved.
 
-`stdx.arch.x86_64.vmx` owns thin, inline-asm-only wrappers for Intel VMX
-(Virtual Machine Extensions) instructions. Consumers reach every primitive through the lower-case `stdx.arch.x86_64.vmx` namespace.
+`stdx.arch.x86_64.vmx` owns inline-assembly wrappers for Intel VMX instructions.
 
 ## Owned scope
 
@@ -51,7 +50,6 @@ This spec does not own:
 - shadow-VMCS bitmap configuration (bit 31 of the VMCS revision-id word);
 - runtime execution on the host test suite — VMX instructions require
   CPL 0 and CR4.VMXE = 1, which the host runner cannot provide;
-- root promotion of any vmx symbol.
 
 ## Public namespace
 
@@ -68,9 +66,6 @@ stdx.arch.x86_64.vmx.InveptDescriptor
 stdx.arch.x86_64.vmx.InvvpidKind
 stdx.arch.x86_64.vmx.InvvpidDescriptor
 ```
-
-None are root-promoted. Consumers reach VMX primitives only through the
-`stdx.arch.x86_64.vmx` path.
 
 ## Source ownership
 
@@ -94,7 +89,7 @@ Operations whose semantics do not depend on the instruction set —
 `InvvpidKind` enums — compile on any target so type layouts and constants
 remain portable.
 
-## Approved API
+## API
 
 ```zig
 pub const vmx = struct {
@@ -481,159 +476,7 @@ Every VMX instruction is privileged (CPL 0). Traps distinct from
 Trap recovery is owned by the host OS, firmware, or hypervisor. The
 wrappers do not install handlers or catch faults.
 
-## Amendments to base.md
 
-None.
+## Testing
 
-## Examples
-
-Enter VMX operation and initialize a VMCS:
-
-```zig
-const stdx = @import("stdx");
-const x86 = stdx.arch.x86_64;
-const vmx = x86.vmx;
-
-// Read the VMCS revision identifier the CPU expects.
-const IA32_VMX_BASIC = x86.Msr.fromInt(0x480);
-const revision: u32 = @truncate(IA32_VMX_BASIC.read());
-
-// Allocate 4 KiB regions in caller-owned physical memory. The variables
-// below stand in for whatever physical-memory allocator the caller uses;
-// `.fromInt` wraps the resulting physical addresses as strong values.
-var vmxon_region: vmx.VmxonRegion = .{ .revision_id = revision };
-var vmcs: vmx.Vmcs = .{ .revision_id = revision };
-
-const vmxon_phys: vmx.PhysAddr = .fromInt(physicalAddressOf(&vmxon_region));
-const vmcs_phys: vmx.PhysAddr = .fromInt(physicalAddressOf(&vmcs));
-
-try vmx.vmxon(&vmxon_phys);
-try vmx.vmclear(&vmcs_phys);
-try vmx.vmptrld(&vmcs_phys);
-```
-
-Program a VMCS field via a caller-owned field enum:
-
-```zig
-const VmcsField = enum(u32) {
-    host_rip = 0x6C16,
-    host_rsp = 0x6C14,
-    vm_instruction_error = 0x4400,
-    _,
-};
-
-try vmx.vmwrite(@intFromEnum(VmcsField.host_rip), @intFromPtr(&vm_exit_trampoline));
-try vmx.vmwrite(@intFromEnum(VmcsField.host_rsp), host_stack_top);
-```
-
-Launch a guest with `VMfailValid` decoding:
-
-```zig
-vmx.vmlaunch() catch |err| switch (err) {
-    error.VMfailInvalid => return error.NoCurrentVmcs,
-    error.VMfailValid => {
-        // SDM Vol.3 Table 30-1: VM-instruction error field encoding.
-        const code: u32 = @truncate(try vmx.vmread(0x4400));
-        return decodeInstrError(code);
-    },
-};
-```
-
-Detect a VMX abort after suspected loss:
-
-```zig
-if (vmcs.abort_indicator != 0) {
-    handleVmxAbort(vmcs.abort_indicator);
-    vmcs.abort_indicator = 0; // SDM Vol.3 §24.2 permits ordinary clear.
-}
-```
-
-Single-context EPT invalidation after modifying a page-table walk:
-
-```zig
-const eptp: u64 = buildEptp(pml4_phys);
-const desc: vmx.InveptDescriptor = .{ .eptp = eptp };
-try vmx.invept(.single_context, &desc);
-```
-
-Individual-address VPID invalidation:
-
-```zig
-const desc: vmx.InvvpidDescriptor = .{
-    .vpid = guest_vpid,
-    .linear_address = guest_linear_addr,
-};
-try vmx.invvpid(.individual_address, &desc);
-```
-
-Query the currently loaded VMCS:
-
-```zig
-var current: vmx.PhysAddr = .fromInt(0);
-try vmx.vmptrst(&current);
-if (current.raw() == std.math.maxInt(u64)) {
-    // No current VMCS on this logical processor.
-}
-```
-
-## Required tests
-
-Tests live in `test/arch/x86_64_vmx_test.zig`. Every test is compile-only
-in the default host suite. Runtime execution requires CPL 0 and VMX
-operation, which the host runner cannot provide; a privileged runner is
-outside this spec's scope.
-
-Required tests:
-
-- `vmx.Error` has exactly two tags: `VMfailInvalid`, `VMfailValid`;
-- `PhysAddr.fromInt`/`raw` round-trip for `0`, a non-zero mid value, and
-  `std.math.maxInt(u64)`; the round-trip compiles on any target;
-- `@sizeOf(vmx.VmxonRegion) == 4096`, `@alignOf(vmx.VmxonRegion) == 4096`,
-  `vmx.VmxonRegion.alignment == 4096`;
-- `@sizeOf(vmx.Vmcs) == 4096`, `@alignOf(vmx.Vmcs) == 4096`,
-  `vmx.Vmcs.alignment == 4096`;
-- `@offsetOf(vmx.VmxonRegion, "revision_id") == 0`;
-- `@offsetOf(vmx.VmxonRegion, "_reserved") == 4`;
-- `@offsetOf(vmx.Vmcs, "revision_id") == 0`;
-- `@offsetOf(vmx.Vmcs, "abort_indicator") == 4`;
-- `@offsetOf(vmx.Vmcs, "_reserved") == 8`;
-- `@sizeOf(vmx.InveptDescriptor) == 16`,
-  `@alignOf(vmx.InveptDescriptor) == 16`,
-  `vmx.InveptDescriptor.alignment == 16`;
-- `@offsetOf(vmx.InveptDescriptor, "eptp") == 0`;
-- `@offsetOf(vmx.InveptDescriptor, "_reserved") == 8`;
-- `@sizeOf(vmx.InvvpidDescriptor) == 16`,
-  `@alignOf(vmx.InvvpidDescriptor) == 16`,
-  `vmx.InvvpidDescriptor.alignment == 16`;
-- `@offsetOf(vmx.InvvpidDescriptor, "vpid") == 0`;
-- `@offsetOf(vmx.InvvpidDescriptor, "_reserved_low") == 2`;
-- `@offsetOf(vmx.InvvpidDescriptor, "_reserved_high") == 4`;
-- `@offsetOf(vmx.InvvpidDescriptor, "linear_address") == 8`;
-- `vmx.InveptKind` is `enum(u64)` with tags `single_context = 1`,
-  `global = 2`, and the `_` open tag;
-- `vmx.InvvpidKind` is `enum(u64)` with tags `individual_address = 0`,
-  `single_context = 1`, `all_contexts = 2`,
-  `single_context_retaining_globals = 3`, and the `_` open tag;
-- `vmx.VmxonRegion`, `vmx.Vmcs`, `vmx.InveptDescriptor`,
-  `vmx.InvvpidDescriptor` compile on any target (portable value types);
-- On x86_64, every wrapper instantiates with the declared signature:
-  - `vmx.vmxon(*const vmx.PhysAddr) vmx.Error!void`;
-  - `vmx.vmxoff() vmx.Error!void`;
-  - `vmx.vmclear(*const vmx.PhysAddr) vmx.Error!void`;
-  - `vmx.vmptrld(*const vmx.PhysAddr) vmx.Error!void`;
-  - `vmx.vmptrst(*vmx.PhysAddr) vmx.Error!void`;
-  - `vmx.vmlaunch() vmx.Error!noreturn`;
-  - `vmx.vmresume() vmx.Error!noreturn`;
-  - `vmx.vmread(u32) vmx.Error!u64`;
-  - `vmx.vmwrite(u32, u64) vmx.Error!void`;
-  - `vmx.invept(vmx.InveptKind, *const vmx.InveptDescriptor) vmx.Error!void`;
-  - `vmx.invvpid(vmx.InvvpidKind, *const vmx.InvvpidDescriptor) vmx.Error!void`;
-- Non-x86_64 build: importing `stdx.arch.x86_64` compiles; every
-  asm-emitting wrapper produces a compile error only when referenced,
-  matching `base.md` gating.
-
-The default host test suite must not execute any VMX instruction.
-
-## Open questions
-
-None.
+Compile-time tests MUST verify the exact `Error` tags; `PhysAddr` round trips; the 4 KiB size, 4 KiB alignment, and field offsets of `VmxonRegion` and `Vmcs`; the 16-byte size, 16-byte alignment, and field offsets of both invalidation descriptors; and the exact open-enum values for invalidation kinds. Portable-layout tests MUST compile value types on every target. x86_64 compile tests MUST instantiate every wrapper with its declared signature. Non-x86_64 tests MUST verify facade import succeeds and each assembly wrapper fails only when referenced. These tests prove error representation, ABI layout, public signatures, and target gating; the default host suite MUST NOT execute VMX instructions because execution requires CPL 0 and VMX operation.

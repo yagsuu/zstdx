@@ -2,13 +2,7 @@
 
 Status: Approved.
 
-`stdx.arch.x86_64.cpuid` owns raw CPUID accessors and decoders. It owns
-vendor identification, family/model/stepping decoding, typed feature-flag
-surfaces over the leaves the library and its downstream consumers
-actually read, cache-topology iteration, brand string, and address-size
-extraction.
-
-This spec supersedes the CPUID portions previously owned by `docs/specs/arch/x86_64.md`.
+`stdx.arch.x86_64.cpuid` owns raw CPUID accessors and decoders for vendor identification, family/model/stepping, typed feature masks, cache topology, brand strings, and address sizes.
 
 ## Owned scope
 
@@ -28,8 +22,6 @@ This spec owns:
 - `cpuid.Features` bundle for one-shot fetch of every feature mask;
 - `cpuid.AddressSizes` and `cpuid.addressSizes()` on leaf `0x80000008`
   because hv/kernel paths hit it constantly;
-- base-spec amendment that moves CPUID ownership here;
-- required tests.
 
 ## Deferred scope and non-goals
 
@@ -86,8 +78,6 @@ stdx.arch.x86_64.cpuid.caches
 stdx.arch.x86_64.cpuid.addressSizes
 ```
 
-None are root-promoted.
-
 ## Source ownership
 
 ```text
@@ -108,7 +98,7 @@ Operations whose semantics do not depend on the instruction set
 (`Vendor` enum, `Features` bundle construction from raw values, `cache.Descriptor`
 type layout) compile on any target.
 
-## Approved API
+## API
 
 ### Vendor and version
 
@@ -525,13 +515,7 @@ positions. `@bitCast(BasicFeatureEdx, u32_value)` reconstructs the mask.
 to `1`. Implementation is a comptime-generated OR over every reserved
 field.
 
-Only the named bits above are decoded. Bits reserved at spec time that
-later CPUs assign meaning to still land in a reserved field; consumers
-detect them via `hasReserved()` and inspect through `@bitCast` to `u32`.
-Adding a bit name is not a breaking change of this spec — it moves a
-bit from a reserved field into a named field, changing behavior of
-`hasReserved()` when that bit is set. Consumers who require stable
-`hasReserved()` semantics across zstdx versions pin the version.
+Bits that are reserved when this specification is published remain reserved fields. `hasReserved()` reports any set reserved bit. A later specification revision that names such a bit changes `hasReserved()` for that bit.
 
 ### Feature fetch
 
@@ -579,12 +563,7 @@ cache) subleaves starting at subleaf 0. Each `Iterator.next()` executes
 - `self_initializing` = `(EAX[8]) == 1`;
 - `eax`, `ebx`, `ecx`, `edx` = raw register values returned by `cpuid`.
 
-Leaf 4 is defined by Intel and reserved by AMD in the SDM sense, but
-modern AMD CPUs also implement leaf 4 for a small subset of the same
-fields (level, kind, line_size). This spec does not distinguish; the
-iterator returns descriptors on both vendors when leaf 4 is populated.
-Consumers who need vendor-specific extensions call `cpuid.leaf` /
-`subleaf` directly.
+`caches()` returns populated leaf-4 descriptors without vendor-specific interpretation. Callers that require vendor-specific fields use `cpuid.leaf` or `cpuid.subleaf`.
 
 On a CPU where `maxBasicLeaf() < 4`, the iterator's first `next()`
 returns `null`.
@@ -597,8 +576,7 @@ false, returns `null`. Otherwise executes `cpuid` with leaves
 returned 32-bit registers into a 48-byte array. The Intel-standard
 byte layout is EAX/EBX/ECX/EDX in that order per leaf.
 
-The returned bytes are the raw string; padding is `0`. Consumers who
-want a trimmed slice call `std.mem.sliceTo(&result, 0)`.
+The returned bytes are the raw string; padding is `0`.
 
 ### Address sizes
 
@@ -641,112 +619,6 @@ safe from any execution context including NMI.
 
 `cpuid.leaf` and `cpuid.subleaf` execute the instruction with register clobbers only. Decoders inherit that contract. No CPUID operation uses a `memory` clobber; the operations are pure reads of CPU-provided immediate values.
 
-## Amendments
+## Testing
 
-This spec supersedes the CPUID portions previously owned by `docs/specs/arch/x86_64.md`. The base spec no longer owns raw CPUID access or CPUID decoding.
-
-
-## Examples
-
-Vendor check plus one-shot feature fetch:
-
-```zig
-const stdx = @import("stdx");
-const x86 = stdx.arch.x86_64;
-
-const feats = x86.cpuid.features();
-
-if (x86.cpuid.vendor() == .intel and feats.basic.ecx.vmx) {
-    // VMX supported on Intel.
-}
-
-if (feats.structured.ebx.invpcid) {
-    // Safe to call x86.cpu.tlb.invalidatePcid.
-}
-```
-
-Enumerate caches:
-
-```zig
-var it = x86.cpuid.caches();
-while (it.next()) |desc| {
-    log.info("L{d} {s} line={d} ways={d} sets={d}", .{
-        desc.level, @tagName(desc.kind), desc.line_size, desc.ways, desc.sets,
-    });
-}
-```
-
-Physical address width for a page-table walker:
-
-```zig
-const sizes = x86.cpuid.addressSizes();
-const phys_mask = (@as(u64, 1) << @intCast(sizes.physical_bits)) - 1;
-```
-
-Brand string:
-
-```zig
-if (x86.cpuid.brandString()) |brand| {
-    const trimmed = std.mem.sliceTo(&brand, 0);
-    log.info("cpu: {s}", .{trimmed});
-}
-```
-
-Reserved-bit inspection when a downstream project runs on a newer CPU
-than the zstdx version knows about:
-
-```zig
-const feats = x86.cpuid.structuredFeatures();
-if (feats.ebx.hasReserved()) {
-    const raw: u32 = @bitCast(feats.ebx);
-    log.warn("structured ebx has unknown bits: 0x{x}", .{raw & reserved_mask});
-}
-```
-
-## Required tests
-
-Tests live in `test/arch/x86_64_cpuid_test.zig`.
-
-Required tests:
-
-- Compile-only: every feature mask is `packed struct(u32)`;
-  `@sizeOf` == 4 for each;
-- Compile-only: `@bitCast(u32, BasicFeatureEdx{})` returns 0;
-  `@bitCast(BasicFeatureEdx, @as(u32, 0))` returns an all-false mask;
-- Compile-only: `@sizeOf(BasicFeatures)` == 8; `@sizeOf(StructuredFeatures)`
-  == 12; `@sizeOf(ExtendedFeatures)` == 8; `@sizeOf(Features)` == 28;
-- Compile-only: `hasReserved` exists on every mask type;
-- Compile-only: `cpuid.Vendor` has exactly the seven listed tags;
-- Compile-only: `cpuid.cache.Kind` is `enum(u5)` with `_` sentinel;
-- Runtime, host-safe (x86_64 target only): `vendor()` returns
-  `.intel`, `.amd`, or `.unknown`;
-- Runtime, host-safe: `vendorString()` matches the vendor: prefix
-  `Genu` for Intel, `Auth` for AMD;
-- Runtime, host-safe: `version().family` is at least 6 on any modern
-  CPU;
-- Runtime, host-safe: `basicFeatures().edx.fpu` and `.tsc` are `true`;
-- Runtime, host-safe: `basicFeatures().edx.hasReserved()` is `false`
-  on the current SDM revision;
-- Runtime, host-safe: `features()` returns a bundle where every
-  sub-field matches the individual accessor's result;
-- Runtime, host-safe: `caches()` yields at least one descriptor with
-  `level == 1` and `line_size == 64`;
-- Runtime, host-safe: `brandString()` returns non-null on any modern
-  CPU; the trimmed content is printable ASCII;
-- Runtime, host-safe: `addressSizes().physical_bits` is between 32 and
-  57;
-- Model test: `hasReserved` returns `true` when a `u32` with a known
-  reserved bit set is `@bitCast` into the mask;
-- Model test: `basicFeatures()` on a stub `cpuid.Result` with
-  `EDX = 0x00000001, ECX = 0` decodes `.edx.fpu = true` and every
-  other field `false`. Test-only helper `basicFeaturesFrom(result)`
-  is exposed at a `test`-only visibility for injection.
-- Non-x86 build compiles the module; every runtime accessor is
-  `@compileError` at use site.
-
-The default host test suite runs only unprivileged operations. Every
-required test above is unprivileged.
-
-## Open questions
-
-None.
+Compile-time representation tests MUST verify that every feature mask is a 4-byte `packed struct(u32)`, that zero bit-casts round trip, that feature-bundle sizes match their declared layouts, that every mask has `hasReserved`, and that the documented enum layouts remain exact. Model tests MUST inject raw `Result` values to verify feature-bit decoding and that a set reserved bit causes `hasReserved()` to return `true`. Host-safe runtime tests on x86_64 MUST verify vendor and version decoding, consistency between `features()` and individual accessors, cache-descriptor presence and line size, printable non-null brand strings when provided, and physical-address widths in the documented range. Non-x86_64 compile tests MUST verify use-site target gating. These tests prove raw-register decoding, fallback behavior, ABI layout, and instruction gating without relying on a particular consumer or privileged context.

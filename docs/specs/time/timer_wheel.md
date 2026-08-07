@@ -51,7 +51,6 @@ This spec does not own:
   automatic growth;
 - stable FIFO ordering within a bucket;
 - priority inversion, fairness, scheduler, or ready-queue policy;
-- root promotion of `TimerWheel`.
 
 ## Terminology
 
@@ -82,12 +81,6 @@ A **wheel horizon** is the set of due ticks accepted by insertion and update:
 
 ```zig
 stdx.time.TimerWheel
-```
-
-It is not root-promoted:
-
-```zig
-stdx.TimerWheel // not exported
 ```
 
 Source ownership:
@@ -597,20 +590,6 @@ After clearing, the wheel is empty and accepts new insertions up to the same
 capacity and within the current cursor horizon. Handles created before clearing
 are stale and must not affect new entries.
 
-## Bucket ordering
-
-The wheel does not guarantee FIFO, LIFO, stable, or deterministic ordering among
-entries in the same bucket or among entries that become expired on the same
-`advanceTo` call.
-
-Consumers that need fairness or deterministic same-bucket ordering must encode
-that policy in their payloads or in a scheduler-owned ready queue after popping
-expired entries.
-
-Tests must not assert a specific pop order within a bucket. They must assert
-only that all expected entries are returned and that no not-yet-due entry is
-returned.
-
 ## Handle invalidation and generation reuse
 
 Implementations must prevent stale handles from affecting newly inserted entries
@@ -679,207 +658,20 @@ values.
 
 ## Testing
 
-### Config validation
+Testing MUST use caller-controlled `Instant` values and a reference model that quantizes deadlines to due ticks. This method verifies wheel behavior without a clock backend, allocator, scheduler, or callback.
 
-Required tests:
+### Configuration, capacity, and range boundaries
 
-- `tick_ns == 0` is rejected at compile time;
-- `slot_count < 2` is rejected at compile time;
-- non-power-of-two `slot_count` is rejected at compile time;
-- configs whose accepted due-instant arithmetic cannot be represented in the
-  `Instant` domain are rejected;
+Compile-time tests reject zero ticks, invalid bucket counts, and configurations whose accepted due-instant arithmetic cannot fit the `Instant` domain. Construction tests cover static and bounded storage, cursor initialization, zero entry capacity, and debug bucket-length validation. Insertion tests verify range-before-capacity precedence, `error.Full`, `error.OutOfRange`, and no mutation on every error path. These tests prove configuration, capacity, and finite-horizon contracts.
 
-### Construction and capacity
+### Quantization and cursor transitions
 
-Required tests:
+Boundary tests place deadlines at the cursor, within a tick, exactly on a tick boundary, one nanosecond after a boundary, at the last accepted due tick, and at the first rejected due tick. Advancement tests cover same-tick movement, exact due ticks, skipped ticks, jumps of at least one wheel revolution, and debug rejection of backwards time. They prove no early expiration, less-than-one-tick lateness, horizon limits, and bounded cursor advancement.
 
-- `Static(T, 0, config).init(origin)` creates an empty full wheel;
-- `Static(T, N, config).init(origin)` creates an empty wheel with capacity `N`;
-- `Bounded(T, config).wrap(slots, buckets, origin)` uses `slots.len` as entry
-  capacity;
-- `Bounded(T, config).wrap` traps when `core.debug.checksEnabled(.build_mode)`
-  is true and `buckets.len != config.slot_count`;
-- `origin()` and `cursor()` both equal the initialization origin;
-- `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` track public
-  mutations.
+### Expiration, ordering, and next wake
 
-### Tick quantization and range
+Tests advance then drain expired entries, observe empty and pending states, and remove entries before and after they become due. Same-bucket tests compare membership and count rather than order. `nextWake` tests verify null for empty state, `cursor()` for pending expiration, and quantized future wake instants. These tests prove expired-pop, unspecified bucket order, and caller-owned wake behavior.
 
-Required tests:
+### Handle and reference-model tests
 
-- a deadline at the cursor instant is immediately expired;
-- a deadline inside the current tick but after the cursor instant is assigned to
-  the next tick and does not expire early;
-- a deadline exactly on a future tick boundary expires at that boundary;
-- a deadline one nanosecond after a tick boundary expires at the following tick;
-- the farthest in-horizon quantized due tick is accepted;
-- the first due tick at or beyond `current_tick + slot_count` returns
-  `error.OutOfRange` without mutation;
-- `Deadline.never` returns `error.OutOfRange` without mutation.
-
-### Insertion and full behavior
-
-Required tests:
-
-- inserting into an empty wheel succeeds and returns a live handle;
-- inserting into a full wheel returns `error.Full` without mutation when the
-  deadline is in range;
-- range validation takes precedence over full capacity;
-- `insertAssumeCapacity` succeeds after an explicit capacity check;
-- `insertAssumeCapacity` returns `error.OutOfRange` for an out-of-range
-  deadline;
-- `insertAssumeCapacity` traps when `core.debug.checksEnabled(.build_mode)` is
-  true and the wheel is full and the deadline is in range.
-
-### Advancement
-
-Required tests:
-
-- advancing within the same tick does not expire next-tick entries;
-- advancing to the exact due tick expires entries assigned to that tick;
-- advancing by multiple ticks expires every entry whose due tick is skipped;
-- advancing by at least `slot_count` ticks expires all in-horizon live entries;
-- backwards `advanceTo` traps when `core.debug.checksEnabled(.build_mode)` is
-  true.
-
-### Expired pop
-
-Required tests:
-
-- `popExpired` returns `null` before entries are due;
-- due entries pop after `advanceTo`;
-- same-bucket entries all pop, with order treated as unspecified;
-- popped handles become stale;
-- `popExpired` returns `null` after the expired list drains.
-
-### Removal and stale handles
-
-Required tests:
-
-- `remove(live_handle)` removes an active bucket entry;
-- `remove(live_handle)` removes an expired pending entry;
-- the removed handle becomes stale;
-- a second `remove` of the same handle returns `null` and does not mutate;
-- after slot reuse, an old handle cannot remove or update the new entry.
-
-### Deadline update
-
-Required tests:
-
-- updating to an earlier in-range deadline moves the entry to the correct
-  bucket or expired list;
-- updating to a later in-range deadline moves the entry to the correct bucket;
-- updating to the same deadline succeeds and preserves the entry;
-- updating to an already-due deadline makes the entry poppable;
-- updating to `Deadline.never` returns `error.OutOfRange` without mutation;
-- updating beyond horizon returns `error.OutOfRange` without mutation;
-- updating a stale handle returns `false` and leaves the wheel unchanged;
-- a successful update keeps the handle live.
-
-### Next wake
-
-Required tests:
-
-- empty wheel returns `null`;
-- expired pending entries return `cursor()`;
-- future entries return their quantized due instant;
-- `nextWake()` may return an instant later than an original deadline, but by
-  less than `config.tick_ns`;
-- removing or popping the earliest bucket changes `nextWake()` to the next
-  bucket or `null`.
-
-### Clearing
-
-Required tests:
-
-- `clearRetainingCapacity` empties the wheel;
-- capacity, origin, and cursor are retained;
-- handles live before clearing become stale;
-- later insertions work within the retained cursor horizon.
-
-### Model tests
-
-Required randomized model tests compare the wheel against a simple reference
-model for:
-
-- insert;
-- remove;
-- update deadline;
-- `advanceTo`;
-- `nextWake`;
-- `popExpired`;
-- clear;
-- stale-handle behavior;
-- out-of-range deadlines.
-
-The reference model must quantize deadlines to due ticks and treat same-bucket
-order as unordered.
-
-### Contract tests
-
-Required tests:
-
-- `Static` and `Bounded` require no allocator and perform no allocation;
-- payload type `void` works;
-- payload pointer values round-trip through insert/pop/remove;
-- no root export `stdx.TimerWheel` exists;
-- `assertValid` succeeds after public mutations;
-- `assertValid` traps on deliberately corrupted internal state when
-  `core.debug.checksEnabled(.build_mode)` is true.
-
-## Usage examples
-
-High-fanout coarse retransmission wheel:
-
-```zig
-const config = stdx.time.TimerWheel.Config{
-    .tick_ns = 10 * std.time.ns_per_ms,
-    .slot_count = 256,
-};
-const Wheel = stdx.time.TimerWheel.Static(*Retransmit, 8192, config);
-
-var wheel = Wheel.init(clock.now());
-
-_ = try wheel.insert(retransmit_deadline, retransmit);
-
-const now = clock.now();
-wheel.advanceTo(now);
-while (wheel.popExpired()) |entry| {
-    scheduleRetransmit(entry.item);
-}
-```
-
-Interrupt-driven timer drain:
-
-```zig
-fn onTimerInterrupt(now: stdx.time.Instant) void {
-    wheel.advanceTo(now);
-
-    while (wheel.popExpired()) |entry| {
-        ready_ring.pushBackAssumeCapacity(entry.item);
-    }
-
-    if (wheel.nextWake()) |next| {
-        programTimer(next);
-    } else {
-        disarmTimer();
-    }
-}
-```
-
-Bounded caller-provided storage:
-
-```zig
-const config = stdx.time.TimerWheel.Config{
-    .tick_ns = 1 * std.time.ns_per_ms,
-    .slot_count = 128,
-};
-const Wheel = stdx.time.TimerWheel.Bounded(ConnectionId, config);
-
-var slots: [1024]Wheel.Slot = undefined;
-var buckets: [config.slot_count]Wheel.Bucket = undefined;
-var wheel = Wheel.wrap(&slots, &buckets, clock.now());
-
-const handle = try wheel.insert(deadline, connection_id);
-_ = wheel.remove(handle);
-```
+Tests exercise removal, update, clearing, stale-handle queries, and slot reuse. They verify invalidation boundaries, liveness preservation after successful updates, payload ownership, and no mutation for stale or out-of-range operations. Randomized sequences of insert, remove, update, advance, next wake, expired pop, and clear compare observable state with the quantized reference model, treating same-bucket order as unordered. Contract tests verify allocator independence, `void` and pointer payloads, absence of the root export, and invariant checks after public mutations and deliberate corruption. These tests prove the lifetime, capacity, ordering, and invariant contracts across long state transitions.

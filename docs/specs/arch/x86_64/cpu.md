@@ -28,7 +28,6 @@ This spec does not own:
 - PCID allocation or lifetime;
 - page-table mutation or paging structure formats;
 - VMX/SVM invalidation instructions such as `invept`, `invvpid`, or `invlpga`;
-- root promotion.
 
 ## Public namespace
 
@@ -48,8 +47,6 @@ stdx.arch.x86_64.cpu.tlb.invalidatePage
 stdx.arch.x86_64.cpu.tlb.invalidatePcid
 ```
 
-No names are root-promoted. The historical PascalCase namespaces `Cpu`, `Cpu.Tsc`, and `Cpu.Tlb` are not exported.
-
 ## Source ownership
 
 ```text
@@ -68,7 +65,7 @@ pub const cpu = @import("x86_64/cpu.zig");
 
 The module may be imported on any target. Operations that emit x86_64 inline assembly produce a compile error when referenced on non-x86_64 targets. Layout-only declarations such as `tlb.InvpcidDescriptor`, `tlb.InvpcidKind`, and `tsc.Reading` compile on every target.
 
-## Approved API
+## API
 
 ```zig
 pub fn halt() void;
@@ -165,45 +162,6 @@ pub const tlb = struct {
 
 Trap recovery is caller policy.
 
-## Examples
+## Testing
 
-```zig
-const x86 = stdx.arch.x86_64;
-
-while (!ready.load(.acquire)) {
-    x86.cpu.pause();
-}
-
-const before = x86.cpu.tsc.read();
-work();
-const after = x86.cpu.tsc.read();
-
-pte.* = new_entry;
-x86.fence.sfence();
-x86.cpu.tlb.invalidatePage(virtual_address);
-
-const desc: x86.cpu.tlb.InvpcidDescriptor = .{
-    .pcid = current_pcid,
-    .linear_address = 0,
-};
-x86.cpu.tlb.invalidatePcid(.single_context, &desc);
-```
-
-## Required tests
-
-Required tests:
-
-- Compile-only: `halt`, `pause`, `breakpoint`, `tsc.read`, `tsc.readSerializing`, `tlb.invalidatePage`, and `tlb.invalidatePcid` instantiate on x86_64;
-- compile-only: non-x86_64 imports do not emit inline assembly until a gated operation is referenced;
-- runtime host-safe: `pause` instantiates and may execute when `x86_64.supported`;
-- runtime host-safe: `tsc.read` returns a value on supported hosts where TSD does not block userspace;
-- layout: `@sizeOf(cpu.tlb.InvpcidDescriptor) == 16`;
-- layout: `@alignOf(cpu.tlb.InvpcidDescriptor) == 16`;
-- layout: `@offsetOf(cpu.tlb.InvpcidDescriptor, "pcid") == 0`;
-- layout: `@offsetOf(cpu.tlb.InvpcidDescriptor, "linear_address") == 8`;
-- enum: `InvpcidKind` has exactly the four documented tags and backing values;
-- type: `tsc.Reading.tsc` is `u64` and `tsc.Reading.aux` is `u32`.
-
-## Amendments
-
-This spec supersedes the CPU instruction, TSC, and TLB portions previously owned by `base.md` and `extensions.md`.
+Compile-time tests MUST instantiate every assembly wrapper on x86_64 and verify that importing the module on a non-x86_64 target does not emit inline assembly until a gated operation is referenced. Layout tests MUST verify the 16-byte size, 16-byte alignment, and documented field offsets of `tlb.InvpcidDescriptor`; enum tests MUST verify the four `InvpcidKind` values; and type tests MUST verify the `tsc.Reading` field types. Host-safe runtime tests on supported hosts MUST execute `pause` and, where TSD permits userspace reads, verify that `tsc.read` returns a value. These tests prove the portable ABI, target-gating boundary, and unprivileged executable subset without executing privileged invalidation instructions.

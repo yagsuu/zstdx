@@ -18,6 +18,19 @@ test "unit: EndianInt has byte alignment and exact size for every supported widt
     }
 }
 
+test "unit: EndianInt fields preserve extern struct layout" {
+    const Header = extern struct {
+        tag: u8,
+        length: Le(u16),
+        generation: Be(u32),
+    };
+
+    try testing.expectEqual(@as(usize, 0), @offsetOf(Header, "tag"));
+    try testing.expectEqual(@as(usize, 1), @offsetOf(Header, "length"));
+    try testing.expectEqual(@as(usize, 3), @offsetOf(Header, "generation"));
+    try testing.expectEqual(@as(usize, 7), @sizeOf(Header));
+}
+
 test "unit: EndianInt encodes little- and big-endian bytes for u32" {
     try testing.expectEqualSlices(
         u8,

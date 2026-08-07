@@ -5,8 +5,6 @@ Status: Approved.
 `stdx.collections.Ring.Static(T, N)` is an inline fixed-capacity FIFO. It owns
 its storage, preserves enqueue order, and never allocates.
 
-The root facade may expose the same family as `stdx.Ring.Static(T, N)`.
-
 ## Owned scope
 
 This spec owns:
@@ -31,8 +29,6 @@ This spec does not own:
 - string, sentinel, UTF, truncation, or text policy;
 - stable handles, generation counters, or tombstones;
 - on-drop callbacks or overwrite policy enums;
-- single- or multi-producer atomic ring semantics; see
-  `docs/specs/concurrent/spsc/ring.md` for the planned concurrent variant;
 - ABI, wire, or packed layout guarantees for the ring value.
 
 ## Public namespace
@@ -41,12 +37,6 @@ This spec does not own:
 
 ```zig
 stdx.collections.Ring
-```
-
-It is root-promoted by the first-slice root facade:
-
-```zig
-stdx.Ring
 ```
 
 Source ownership:
@@ -73,7 +63,7 @@ pub const collections = @import("collections.zig");
 pub const Ring = collections.Ring;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const Ring = struct {
@@ -123,11 +113,9 @@ return null).*`.
 
 ## Type and capacity contract
 
-`T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
-are compile errors where practical.
-
-`capacity_items` is a comptime item count greater than zero. `Static(T, 0)`
-is a compile error.
+`T` MUST be a runtime value type with `@sizeOf(T) > 0`; a zero-sized element
+type is a compile error. `capacity_items` is a comptime item count greater than
+zero. `Static(T, 0)` is a compile error.
 
 A valid ring satisfies:
 
@@ -195,10 +183,7 @@ ring is not full.
 `pushBackOverwriteOldest(item)` always writes `item` to the back slot. If the
 ring was not full, it increments `count` and returns `null`. If the ring was
 full, it overwrites the front slot, advances `head`, leaves `count` at
-`item_capacity`, and returns the evicted front element. On `Static(T, 0)` it
-performs no mutation and returns `item` unchanged so callers can release
-ownership uniformly.
-
+`item_capacity`, and returns the evicted front element.
 Implementations advance indices with branch wrap, not modulo:
 
 ```zig
@@ -265,9 +250,9 @@ atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
 - `popFront` uses `null` for empty instead of an error;
 - `pushBackOverwriteOldest` cannot fail; the optional return reports eviction;
 - `front`, `back`, `constFront`, and `constBack` use `null` for empty;
-- invalid `T` categories are compile errors where practical;
-- corrupted `count` or `head` is a programmer error caught by `assertValid`
-  where practical.
+- a zero-sized `T` is a compile error;
+- corrupted `count` or `head` violates the caller contract; `assertValid`
+  asserts the capacity and head-range invariants.
 
 All error returns leave the ring unchanged.
 
@@ -275,10 +260,6 @@ All error returns leave the ring unchanged.
 
 `assertValid()` asserts `count <= item_capacity` and, when `item_capacity > 0`,
 `head < item_capacity`.
-
-Public mutating operations may call `assertValid()` before and after mutation
-when `core.checksEnabled(opts.safety)` or an equivalent module safety option
-requires runtime invariant checks.
 
 ## Implementation constraints
 
@@ -293,142 +274,29 @@ Implementation must:
   `item_capacity` is not a comptime power of two;
 - update `head` and `count` only after capacity checks succeed;
 - leave the ring unchanged on `error.Full`;
-- set vacated slots to `undefined` where practical after `popFront` and after
-  the eviction step of `pushBackOverwriteOldest`;
 - never read or expose spare slots as live elements;
 - avoid hidden globals, atomics, fences, volatile operations, target probes,
   and I/O.
 
-## Planned use
+## Testing
 
-16550A UART RX and TX FIFOs of fixed depth 16 fit this shape. The RX FIFO
-surfaces overrun in a status register rather than silently overwriting; it
-uses `pushBack` and observes `error.Full`. The TX FIFO is drained by
-`popFront`.
+Tests MUST construct empty, partial, and full rings to verify the comptime
+capacity boundary, including compile-fail coverage for zero capacity and
+zero-sized `T`. They MUST verify capacity helpers, empty optional returns, and
+`error.Full`. These tests prove that the ring distinguishes all capacity states.
 
-Fixed-capacity pending-notification queues that overwrite the oldest entry
-when full use `pushBackOverwriteOldest` and release the evicted entry
-through the returned optional.
+Mutation tests MUST enqueue, dequeue, and overwrite entries across at least one
+wrap boundary. They MUST compare each dequeued value with enqueue order and
+check the returned eviction value. These tests prove FIFO order, branch-wrap
+behavior, overwrite semantics, and no mutation after `error.Full`.
 
-Diagnostic trace buffers with fixed depth are a candidate when
-`docs/specs/diag/trace-ring.md` lands.
+Pointer tests MUST verify empty optional results and that `front` and `back`
+refer to the current live endpoints. Invalidation tests MUST retain endpoint
+pointers across pushes, pops, overwrite in both capacity states, clear, and
+movement of the ring value. They MUST verify the documented stable and
+invalidated pointers without dereferencing an invalid pointer.
 
-## Examples
-
-UART RX FIFO with overrun reporting:
-
-```zig
-const stdx = @import("stdx");
-
-const RxFifo = stdx.Ring.Static(u8, 16);
-
-var rx = RxFifo.init();
-
-fn onHostByte(byte: u8) void {
-    rx.pushBack(byte) catch {
-        lsr.overrun_error = true;
-    };
-}
-
-fn guestRead(out: *u8) bool {
-    out.* = rx.popFront() orelse return false;
-    return true;
-}
-```
-
-Pending-notification queue with drop-oldest and ownership transfer:
-
-```zig
-const Pending = stdx.Ring.Static(NotifyEntry, 8);
-
-var pending = Pending.init();
-
-if (pending.pushBackOverwriteOldest(entry)) |dropped| {
-    dropped.handle.release();
-}
-```
-
-Pointer access for large `T`:
-
-```zig
-const Events = stdx.Ring.Static(Event, 32);
-
-var events = Events.init();
-
-if (events.constFront()) |e| {
-    dispatch(e.*);
-    _ = events.popFront();
-}
-```
-
-Capacity-checked enqueue without an error path:
-
-```zig
-while (queue.remaining() != 0 and produce(&item)) {
-    queue.pushBackAssumeCapacity(item);
-}
-```
-
-## Required tests
-
-### Construction and capacity
-
-- default struct literal is empty with `head = 0` and `count = 0`;
-- `init()` is empty;
-- `Static(T, 0)` is a compile error;
-- `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,
-  and full rings;
-- zero-sized `T` fails to compile where the compile-fail harness supports it.
-
-### Enqueue
-
-- `pushBack` succeeds into empty and non-full rings;
-- `pushBack` returns `error.Full` without mutation when full;
-- `pushBackAssumeCapacity` enqueues after a caller capacity check;
-- `pushBackOverwriteOldest` returns `null` when not full and increments `count`;
-- `pushBackOverwriteOldest` returns the evicted front and advances `head` when
-  full;
-- `pushBackOverwriteOldest` on `Static(T, 0)` returns the input item without
-  mutating the ring;
-- enqueue across the wrap boundary is correct for at least one full revolution.
-
-### Dequeue
-
-- `popFront` returns `null` when empty;
-- `popFront` returns items in FIFO order;
-- dequeue across the wrap boundary is correct for at least one full revolution;
-- alternating `pushBack` and `popFront` across the wrap boundary preserve order
-  for at least one full revolution.
-
-### Pointer access
-
-- `front`, `constFront`, `back`, and `constBack` return `null` when empty;
-- `front` and `back` reference the current head and back slots and allow element
-  mutation through `*T`;
-- after `pushBack`, the new `back()` points at the just-enqueued slot;
-- after `popFront`, the prior `front()` pointer is treated as invalid by the
-  contract, and the new `front()` points at the next live slot.
-
-### Invalidation
-
-- `pushBack` and `pushBackAssumeCapacity` do not invalidate the prior front
-  pointer;
-- `popFront` invalidates the prior front pointer;
-- `pushBackOverwriteOldest` when full invalidates both the prior front and the
-  prior back pointer;
-- `clearRetainingCapacity` invalidates all prior front and back pointers and
-  leaves the ring empty.
-
-### Invariants
-
-- `assertValid` succeeds after every public mutation sequence;
-- `assertValid` catches a manually corrupted `count > item_capacity` where
-  practical;
-- `assertValid` catches a manually corrupted `head >= item_capacity` for
-  `item_capacity > 0` where practical;
-- iteration via repeated `popFront` produces the enqueue order for at least one
-  full wrap.
-
-## Open questions
-
-None.
+Invariant tests MUST call `assertValid` after mutation sequences that fill,
+drain, refill, and wrap the ring. Where assertions can be observed, deliberately
+invalid `count` and `head` values MUST make `assertValid` fail. These tests prove
+the capacity, head-range, and live-element invariants.

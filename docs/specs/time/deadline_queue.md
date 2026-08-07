@@ -44,7 +44,6 @@ This spec does not own:
 - priority inversion, fairness, scheduler, or ready-queue policy;
 - coarse bucketed timers or cascading wheels;
   `docs/specs/time/timer_wheel.md` owns timer wheels.
-- root promotion of `DeadlineQueue`.
 
 ## Terminology
 
@@ -69,12 +68,6 @@ the finite `Instant` domain in `docs/specs/time/deadline.md`.
 
 ```zig
 stdx.time.DeadlineQueue
-```
-
-It is not root-promoted:
-
-```zig
-stdx.DeadlineQueue // not exported
 ```
 
 Source ownership:
@@ -474,14 +467,6 @@ entries.
 The queue does not guarantee FIFO, LIFO, stable, or deterministic ordering among
 entries whose deadline keys are equal.
 
-Consumers that need fairness or deterministic same-deadline ordering must encode
-that policy in their payloads or in a scheduler-owned ready queue after popping
-expired entries.
-
-Tests must not assert a specific pop order among equal-deadline entries. They
-must assert only that all expected entries are returned and that no unexpired
-entry is returned.
-
 ## Handle invalidation and generation reuse
 
 Implementations must prevent stale handles from affecting newly inserted entries
@@ -553,169 +538,20 @@ except through returned `Entry` values.
 
 ## Testing
 
-### Construction and capacity
+Testing MUST use caller-controlled `Instant` values and a reference priority-queue model. This method verifies queue behavior without a clock backend, allocator, scheduler, or callback.
 
-Required tests:
-- `Static(T, 0)` is a compile error;
-- `Static(T, N).init()` creates an empty queue with capacity `N`;
-- `Bounded(T).wrap(slots, heap)` uses `slots.len` as capacity;
-- `Bounded(T).wrap` traps when `core.debug.checksEnabled(.build_mode)` is true
-  and `slots.len != heap.len`;
-- `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` track public
-  mutations.
+### Capacity and error boundaries
 
-### Insertion and full behavior
+Construction tests cover static and bounded storage, including zero-capacity bounded queues and debug storage-length validation. Full-queue tests verify `error.Full` and no mutation of length, entries, handles, or ordering; they also verify the checked and assume-capacity insertion contracts. These tests prove capacity and no-mutation-on-error requirements.
 
-Required tests:
+### Ordering and expiration
 
-- inserting into an empty queue succeeds and returns a live handle;
-- inserting multiple distinct deadlines makes `peekDeadline` return the
-  earliest deadline;
-- inserting into a full queue returns `error.Full` and leaves all existing
-  entries, handles, and length unchanged;
-- `insertAssumeCapacity` succeeds after an explicit capacity check;
-- `insertAssumeCapacity` traps when `core.debug.checksEnabled(.build_mode)` is
-  true and the queue is full;
-- inserting `Deadline.never` succeeds when capacity exists.
+Tests insert finite and `Deadline.never` keys, then observe `peekDeadline`, `popNext`, and `popExpired` before, at, and after a deadline. Drain tests hold one `now` value constant and verify that only expired entries leave the queue. Equal-key tests compare membership and count rather than order. These tests prove minimum-key selection, the inclusive expiration boundary, sentinel ordering, and intentionally unspecified equal-key order.
 
-### Expiration
+### Handle and state transitions
 
-Required tests:
+Tests exercise insertion, removal, reprioritization, clearing, stale-handle queries, and slot reuse. They verify each stated invalidation boundary, preservation of other live handles, payload ownership on removal, and no mutation for stale handles. These transitions prove generation protection and handle lifetime.
 
-- `popExpired(now_before)` returns `null` without mutation;
-- `popExpired(now_equal_deadline)` pops the entry;
-- `popExpired(now_after_deadline)` pops the entry;
-- repeated `popExpired(now)` drains all expired entries and leaves future
-  entries queued;
-- `Deadline.never` does not pop for finite `now` values below `maxInt(u64)`;
-- when the earliest entry is not expired, `popExpired` returns `null` and does
-  not scan or pop later entries.
+### Reference-model and contract tests
 
-### Earliest pop and clearing
-
-Required tests:
-
-- `popNext` returns entries in nondecreasing deadline-key order;
-- `popNext` returns `Deadline.never` entries after finite entries;
-- `popNext` returns `null` when empty;
-- draining with `popNext` leaves the queue reusable;
-- `clearRetainingCapacity` empties the queue, preserves capacity, and permits
-  later insertion;
-- handles live before `clearRetainingCapacity` become stale.
-
-### Removal and stale handles
-
-Required tests:
-
-- `remove(live_handle)` returns the expected entry and decrements length;
-- the removed handle becomes stale;
-- a second `remove` of the same handle returns `null` and does not mutate;
-- removing one entry preserves the deadline order of remaining entries;
-- after slot reuse, an old handle cannot remove or update the new entry.
-
-### Deadline update
-
-Required tests:
-
-- updating to an earlier deadline moves the entry to the front when appropriate;
-- updating to a later deadline moves the entry behind earlier entries;
-- updating to the same deadline succeeds and preserves the entry;
-- updating to `Deadline.never` makes the entry sort after finite deadlines;
-- updating a stale handle returns `false` and leaves the queue unchanged;
-- a successful update keeps the handle live.
-
-### Equal deadlines
-
-Required tests:
-
-- all entries with equal deadlines become expired at the boundary;
-- equal-deadline tests assert returned membership/count, not a specific order;
-- no unexpired entry is returned while equal-deadline expired entries drain.
-
-### Model tests
-
-Required randomized model tests compare the queue against a simple reference
-model for:
-
-- insert;
-- remove;
-- update deadline;
-- `peekDeadline`;
-- `popExpired`;
-- `popNext`;
-- clear;
-- stale-handle behavior.
-
-The reference model must treat equal-deadline order as unordered.
-
-### Contract tests
-
-Required tests:
-
-- `Static` and `Bounded` require no allocator and perform no allocation;
-- payload type `void` works;
-- payload pointer values round-trip through insert/pop/remove;
-- no root export `stdx.DeadlineQueue` exists;
-- `assertValid` succeeds after public mutations;
-- `assertValid` traps on deliberately corrupted internal state when
-  `core.debug.checksEnabled(.build_mode)` is true.
-
-## Usage examples
-
-Backend timeout bookkeeping:
-
-```zig
-const Queue = stdx.time.DeadlineQueue.Static(*Fiber, 256);
-
-var sleepers = Queue.init();
-
-fn sleepUntil(fiber: *Fiber, deadline: stdx.time.Deadline) !Queue.Handle {
-    const handle = try sleepers.insert(deadline, fiber);
-    armTimer(sleepers.peekDeadline().?);
-    return handle;
-}
-
-fn cancelSleep(handle: Queue.Handle) void {
-    if (sleepers.remove(handle)) |entry| {
-        resumeCanceled(entry.item);
-    }
-}
-
-fn onTimer(now: stdx.time.Instant) void {
-    while (sleepers.popExpired(now)) |entry| {
-        resumeTimedOut(entry.item);
-    }
-
-    if (sleepers.peekDeadline()) |next| {
-        armTimer(next);
-    } else {
-        disarmTimer();
-    }
-}
-```
-
-Freestanding command-deadline drain:
-
-```zig
-const Queue = stdx.time.DeadlineQueue.Bounded(CommandId);
-
-var slots: [64]Queue.Slot = undefined;
-var heap: [64]usize = undefined;
-var deadlines = Queue.wrap(&slots, &heap);
-
-_ = try deadlines.insert(command_deadline, command_id);
-
-const now = clock.now();
-while (deadlines.popExpired(now)) |entry| {
-    markCommandTimedOut(entry.item);
-}
-```
-
-Draining owned payloads before clearing:
-
-```zig
-while (queue.popNext()) |entry| {
-    release(entry.item);
-}
-queue.clearRetainingCapacity();
-```
+Randomized sequences of insert, remove, update, peek, expired pop, next pop, and clear compare observable state with a reference model that treats equal-key order as unordered. Contract tests verify allocator independence, `void` and pointer payloads, absence of the root export, and invariant checking after public mutations and deliberate corruption. Together these tests prove ordering, capacity, payload, representation, and invariant contracts across long operation sequences.

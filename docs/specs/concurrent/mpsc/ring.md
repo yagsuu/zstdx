@@ -2,53 +2,27 @@
 
 Status: Approved.
 
-`stdx.concurrent.mpsc.Ring` is a bounded multi-producer/single-consumer FIFO ring.
-It is for fixed-capacity work, event, completion, and doorbell queues where many
-producer contexts publish items to one owner/consumer without allocation.
+`stdx.concurrent.mpsc.Ring` is a bounded multi-producer/single-consumer FIFO ring. It transfers items from any number of producer contexts to exactly one consumer context without allocation.
 
-The ring owns data movement and publication only. It never owns wake, scheduler,
-interrupt, or waiting policy. Pair it with `stdx.sync.Signal` or a downstream
-notification primitive when a consumer needs to park.
+The ring owns item movement and publication. It does not own wake, scheduler, interrupt, or waiting policy.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
-- `concurrent.mpsc.Ring.Static(T, N)`;
-- `concurrent.mpsc.Ring.Bounded(T)`;
+- `concurrent.mpsc.Ring.Static(T, N)` and `concurrent.mpsc.Ring.Bounded(T)`;
 - caller-provided `Bounded(T).Slot` storage;
 - one-attempt producer enqueue with explicit contention reporting;
 - single-consumer dequeue of published front items;
-- fixed capacity, full-capacity behavior, no-mutation-on-error behavior, and
-  required pointer-stability rules;
-- atomic publication/free ordering for ring slots;
-- required unit, model, and stress tests.
+- fixed-capacity, full-capacity, no-mutation-on-error, and pointer-stability contracts;
+- atomic slot-publication and slot-release ordering; and
+- required unit, model, ordering, and stress tests.
 
-## Deferred scope and non-goals
+## What this spec is not
 
-This spec does not own:
+This spec does not define SPSC, MPMC, work-stealing, intrusive or linked queues, heap allocation, growth, reserve operations, blocking or retrying operations, wait integration, overwrite policy, bulk operations, iterators, live-element pointers, arbitrary removal, cancellation, handles, signal or scheduler policy, or ABI, wire, or packed-layout guarantees.
 
-- SPSC, MPMC, work-stealing, or intrusive queues;
-- other primitives under `concurrent.mpsc.*` such as `mpsc.Queue`;
-- linked MPSC queues;
-- heap allocation, dynamic growth, shrinking, or reserve operations;
-- blocking push, blocking pop, spin-until-success push, or wait integration;
-- overwrite-on-full, drop-oldest, priority, coalescing, or duplicate policy;
-- bulk push, bulk drain, iterators, slice exposure, or pointer access to live
-  elements;
-- arbitrary removal, cancellation, handles, generation-stamped user handles, or
-  tombstones;
-- signal, wake, scheduler, interrupt, preemption, or wait-queue policy;
-- ABI, wire, or packed layout guarantees for the ring or slot types.
-
-If a consumer wants retry or backoff, it loops around `tryPushBack` and owns that
-policy. If a consumer wants notification, it calls a signal after successful
-publication.
-
-Future MPSC primitives (`mpsc.Queue`, linked variants, etc.) live under the same
-`concurrent.mpsc` namespace when they are approved by their own specs.
-
-## Public namespace
+## Public namespace and source ownership
 
 The MPSC family lives under `stdx.concurrent.mpsc`:
 
@@ -57,13 +31,6 @@ stdx.concurrent.mpsc
 stdx.concurrent.mpsc.Ring
 stdx.concurrent.mpsc.Ring.Static
 stdx.concurrent.mpsc.Ring.Bounded
-```
-
-It is not root-promoted:
-
-```zig
-stdx.mpsc     // not exported
-stdx.Ring     // reserved by stdx.collections.Ring; not this ring
 ```
 
 Source ownership:
@@ -91,7 +58,7 @@ const mpsc = stdx.concurrent.mpsc;
 
 `src/concurrent.zig` is a thin facade. It contains no logic beyond re-exporting.
 
-## Approved API
+## API
 
 ```zig
 pub const Ring = struct {
@@ -157,27 +124,17 @@ pub const Self = struct {
 };
 ```
 
-There is no `pushBack`, `enqueue`, `dequeue`, `pushBackAssumeCapacity`,
-`pushBackOverwriteOldest`, `front`, `back`, `len`, `remaining`, `isFull`,
-`clearRetainingCapacity`, or iterator API.
-
-The absence of `pushBack` is intentional: producers use the one-attempt
-`tryPushBack` API so contention is visible to callers.
+There is no `pushBack`, `enqueue`, `dequeue`, `pushBackAssumeCapacity`, `pushBackOverwriteOldest`, `front`, `back`, `len`, `remaining`, `isFull`, `clearRetainingCapacity`, or iterator API. `tryPushBack` exposes the one-attempt result, including producer contention.
 
 ## Type and capacity contract
 
-`T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
-are compile errors where practical.
+`T` MUST be a runtime value type with `@sizeOf(T) > 0`. A zero-sized element type MUST produce a compile error.
 
-Capacity must be non-zero and a power of two.
+Capacity MUST be non-zero and a power of two.
 
-`Static(T, 0)` and `Static(T, N)` where `N` is not a power of two are compile
-errors.
+`Static(T, 0)` and `Static(T, N)` where `N` is not a power of two MUST produce compile errors.
 
-`Bounded(T).init(slots)` treats `slots.len == 0` or a non-power-of-two length as
-a programmer error and asserts where practical. The API does not return a
-capacity-shape error because the shared error vocabulary has no approved
-`InvalidCapacity` spelling.
+`Bounded(T).init(slots)` MUST treat `slots.len == 0` and non-power-of-two `slots.len` as programmer errors and MUST assert these preconditions when build-mode checks are enabled. The API does not return a capacity-shape error.
 
 `capacity()` returns `item_capacity` for `Static` and `slots.len` for `Bounded`.
 
@@ -240,23 +197,13 @@ The consumer path (`popFront`) is safe from any execution context including
 NMI: `popFront` is a single owner, does not participate in the producer CAS,
 and does not require reservation atomicity.
 
-Callers that need single-atomic-publication producer semantics use the
-future `docs/specs/concurrent/mpsc-atomic-ring.md` variant
-(`concurrent.mpsc.AtomicRing`), whose publication is one atomic step and
-whose contract has no reserved-but-unpublished window; that mechanism is
-what makes it safe from NMI and other preempting producer contexts.
+A caller that needs producer operations safe against preemption by another producer on the same CPU MUST provide external serialization or use a primitive with that contract. This ring has a reserved-but-unpublished window.
 
 `tryPushBack` performs one bounded enqueue attempt. It does not loop until
 success. Its only two error variants are:
 
-- `error.Full` — the producer observed that the head/tail gap has reached
-  `capacity()` at the reservation CAS attempt, i.e. every slot is either
-  published or already reserved by another producer. `Full` is not a snapshot
-  from before the CAS; the CAS must observe the full state to return `Full`.
-- `error.Contended` — the producer's reservation CAS observed a moving head,
-  a moving tail, or a slot in transition. `Contended` implies at least one
-  other producer is racing this ring; another attempt may succeed as soon as
-  that race resolves.
+- `error.Full` — the producer observed `tail - head >= capacity()` before it attempted the tail reservation CAS. Every slot was published or reserved at that observation. The operation leaves the ring unchanged.
+- `error.Contended` — the tail reservation CAS observed a tail value different from the producer's expected value. Another producer changed the reservation state during this attempt. The operation leaves the ring unchanged.
 
 Both error returns leave the ring unchanged: no head or tail advance, no slot
 payload write, no publication.
@@ -299,28 +246,9 @@ the slot as free for future producers.
 
 ## Progress and liveness contract
 
-The ring guarantees two liveness properties:
+The ring does not guarantee starvation freedom for a particular producer. Under adversarial scheduling, one producer can repeatedly lose the reservation CAS to other producers. `error.Contended` identifies a failed bounded attempt; caller-owned retry and backoff determine fairness.
 
-1. **Consumer progress unblocks producers.** After the consumer's `popFront`
-   removes at least one item, some future `tryPushBack` on the same ring must
-   succeed with a bounded number of attempts by any producer, provided the
-   ring is not simultaneously receiving publications from other producers that
-   consume the freed slot first.
-2. **Contention is transient.** `error.Contended` reflects an in-flight
-   producer race, not a stable ring state. When the number of concurrent
-   producers is finite and none abandon a reservation, every producer's
-   `tryPushBack` succeeds in a bounded number of retries.
-
-There is no starvation-freedom guarantee for a specific producer under
-adversarial scheduling: a slow producer may repeatedly lose the reservation
-CAS while faster producers publish. Fairness across producers is caller
-policy — the ring exposes contention through `error.Contended` so callers can
-choose backoff, yielding, or priority handling.
-
-There is no liveness guarantee under the abandoned-reservation rule: if a
-producer reserves a slot and never publishes it (panic, forced termination),
-the consumer may permanently stall at that FIFO position. Recovery is caller
-policy.
+If a producer reserves a slot and never publishes it, the consumer can stall permanently at that FIFO position. The ring provides no recovery for an abandoned reservation.
 
 ## Capacity and query operations
 
@@ -330,12 +258,9 @@ policy.
 no front item is currently published. It may return true while a producer has a
 reserved but unpublished slot.
 
-Producers must not use `isEmpty()` to decide whether signaling is required.
-Signal after every successful push unless the caller owns a stronger protocol.
+Producers MUST NOT use `isEmpty()` to decide whether signaling is required. A producer MUST signal after every successful push unless the caller owns a stronger notification protocol.
 
-There is no `len` because an exact concurrent length would either be racy or add
-state that every producer and the consumer must maintain. There is no `isFull`
-because `tryPushBack` is the authority for full-capacity behavior.
+There is no `len` or `isFull`. `tryPushBack` is authoritative for full-capacity behavior.
 
 ## Ordering contract
 
@@ -434,61 +359,21 @@ Implementation must:
 - leave ring state unchanged on `error.Full` and `error.Contended`;
 - avoid copying `T` more than required to store and return items.
 
-## Planned use
+## Testing
 
-A bounded MPSC work/event ring lets multiple producer contexts submit work to
-a single owner without allocating. The owner pairs the ring with
-`stdx.sync.Signal`:
+Tests MUST verify the observable FIFO, capacity, contention, lifetime, and ordering contracts rather than implementation-only details.
 
-```zig
-try work.tryPushBack(item);
-ready.set();
-```
+### Construction, boundaries, and errors
 
-The signal is intentionally outside the ring.
+Compile-time tests MUST reject zero-sized `T`, `Static(T, 0)`, and non-power-of-two static capacities. They MUST verify that `Bounded(T).Slot` is available for caller storage and that `head` and `tail` are separated by at least `std.atomic.cache_line`. Runtime tests MUST verify initialization, capacity, empty dequeue, full-capacity `error.Full` with no state change, bounded caller storage without allocation, and wraparound. A deterministic forced-CAS-failure test or model MUST verify that `error.Contended` makes no payload, publication, head, or tail mutation. These tests prove the boundary and no-mutation-on-error contracts.
 
-## Required tests
+### Deterministic model and ordering
 
-Required compile-time checks:
+A deterministic model MUST represent producer reservation, publication, consumer dequeue, and slot reuse separately. It MUST compare published items with a reference FIFO through empty, full, wraparound, retry-after-contention, and reserved-but-unpublished states. The model MUST verify that the consumer cannot skip an unpublished earlier reservation, that a consumer reads an item only after acquire-observing its release-published sequence, and that a producer reuses a slot only after acquire-observing the consumer's release-published `head`. This proves reservation-order FIFO behavior and the publication and reclamation happens-before edges.
 
-1. rejects zero-sized `T` where practical;
-2. rejects `Static(T, 0)`;
-3. rejects non-power-of-two `Static` capacity;
-4. exposes `Bounded(T).Slot` for caller storage.
-5. compile-only: `@offsetOf(Self, "tail") - @offsetOf(Self, "head")` is at
-   least the cache-line size of `stdx.mem.CachePad`, so `head` and `tail` do
-   not share a cache line.
+### Concurrent stress
 
-Required unit tests:
-
-1. `init` creates an empty ring with the approved capacity;
-2. single producer and single consumer preserve FIFO order;
-3. full ring returns `error.Full` and leaves contents unchanged;
-4. a failed contended attempt leaves contents unchanged, using a deterministic
-   test hook or model where practical;
-5. `popFront` returns `null` for an empty ring;
-6. wraparound preserves FIFO order;
-7. `Bounded` uses caller-provided slot storage and never allocates.
-
-Required model tests:
-
-1. compare sequential successful pushes and pops against a reference FIFO;
-2. include wraparound, full capacity, empty pops, and retry-after-contention
-   paths.
-
-Required stress tests:
-
-1. multiple producer threads submit disjoint item ranges to one consumer;
-2. the consumer observes every successfully pushed item exactly once;
-3. per-producer item order is preserved by reservation order when the test can
-   observe it;
-4. failed `Full` and `Contended` attempts are accounted for and retried or
-   intentionally dropped by the test harness;
-5. tests cover at least the smallest useful capacity and a capacity that forces
-   wraparound.
-
-Stress tests demonstrate exercised behavior; the ordering contract in this spec
-is the normative proof obligation.
+Stress tests MUST run multiple producers with disjoint item ranges and one consumer at a capacity of one and at a capacity that forces repeated wraparound. The harness MUST account for each `error.Full` and `error.Contended` result and retry or intentionally drop the corresponding item. The consumer MUST observe every successfully published item exactly once; it MUST preserve each producer's reservation order when that order is recorded. This exercises contention reporting, producer/consumer roles, and publication under concurrent scheduling; it does not replace the deterministic model.
 
 ## Examples
 
@@ -540,7 +425,3 @@ if (ring.popFront()) |item| {
 
 try ready.wait();
 ```
-
-## Open questions
-
-None.

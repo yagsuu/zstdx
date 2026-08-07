@@ -45,12 +45,6 @@ the `Signal.Manual(Backend)` type and is not owned by this spec.
 stdx.sync.Signal
 ```
 
-It is not root-promoted:
-
-```zig
-stdx.Signal // not exported
-```
-
 Source ownership:
 
 ```text
@@ -70,7 +64,7 @@ pub const Signal = signal.Signal;
 `src/sync.zig` is a thin facade. It contains no logic beyond re-exporting and
 aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const Signal = struct {
@@ -193,9 +187,9 @@ bits 1..N  generation counter
 `set` while already set and redundant `clear` while already unset do not need to
 bump the generation.
 
-Generation wrap while a waiter holds an old token is outside the primitive's
-practical test envelope. Implementations must use the full available `usize`
-space except the set bit to make wrap unreachable in ordinary operation.
+Generation wrap can make `State.changedSince` report no change only when exactly
+`2^(@bitSizeOf(usize) - 1)` set/clear transitions occur between a token
+observation and its comparison. Tests do not execute that many transitions.
 
 ## Construction
 
@@ -360,90 +354,19 @@ Implementation must:
 - store one atomic word in `Signal.State`;
 - use a strong `Token` type rather than exposing raw `usize` tokens;
 - keep `Signal.Manual(Backend)` free of runtime vtables;
-- validate backend declarations at compile time where practical;
+- `Signal.Manual(Backend)` does not validate backend declarations at factory instantiation; each `wait` and `set` call type-checks its required backend operation when the call is compiled;
 - call `wakeAll(&state)` only after the signal is release-published set;
 - loop in `wait` to tolerate spurious backend success returns;
 - never call backend code from `clear`;
 - never allocate in the signal layer;
 - avoid hidden globals and target-specific waits in the signal layer.
 
-## Required tests
+## Testing
 
-Required unit tests:
+Deterministic backend tests MUST use a controllable backend that records `wait` and `wakeAll` calls, permits a spurious successful wait, and returns a selected `WaitError`. Tests MUST verify initial states; set and clear transitions; redundant transitions; token observation and change detection; immediate return when set; spurious-return retry while unset; unchanged error propagation; and `wakeAll(&self.state)` only for an unset-to-set transition. These tests prove state transitions, wake behavior, and no mutation on a backend error.
 
-1. `.unset` initializes unset;
-2. `.set` initializes set;
-3. `set` changes unset to set;
-4. redundant `set` remains set;
-5. `clear` changes set to unset;
-6. redundant `clear` remains unset;
-7. `observe` tokens report set state correctly;
-8. `changedSince` detects set and clear transitions;
-9. `wait` returns immediately when already set without calling backend wait;
-10. `wait` calls backend wait with an unset token;
-11. `wait` loops after a spurious backend success return while still unset;
-12. `wait` propagates backend errors unchanged;
-13. `set` calls `wakeAll` with the signal state on unset-to-set transition;
-14. redundant `set` does not require `wakeAll`.
+Lost-wakeup model tests MUST enumerate the waiter-observe, backend-register, state-recheck, and producer-set interleavings. They MUST verify that a transition before registration is detected by `changedSince` and that a transition after registration makes the waiter return through `wakeAll`. A clear-then-recheck model MUST verify that a consumer does not lose a ring-doorbell notification.
 
-Required model tests:
+Memory-ordering tests MUST release-publish a signal transition after producer writes and acquire-observe the set state before waiter reads. The waiter MUST observe the producer writes. This test proves the signal-state ordering only; it MUST not treat the signal as publication for a paired queue or ring.
 
-1. simulate waiter observe/enqueue/recheck races;
-2. prove a set between observe and backend registration is found by
-   `changedSince`;
-3. prove a set after backend registration wakes through `wakeAll(&state)`;
-4. prove clear-then-recheck doorbell protocol does not lose a ring wake.
-
-Required stress tests:
-
-1. multiple producer threads call `set` while one or more waiters call `wait`;
-2. waiters do not remain parked after a set transition when the backend contract
-   is satisfied;
-3. spurious backend wakes do not produce false successful waits while unset.
-
-Stress tests demonstrate exercised behavior; the lost-wakeup contract in this
-spec is the normative proof obligation.
-
-## Examples
-
-Backend shape:
-
-```zig
-const WaitQueueBackend = struct {
-    queue: *WaitQueue,
-
-    pub const WaitError = error{ Canceled };
-
-    pub fn wait(
-        self: *WaitQueueBackend,
-        state: *const stdx.sync.Signal.State,
-        observed: stdx.sync.Signal.Token,
-    ) WaitError!void {
-        self.queue.enqueueCurrent();
-        if (state.changedSince(observed)) {
-            self.queue.cancelCurrent();
-            return;
-        }
-        try self.queue.parkCurrent();
-    }
-
-    pub fn wakeAll(self: *WaitQueueBackend, state: *const stdx.sync.Signal.State) void {
-        self.queue.wakeAll(state);
-    }
-};
-```
-
-Signal usage:
-
-```zig
-const Ready = stdx.sync.Signal.Manual(WaitQueueBackend);
-
-var ready = Ready.init(.unset, .{ .queue = &queue });
-
-try ring.tryPushBack(item);
-ready.set();
-```
-
-## Open questions
-
-None.
+Stress tests MUST run concurrent setters and waiters with a backend that satisfies the lost-wakeup contract. They MUST verify that no waiter remains parked after a set transition and that spurious wakes never cause success while the signal is unset. These tests exercise concurrent progress; the model test proves the transition protocol.

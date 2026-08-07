@@ -2,39 +2,19 @@
 
 Status: Approved.
 
-`stdx.core.Range(T)` is a small half-open range value for unsigned integer domains. It is used for indices, byte offsets, bitmap spans, allocator extents, and other count-like intervals. Address-specific ranges are owned by address/page specs.
+`stdx.core.Range(T)` is a half-open range value for unsigned integer domains. It represents indices, byte offsets, bitmap spans, allocator extents, and other count-like intervals.
 
-## Owned scope
+## What this spec is
 
-This spec owns:
+This specification defines `Range(T)`, its half-open interval semantics, construction, queries, range arithmetic, failure behavior, and tests.
 
-- `Range(T)` type factory;
-- half-open range semantics;
-- constructor and query APIs;
-- split, offset, and shift APIs;
-- behavior contract and required tests.
+## What this spec is not
 
-This spec does not own:
+This specification does not define address ranges, page ranges, pointer spans, non-null pointer wrappers, range sets, range maps, iteration, slicing helpers, coalescing, address arithmetic, page alignment, or signed-range semantics.
 
-- address ranges;
-- page ranges;
-- pointer spans;
-- non-null pointer wrappers;
-- range sets or range maps.
+## Public namespace and source ownership
 
-## Public namespace
-
-`Range` lives under `stdx.core`:
-
-```zig
-stdx.core.Range
-```
-
-It is not root-promoted:
-
-```zig
-stdx.Range // not exported
-```
+`Range` is available as `stdx.core.Range`. It is not available as `stdx.Range`.
 
 Source ownership:
 
@@ -43,21 +23,25 @@ src/core.zig
 src/core/range.zig
 ```
 
-`src/core.zig` re-exports:
+`src/core.zig` re-exports `Range` from `core/range.zig`.
 
-```zig
-pub const Range = @import("core/range.zig").Range;
-```
+## Data structures and representation
 
-## Approved API
+`Range(T)` is a value type with public `start` and `end` fields of type `T`. A valid range represents `[start, end)` and satisfies `start <= end`. An empty range satisfies `start == end`.
+
+Copies are independent values. No operation allocates, waits, performs atomics or barriers, or accesses hidden globals.
+
+## Global invariants
+
+`T` MUST be an unsigned integer type. `Range(T)` with another type is a compile error.
+
+A method that requires a valid receiver asserts when `start > end`. Fallible methods leave the input values unchanged on error.
+
+## API
 
 ```zig
 pub fn Range(comptime T: type) type;
 ```
-
-`T` must be an unsigned integer type. Other types are a compile error.
-
-Returned type:
 
 ```zig
 pub const Self = struct {
@@ -69,10 +53,9 @@ pub const Self = struct {
     pub const OutOfBoundsError = error{OutOfBounds};
     pub const Error = InvalidRangeError || OverflowError || OutOfBoundsError;
 
-
     pub fn fromBounds(start: T, end: T) InvalidRangeError!Self;
     pub fn of(comptime start: T, comptime end: T) Self;
-    pub fn fromStartLen(start: T, len: T) OverflowError!Self;
+    pub fn fromStartLen(start: T, length: T) OverflowError!Self;
     pub fn empty(at: T) Self;
 
     pub fn assertValid(self: Self) void;
@@ -99,154 +82,58 @@ pub const Self = struct {
 };
 ```
 
-## Semantics
+## Construction and validation
 
-Ranges are half-open:
-
-```text
-[start, end)
-```
-
-Valid invariant:
-
-```zig
-start <= end
-```
-
-Empty range:
-
-```zig
-start == end
-```
-
-## Constructors
-
-`fromBounds(start, end)` returns `error.InvalidRange` when `end < start`.
+`fromBounds(start, end)` returns `[start, end)` or `error.InvalidRange` when `end < start`.
 
 `of(start, end)` constructs `[start, end)` from compile-time-known bounds. It is a compile error when `end < start`.
 
-`fromStartLen(start, len)` constructs `[start, start + len)`. It returns `error.Overflow` when `start + len` overflows `T`.
+`fromStartLen(start, length)` returns `[start, start + length)` or `error.Overflow` when the addition overflows `T`.
 
 `empty(at)` returns `[at, at)`.
 
-Callers with proven validity may construct via struct literal: `Range(T){ .start = a, .end = b }`. There is no `initUnchecked` variant.
+A caller with proven validity MAY use `Range(T){ .start = a, .end = b }`. `Range(T)` does not provide `initUnchecked`.
 
-## Validation
+`isValid()` returns `start <= end`. `assertValid()` asserts `start <= end`; it detects programmer errors and internal invariant violations, not invalid external input.
 
-`isValid()` returns `start <= end`.
+## Queries and range arithmetic
 
-`assertValid()` asserts `start <= end`. It is for programmer errors and internal invariant checks, not external input validation.
+`len()` returns `end - start`. `isEmpty()` returns `start == end`.
 
-## Queries
+`contains(value)` returns `true` exactly when `start <= value and value < end`.
 
-`len()` returns `end - start`. Calling `len()` on an invalid range is a programmer error.
+`containsRange(other)` returns `true` exactly when `start <= other.start and other.end <= end`. A containing range `[a, b)` contains the empty ranges `[a, a)` and `[b, b)` when `a <= b`.
 
-`isEmpty()` returns `start == end`.
+`overlaps(other)` returns `true` only when the intersection is non-empty. Empty ranges never overlap.
 
-`contains(value)` returns true when:
+`isAdjacent(other)` returns `true` exactly when `self.end == other.start` or `other.end == self.start`. Empty ranges can be adjacent under the same rule.
 
-```zig
-start <= value and value < end
-```
+`intersection(other)` returns the non-empty intersection or `null` when the intersection is empty.
 
-`containsRange(other)` returns true when:
+`span(other)` returns the smallest range that covers both ranges, including a gap. It does not overflow because its bounds are existing input bounds.
 
-```zig
-start <= other.start and other.end <= end
-```
+`prefix(point)` accepts `point` in the closed interval `[start, end]` and returns `[start, point)`. `suffix(point)` accepts the same interval and returns `[point, end)`. Each returns `error.OutOfBounds` for another point. `point == start` returns an empty prefix. `point == end` returns an empty suffix.
 
-Empty ranges are contained if their point is inside the containing range or on either boundary. Therefore `[a, b)` contains `[a, a)` and `[b, b)` when `a <= b`.
+`offsetOf(value)` returns `value - start` when `contains(value)` is true and otherwise returns `null`.
 
-`overlaps(other)` returns true only for a non-empty intersection. Empty ranges never overlap.
+`atOffset(offset)` returns `start + offset` when `offset < len()` and otherwise returns `null`. For every contained value, `atOffset(offsetOf(value).?)` returns `value`.
 
-`isAdjacent(other)` returns true when:
+`shiftForward(amount)` adds `amount` to both bounds and returns `error.Overflow` when either addition overflows `T`.
 
-```zig
-self.end == other.start or other.end == self.start
-```
+`shiftBackward(amount)` subtracts `amount` from both bounds and returns `error.Overflow` when `amount > start`. This condition also prevents underflow of `end` because valid ranges satisfy `start <= end`.
 
-Empty ranges may be adjacent by the same boundary rule.
+## Errors and fault behavior
 
-## Intersection and span
+`fromBounds` returns `error.InvalidRange` for invalid bounds. `fromStartLen`, `shiftForward`, and `shiftBackward` return `error.Overflow` for unrepresentable arithmetic. `prefix` and `suffix` return `error.OutOfBounds` for a point outside `[start, end]`. An invalid type argument is a compile error. A method that requires a valid receiver asserts on an invalid receiver.
 
-`intersection(other)` returns the non-empty intersection. It returns `null` when the intersection is empty.
+## Implementation constraints
 
-`span(other)` returns the smallest range covering both ranges, including any gap between them.
+Every public operation is $O(1)$. Every public operation is allocation-free and non-blocking. `Range(T)` is a value type; it creates no handles, borrowed storage, or invalidatable references.
 
-`span` never overflows because its result uses existing bounds.
+## Testing
 
-## Prefix, suffix, and offset
+Tests MUST exercise `Range(usize)` and at least one small unsigned instantiation such as `Range(u8)`. Constructor tests MUST verify valid and empty bounds, rejection of `end < start`, compile-time `of` validation, and `fromStartLen` overflow. These tests prove construction and numeric-boundary behavior.
 
-`prefix(point)` accepts `point` in `[start, end]` and returns `[start, point)`. A point outside `[start, end]` returns `error.OutOfBounds`.
+Query and arithmetic tests MUST verify empty and non-empty lengths; inclusion of `start` and exclusion of `end`; empty subranges at both containing boundaries; adjacent and empty non-overlap; adjacency; intersection and disjoint `null`; disjoint span; prefix and suffix at start, middle, and end; outside-point `error.OutOfBounds`; `offsetOf`/`atOffset` round trips; `atOffset(len()) == null`; forward overflow; and backward underflow. These tests prove half-open semantics and preserve all range-arithmetic boundaries.
 
-`suffix(point)` accepts `point` in `[start, end]` and returns `[point, end)`. A point outside `[start, end]` returns `error.OutOfBounds`.
-
-`point == start` produces an empty prefix; `point == end` produces an empty suffix.
-
-`offsetOf(value)` returns `value - start` when `value` is contained, else `null`.
-
-`atOffset(offset)` returns `start + offset` when `offset < len()`, else `null`. Round trip with `offsetOf` preserves containment.
-
-## Shift
-
-`shiftForward(amount)` adds `amount` to both bounds. It returns `error.Overflow` if either addition overflows.
-
-`shiftBackward(amount)` subtracts `amount` from both bounds. It returns `error.Overflow` if either subtraction underflows. Underflow is reported as `error.Overflow` because the saturating value would not be representable in `T`.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| all operations | never | never | O(1) | none | value type | none |
-
-`Range(T)` performs no allocation, waits, atomics, barriers, or hidden global access.
-
-## Error behavior
-
-- malformed constructor input returns `error.InvalidRange`;
-- arithmetic overflow or underflow returns `error.Overflow`;
-- split/offset requests outside the range return `error.OutOfBounds`;
-- invalid `T` is a compile error;
-- methods that require a valid receiver may assert on invalid `self`.
-
-## Non-goals
-
-`Range(T)` does not provide:
-
-- iteration;
-- slicing helpers;
-- coalescing;
-- range-set storage;
-- address arithmetic;
-- page alignment;
-- pointer/length span semantics;
-- signed range semantics.
-
-## Required tests
-
-Required for `Range(usize)` and at least one small unsigned integer type such as `Range(u8)`:
-
-- `fromBounds` accepts valid and empty ranges;
-- `fromBounds` rejects `end < start`;
-- `of` accepts valid and empty ranges;
-- `fromStartLen` catches overflow;
-- `empty` creates `[at, at)`;
-- `isValid` and `assertValid` cover valid ranges;
-- `len` covers empty and non-empty ranges;
-- `contains` includes start and excludes end;
-- `containsRange` handles empty subranges at start and end;
-- `overlaps` rejects adjacent ranges and empty intersections;
-- `isAdjacent` detects boundary contact;
-- `intersection` returns expected ranges and `null` for no overlap;
-- `span` covers disjoint ranges;
-- `prefix` and `suffix` handle start, middle, and end;
-- `prefix` and `suffix` reject outside points with `error.OutOfBounds`;
-- `offsetOf` and `atOffset` round trip;
-- `atOffset(len())` returns `null`;
-- `shiftForward` catches overflow;
-- `shiftBackward` catches underflow;
-- signed integer instantiation fails at compile time where practical.
-
-## Open questions
-
-None.
+Compile-fail testing MUST instantiate `Range` with a signed integer type and verify that compilation fails. This proves the unsigned-domain restriction without relying on a runtime test.

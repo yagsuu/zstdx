@@ -43,8 +43,6 @@ stdx.arch.x86_64.registers.gdtr
 stdx.arch.x86_64.registers.dr0
 ```
 
-No register name is root-promoted.
-
 ## Source ownership
 
 ```text
@@ -150,7 +148,7 @@ Every register representation provides `init()`. The constructor returns the can
 
 `init()` does not produce a value that is safe to write in every CPU mode. Callers must still satisfy feature, privilege, reserved-bit, and cross-register constraints.
 
-## Approved API
+## API
 
 ```zig
 pub const cr0 = struct { pub const CR0: type; pub fn read() CR0; pub fn write(value: CR0) void; };
@@ -306,30 +304,10 @@ Privileged access may raise CPU exceptions. Control, debug, descriptor-load, seg
 operations can raise `#GP`. `xcr0`, FSGSBASE access, and debug-register access can also raise `#UD` when
 their architectural requirements are absent. Trap recovery is caller policy.
 
-## Required tests
+## Testing
 
-Tests must cover:
-
-- CR3 root-address extraction, physical-width bounds, reserved bits, low-bit interpretation, LAM
-  precedence, and unsupported LAM behavior;
-
-- exact backing width and `fromInt`/`raw` round trips for every scalar type;
-- named-field placement for CR0, CR3, CR4, CR8, XCR0, RFLAGS, EFER, DR6, and DR7;
-- CR4 PCID, 5-level-paging, and supervisor-LAM capability validation;
-- EFER execute-disable capability validation;
-- selector field placement and type separation;
-- GDTR and IDTR size 10, alignment 2, `limit` offset 0, and `base` offset 2;
-- incompatible register-type signatures for every accessor family;
-- compile-only instantiation of every privileged wrapper;
-- host-safe `rflags.read()` with architectural RFLAGS bit 1 set.
+Representation tests MUST verify exact backing widths, `fromInt`/`raw` round trips, named-field placement, selector type separation, and the documented `GDTR` and `IDTR` size, alignment, and offsets. Semantic tests MUST cover CR3 physical-width bounds, reserved bits, low-bit decoding, LAM precedence and capability failures; CR4 capability validation; and EFER execute-disable validation. Compile-time tests MUST reject incompatible register-type accessor arguments, instantiate each privileged wrapper on x86_64, and verify non-x86_64 use-site target gating. Host-safe runtime tests MUST verify that `rflags.read()` reports architectural RFLAGS bit 1 set. These tests prove raw-representation preservation, validation errors, ABI layouts, type safety, target gating, and the executable unprivileged subset.
 
 ## Sources
 
-The packed layouts follow the Intel 64 and IA-32 Architectures Software Developer's Manual and AMD64
-Architecture Programmer's Manual, Volume 2. The specification must be revised when either architecture
-assigns a represented reserved field.
-
-## Amendments
-
-This revision adds typed EFER access, moves CR3, CR4, and EFER paging semantics to their owning register
-types, and gives CR3 direct root-address, low-bit, and user-LAM operations.
+The packed layouts follow the Intel 64 and IA-32 Architectures Software Developer's Manual and AMD64 Architecture Programmer's Manual, Volume 2. This specification MUST be revised when either architecture assigns a represented reserved field.

@@ -11,7 +11,7 @@ slots, and similar fixed-size resource domains where allocation state is a bit
 per unit. It never allocates backing memory and never performs resource-specific
 policy.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -25,7 +25,7 @@ This spec owns:
 - unused-bit invariants;
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
 - BestFit, WorstFit, FirstFit as a reusable policy family, or Buddy algorithms;
 - byte allocation, typed allocation, object construction, or destructors;
@@ -38,7 +38,7 @@ This spec does not own:
 - poisoning, statistics, tracing, or leak detection;
 - managed or unmanaged allocator handles.
 
-## Public namespace
+## Public namespace and source ownership
 
 `BitmapAllocator` lives under `stdx.mem.alloc`:
 
@@ -46,12 +46,6 @@ This spec does not own:
 stdx.mem.alloc.BitmapAllocator
 stdx.mem.alloc.BitmapAllocator.Static
 stdx.mem.alloc.BitmapAllocator.Bounded
-```
-
-It is not root-promoted:
-
-```zig
-stdx.BitmapAllocator // not exported
 ```
 
 Source ownership:
@@ -70,7 +64,7 @@ pub const bitmap = @import("alloc/bitmap.zig");
 pub const BitmapAllocator = bitmap.BitmapAllocator;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const BitmapAllocator = struct {
@@ -369,11 +363,11 @@ Physical frame allocation, virtual address management, DMA mapping, descriptor
 construction, and scheduler policy belong to downstream packages or later
 approved specs.
 
-## Required tests
+## Testing
+Verification combines boundary cases, corruption checks, and a randomized bool-array model for both storage variants. It observes allocation placement, fragmentation, capacity accounting, unused-bit preservation, and no-mutation-on-error behavior; the model proves that observable state remains equivalent across mixed allocation and release sequences.
 
 Required capacities:
 
-- `Static(0)`;
 - `Static(1)`;
 - `Static(64)`;
 - `Static(65)`;
@@ -389,7 +383,7 @@ Required capacities:
 - `Bounded.wrap` rejects `unit_capacity > words.len * word_bits` with
   `error.OutOfBounds`;
 - rejected `Bounded.wrap` leaves borrowed words unchanged;
-- zero-capacity allocators are both empty and full;
+- `Bounded` with zero capacity is both empty and full;
 - `allocated() + remaining() == capacity()` after construction.
 
 ### Single-unit allocation
@@ -439,7 +433,7 @@ Required capacities:
 - `clearRetainingCapacity` clears all units and preserves capacity;
 - `assertValid` succeeds after every public mutation;
 - unused high bits remain clear after allocation, reserve, free, and clear;
-- corrupted unused high bits are detected by `assertValid` where practical.
+- `assertValid` detects corrupted unused high bits.
 
 ### Model tests
 
@@ -456,7 +450,3 @@ allocator over randomized sequences of:
 
 The model must assert identical success/error results, allocated unit sets,
 counts, and no-mutation-on-error behavior.
-
-## Open questions
-
-None.

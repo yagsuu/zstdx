@@ -39,7 +39,6 @@ This spec does not own:
 - heap allocation or dynamic waiter allocation;
 - data visibility for buffers, rings, or other structures published across
   the latch (arrivers own their own release/acquire on those structures);
-- root promotion of `sync.Latch`.
 
 A backend may provide scheduler-specific waiter behavior. That behavior is
 explicit in the `Latch(Backend)` type and is not owned by this spec.
@@ -54,12 +53,6 @@ can keep its call syntax while backends name stable state/token types:
 stdx.sync.Latch
 stdx.sync.latch.State
 stdx.sync.latch.Token
-```
-
-It is not root-promoted:
-
-```zig
-stdx.Latch // not exported
 ```
 
 Source ownership:
@@ -81,7 +74,7 @@ pub const Latch = latch.Latch;
 `src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
 and aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const State = struct {
@@ -211,9 +204,7 @@ The allocation, waiting, locking, interrupt, and scheduler behavior of
 backend functions is backend-owned. The latch layer adds no heap allocation
 and no hidden global scheduler policy.
 
-Spin-only callers MUST instantiate `Latch(sync.spin.Backend)`. There is no
-`.Spin` alias, per rule 3 of the wait-capable naming convention in
-`docs/planning/spec-queue.md`.
+Spin-only callers MUST instantiate `Latch(sync.spin.Backend)`. This API has no `.Spin` alias.
 
 ## State and token representation
 
@@ -445,7 +436,7 @@ Implementation must:
 - store one atomic `u32` word in `sync.latch.State`;
 - use a strong `Token` type rather than exposing raw `u32` tokens;
 - keep `Latch(Backend)` free of runtime vtables;
-- validate backend declarations at compile time where practical;
+- at `Latch(Backend)` factory instantiation, require `Backend` to declare `WaitError`, `wait`, and `wakeAll`, and require `WaitError` to be an explicit error set;
 - release-publish the final `remaining = 0` store before calling
   `wakeAll(&state)`, and call `wakeAll` exactly once on the last-arrival
   path;
@@ -526,62 +517,14 @@ l.arrive();
 try l.wait();
 ```
 
-## Required tests
+## Testing
 
-Tests live in `test/sync/latch_test.zig`.
+Compile-time tests MUST reject `Static(0)` and invalid backend declarations, and MUST instantiate both storage variants with `sync.spin.Backend`. These tests prove the capacity and backend-shape contracts.
 
-Required unit tests:
+Deterministic backend tests MUST use a controllable backend that records waits and wakes and can return a selected `WaitError`. Tests MUST verify construction boundaries, non-final and final arrival transitions, one final `wakeAll`, post-release fast-path waiting, over-arrival behavior, `Bounded` equivalence with `Static`, and unchanged error propagation. These tests prove the sticky-release state machine, error behavior, and wake rule.
 
-- `@sizeOf(sync.latch.State) == 4`;
-- `Latch(sync.spin.Backend).Static(0)` is rejected at compile time;
-- `Latch(sync.spin.Backend).Static(1)`: single `arrive` releases the latch;
-  a subsequent `wait` returns immediately on the fast path;
-- `Static(N)` initial state: `pending() == N`, `capacity() == N`,
-  `isReleased() == false`;
-- `Static(N)` non-last arrivals decrement `pending()` by one each and
-  never invoke `Backend.wakeAll`;
-- `Static(N)` last arrival transitions `pending()` to zero, sets
-  `isReleased()` to true, and invokes `wakeAll` with `&self.state`
-  exactly once;
-- neither `Static(N)` nor `Bounded` exposes `stateRef`;
-- `wait` post-release returns on the fast path without invoking
-  `Backend.wait`;
-- `Bounded.init(N, backend)` mirrors `Static(N)` semantics for the same N;
-- `Bounded.init(0, backend)` traps under
-  `stdx.core.debug.checksEnabled(.build_mode)`;
-- over-arrival (`arrive` past zero) traps under
-  `stdx.core.debug.checksEnabled(.build_mode)` and leaves the state at
-  `remaining = 0` without invoking `wakeAll` a second time;
-- mock backend `WaitError` propagates through `wait` unchanged and leaves
-  the state unchanged.
+Lost-wakeup model tests MUST enumerate arrival, waiter observation, waiter registration, and recheck interleavings. They MUST verify that a final arrival before registration is detected by `changedSince` and that a final arrival after registration wakes the waiter.
 
-Required model tests:
+Memory-ordering tests MUST publish a payload before the last arrival and read it after a waiter acquire-observes release. The waiter MUST observe the payload. This test proves the final-arrival release/acquire edge.
 
-- simulate arrivals and waiter observe/enqueue/recheck races;
-- prove a last-arrival CAS between waiter observe and waiter backend
-  registration is found by `State.changedSince`;
-- prove a last arrival after backend registration wakes through
-  `wakeAll(&state)`;
-- prove that under contention, every non-last arriver's successful CAS
-  is observed by every waiter's post-registration recheck once the
-  last arriver publishes.
-
-Required stress tests:
-
-- against `sync.spin.Backend`: `N` arriver threads + `M` waiter threads on
-  `Static(N)`; every waiter returns exactly once, the last arriver
-  invokes `wakeAll` exactly once, and no over-arrival occurs;
-- against `sync.spin.Backend`: same shape on `Bounded.init(N, ...)`;
-- non-x86 build compiles the module.
-
-Required compile-only tests:
-
-- `Latch(sync.spin.Backend).Static(4)` and
-  `Latch(sync.spin.Backend).Bounded` instantiate against
-  `sync.spin.Backend`;
-- rejection of a backend without `wait` / `wakeAll` or with a non-explicit
-  `WaitError`.
-
-## Open questions
-
-None.
+Stress tests MUST run multiple arrivers and waiters against both storage variants with `sync.spin.Backend`, verify that each waiter returns once after the final arrival, and verify that no over-arrival or duplicate final wake occurs. Cross-target compilation MUST include a non-x86 target. Stress tests exercise progress; the model tests prove the lost-wakeup protocol.

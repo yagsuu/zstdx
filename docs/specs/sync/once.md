@@ -17,8 +17,8 @@ This spec owns:
 - `call` and `callChecked` semantics;
 - ordering contract for publication of writes performed by the initializer;
 - panicking-callback contract;
-- caller-contract rule against recursive invocation, and a best-effort debug
-  detection under `core.debug.checksEnabled`;
+- caller-contract rule against recursive invocation, with debug detection on
+  targets that provide per-thread `threadlocal` storage;
 - backend requirements delegated to the shared wait/wake contract defined in
   `docs/specs/sync/spin.md`;
 - lost-wakeup prevention via token comparison and backend recheck;
@@ -57,12 +57,6 @@ stdx.sync.once.State
 stdx.sync.once.Token
 ```
 
-It is not root-promoted:
-
-```zig
-stdx.Once // not exported
-```
-
 Source ownership:
 
 ```text
@@ -82,7 +76,7 @@ pub const Once = once.Once;
 `src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
 and aliasing.
 
-## Approved API
+## API
 
 ```zig
 pub const State = struct {
@@ -215,9 +209,9 @@ A successful claim creates a private capability containing the exact
 strong release CAS. If either CAS fails, the implementation panics rather
 than overwrite an unexpected state in any build mode.
 
-Generation wrap while a waiter holds an old token is outside the primitive's
-practical test envelope. The full 30-bit generation space makes wrap
-unreachable in ordinary operation.
+Generation wrap can make `State.changedSince` report no change only after
+exactly `2^30` state transitions between a token observation and its
+comparison. Tests do not execute that many transitions.
 
 ## Construction
 
@@ -399,9 +393,9 @@ top by wrapping `Once` inside a type that catches panics via
 Invoking `call` or `callChecked` on the same `Once` from inside `work` is a
 caller contract violation and produces unspecified behavior.
 
-Under `stdx.core.debug.checksEnabled(.build_mode)`, the primitive makes a
-best-effort attempt to detect direct recursion using a module-level
-`threadlocal` current-claim pointer:
+Under `stdx.core.debug.checksEnabled(.build_mode)`, on targets where
+`builtin.single_threaded` is `false`, the primitive detects direct recursion
+using a module-level `threadlocal` current-claim pointer:
 
 ```zig
 threadlocal var current_claim: ?*const anyopaque = null;
@@ -425,14 +419,13 @@ fn leaveClaim(state: *const State) void {
 }
 ```
 
-The check is best-effort:
+The check has these limits:
 
-- it fires only under `checksEnabled(.build_mode)`, which is `true` in
-  Debug and ReleaseSafe;
-- it catches direct recursion from inside `work` on the same thread;
-- it does not catch mutual recursion through two different `Once`
-  instances, and it does not fire when `threadlocal` is unavailable (e.g.
-  hosted-freestanding targets that map `threadlocal` to a shared global);
+- it runs only when `checksEnabled(.build_mode)` is `true` and
+  `builtin.single_threaded` is `false`;
+- it detects direct recursion from inside `work` on the same thread;
+- it does not detect mutual recursion through two different `Once` instances;
+- it does not run on targets where `builtin.single_threaded` is `true`;
 - release builds compile the check out entirely, matching the `SafetyMode`
   convention in `docs/specs/core/debug.md`.
 
@@ -544,46 +537,14 @@ fn ensureRegion(base: usize, len: usize) void {
 }
 ```
 
-## Required tests
+## Testing
 
-Tests live in `test/sync/once_test.zig`.
+Compile-time tests MUST instantiate `Once` with `sync.spin.Backend`, reject invalid backend declarations, and verify that the public API does not expose mutable state. These tests prove backend-shape and encapsulation constraints.
 
-Required tests:
+Deterministic backend tests MUST use a controllable backend that records waits and wakes and can return a selected `WaitError`. Tests MUST verify one successful initializer invocation, fast-path completion after publication, unchanged propagation of initializer and backend errors, rollback to a claimable state after `callChecked` fails, and wake after rollback. These tests prove the state transitions, error propagation, and retry contract.
 
-- `State.init()` returns a state with `isDone() == false`;
-- single-thread `call` invokes `work` exactly once; a second `call` does
-  not invoke `work`;
-- single-thread `call` publication: writes performed inside `work` are
-  observable after `call` returns;
-- `Once.isDone` reflects state transitions;
-- `Once` does not expose a `stateRef` escape hatch;
-- concurrent-caller model test against `sync.spin.Backend`: `N` threads
-  racing on the same `Once` observe exactly one `work` invocation and all
-  return after publication;
-- publication ordering: writes performed inside `work` observable to every
-  returning caller under acquire semantics (checked with a paired atomic
-  flag);
-- `callChecked` retry: failing `work` leaves the state re-runnable; a
-  subsequent `callChecked` runs `work` again and can succeed;
-- `callChecked` rollback wakes waiters: a loser blocked on the spin
-  backend against a `running` token returns and re-races the claim after
-  the winning `callChecked` rolls back;
-- error propagation: `callChecked` returns `work`'s error unchanged;
-- mixing `call` and `callChecked` on the same state: after `callChecked`
-  publishes `done`, subsequent `call` short-circuits;
-- recursion detection: `work` that calls `Once.call` on the same state
-  traps under `checksEnabled(.build_mode)` on hosts with functional
-  `threadlocal`;
-- compile-only rejection of a backend without `wait` / `wakeAll` or with a
-  non-explicit `WaitError`;
-- compile-only instantiation against `sync.spin.Backend` and a test
-  backend that counts `wait` invocations;
-- non-x86 build compiles the module.
+Lost-wakeup model tests MUST enumerate claimant publication or rollback before and after waiter registration. They MUST verify that `changedSince` detects every transition before registration and that `wakeAll` makes registered waiters return. A direct-recursion test MUST verify debug-mode detection where functional `threadlocal` storage is available.
 
-Tests must not assume any particular thread scheduling. Model tests use a
-seed-driven interleaver where the harness supports it; on hosts without
-one, tests fall back to a large-N stress-loop shape.
+Memory-ordering tests MUST write an initializer payload before publication and read it after each returning caller acquire-observes `done`. Every returning caller MUST observe the payload. This test proves publication ordering.
 
-## Open questions
-
-None.
+Stress tests MUST run concurrent `call` and `callChecked` callers with `sync.spin.Backend` and verify one successful publication, exactly one successful initializer invocation, and completion of all non-error callers. Cross-target compilation MUST include a non-x86 target. Stress tests exercise concurrent progress; the model tests prove the waiter-transition protocol.

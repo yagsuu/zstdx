@@ -2,97 +2,66 @@
 
 Status: Approved.
 
-`stdx.dma.ScatterGather` is the family for describing a DMA transfer that
-spans several device-visible ranges. It is the segment-list side of the DMA
-substrate; `stdx.dma.Buffer(T)` is the contiguous-buffer side. The family
-consists of one segment record, two storage-shaped segment lists (`Static` and
-`Bounded`), and two matching builders that enforce uniform per-segment
-alignment.
+`stdx.dma.ScatterGather` defines device-address segments, fixed-capacity and caller-storage-backed segment lists, and builders that require uniform segment alignment. A consumer reads the resulting metadata to emit its own DMA descriptors.
 
-`ScatterGather` types do not perform DMA mapping, IOMMU translation, cache
-maintenance, or descriptor emission. They own the segment metadata; the
-consumer emits its own device descriptors from that metadata.
+## What this spec is
 
-## Owned scope
+This spec defines `stdx.dma.ScatterGather.Segment`, `List.Static`, `List.Bounded`, `Builder.Static`, and `Builder.Bounded`; their storage, capacity, append, iteration, byte-total, alignment, ownership, invalidation, and required-test contracts.
 
-This spec owns:
+## What this spec is not
 
-- `stdx.dma.ScatterGather.Segment`;
-- `stdx.dma.ScatterGather.List.Static(N)`;
-- `stdx.dma.ScatterGather.List.Bounded`;
-- `stdx.dma.ScatterGather.Builder.Static(N, alignment)`;
-- `stdx.dma.ScatterGather.Builder.Bounded(alignment)`;
-- appending, iterating, and reading segments;
-- total byte length across a segment list;
-- uniform alignment validation of appended segments in `Builder` variants;
-- capacity, invalidation, ordering, and full-capacity behavior;
-- required tests.
+This spec does not define:
 
-This spec does not own:
+- DMA mapping, IOMMU translation, bounce buffering, cache maintenance, or allocation of DMA memory;
+- descriptor emission or the ABI and wire layout of a device-specific descriptor;
+- DMA barriers, device notification, or device-visible atomic updates;
+- non-uniform segment rules, including protocol-specific interior and final segment rules; or
+- ownership or lifetime extension of a source `Buffer(T)`, host memory, or mapping.
 
-- descriptor emission for a specific protocol (NVMe PRP or SGL, virtio
-  descriptors, xHCI TRBs, and so on);
-- non-uniform per-segment alignment or size rules (for example, NVMe PRP's
-  "interior entries page-aligned, last entry unrestricted");
-- allocation of the segments themselves or of the underlying DMA memory;
-- IOMMU mapping, bounce buffering, or cache maintenance;
-- barrier emission around segment publication;
-- device-visible atomic segment-list updates.
+## Terminology
 
-## Public namespace
+- **segment:** An untyped half-open device-address byte range `[addr, addr + len_bytes)`.
+- **list content:** The initialized segment prefix `buffer[0..count]`.
+- **capacity:** The number of segments that a list can contain.
+- **uniform alignment:** A single power-of-two alignment that divides every appended segment address and byte length.
 
-`ScatterGather` lives under `stdx.dma`:
+## Public namespace and source ownership
 
-```zig
-stdx.dma.ScatterGather
-```
+The public import path is `stdx.dma.ScatterGather`.
 
-It is not root-promoted:
+The implementation is `src/dma/scatter_gather.zig`. `src/dma.zig` imports that file as `scatter_gather` and exposes its `Segment`, `List`, and `Builder` declarations through `stdx.dma.ScatterGather`. The required tests are in `test/dma/scatter_gather_test.zig`.
 
-```zig
-stdx.ScatterGather // not exported
-stdx.Sg            // not exported
-```
+## Cross-spec relationships
 
-Source ownership:
+`Segment.fromBuffer` composes with `stdx.dma.Buffer(T)` and preserves its device address and byte length. This spec uses `stdx.addr.DMAAddr` for device addresses. A caller supplies mapping, cache, lifetime, and barrier behavior; `docs/specs/barrier/dma.md` defines DMA barriers.
 
-```text
-src/dma.zig
-src/dma/scatter_gather.zig
-test/dma/scatter_gather_test.zig
-```
+## Data structures and representation
 
-`src/dma.zig` re-exports:
+`Segment` contains a `DmaAddr` and an `Address.Raw` byte length. `List.Static(N)` owns inline segment storage and a count. `List.Bounded` borrows a `[]Segment` and stores a count. A builder wraps the corresponding list. The field names, field order, ABI layout, and wire layout are not guaranteed.
 
-```zig
-pub const scatter_gather = @import("dma/scatter_gather.zig");
+`Segment.Address.Raw` is `u64`, the width of `stdx.addr.DMAAddr`. Segment lists and `Segment.fromBuffer` preserve descriptor-facing byte lengths as this type and do not convert them through `usize`.
 
-pub const ScatterGather = struct {
-    pub const Segment = scatter_gather.Segment;
-    pub const List = scatter_gather.List;
-    pub const Builder = scatter_gather.Builder;
-};
-```
+## Global invariants
 
-## Approved API
+A valid segment satisfies `addr.raw() + len_bytes` without overflow in `Address.Raw`.
+
+A valid list satisfies `count <= capacity`, and every segment in list content is valid. `List.Static(N)` requires `N > 0` at compile time. `List.Bounded.wrap` accepts an empty backing slice; that list is empty and full. Only list content is initialized list data.
+
+List order is insertion order. The list API does not insert, remove, reorder, coalesce, or sort segments. A caller that needs those transformations MUST perform them outside this API.
+
+## API
 
 ```zig
 pub const Segment = struct {
-    addr: stdx.addr.DmaAddr,
-    len_bytes: stdx.addr.DmaAddr.Raw,
-
-    pub const Address = stdx.addr.DmaAddr;
+    pub const Address = stdx.addr.DMAAddr;
     pub const Error = error{Overflow};
 
     pub fn init(addr: Address, len_bytes: Address.Raw) Error!Segment;
     pub fn fromBuffer(comptime T: type, buffer: stdx.dma.Buffer(T)) Segment;
-
     pub fn byteLen(self: Segment) Address.Raw;
     pub fn isEmpty(self: Segment) bool;
-
     pub fn endAddr(self: Segment) Error!Address;
     pub fn isAligned(self: Segment, alignment: Address.Raw) bool;
-
     pub fn assertValid(self: Segment) void;
 };
 
@@ -107,445 +76,124 @@ pub const Builder = struct {
 };
 ```
 
-`Segment.Address.Raw` is `u64` — the width of `stdx.addr.DmaAddr`.
-
-## `Segment` semantics
-
-`Segment` is a value type. Copying a `Segment` copies both fields; no memory
-is aliased or borrowed.
-
-`init(addr, len_bytes)` returns a segment. It returns:
-
-- `error.Overflow` when `addr.raw() + len_bytes` overflows `Address.Raw`.
-
-`init` does not enforce alignment. Per-segment alignment is enforced by
-`Builder` variants and by `Segment.isAligned`; the base type accepts any
-`addr` value.
-
-`fromBuffer(T, buffer)` returns:
-
-```zig
-Segment{
-    .addr = buffer.dmaAddr(),
-    .len_bytes = buffer.byteLen(),
-}
-```
-
-`buffer.byteLen()` already returns `Address.Raw`, so descriptor-facing scatter
-segments carry the same byte-length width as `stdx.addr.DmaAddr`. No `usize`
-conversion is performed on the scatter-gather path.
-
-`byteLen()` returns `self.len_bytes`.
-
-`isEmpty()` returns `self.len_bytes == 0`.
-
-`endAddr()` returns `self.addr + self.len_bytes` as `Address`. It returns
-`error.Overflow` when `addr.raw() + len_bytes` overflows `Address.Raw`. For a
-segment produced by `init` or `fromBuffer`, `endAddr()` cannot fail;
-`endAddr` is fallible so that callers may operate on hand-constructed
-segments without first re-validating.
-
-`isAligned(alignment)` returns `true` when both `addr.raw()` and `len_bytes`
-are multiples of `alignment`. Zero or non-power-of-two alignment returns
-`false`. `alignment == 1` returns `true`.
-
-`assertValid()` asserts that `addr.raw() + len_bytes` does not overflow
-`Address.Raw`.
-
-`Segment` is untyped by design. A segment describes a device-side descriptor
-piece, not a host-side struct. Consumers that need typed host access reach
-back to the source `Buffer(T)`.
-
-## `List.Static(N)` semantics
-
-`List.Static(capacity_segments)` is an inline fixed-capacity list of
-segments.
-
-Returned type:
+`List.Static(capacity_segments)` returns this type:
 
 ```zig
 pub const Self = struct {
-    buffer: [capacity_segments]Segment = undefined,
-    count: usize = 0,
-
-    pub const Error = error{Full, OutOfBounds};
+    pub const Error = error{ Full, OutOfBounds };
     pub const segment_capacity = capacity_segments;
 
     pub fn init() Self;
-
     pub fn len(self: *const Self) usize;
     pub fn capacity(self: *const Self) usize;
     pub fn remaining(self: *const Self) usize;
     pub fn isEmpty(self: *const Self) bool;
     pub fn isFull(self: *const Self) bool;
-
     pub fn asSlice(self: *Self) []Segment;
     pub fn asConstSlice(self: *const Self) []const Segment;
-
     pub fn clearRetainingCapacity(self: *Self) void;
-
     pub fn append(self: *Self, segment: Segment) error{Full}!void;
     pub fn appendAssumeCapacity(self: *Self, segment: Segment) void;
     pub fn appendBuffer(self: *Self, comptime T: type, buffer: stdx.dma.Buffer(T)) error{Full}!void;
-
     pub fn at(self: *Self, index: usize) error{OutOfBounds}!*Segment;
     pub fn constAt(self: *const Self, index: usize) error{OutOfBounds}!*const Segment;
-
     pub fn totalByteLen(self: *const Self) error{Overflow}!Segment.Address.Raw;
-
     pub fn assertValid(self: *const Self) void;
 };
 ```
 
-`List.Static(0)` is a compile error. An empty `List.Bounded` buffer is valid
-and produces an empty, full list.
-
-Only `buffer[0..count]` is initialized list content. Field mutation must
-preserve `count <= segment_capacity`.
-
-`init()` is equivalent to `.{}`.
-
-`append` writes at `buffer[count]` and increments `count`. It returns
-`error.Full` and leaves the list unchanged when `isFull()`.
-
-`appendAssumeCapacity` asserts that the list is not full.
-
-`appendBuffer(T, buffer)` is convenience for
-`append(Segment.fromBuffer(T, buffer))`. It returns `error.Full` on the same
-condition as `append`.
-
-`at(index)` returns `error.OutOfBounds` when `index >= count`.
-
-`totalByteLen()` sums `segment.len_bytes` across `asConstSlice()`. It returns
-`error.Overflow` when the sum overflows `Segment.Address.Raw`.
-
-`clearRetainingCapacity()` sets `count` to zero and does not zero segment
-memory.
-
-`assertValid()` asserts `count <= segment_capacity` and calls
-`Segment.assertValid` on each segment in `buffer[0..count]`.
-
-There is no `insert`, `orderedRemove`, or `swapRemove`. Scatter-gather lists
-are append-only under this spec; consumers that need edits reconstruct the
-list.
-
-## `List.Bounded` semantics
-
-`List.Bounded` is a caller-storage-backed list of segments with runtime
-capacity.
-
-Type:
+`List.Bounded` has this public surface:
 
 ```zig
 pub const Bounded = struct {
-    buffer: []Segment,
-    count: usize = 0,
-
-    pub const Error = error{Full, OutOfBounds};
+    pub const Error = error{ Full, OutOfBounds };
 
     pub fn wrap(buffer: []Segment) Bounded;
-
     pub fn len(self: *const Bounded) usize;
     pub fn capacity(self: *const Bounded) usize;
     pub fn remaining(self: *const Bounded) usize;
     pub fn isEmpty(self: *const Bounded) bool;
     pub fn isFull(self: *const Bounded) bool;
-
     pub fn asSlice(self: *Bounded) []Segment;
     pub fn asConstSlice(self: *const Bounded) []const Segment;
-
     pub fn clearRetainingCapacity(self: *Bounded) void;
-
     pub fn append(self: *Bounded, segment: Segment) error{Full}!void;
     pub fn appendAssumeCapacity(self: *Bounded, segment: Segment) void;
     pub fn appendBuffer(self: *Bounded, comptime T: type, buffer: stdx.dma.Buffer(T)) error{Full}!void;
-
     pub fn at(self: *Bounded, index: usize) error{OutOfBounds}!*Segment;
     pub fn constAt(self: *const Bounded, index: usize) error{OutOfBounds}!*const Segment;
-
     pub fn totalByteLen(self: *const Bounded) error{Overflow}!Segment.Address.Raw;
-
     pub fn assertValid(self: *const Bounded) void;
 };
 ```
 
-Semantics mirror `List.Static(N)` with two differences:
-
-- `capacity()` returns `buffer.len` instead of `segment_capacity`;
-- storage is caller-owned; moving the `Bounded` value does not move the
-  segment storage. Do not embed a `Bounded` field pointing at another field
-  of the same outer struct.
-
-## `Builder.Static(N, alignment)` and `Builder.Bounded(alignment)` semantics
-
-A `Builder` wraps a list and enforces uniform per-segment alignment on
-append. It is a convenience for consumers whose protocol requires every
-segment's `addr` and `len_bytes` to be multiples of a fixed comptime value.
-
-`alignment` must be non-zero and a power of two, following `stdx.mem`
-alignment rules. `alignment == 1` is valid and disables alignment
-enforcement.
-
-`Builder.Static(capacity_segments, alignment)`:
+`Builder.Static` returns this type; `Builder.Bounded` has the same operations except it provides `wrap(buffer: []Segment) Self` instead of `init()` and `finish()` returns `*const List.Bounded`:
 
 ```zig
 pub const Self = struct {
-    list: List.Static(capacity_segments) = .{},
-
-    pub const Error = error{Full, Misaligned};
+    pub const Error = error{ Full, Misaligned };
     pub const segment_alignment = alignment;
 
     pub fn init() Self;
-
     pub fn len(self: *const Self) usize;
     pub fn capacity(self: *const Self) usize;
     pub fn remaining(self: *const Self) usize;
     pub fn isEmpty(self: *const Self) bool;
     pub fn isFull(self: *const Self) bool;
-
     pub fn asSlice(self: *Self) []Segment;
     pub fn asConstSlice(self: *const Self) []const Segment;
-
     pub fn clearRetainingCapacity(self: *Self) void;
-
     pub fn append(self: *Self, segment: Segment) Error!void;
     pub fn appendBuffer(self: *Self, comptime T: type, buffer: stdx.dma.Buffer(T)) Error!void;
-
     pub fn finish(self: *Self) *const List.Static(capacity_segments);
-
     pub fn assertValid(self: *const Self) void;
 };
 ```
 
-`Builder.Bounded(alignment)`:
+## Segment contract
 
-```zig
-pub const Self = struct {
-    list: List.Bounded,
+`Segment` is a value type. Copying it copies its address and length and borrows no host memory.
 
-    pub const Error = error{Full, Misaligned};
-    pub const segment_alignment = alignment;
+`Segment.init(addr, len_bytes)` returns a valid segment. It returns `error.Overflow` when `addr.raw() + len_bytes` overflows `Address.Raw`. It does not enforce alignment. `Segment.fromBuffer(T, buffer)` returns a segment whose address equals `buffer.dmaAddr()` and whose length equals `buffer.byteLen()`.
 
-    pub fn wrap(buffer: []Segment) Self;
+`byteLen()` returns `len_bytes`. `isEmpty()` returns `len_bytes == 0`. `endAddr()` returns the one-past-end address or `error.Overflow` when the range overflows; it cannot fail for a segment returned by `init` or `fromBuffer`. `isAligned(alignment)` returns true exactly when `alignment` is a nonzero power of two and both address and byte length are multiples of it. `isAligned(1)` returns true for every segment. `assertValid()` asserts the segment invariant.
 
-    pub fn len(self: *const Self) usize;
-    pub fn capacity(self: *const Self) usize;
-    pub fn remaining(self: *const Self) usize;
-    pub fn isEmpty(self: *const Self) bool;
-    pub fn isFull(self: *const Self) bool;
+Segment operations allocate never, wait never, dereference no device address, emit no barrier, and execute in $O(1)$ time.
 
-    pub fn asSlice(self: *Self) []Segment;
-    pub fn asConstSlice(self: *const Self) []const Segment;
+## List contract
 
-    pub fn clearRetainingCapacity(self: *Self) void;
+`append(segment)` appends at `count` and increments `count`. When the list is full, it returns `error.Full` and leaves the list unchanged. `appendAssumeCapacity(segment)` asserts that the list is not full, then appends the segment. `appendBuffer(T, buffer)` appends `Segment.fromBuffer(T, buffer)` and has the same `error.Full` behavior as `append`.
 
-    pub fn append(self: *Self, segment: Segment) Error!void;
-    pub fn appendBuffer(self: *Self, comptime T: type, buffer: stdx.dma.Buffer(T)) Error!void;
+`asSlice()` and `asConstSlice()` return list content. `at(index)` and `constAt(index)` return a pointer to the specified segment and return `error.OutOfBounds` when `index >= count`. `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` report the current list state. `totalByteLen()` sums list-content byte lengths in insertion order and returns `error.Overflow` if the sum overflows `Segment.Address.Raw`.
 
-    pub fn finish(self: *Self) *const List.Bounded;
+`clearRetainingCapacity()` sets `count` to zero and does not overwrite backing segment memory. It invalidates all indexes, pointers, and slices previously returned from the list. `append`, `appendAssumeCapacity`, and `appendBuffer` preserve pointers, indexes, and slices to existing list content until the list value moves. Moving a `List.Bounded` value does not move its borrowed storage. A `Bounded` value MUST NOT borrow a field of the same outer struct that contains the `Bounded` value.
 
-    pub fn assertValid(self: *const Self) void;
-};
-```
+List operations allocate never, wait never, use no allocator, and emit no barrier. `append`, accessors, and metadata operations execute in $O(1)$ time. `totalByteLen` executes in $O(len)$ time. Lists do not call destructors.
 
-Behavior:
+## Builder contract
 
-- `append(segment)` returns `error.Misaligned` when `segment.isAligned(alignment)` is
-  `false`. On `Misaligned`, the list is unchanged.
-- `append(segment)` returns `error.Full` when the underlying list is full. On
-  `Full`, the list is unchanged.
-- `Misaligned` is checked before `Full`.
-- `appendBuffer` calls `Segment.fromBuffer` and then `append`; the buffer
-  path inherits `Misaligned` and `Full` semantics.
-- `finish()` returns a const pointer to the underlying list for read-only
-  iteration by the consumer. The builder value remains usable after
-  `finish()`; the returned pointer is invalidated by subsequent mutating
-  operations on the builder.
-- `clearRetainingCapacity()` delegates to the underlying list.
+`Builder.Static(capacity_segments, alignment)` requires `capacity_segments > 0`, `alignment != 0`, and a power-of-two `alignment` at compile time. `Builder.Bounded(alignment)` has the same alignment requirement and accepts empty backing storage. `alignment == 1` is valid and accepts every segment.
 
-Builders are the only place uniform alignment is enforced. Consumers with
-non-uniform rules (NVMe PRP's interior/last split, ATA scatter-gather with
-its 64K boundary rule) use the plain `List` variants and enforce their own
-constraints at append sites.
+`append(segment)` first checks `segment.isAligned(alignment)`. If that check fails, it returns `error.Misaligned` and leaves the builder unchanged, even when the underlying list is full. Otherwise it appends the segment or returns `error.Full` if the underlying list is full, leaving the builder unchanged. `appendBuffer` constructs a segment with `Segment.fromBuffer` and has the same behavior.
 
-## Ownership and lifetime
+`finish()` returns a const pointer to the underlying list. The builder remains usable. Any subsequent `append`, `appendBuffer`, `clearRetainingCapacity`, or move of the builder invalidates the returned pointer. `clearRetainingCapacity` has the list clearing and invalidation behavior. Builders allocate never, wait never, emit no barrier, and execute their operations in $O(1)$ time.
 
-`Segment` copies freely. Segment lists own inline or borrowed storage as
-documented; they never call destructors and hold no allocator.
+## Ownership and synchronization
 
-Segment values are decoupled from their source `Buffer(T)`. Copying a
-`Segment` out of a list does not extend the lifetime of the underlying host
-memory or of any IOMMU mapping. Callers keep the source memory and mapping
-alive across the whole DMA transaction.
+Segments do not retain a source `Buffer(T)`, host slice, mapping, or allocation. The caller MUST keep the source host memory and address mapping valid for the entire DMA transaction. This spec does not synchronize host threads or host and device access. The caller MUST provide external synchronization and the DMA barriers required by its protocol.
 
-## Invalidation and ordering
-
-Segment lists are append-only; existing indexes and pointers into
-`asSlice()` stay valid across `append` and `appendAssumeCapacity` until the
-list value moves.
-
-`clearRetainingCapacity()` invalidates all indexes, pointers, and slices
-previously returned.
-
-`finish()` returns a pointer into the builder's underlying list. That
-pointer is invalidated by any subsequent `append`, `appendBuffer`,
-`clearRetainingCapacity`, or move of the builder value.
-
-Segment iteration order is `asConstSlice()` order — the order of insertion.
-This spec does not own any reordering, coalescing, or sorting policy;
-consumers that need those transformations operate on `asSlice()` themselves.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
-| --- | --- | --- | --- | --- | --- | --- |
-| `Segment.init` | never | never | O(1) | none | value type | none |
-| `Segment.fromBuffer` | never | never | O(1) | none | value type | none |
-| `Segment.byteLen` / `isEmpty` / `endAddr` / `isAligned` | never | never | O(1) | none | value type | none |
-| `List.Static` / `Bounded` factories | never | never | comptime | none | type factory | none |
-| `List.append` / `appendAssumeCapacity` / `appendBuffer` | never | never | O(1) | none | caller-owned value | appends last |
-| `List.at` / `constAt` | never | never | O(1) | none | caller-owned value | none |
-| `List.totalByteLen` | never | never | O(len) | none | caller-owned value | none |
-| `List.clearRetainingCapacity` | never | never | O(1) | all segments | caller-owned value | empty |
-| `Builder.append` / `appendBuffer` | never | never | O(1) | none | caller-owned value | appends last |
-| `Builder.finish` | never | never | O(1) | none | caller-owned value | none |
-
-All operations perform no heap allocation, waiting, hidden global access,
-atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
-
-## Error behavior
-
-- `Segment.init` returns `error.Overflow` when the end address overflows;
-- `Segment.endAddr` returns `error.Overflow` on the same condition;
-- `List.append`, `appendAssumeCapacity`, and `appendBuffer` follow the
-  approved List family error rules: `error.Full` on capacity exhaustion;
-- `List.at` and `List.constAt` return `error.OutOfBounds` when
-  `index >= count`;
-- `List.totalByteLen` returns `error.Overflow` when the sum exceeds
-  `Segment.Address.Raw`;
-- `Builder.append` returns `error.Misaligned` before `error.Full`;
-- invalid `alignment` in `Builder` factories is a compile error;
-- corrupted `count` is a programmer error caught by `assertValid` where
-  practical.
-
-All error returns leave the list unchanged.
-
-## Debug assertion behavior
-
-`Segment.assertValid()` asserts `addr.raw() + len` does not overflow
-`Address.Raw`.
-
-`List.Static(N).assertValid()` and `List.Bounded.assertValid()` assert
-capacity invariants and call `Segment.assertValid` for each initialized
-segment.
-
-`Builder.assertValid()` asserts the underlying list is valid and that every
-segment in `asConstSlice()` satisfies `isAligned(alignment)`.
-
-Public mutating operations may call `assertValid()` before and after mutation
-when `core.checksEnabled(opts.safety)` requires runtime invariant checks.
+No operation accesses hidden global state, uses atomics, locks, volatile access, target probing, syscalls, or I/O.
 
 ## Implementation constraints
 
-Implementation must:
+The implementation MUST store only an address and byte length in `Segment`; inline storage and count in `List.Static`; and a borrowed segment slice and count in `List.Bounded`. It MUST validate builder alignment before list mutation and MUST leave lists unchanged on returned errors. It MUST NOT allocate, dereference `Segment.addr`, or store an allocator, mapping handle, device backend, or synchronization policy.
 
-- store only `addr` and `len` in `Segment`;
-- store only inline segment storage plus `count` in `List.Static`;
-- store only a borrowed segment slice plus `count` in `List.Bounded`;
-- validate segment alignment in `Builder.append` before mutation;
-- leave every list unchanged on error;
-- never dereference `Segment.addr`;
-- treat `List.Static(0)` and empty `List.Bounded` buffers as legal;
-- treat `Builder.*` with `alignment == 1` as a legal no-op wrapper;
-- avoid hidden globals, atomics, fences, volatile operations, target probes,
-  and I/O.
+`Segment.assertValid`, list `assertValid`, and builder `assertValid` MUST check their respective global invariants when assertions are enabled. A builder assertion MUST also check uniform alignment of list content.
 
-## Usage
+## Testing
 
-Direct list use, arbitrary per-segment alignment:
+Segment tests MUST prove zero-length and non-empty construction, end-address overflow rejection, `fromBuffer` address-and-length preservation, one-past-end calculation, byte length and emptiness, and alignment boundaries. Alignment tests MUST cover alignment `1`, zero, non-power-of-two values, aligned values, and address or length misalignment. These tests prove segment range and alignment semantics independently of a DMA device.
 
-```zig
-const stdx = @import("stdx");
-const Sg = stdx.dma.ScatterGather;
+List tests MUST exercise both `Static` and `Bounded` storage with the same observable sequence: append to capacity, reject a further append without mutation, access valid and invalid indexes, compute a byte total, overflow that total, and clear while retaining capacity. Tests MUST also prove empty bounded storage is empty and full, `Static(0)` is a compile error, `appendBuffer` preserves the source buffer segment, and `appendAssumeCapacity` appends when its precondition holds. These tests prove capacity, ownership, error, and representation boundaries.
 
-var list = Sg.List.Static(8).init();
-try list.appendBuffer(u8, header);
-try list.appendBuffer(u8, body);
-try list.appendBuffer(u8, trailer);
-
-for (list.asConstSlice()) |seg| {
-    descriptor.emit(seg.addr.raw(), seg.byteLen());
-}
-```
-
-Uniform 4 KiB alignment via Builder:
-
-```zig
-const Builder = stdx.dma.ScatterGather.Builder.Static(64, 4096);
-var b: Builder = .init();
-
-try b.appendBuffer(u8, page_a); // ok if page_a is 4 KiB aligned in size and dma addr
-try b.appendBuffer(u8, page_b); // Misaligned when page_b's dma addr or byteLen isn't a 4 KiB multiple
-
-const chain = b.finish();
-for (chain.asConstSlice()) |seg| {
-    // emit descriptor
-    _ = seg;
-}
-```
-
-Caller-provided storage:
-
-```zig
-var storage: [16]Sg.Segment = undefined;
-var list = Sg.List.Bounded.wrap(&storage);
-try list.appendBuffer(u8, buffer);
-```
-
-## Required tests
-
-Required for `Segment`, `List.Static(N)`, `List.Bounded`, and both `Builder`
-variants (with at least `alignment == 1`, `alignment == 512`, and a page-size
-alignment such as `4096`).
-
-### Segment
-
-- `init` succeeds for a zero-length segment;
-- `init` returns `error.Overflow` when `addr + len_bytes` overflows;
-- `fromBuffer` produces `addr == buffer.dmaAddr()` and
-  `len_bytes == buffer.byteLen()`;
-- `endAddr` returns `addr + len_bytes` for valid segments;
-- `isAligned(1)` returns `true` for every valid segment;
-- `isAligned(0)` returns `false`;
-- `isAligned(alignment)` returns `true` iff both `addr` and `len_bytes` are
-  multiples of `alignment`; non-power-of-two alignment returns `false`;
-- `byteLen()` and `isEmpty()` reflect `len_bytes`.
-
-### List
-
-- `append` at capacity returns `error.Full` and leaves the list unchanged;
-- `appendAssumeCapacity` mutates without checking;
-- `appendBuffer` combines `Segment.fromBuffer` and `append`;
-- `at` and `constAt` return `error.OutOfBounds` for `index >= count`;
-- `totalByteLen` returns the sum as `Segment.Address.Raw` for valid lists;
-- `totalByteLen` returns `error.Overflow` when the sum exceeds
-  `Segment.Address.Raw`;
-- `clearRetainingCapacity` resets `count` without touching capacity;
-- `Static(0)` and `Bounded.wrap(&[_]Segment{})` are both empty and full.
-
-### Builder
-
-- `append` of an aligned segment succeeds;
-- `append` of a misaligned segment returns `error.Misaligned` and leaves the
-  list unchanged;
-- `append` when full returns `error.Full`;
-- misalignment is reported before fullness when both conditions hold;
-- `appendBuffer` inherits both error paths;
-- `alignment == 1` accepts every segment;
-- `finish` exposes the wrapped list contents;
-- non-power-of-two `alignment` and zero `alignment` are compile errors where
-  practical.
-
-## Open questions
-
-None.
+Builder tests MUST cover both storage forms and alignment `1`, `512`, and a page-size alignment. They MUST prove aligned append, misaligned rejection without mutation, full rejection, misalignment precedence over fullness, `appendBuffer` error propagation, `finish` contents, and compile-time rejection of zero or non-power-of-two alignment. These tests prove that builders enforce uniform alignment before capacity mutation.

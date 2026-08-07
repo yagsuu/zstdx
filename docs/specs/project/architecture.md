@@ -2,465 +2,104 @@
 
 Status: Approved.
 
-`zstdx` follows a sibling-package layout: one public package facade, thin domain facade files, implementation directories per domain, and a mirrored `test/` tree aggregated by `test/all.zig`.
+`zstdx` uses one public package facade, thin domain facades, domain implementation directories, and a mirrored `test/` tree aggregated by `test/all.zig`.
 
-## Repository shape
+## What this spec is
 
-Approved top-level shape:
+This spec defines repository ownership boundaries, dependency direction, architecture isolation, build-module shape, and test aggregation.
 
-```text
-zstdx/
-  build.zig
-  build.zig.zon
-  README.md
+## What this spec is not
 
-  docs/
-    specs/
-    planning/
-    guidelines/
-    project-decisions.md
+This spec does not approve an empty file or directory, a public API, or an implementation that lacks an approved owning specification.
 
-  src/
-    stdx.zig
+## Public namespace and source ownership
 
-    core.zig
-    core/
+`src/stdx.zig` is the public package facade and build module root. `docs/specs/stdx.md` owns its exact public surface.
 
-    bits.zig
-    bits/
+Each domain uses `src/<domain>.zig` as its facade and `src/<domain>/` for implementation files. A domain facade MAY import implementation files and re-export approved public types, functions, constants, submodules, and aliases. A domain facade MUST NOT allocate, validate input, synchronize, target-probe, select platform policy, implement algorithms, or hide dependencies behind wrapper layers.
 
-    addr.zig
-    addr/
+Ordinary domain facades MUST NOT be named `root.zig`.
 
-    layout.zig
-    layout/
+## Data structures and representation
 
-    bytes.zig
-    bytes/
+The repository contains `build.zig`, `build.zig.zon`, `README.md`, `docs/`, `src/`, and `test/`. The `docs/` tree contains specifications, planning material, guidelines, and project decisions. The source tree contains `src/stdx.zig`, domain facade files, and implementation directories. `test/all.zig` is the test aggregation root.
 
-    mem.zig
-    mem/
+The repository tree is an ownership map, not permission to create empty scaffolding. A file or directory MAY land only when an approved owning specification and implementation slice require it.
 
-    collections.zig
-    collections/
+## Global invariants
 
-    intrusive.zig
-    intrusive/
+- Each `.zig` file MUST own one concept or one type family. It MAY split by sub-concern only when an owning specification requires the split.
+- File names such as `utils.zig`, `helpers.zig`, `common.zig`, and `misc.zig` are not allowed.
+- A file named `manager.zig` is allowed only when an approved specification owns a public concept named `Manager`.
+- Domain facades MUST contain no logic beyond importing, re-exporting, and aliasing.
+- Cross-domain primitive imports MUST be named by the importing specification and MUST preserve an acyclic dependency graph.
 
-    ranges.zig
-    ranges/
+## API
 
-    heaps.zig
-    heaps/
-
-    barrier.zig
-    barrier/
-
-    arch.zig
-    arch/
-
-    sync.zig
-    sync/
-
-    concurrent.zig
-    concurrent/
-
-    cpu.zig
-    cpu/
-
-    io.zig
-    io/
-
-    rings.zig
-    rings/
-
-    tags.zig
-    tags/
-
-    dma.zig
-    dma/
-
-    time.zig
-    time/
-
-    algo.zig
-    algo/
-
-    diag.zig
-    diag/
-
-  test/
-    all.zig
-```
-
-This tree is an ownership map, not permission to create empty scaffolding. Files and directories land only when required by an approved owning spec and implementation slice.
-
-## Public package facade
-
-`src/stdx.zig` is the public package facade and build module root.
+The public package facade imports domains through declarations of this form:
 
 ```zig
-//! Public stdx facade. Spec: docs/specs/stdx.md.
-
-pub const core = @import("core.zig");
 pub const bits = @import("bits.zig");
-pub const addr = @import("addr.zig");
-pub const layout = @import("layout.zig");
-pub const bytes = @import("bytes.zig");
-pub const mem = @import("mem.zig");
-pub const collections = @import("collections.zig");
-pub const intrusive = @import("intrusive.zig");
 ```
 
-`src/stdx.zig` may promote flagship families after `docs/specs/stdx.md` approves the exact surface:
+Domain facades export implementation declarations through declarations of this form:
 
 ```zig
-pub const List = collections.List;
-pub const Ring = collections.Ring;
-```
-
-## Domain facade pattern
-
-Each domain uses a facade file plus an implementation directory:
-
-```text
-src/bits.zig
-src/bits/*.zig
-
-src/mem.zig
-src/mem/*.zig
-```
-
-Domain facades are thin. They may:
-
-- import implementation files;
-- re-export approved public types, functions, constants, and submodules;
-- provide short aliases to declarations owned by implementation files.
-
-Domain facades must not:
-
-- allocate;
-- validate input;
-- synchronize;
-- target-probe;
-- select platform policy;
-- implement algorithms;
-- hide dependencies behind wrapper layers.
-
-Example facade shape:
-
-```zig
-//! Bit primitives. Specs: docs/specs/bits/power_of_two.md and docs/specs/bits/bitflags.md.
-
 pub const power_of_two = @import("bits/power_of_two.zig");
-pub const BitFlags = @import("bits/bit_flags.zig").BitFlags;
-pub const BitSet = @import("bits/set.zig").BitSet;
-
 pub const isPowerOfTwo = power_of_two.isPowerOfTwo;
-pub const nextPowerOfTwo = power_of_two.nextPowerOfTwo;
 ```
 
-Ordinary domain facades are not named `root.zig`. Use `src/<domain>.zig`.
+## Implementation constraints
 
-## First-slice source tree
+### Layering
 
-Only this source tree is eligible before more specs land:
+Dependencies MUST follow this direction:
 
 ```text
-src/
-  stdx.zig
-
-  core.zig
-  core/
-    options.zig
-    range.zig
-    debug.zig
-
-  bits.zig
-  bits/
-    power_of_two.zig
-    set.zig
-
-  addr.zig
-  addr/
-    address.zig
-    pages.zig
-
-  ranges.zig
-  ranges/
-    set.zig
-    map.zig
-
-  layout.zig
-  layout/
-    endian.zig
-
-  bytes.zig
-  bytes/
-    access.zig
-
-  mem.zig
-  mem/
-    align.zig
-    cache.zig
-    alloc.zig
-    alloc/
-      arena.zig
-      bitmap.zig
-      buddy.zig
-      frame.zig
-      slab.zig
-      slab/
-        allocator.zig
-        cache.zig
-
-  collections.zig
-  collections/
-    list.zig
-    ring.zig
-
-  intrusive.zig
-  intrusive/
-    list.zig
-    queue.zig
-    stack.zig
+stdx.zig -> domain facades -> implementation files in the same domain
+primitive/domain implementations -> core, bits, addr, layout, bytes as needed
+primitive/domain implementations -> approved primitive domains only when the owning spec names the dependency and the graph remains acyclic
+bytes -> layout, core
+layout -> core, bits
+addr -> core, bits
+dma -> core, addr
+bits -> core
+barrier -> core, arch
+arch -> core
 ```
 
-Corresponding first-slice test tree:
+- `core` MUST import only `std` and `builtin`.
+- `arch` MUST NOT import `barrier`; `barrier` MAY import `arch`.
+- `layout` MUST NOT import `bytes`; `bytes` MAY import `layout`.
+- Generic modules MUST NOT perform architecture or target probing directly.
+- Implementation modules MAY import each other directly only when their owning specifications allow the dependency.
 
-```text
-test/
-  all.zig
+### Architecture isolation
 
-  core/
-    options_test.zig
-    range_test.zig
-    debug_test.zig
+Architecture-specific code MUST exist only under `src/arch/` and MUST be surfaced through `src/arch.zig`. Approved architecture namespaces are `stdx.arch.x86_64`, `stdx.arch.aarch64`, and `stdx.arch.riscv`. `stdx.arch.x86` is not an approved namespace.
 
-  bits/
-    power_of_two_test.zig
-    set_test.zig
+Architecture-specific code MUST be target-gated, MUST compile out or expose unsupported behavior on unsupported targets as its owning specification defines, MUST keep inline assembly out of generic modules, and MUST document instruction and feature requirements in its owning specification.
 
-  addr/
-    address_test.zig
-    pages_test.zig
+### Build and standard-library use
 
-  ranges/
-    set_test.zig
-    map_test.zig
+`build.zig` MUST create the public `stdx` module from `src/stdx.zig`. The default test module MUST import `stdx` from `test/all.zig`. The default test command is `zig build test`.
 
-  layout/
-    endian_test.zig
+Library primitives MAY use `std.mem.Allocator`, portable compile-time reflection, and portable builtins including `@sizeOf`, `@alignOf`, `@bitSizeOf`, atomics, and byte swaps. Tests MAY use `std.testing` and test-only allocators and failure allocators.
 
-  bytes/
-    access_test.zig
+Library primitives MUST NOT use OS syscalls, thread parking, file IO, environment access, hidden timers, or platform probing without an owning specification.
 
-  mem/
-    align_test.zig
-    alloc/
-      arena_test.zig
-      bitmap_test.zig
-      buddy_test.zig
-      frame_test.zig
-      slab/
-        allocator_test.zig
-        cache_test.zig
+### Source creation
 
-  collections/
-    list_test.zig
-    ring_test.zig
+A source file MAY land only when all of these conditions are true:
 
-  intrusive/
-    list_test.zig
-    queue_test.zig
-    stack_test.zig
-```
+1. An approved owning specification exists.
+2. The module header cites that specification.
+3. The file owns one concept or type family.
+4. The tests required by the owning specification land with the implementation slice.
+5. The dependency direction conforms to this specification.
 
-## File responsibility
+## Testing
 
-Each `.zig` file owns one concept or one type family. Split by sub-concern only when an owning spec requires it.
+`test/all.zig` MUST aggregate test modules with comptime imports. Test directories MUST mirror source domains. Local pure-logic tests MAY be in their source file. Multi-module, model, stress, and fixture-driven tests MUST be under `test/`.
 
-Approved examples:
-
-```text
-bits/power_of_two.zig    isPowerOfTwo, nextPowerOfTwo
-bits/bit_flags.zig       BitFlags
-mem/align.zig            alignUp, alignDown, isAligned
-bits/set.zig             BitSet family
-addr/address.zig         Address, PhysAddr, VirtAddr, DmaAddr
-collections/list.zig     List family: Static, Bounded, later Managed/Unmanaged
-collections/ring.zig     Ring family
-intrusive/list.zig       intrusive.List.SinglyLinked, intrusive.List.DoublyLinked, node mechanics
-intrusive/queue.zig      intrusive.Queue
-intrusive/stack.zig      intrusive.Stack
-dma/buffer.zig           Buffer(T)
-dma/scatter_gather.zig   ScatterGather.Segment, ScatterGather.List.{Static,Bounded}, ScatterGather.Builder.{Static,Bounded}
-```
-
-Avoid premature splits:
-
-```text
-collections/static_list.zig
-collections/bounded_list.zig
-```
-
-Disallowed file names:
-
-```text
-utils.zig
-helpers.zig
-common.zig
-misc.zig
-```
-
-A file named `manager.zig` is allowed only when the approved spec owns a public concept named `Manager`.
-
-## Layering
-
-Approved dependency direction:
-
-```text
-stdx.zig
-  -> domain facades
-
-facades
-  -> implementation files in the same domain
-
-primitive/domain implementations
-  -> core, bits, addr, layout, bytes as needed
-  -> other approved primitive domains only when the owning spec names the dependency and the graph remains acyclic
-
-bytes
-  -> layout, core
-
-layout
-  -> core, bits
-
-addr
-  -> core, bits
-
-dma
-  -> core, addr
-
-bits
-  -> core
-
-barrier
-  -> core, arch
-
-arch
-  -> core only
-```
-
-Hard rules:
-
-- `core` imports only `std` and `builtin`.
-- `arch` does not import `barrier`; `barrier` imports `arch`.
-- `layout` does not import `bytes`; `bytes` may import `layout`.
-- Generic modules do not target-probe directly.
-- Facades contain no logic beyond re-exporting and aliasing.
-- Implementation modules import each other directly when the owning specs allow the dependency.
-- Cross-domain primitive imports are allowed only when the importing spec names
-  the dependency and the dependency graph remains acyclic.
-
-## Architecture isolation
-
-Architecture-specific code lives only under `src/arch/` and is surfaced through `src/arch.zig`.
-
-Approved architecture namespaces:
-
-```zig
-stdx.arch.x86_64
-stdx.arch.aarch64
-stdx.arch.riscv
-```
-
-`stdx.arch.x86` is not an approved namespace; the x86_64 architecture spec
-owns the `stdx.arch.x86_64` namespace. Add 32-bit x86 only when an owning spec
-approves it.
-
-Architecture-specific code must:
-
-- be target-gated;
-- compile out or expose unsupported behavior on unsupported targets as specified by its owning spec;
-- keep inline assembly out of generic modules;
-- document instruction and feature requirements in its owning spec.
-
-Generic modules must not perform architecture or target probing directly.
-
-## Build shape
-
-`build.zig` creates a public module named `stdx` from `src/stdx.zig`.
-
-```zig
-const stdx_mod = b.createModule(.{
-    .root_source_file = b.path("src/stdx.zig"),
-    .target = target,
-    .optimize = optimize,
-});
-```
-
-The default test module imports `stdx`:
-
-```zig
-const test_mod = b.createModule(.{
-    .root_source_file = b.path("test/all.zig"),
-    .target = target,
-    .optimize = optimize,
-    .imports = &.{.{ .name = "stdx", .module = stdx_mod }},
-});
-```
-
-Default command:
-
-```text
-zig build test
-```
-
-Examples, tools, integration steps, and target-specific build steps are added only when an approved spec or real consumer requires them.
-
-## Test aggregation
-
-`test/all.zig` aggregates tests with comptime imports:
-
-```zig
-comptime {
-    _ = @import("bits/power_of_two_test.zig");
-    _ = @import("bits/bit_flags_test.zig");
-    _ = @import("mem/align_test.zig");
-}
-```
-
-Test directories mirror source domains. Unit tests for local pure logic may also live in the source file they test; multi-module, model, stress, and fixture-driven tests live under `test/`.
-
-## Std usage
-
-Approved in library primitives:
-
-- `std.mem.Allocator`;
-- portable compile-time reflection;
-- portable builtins such as `@sizeOf`, `@alignOf`, `@bitSizeOf`, atomics, and byte swaps.
-
-Approved in tests:
-
-- `std.testing`;
-- test-only allocators and failure allocators.
-
-Not approved without an owning spec:
-
-- OS syscalls;
-- thread parking;
-- file IO in library primitives;
-- environment access;
-- hidden timers;
-- platform probing.
-
-## Source creation gate
-
-A source file may land only when all are true:
-
-1. an approved owning spec exists;
-2. the file's module header cites that spec;
-3. the file owns one concept or type family;
-4. tests required by the owning spec land with the implementation slice;
-5. the dependency direction follows this architecture spec.
+Aggregation tests prove that every required test module is part of the default test build. Domain tests prove their own observable primitive contracts. The aggregation mechanism does not replace required domain tests.

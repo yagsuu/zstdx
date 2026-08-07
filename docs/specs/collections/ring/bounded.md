@@ -5,8 +5,6 @@ Status: Approved.
 `stdx.collections.Ring.Bounded(T)` is a caller-storage-backed FIFO with runtime
 capacity. It preserves enqueue order and never allocates.
 
-The root facade may expose the same family as `stdx.Ring.Bounded(T)`.
-
 ## Owned scope
 
 This spec owns:
@@ -33,8 +31,6 @@ This spec does not own:
 - string, sentinel, UTF, truncation, or text policy;
 - stable handles, generation counters, or tombstones;
 - on-drop callbacks or overwrite policy enums;
-- single- or multi-producer atomic ring semantics; see
-  `docs/specs/concurrent/spsc/ring.md` for the planned concurrent variant;
 - ABI, wire, or packed layout guarantees for the ring value.
 
 ## Public namespace
@@ -43,12 +39,6 @@ This spec does not own:
 
 ```zig
 stdx.collections.Ring
-```
-
-It is root-promoted by the first-slice root facade:
-
-```zig
-stdx.Ring
 ```
 
 Source ownership:
@@ -75,7 +65,7 @@ pub const collections = @import("collections.zig");
 pub const Ring = collections.Ring;
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const Ring = struct {
@@ -127,8 +117,8 @@ its backing storage.
 
 ## Type and capacity contract
 
-`T` must be a runtime value type with `@sizeOf(T) > 0`. Zero-sized element types
-are compile errors where practical.
+`T` MUST be a runtime value type with `@sizeOf(T) > 0`; a zero-sized element
+type is a compile error.
 
 `wrap(buffer)` returns an empty ring backed by `buffer`. `buffer.len` is the
 runtime item capacity. A zero-length buffer is valid; the ring is both empty and
@@ -293,9 +283,9 @@ atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
 - `popFront` uses `null` for empty instead of an error;
 - `pushBackOverwriteOldest` cannot fail; the optional return reports eviction;
 - `front`, `back`, `constFront`, and `constBack` use `null` for empty;
-- invalid `T` categories are compile errors where practical;
-- corrupted `count` or `head` is a programmer error caught by `assertValid`
-  where practical.
+- a zero-sized `T` is a compile error;
+- corrupted `count` or `head` violates the caller contract; `assertValid`
+  asserts the capacity and head-range invariants.
 
 All error returns leave the ring unchanged.
 
@@ -303,10 +293,6 @@ All error returns leave the ring unchanged.
 
 `assertValid()` asserts `count <= buffer.len` and, when `buffer.len > 0`,
 `head < buffer.len`.
-
-Public mutating operations may call `assertValid()` before and after mutation
-when `core.checksEnabled(opts.safety)` or an equivalent module safety option
-requires runtime invariant checks.
 
 ## Implementation constraints
 
@@ -321,128 +307,32 @@ Implementation must:
   `buffer.len` is not a comptime power of two;
 - update `head` and `count` only after capacity checks succeed;
 - leave the ring unchanged on `error.Full`;
-- set vacated slots to `undefined` where practical after `popFront` and after
-  the eviction step of `pushBackOverwriteOldest`;
 - never read or expose spare slots as live elements;
 - avoid self-referential owner layouts that would stale the backing slice;
 - avoid hidden globals, atomics, fences, volatile operations, target probes,
   and I/O.
 
-## Planned use
+## Testing
 
-Diagnostic ring buffers whose depth is a runtime configuration knob back
-the ring with arena-allocated storage and pass the slice through
-`wrap(buffer)`. Queues that live in arena-allocated storage rather than an
-inline `[N]T` field map to `Ring.Bounded`; inline fixed-depth queues use
-`Ring.Static`.
+Tests MUST wrap empty, partial, full, and zero-length backing slices to verify
+that runtime capacity equals `buffer.len`. They MUST verify capacity helpers,
+empty optional returns, and `error.Full`; compile-fail coverage for zero-sized
+`T` proves the element type boundary.
 
-## Examples
+Mutation tests MUST enqueue, dequeue, and overwrite entries across at least one
+wrap boundary. They MUST compare each dequeued value with enqueue order and
+check the returned eviction value. These tests prove FIFO order, branch-wrap
+behavior, overwrite semantics, and no mutation after `error.Full`.
 
-Arena-backed diagnostic ring:
+Pointer and ownership tests MUST verify empty optional results, show that
+mutable endpoint access changes the caller buffer, and verify that `front` and
+`back` refer to the current live endpoints. Invalidation tests MUST retain
+endpoint pointers across pushes, pops, overwrite in both capacity states, and
+clear. They MUST verify the documented stable and invalidated pointers without
+dereferencing an invalid pointer. Copy and move checks MUST establish that the
+backing buffer does not move and that divergent mutable copies are excluded.
 
-```zig
-const stdx = @import("stdx");
-
-const TraceRing = stdx.Ring.Bounded(TraceEntry);
-
-const storage = try arena.allocSlice(TraceEntry, config.trace_depth);
-var trace = TraceRing.wrap(storage);
-
-if (trace.pushBackOverwriteOldest(entry)) |_| {
-    // oldest trace entry dropped; nothing to release for a value type
-}
-```
-
-Caller-provided scratch ring with capacity probe:
-
-```zig
-const Pending = stdx.Ring.Bounded(Job);
-
-var scratch: [64]Job = undefined;
-var pending = Pending.wrap(scratch[0..]);
-
-while (pending.remaining() != 0 and produce(&job)) {
-    pending.pushBackAssumeCapacity(job);
-}
-
-while (pending.popFront()) |j| {
-    execute(j);
-}
-```
-
-Pointer access for large `T`:
-
-```zig
-if (pending.constFront()) |j| {
-    inspect(j.*);
-    _ = pending.popFront();
-}
-```
-
-## Required tests
-
-### Construction and capacity
-
-- `wrap(buffer)` starts empty with `head = 0` and `count = 0`;
-- `capacity()` equals `buffer.len`;
-- zero-length buffers are both empty and full;
-- `len`, `capacity`, `remaining`, `isEmpty`, and `isFull` cover empty, partial,
-  full, and zero-capacity rings;
-- zero-sized `T` fails to compile where the compile-fail harness supports it.
-
-### Enqueue
-
-- `pushBack` succeeds into empty and non-full rings;
-- `pushBack` returns `error.Full` without mutation when full;
-- `pushBackAssumeCapacity` enqueues after a caller capacity check;
-- `pushBackOverwriteOldest` returns `null` when not full and increments `count`;
-- `pushBackOverwriteOldest` returns the evicted front and advances `head` when
-  full;
-- `pushBackOverwriteOldest` on a zero-length buffer returns the input item
-  without mutating the ring;
-- enqueue across the wrap boundary is correct for at least one full revolution.
-
-### Dequeue
-
-- `popFront` returns `null` when empty;
-- `popFront` returns items in FIFO order;
-- dequeue across the wrap boundary is correct for at least one full revolution;
-- alternating `pushBack` and `popFront` across the wrap boundary preserve order
-  for at least one full revolution.
-
-### Pointer access
-
-- `front`, `constFront`, `back`, and `constBack` return `null` when empty;
-- `front` and `back` reference the current head and back slots and allow element
-  mutation through `*T`;
-- after `pushBack`, the new `back()` points at the just-enqueued slot;
-- after `popFront`, the prior `front()` pointer is treated as invalid by the
-  contract, and the new `front()` points at the next live slot.
-
-### Invalidation
-
-- `pushBack` and `pushBackAssumeCapacity` do not invalidate the prior front
-  pointer;
-- `popFront` invalidates the prior front pointer;
-- `pushBackOverwriteOldest` when full invalidates both the prior front and the
-  prior back pointer;
-- `clearRetainingCapacity` invalidates all prior front and back pointers and
-  leaves the ring empty.
-
-### Ownership and invariants
-
-- moving the bounded ring value does not move the backing buffer; `head` and
-  `count` carry through;
-- copying the bounded ring value is safe for read-only access; divergent
-  mutable copies over the same buffer are outside the contract;
-- `assertValid` succeeds after every public mutation sequence;
-- `assertValid` catches a manually corrupted `count > buffer.len` where
-  practical;
-- `assertValid` catches a manually corrupted `head >= buffer.len` for
-  `buffer.len > 0` where practical;
-- iteration via repeated `popFront` produces the enqueue order for at least one
-  full wrap.
-
-## Open questions
-
-None.
+Invariant tests MUST call `assertValid` after mutation sequences that fill,
+drain, refill, and wrap the ring. Where assertions can be observed, deliberately
+invalid `count` and `head` values MUST make `assertValid` fail. These tests prove
+the capacity, head-range, and live-element invariants.

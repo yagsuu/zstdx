@@ -6,7 +6,7 @@ Status: Approved.
 `[N]u8` storage, never allocates beyond that storage, and shares the same
 allocation, mark/restore, and reset semantics as `Arena.Bounded`.
 
-## Owned scope
+## What this spec is
 
 This spec owns:
 
@@ -18,7 +18,7 @@ This spec owns:
 - allocator-view interop;
 - required tests.
 
-This spec does not own:
+## What this spec is not
 
 - `mem.alloc.Arena.Bounded` (owned by `docs/specs/mem/alloc/arena/bounded.md`);
 - growable arenas;
@@ -27,19 +27,13 @@ This spec does not own:
 - thread-safe allocation;
 - leak detection, poisoning, or high-water stats.
 
-## Public namespace
+## Public namespace and source ownership
 
 `Arena.Static` lives under `stdx.mem.alloc`:
 
 ```zig
 stdx.mem.alloc.Arena
 stdx.mem.alloc.Arena.Static
-```
-
-It is not root-promoted:
-
-```zig
-stdx.Arena // not exported
 ```
 
 Source ownership is shared with `Arena.Bounded`:
@@ -50,7 +44,7 @@ src/mem/alloc/arena.zig
 test/mem/alloc/arena_test.zig
 ```
 
-## Approved API
+## API
 
 ```zig
 pub const Arena = struct {
@@ -187,7 +181,7 @@ Matches `Arena.Bounded`:
 - alignment rounding overflow returns `error.Overflow`;
 - typed byte-count overflow returns `error.Overflow`;
 - insufficient remaining capacity returns `error.OutOfMemory`;
-- invalid `T` categories owned by this spec are compile errors where practical;
+- zero-sized `T` is a compile error;
 - invalid marks and corrupted arena state are programmer errors.
 
 All error returns leave `index` unchanged.
@@ -204,54 +198,8 @@ Implementation must:
   practical;
 - avoid unconditional invariant scans on hot paths.
 
-## Usage
-
-Inline scratch arena for a parser:
-
-```zig
-var arena = stdx.mem.alloc.Arena.Static(4096).init();
-
-const tables = try arena.allocSlice(Table, table_count);
-```
-
-Speculative parsing rollback:
-
-```zig
-var arena = stdx.mem.alloc.Arena.Static(8192).init();
-
-const checkpoint = arena.mark();
-parseCandidate(&arena) catch |err| {
-    arena.restore(checkpoint);
-    return err;
-};
-```
-
-Interop with `std.mem.Allocator`:
-
-```zig
-var arena = stdx.mem.alloc.Arena.Static(8192).init();
-
-var list = std.ArrayListUnmanaged(u32){};
-try list.append(arena.allocator(), 42);
-```
-
-Zero-capacity edge case:
-
-```zig
-var arena = stdx.mem.alloc.Arena.Static(0).init();
-
-try std.testing.expectError(error.OutOfMemory, arena.allocBytes(1));
-```
-
-## Planned use
-
-- inline scratch arenas for parse pipelines that prefer no caller-side
-  `[N]u8` declaration;
-- compile-time-sized arenas for boot-phase or early-firmware scratch where
-  the total budget is known statically;
-- compile-time-sized arenas for parser fixtures and unit tests.
-
-## Required tests
+## Testing
+Verification uses inline arenas at small capacity boundaries and real `std.mem.Allocator` consumers to exercise alignment, overflow, rollback, invalidation, and invariant checks. These checks prove that inline storage is the only allocation source and that marks, reset, and allocator failure preserve the specified capacity state.
 
 ### Construction and capacity
 
@@ -264,10 +212,8 @@ try std.testing.expectError(error.OutOfMemory, arena.allocBytes(1));
 
 - `allocBytes(0)` succeeds and does not advance;
 - `allocBytes(n)` returns the next `n` bytes and advances by `n`;
-- `allocAlignedBytes` inserts padding as needed;
+- `allocAlignedBytes` inserts the padding required for the requested alignment;
 - invalid alignment returns `error.InvalidAlignment` and leaves `index` unchanged;
-- exhaustion returns `error.OutOfMemory` and leaves `index` unchanged;
-- `Static(0)` returns `error.OutOfMemory` for any non-zero allocation.
 
 ### Typed allocations
 
@@ -292,12 +238,4 @@ try std.testing.expectError(error.OutOfMemory, arena.allocBytes(1));
 
 ### Variant separation
 
-Required when supported by the compile-fail test harness:
-
-- passing a mark from another arena to `restore` is a programmer error,
-  caught by the in-range assertion when the index does not match the
-  receiving arena's state.
-
-## Open questions
-
-None.
+Passing a mark from another arena to `restore` is a programmer error. A runtime test passes a mark whose index is outside the receiving arena's current range and observes the in-range assertion.
