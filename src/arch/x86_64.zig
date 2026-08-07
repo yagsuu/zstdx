@@ -6,6 +6,7 @@ pub const Port = @import("x86_64/port.zig").Port;
 pub const cache = @import("x86_64/cache.zig");
 pub const cpu = @import("x86_64/cpu.zig");
 pub const cpuid = @import("x86_64/cpuid.zig");
+pub const descriptors = @import("x86_64/descriptors.zig");
 pub const fence = @import("x86_64/fence.zig");
 pub const interrupts = @import("x86_64/interrupts.zig");
 pub const paging = @import("x86_64/paging.zig");

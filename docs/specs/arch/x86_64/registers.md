@@ -26,7 +26,7 @@ This specification does not own:
 - general-purpose register, instruction-pointer, XSAVE, FPU, vector, PMU, or generic MSR capture;
 - a flat register-state structure, partial-state availability, or backend capture adapters;
 - hidden segment state such as effective base, limit, attributes, or unusable state;
-- descriptor-entry layouts, GDT/IDT/LDT/TSS builders, or allocation;
+- descriptor-entry layouts, owned by `docs/specs/arch/x86_64/descriptors.md`, or descriptor-table builders and allocation;
 - CPU feature probing, paging translation, trap recovery, or system policy;
 - interrupt, privilege, debug, VMX, or SVM policy.
 
