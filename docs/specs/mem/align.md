@@ -74,7 +74,7 @@ pub fn alignUpDelta(comptime T: type, value: T, alignment: T) Error!T;
 pub fn alignDownDelta(comptime T: type, value: T, alignment: T) AlignError!T;
 ```
 
-`T` must be an unsigned integer type. Signed integers, floats, bools, enums,
+Callers MUST provide `T` as an unsigned integer type. Signed integers, floats, bools, enums,
 pointers, and comptime integers without an explicit `T` are compile errors.
 
 Usage:
@@ -103,7 +103,7 @@ alignment != 0 and stdx.bits.isPowerOfTwo(T, alignment)
 
 `isAligned(T, value, alignment)` returns true iff `value` is already a multiple of `alignment`.
 
-Precondition: `alignment` must be a non-zero power of two. Implementations assert this via `std.debug.assert` rather than returning an error union; the predicate convention is documented in `docs/guidelines/conventions.md`.
+Precondition: callers MUST provide `alignment` as a non-zero power of two. Implementations assert this via `std.debug.assert` rather than returning an error union; the predicate convention is documented in `docs/guidelines/conventions.md`.
 
 For valid alignment:
 
@@ -173,7 +173,7 @@ These helpers perform no allocation, waiting, hidden global access, atomics, or 
 
 ## Implementation constraints
 
-Implementation must:
+Implementations MUST:
 
 - reuse or exactly match `stdx.bits.isPowerOfTwo` semantics for alignment validation;
 - avoid unchecked overflow;

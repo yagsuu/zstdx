@@ -362,7 +362,7 @@ bitmap bit is set. It returns `false` otherwise.
 
 ## Free-order invariant
 
-The caller must pass a `block` value to `free` whose `(start, order)` pair
+The caller MUST pass a `block` value to `free` whose `(start, order)` pair
 exactly matches what `alloc` returned. Passing a `block` with a different
 order — even one aligned to that order and inside the allocator's range — is
 a caller contract violation.
@@ -397,7 +397,7 @@ behavior; the primitive does not defend against this case.
 `BuddyAllocator` performs no heap allocation, sleeping, blocking, hidden
 scheduler calls, target probing, atomics, barriers, or hidden global access.
 Every state-changing operation requires exclusive ownership; concurrent
-callers must serialize externally.
+callers MUST serialize externally.
 
 ## Debug assertion behavior
 
@@ -556,8 +556,8 @@ naive "find lowest-index aligned power-of-two run" allocator.
 
 - 10 000 random ops over `unit_capacity = 256, order_count = 6`.
 - Every op is checked against the reference; the reference tracks a
-  histogram of live block orders; on completion the allocator restored to
-  fully free must equal `init()`.
+  histogram of live block orders. On completion, the stress test MUST verify
+  that the allocator restored to fully free equals `init()`.
 
 ### Compile-only
 

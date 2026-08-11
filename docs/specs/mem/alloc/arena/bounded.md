@@ -165,7 +165,7 @@ if (end > arena.buffer.len) return error.OutOfMemory;
 return arena.buffer[start..end];
 ```
 
-The implementation must leave `index` unchanged on `error.InvalidAlignment`,
+The implementation MUST leave `index` unchanged on `error.InvalidAlignment`,
 `error.Overflow`, and `error.OutOfMemory`.
 
 `len == 0` succeeds and does not advance. Empty allocations may return any empty
@@ -179,11 +179,11 @@ slice with the correct element alignment when the return type requires one.
 `allocSlice(T, len)` returns `len` uninitialized `T` values stored contiguously
 in arena memory aligned to `@alignOf(T)`.
 
-Typed helpers must reject zero-sized `T` at compile time. Invalid or unsupported
+Typed allocation helpers MUST reject zero-sized `T` at compile time. Invalid or unsupported
 `T` categories beyond zero-sized types are not rejected by this spec; the arena
 allocates storage and does not validate object semantics.
 
-The byte count for typed allocation must use checked arithmetic:
+The implementation MUST use checked arithmetic for the typed allocation byte count:
 
 ```zig
 const byte_count = try std.math.mul(usize, @sizeOf(T), len);
@@ -209,15 +209,15 @@ their previous contents until overwritten by the caller.
 `allocator()` returns a `std.mem.Allocator` view backed by the same arena state.
 It is for interop with APIs that already accept `std.mem.Allocator`.
 
-The allocator view must allocate only from `buffer`, use the same alignment and
+The allocator view MUST allocate only from `buffer`, use the same alignment and
 exhaustion rules, and leave `index` unchanged on allocation failure.
 
-The allocator view must not make individual frees part of the stdx contract.
+The allocator view MUST NOT make individual frees part of the stdx contract.
 `free`, `resize`, or `remap` behavior may satisfy std allocator requirements, but
-callers must not rely on them for reusable capacity. Precise lifecycle control
+callers MUST NOT rely on them for reusable capacity. Precise lifecycle control
 uses `mark`, `restore`, and `reset`.
 
-`Arena.Bounded` must not be a public alias for `std.heap.FixedBufferAllocator`.
+`Arena.Bounded` MUST NOT be a public alias for `std.heap.FixedBufferAllocator`.
 The stdx type owns its public semantics even if implementation code shares
 internal algorithms with std.
 
@@ -225,14 +225,14 @@ internal algorithms with std.
 
 `Bounded` borrows `buffer`. It never owns or frees memory.
 
-The caller must keep the backing byte slice alive and mutable for the lifetime of
+The caller MUST keep the backing byte slice alive and mutable for the lifetime of
 the arena and every allocation returned from it.
 
 Subsequent allocations do not move earlier allocations. `restore` invalidates
 allocations after the mark. `reset` invalidates all allocations.
 
 Copying an arena value duplicates allocation state over the same backing buffer.
-Do not allocate from both copies. Checkpointing uses `mark` and `restore`, not
+Callers MUST NOT allocate from both copies. Checkpointing uses `mark` and `restore`, not
 value-copy branching.
 
 ## Behavior contract
@@ -266,7 +266,7 @@ All error returns leave `index` unchanged.
 
 ## Implementation constraints
 
-Implementation must:
+The implementation MUST:
 
 - store only the caller buffer and current index in the arena value;
 - reuse or exactly match `stdx.mem.alignUp` alignment validity and overflow

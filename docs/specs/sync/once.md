@@ -379,14 +379,6 @@ of the `Once` is unspecified. This spec forbids the initializer from
 panicking. Callers whose initializer can fail must use `callChecked` and
 return an error from `work` instead of panicking.
 
-Rationale: freestanding consumers do not have a portable
-`panic → poison → recover` machinery. Rather than owning a panic-poison
-protocol in this spec, `Once` requires the caller to model recoverable
-initializer failure as an error return.
-
-Consumers on hosts with unwinding may layer their own poison discipline on
-top by wrapping `Once` inside a type that catches panics via
-`std.builtin.Panic` policy. That layer is not owned by this spec.
 
 ## Recursion contract
 

@@ -127,8 +127,8 @@ match `Arena.Bounded`. Differences are limited to:
 
 - backing storage is inline rather than borrowed;
 - `init()` replaces `wrap(...)`;
-- the arena value owns `[N]u8` and must not move while any live allocation
-  refers into it.
+- callers MUST NOT move the arena value while any live allocation refers into
+  its inline `[N]u8` storage.
 
 `allocBytes`, `allocAlignedBytes`, `alloc(T)`, and `allocSlice` use the same
 algorithms, error set, and `index`-unchanged-on-error contract as
@@ -138,7 +138,7 @@ algorithms, error set, and `index`-unchanged-on-error contract as
 
 Inline storage lives inside the arena value. The following rules apply:
 
-- the arena value must not move (struct copy, pass-by-value return, function
+- callers MUST NOT move the arena value (struct copy, pass-by-value return, function
   argument copy) while any allocation returned from it is still in use;
 - copying the arena duplicates the buffer and the current `index`; allocations
   from the copy do not alias the original;
@@ -188,7 +188,7 @@ All error returns leave `index` unchanged.
 
 ## Implementation constraints
 
-Implementation must:
+Implementations MUST:
 
 - share the implementation body with `Arena.Bounded` where the algorithm is
   identical, using private helpers over `(buffer: []u8, index: *usize)`;

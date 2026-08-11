@@ -152,14 +152,14 @@ other fixed-size resource chosen by the caller.
 
 ## Storage model
 
-`Static(unit_capacity)` owns inline bitmap words. `unit_capacity` must be
-greater than zero. A default struct literal and `init()` produce an empty allocator.
+`Static(unit_capacity)` owns inline bitmap words. A caller MUST provide a
+`unit_capacity` greater than zero. A default struct literal and `init()` produce an empty allocator.
 
 `Bounded.wrap(words, unit_capacity)` borrows `words`, clears every borrowed word,
 and returns an empty allocator over the first `unit_capacity` units. It returns
 `error.OutOfBounds` when `unit_capacity > words.len * word_bits`.
 
-For both variants, direct mutation of `words` must preserve the unused-bit
+For both variants, a caller that directly mutates `words` MUST preserve the unused-bit
 invariant and allocation-state invariants.
 
 ## Capacity and counts
@@ -170,7 +170,7 @@ invariant and allocation-state invariants.
 
 `remaining()` returns the number of free units.
 
-The following invariant must hold for every valid allocator:
+Every valid allocator MUST satisfy the following invariant:
 
 ```zig
 allocated() + remaining() == capacity()
@@ -188,11 +188,11 @@ storage identity do not change.
 ## Unused-bit invariant
 
 When `capacity()` is not a multiple of `word_bits`, the final logical word has
-unused high bits. Those bits must always be zero after every public operation.
+unused high bits. After every public operation, the allocator MUST keep those bits zero.
 
 Words beyond the logical capacity in a `Bounded` allocator are borrowed storage,
 but their bits are not allocatable units. `wrap` clears them. Public operations
-must not expose them as allocated or free units.
+MUST NOT expose them as allocated or free units.
 
 `assertValid()` asserts that unused high bits are zero and that
 `unit_capacity <= words.len * word_bits` for `Bounded`.
@@ -241,7 +241,7 @@ On error, it does not mutate the allocator.
 
 `reserveRange(range)` marks every unit in `range` allocated.
 
-`range` must be a valid `Range(usize)`. Passing an invalid range value is a
+The caller MUST pass a valid `Range(usize)` to `reserveRange`. Passing an invalid range value is a
 programmer error.
 
 An empty range is a no-op when `range.start <= capacity()`.
@@ -250,7 +250,7 @@ A non-empty or empty range with `range.end > capacity()` returns
 `error.OutOfBounds` and does not mutate the allocator.
 
 If any unit in `range` is already allocated, `reserveRange` returns
-`error.AlreadyAllocated` and does not mutate the allocator. Implementations must
+`error.AlreadyAllocated` and does not mutate the allocator. The implementation MUST
 validate the whole range before setting any bit.
 
 ## Free semantics
@@ -266,7 +266,7 @@ On error, it does not mutate the allocator.
 
 `freeRange(range)` marks every unit in `range` free.
 
-`range` must be a valid `Range(usize)`. Passing an invalid range value is a
+The caller MUST pass a valid `Range(usize)` to `freeRange`. Passing an invalid range value is a
 programmer error.
 
 An empty range is a no-op when `range.start <= capacity()`.
@@ -275,7 +275,7 @@ A non-empty or empty range with `range.end > capacity()` returns
 `error.OutOfBounds` and does not mutate the allocator.
 
 If any unit in `range` is already free, `freeRange` returns
-`error.NotAllocated` and does not mutate the allocator. Implementations must
+`error.NotAllocated` and does not mutate the allocator. The implementation MUST
 validate the whole range before clearing any bit.
 
 ## Behavior contract
@@ -295,7 +295,7 @@ The bitmap allocator performs no hidden allocation, waiting, sleeping, spinning,
 blocking, syscalls, target probing, atomics, barriers, volatile access, or hidden
 global access.
 
-Concurrent mutation is outside the contract. Callers must externally synchronize
+Concurrent mutation is outside the contract. Callers MUST externally synchronize
 shared allocators. Immutable queries over immutable allocator values require no
 synchronization beyond ordinary Zig aliasing rules.
 
@@ -328,7 +328,7 @@ storage can represent.
 
 `NotAllocated` means free would overlap a free unit.
 
-Every error-returning operation must leave the allocator unchanged on error.
+Every error-returning operation MUST leave the allocator unchanged on error.
 
 Malformed receiver state is a programmer error. Operations may call
 `assertValid()` when `stdx.core.debug.checksEnabled` or an equivalent module
@@ -336,7 +336,7 @@ safety option requires runtime invariant checks.
 
 ## Implementation constraints
 
-Implementations must:
+Implementations MUST:
 
 - use `u64` words;
 - support zero-capacity allocators;
@@ -448,5 +448,5 @@ allocator over randomized sequences of:
 - `freeRange`;
 - `clearRetainingCapacity`.
 
-The model must assert identical success/error results, allocated unit sets,
+The model test MUST assert identical success/error results, allocated unit sets,
 counts, and no-mutation-on-error behavior.

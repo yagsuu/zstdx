@@ -21,14 +21,14 @@ Every specification MUST start with exactly one status line after its title:
 ```text
 Status: Draft.
 Status: Approved.
-Status: Superseded by <path>.
+Status: Superseded by <path>[, <path>...].
 ```
 
 Rules:
 
 - `Draft` specifications are review material.
 - `Approved` specifications are implementation contracts.
-- A `Superseded` specification MUST name its replacement path.
+- A `Superseded` specification MUST name each replacement path.
 
 ## Language
 
