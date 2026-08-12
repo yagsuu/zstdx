@@ -2,46 +2,74 @@
 
 Status: Approved.
 
-`stdx.core.Range(T)` is a half-open range value for unsigned integer domains. It represents indices, byte offsets, bitmap spans, allocator extents, and other count-like intervals.
+`stdx.core.Range(T)` and `stdx.core.InclusiveRange(T)` are range values for unsigned integer
+domains. `Range(T)` represents half-open intervals `[start, end)`. `InclusiveRange(T)` represents
+inclusive intervals `[start, end]`. The types represent indices, bit positions, byte offsets,
+bitmap spans, allocator extents, limits, and other count-like intervals.
 
 ## What this spec is
 
-This specification defines `Range(T)`, its half-open interval semantics, construction, queries, range arithmetic, failure behavior, and tests.
+This specification defines:
+
+- `stdx.core.Range(T)` and its half-open interval semantics;
+- `stdx.core.InclusiveRange(T)` and its inclusive interval semantics;
+- construction, validation, queries, range arithmetic, and conversions;
+- failure behavior, implementation constraints, and required tests.
 
 ## What this spec is not
 
-This specification does not define address ranges, page ranges, pointer spans, non-null pointer wrappers, range sets, range maps, iteration, slicing helpers, coalescing, address arithmetic, page alignment, or signed-range semantics.
+This specification does not define:
 
-## Public namespace and source ownership
+- address ranges, page ranges, pointer spans, or non-null pointer wrappers;
+- range sets, range maps, iteration, slicing helpers, or coalescing;
+- address arithmetic, page alignment, or signed-range semantics;
+- allocation, waiting, scheduling, callbacks, synchronization, hardware access, or runtime policy.
 
-`Range` is available as `stdx.core.Range`. It is not available as `stdx.Range`.
+`docs/specs/ranges/set.md` and `docs/specs/ranges/map.md` own range-collection behavior.
 
-Source ownership:
+## Public namespace
 
-```text
-src/core.zig
-src/core/range.zig
-```
+`Range` and `InclusiveRange` are available as `stdx.core.Range` and
+`stdx.core.InclusiveRange`. Neither type is available from the `stdx` namespace.
 
-`src/core.zig` re-exports `Range` from `core/range.zig`.
+## Cross-spec relationships
+
+The range-set and range-map specifications depend on the half-open semantics of `Range(T)`.
+They compose with this specification but do not accept `InclusiveRange(T)`.
 
 ## Data structures and representation
 
-`Range(T)` is a value type with public `start` and `end` fields of type `T`. A valid range represents `[start, end)` and satisfies `start <= end`. An empty range satisfies `start == end`.
+`Range(T)` MUST be a value type with public `start` and `end` fields of type `T`. A valid
+`Range(T)` represents `[start, end)` and satisfies `start <= end`. `start == end` represents an
+empty range.
 
-Copies are independent values. No operation allocates, waits, performs atomics or barriers, or accesses hidden globals.
+`InclusiveRange(T)` MUST be a value type with public `start` and `end` fields of type `T`. A valid
+`InclusiveRange(T)` represents `[start, end]` and satisfies `start <= end`. `start == end`
+represents a singleton range.
+
+`[0, std.math.maxInt(T)]` MUST be invalid for `InclusiveRange(T)`. Its cardinality is not
+representable in `T`. Every valid `InclusiveRange(T)` MUST contain at least one value and MUST
+have a cardinality representable in `T`.
+
+Copies MUST be independent values. No operation allocates, waits, performs atomics or barriers,
+or accesses hidden globals.
 
 ## Global invariants
 
-`T` MUST be an unsigned integer type. `Range(T)` with another type is a compile error.
+`Range(T)` MUST require `T` to be an unsigned integer type. `InclusiveRange(T)` MUST require `T`
+to be a non-zero-width unsigned integer type. An invalid type argument is a compile error.
 
-A method that requires a valid receiver asserts when `start > end`. Fallible methods leave the input values unchanged on error.
+A method that requires a valid receiver or range argument MUST assert when that value violates
+its type invariant. Fallible methods MUST leave their input values unchanged on error.
 
 ## API
 
 ```zig
 pub fn Range(comptime T: type) type;
+pub fn InclusiveRange(comptime T: type) type;
 ```
+
+`Range(T)` returns:
 
 ```zig
 pub const Self = struct {
@@ -82,58 +110,278 @@ pub const Self = struct {
 };
 ```
 
+`InclusiveRange(T)` returns:
+
+```zig
+pub const Self = struct {
+    start: T,
+    end: T,
+
+    pub const InvalidRangeError = error{InvalidRange};
+    pub const OverflowError = error{Overflow};
+    pub const OutOfBoundsError = error{OutOfBounds};
+    pub const Error = InvalidRangeError || OverflowError || OutOfBoundsError;
+
+    pub fn fromBounds(start: T, end: T) InvalidRangeError!Self;
+    pub fn of(comptime start: T, comptime end: T) Self;
+    pub fn fromStartLen(
+        start: T,
+        length: T,
+    ) (InvalidRangeError || OverflowError)!Self;
+    pub fn single(at: T) Self;
+
+    pub fn fromRange(range: Range(T)) ?Self;
+    pub fn toRange(self: Self) OverflowError!Range(T);
+
+    pub fn assertValid(self: Self) void;
+    pub fn isValid(self: Self) bool;
+
+    pub fn len(self: Self) T;
+    pub fn isSingleton(self: Self) bool;
+
+    pub fn contains(self: Self, value: T) bool;
+    pub fn containsRange(self: Self, other: Self) bool;
+    pub fn overlaps(self: Self, other: Self) bool;
+    pub fn isAdjacent(self: Self, other: Self) bool;
+
+    pub fn intersection(self: Self, other: Self) ?Self;
+    pub fn span(self: Self, other: Self) OverflowError!Self;
+
+    pub fn prefix(self: Self, point: T) OutOfBoundsError!Self;
+    pub fn suffix(self: Self, point: T) OutOfBoundsError!Self;
+    pub fn offsetOf(self: Self, value: T) ?T;
+    pub fn atOffset(self: Self, offset: T) ?T;
+
+    pub fn shiftForward(self: Self, amount: T) OverflowError!Self;
+    pub fn shiftBackward(self: Self, amount: T) OverflowError!Self;
+};
+```
+
 ## Construction and validation
 
-`fromBounds(start, end)` returns `[start, end)` or `error.InvalidRange` when `end < start`.
+### `Range`
 
-`of(start, end)` constructs `[start, end)` from compile-time-known bounds. It is a compile error when `end < start`.
+`Range.fromBounds(start, end)` MUST return `[start, end)`. It MUST return `error.InvalidRange`
+when `end < start`.
 
-`fromStartLen(start, length)` returns `[start, start + length)` or `error.Overflow` when the addition overflows `T`.
+`Range.of(start, end)` MUST construct `[start, end)` from compile-time-known bounds. Invalid
+bounds MUST cause a compile error.
 
-`empty(at)` returns `[at, at)`.
+`Range.fromStartLen(start, length)` MUST return `[start, start + length)`. It MUST return
+`error.Overflow` when the addition is not representable in `T`.
 
-A caller with proven validity MAY use `Range(T){ .start = a, .end = b }`. `Range(T)` does not provide `initUnchecked`.
+`Range.empty(at)` MUST return `[at, at)`.
 
-`isValid()` returns `start <= end`. `assertValid()` asserts `start <= end`; it detects programmer errors and internal invariant violations, not invalid external input.
+`Range.isValid()` MUST return `start <= end`. `Range.assertValid()` MUST assert the same
+condition.
+
+### `InclusiveRange`
+
+`InclusiveRange.fromBounds(start, end)` MUST return `[start, end]`. It MUST return
+`error.InvalidRange` when `end < start` or when the bounds equal
+`[0, std.math.maxInt(T)]`.
+
+`InclusiveRange.of(start, end)` MUST construct `[start, end]` from compile-time-known bounds.
+Inverted bounds and `[0, std.math.maxInt(T)]` MUST cause a compile error.
+
+`InclusiveRange.fromStartLen(start, length)` MUST return `[start, start + length - 1]`. It MUST
+return `error.InvalidRange` when `length == 0`. It MUST return `error.Overflow` when the final
+endpoint is not representable in `T`.
+
+`InclusiveRange.single(at)` MUST return `[at, at]`.
+
+`InclusiveRange.isValid()` MUST return:
+
+```zig
+self.start <= self.end and
+    !(self.start == 0 and self.end == std.math.maxInt(T))
+```
+
+`InclusiveRange.assertValid()` MUST assert the same condition. `InclusiveRange(T)` MUST NOT
+provide `empty`, `isEmpty`, or `initUnchecked`.
+
+A caller with proven validity MAY use public field initialization for either type. Neither type
+provides `initUnchecked`.
+
+## Conversion
+
+`InclusiveRange.fromRange(range)` MUST require a valid `Range(T)`. It MUST return `null` when
+`range` is empty. For a non-empty `[start, end)`, it MUST return `[start, end - 1]`.
+
+`InclusiveRange.toRange()` MUST return `[start, end + 1)`. It MUST return `error.Overflow` when
+`end == std.math.maxInt(T)`.
+
+Every successful conversion round trip MUST preserve the input bounds. This requirement applies
+to every non-empty `Range(T)` and every `InclusiveRange(T)` whose `end` is less than
+`std.math.maxInt(T)`.
 
 ## Queries and range arithmetic
 
-`len()` returns `end - start`. `isEmpty()` returns `start == end`.
+### `Range`
 
-`contains(value)` returns `true` exactly when `start <= value and value < end`.
+`Range.len()` MUST return `end - start`. `Range.isEmpty()` MUST return `start == end`.
 
-`containsRange(other)` returns `true` exactly when `start <= other.start and other.end <= end`. A containing range `[a, b)` contains the empty ranges `[a, a)` and `[b, b)` when `a <= b`.
+`Range.contains(value)` MUST return `true` exactly when `start <= value and value < end`.
 
-`overlaps(other)` returns `true` only when the intersection is non-empty. Empty ranges never overlap.
+`Range.containsRange(other)` MUST return `true` exactly when
+`start <= other.start and other.end <= end`. A containing range `[a, b)` MUST contain the empty
+ranges `[a, a)` and `[b, b)` when `a <= b`.
 
-`isAdjacent(other)` returns `true` exactly when `self.end == other.start` or `other.end == self.start`. Empty ranges can be adjacent under the same rule.
+`Range.overlaps(other)` MUST return `true` only when the intersection is non-empty. Empty ranges
+MUST NOT overlap.
 
-`intersection(other)` returns the non-empty intersection or `null` when the intersection is empty.
+`Range.isAdjacent(other)` MUST return `true` exactly when `self.end == other.start` or
+`other.end == self.start`. Empty ranges MUST follow the same rule.
 
-`span(other)` returns the smallest range that covers both ranges, including a gap. It does not overflow because its bounds are existing input bounds.
+`Range.intersection(other)` MUST return the non-empty intersection. It MUST return `null` when
+the intersection is empty.
 
-`prefix(point)` accepts `point` in the closed interval `[start, end]` and returns `[start, point)`. `suffix(point)` accepts the same interval and returns `[point, end)`. Each returns `error.OutOfBounds` for another point. `point == start` returns an empty prefix. `point == end` returns an empty suffix.
+`Range.span(other)` MUST return the smallest range that covers both inputs, including any gap.
 
-`offsetOf(value)` returns `value - start` when `contains(value)` is true and otherwise returns `null`.
+`Range.prefix(point)` MUST accept `point` in `[start, end]` and return `[start, point)`.
+`Range.suffix(point)` MUST accept the same interval and return `[point, end)`. Each operation
+MUST return `error.OutOfBounds` for another point. `point == start` MUST produce an empty prefix.
+`point == end` MUST produce an empty suffix.
 
-`atOffset(offset)` returns `start + offset` when `offset < len()` and otherwise returns `null`. For every contained value, `atOffset(offsetOf(value).?)` returns `value`.
+`Range.offsetOf(value)` MUST return `value - start` when `contains(value)` is true. It MUST
+otherwise return `null`.
 
-`shiftForward(amount)` adds `amount` to both bounds and returns `error.Overflow` when either addition overflows `T`.
+`Range.atOffset(offset)` MUST return `start + offset` when `offset < len()`. It MUST otherwise
+return `null`. For every contained value, `atOffset(offsetOf(value).?)` MUST return `value`.
 
-`shiftBackward(amount)` subtracts `amount` from both bounds and returns `error.Overflow` when `amount > start`. This condition also prevents underflow of `end` because valid ranges satisfy `start <= end`.
+`Range.shiftForward(amount)` MUST add `amount` to both bounds. It MUST return `error.Overflow`
+when either result is not representable in `T`.
+
+`Range.shiftBackward(amount)` MUST subtract `amount` from both bounds. It MUST return
+`error.Overflow` when `amount > start`.
+
+### `InclusiveRange`
+
+`InclusiveRange.len()` MUST return `end - start + 1`. The operation MUST be infallible.
+`InclusiveRange.isSingleton()` MUST return `start == end`.
+
+`InclusiveRange.contains(value)` MUST return `true` exactly when
+`start <= value and value <= end`.
+
+`InclusiveRange.containsRange(other)` MUST return `true` exactly when
+`start <= other.start and other.end <= end`.
+
+`InclusiveRange.overlaps(other)` MUST return `true` exactly when
+`@max(start, other.start) <= @min(end, other.end)`. Inclusive ranges that share one endpoint
+MUST overlap.
+
+`InclusiveRange.isAdjacent(other)` MUST return `true` exactly when one of these conditions is
+true:
+
+```zig
+self.end < other.start and other.start - self.end == 1
+other.end < self.start and self.start - other.end == 1
+```
+
+`InclusiveRange.intersection(other)` MUST return
+`[@max(start, other.start), @min(end, other.end)]` when those bounds are ordered. It MUST return
+`null` when the ranges are disjoint. Equal intersection bounds MUST produce a singleton.
+
+`InclusiveRange.span(other)` MUST return the smallest inclusive range that covers both inputs,
+including any gap. It MUST return `error.Overflow` exactly when the resulting bounds are
+`[0, std.math.maxInt(T)]`.
+
+`InclusiveRange.prefix(point)` MUST accept a contained point and return `[start, point]`.
+`InclusiveRange.suffix(point)` MUST accept a contained point and return `[point, end]`. Each
+operation MUST return `error.OutOfBounds` for a point outside `[start, end]`. Both results MUST
+contain `point`, and their intersection MUST be `[point, point]`.
+
+`InclusiveRange.offsetOf(value)` MUST return `value - start` when `contains(value)` is true. It
+MUST otherwise return `null`.
+
+`InclusiveRange.atOffset(offset)` MUST return `start + offset` when `offset <= end - start`. It
+MUST otherwise return `null`. For every contained value, `atOffset(offsetOf(value).?)` MUST
+return `value`.
+
+`InclusiveRange.shiftForward(amount)` MUST add `amount` to both bounds. It MUST return
+`error.Overflow` when either result is not representable in `T`.
+
+`InclusiveRange.shiftBackward(amount)` MUST subtract `amount` from both bounds. It MUST return
+`error.Overflow` when `amount > start`.
 
 ## Errors and fault behavior
 
-`fromBounds` returns `error.InvalidRange` for invalid bounds. `fromStartLen`, `shiftForward`, and `shiftBackward` return `error.Overflow` for unrepresentable arithmetic. `prefix` and `suffix` return `error.OutOfBounds` for a point outside `[start, end]`. An invalid type argument is a compile error. A method that requires a valid receiver asserts on an invalid receiver.
+`Range.fromBounds` MUST return `error.InvalidRange` for inverted bounds. `Range.fromStartLen`,
+`Range.shiftForward`, and `Range.shiftBackward` MUST return `error.Overflow` for unrepresentable
+arithmetic. `Range.prefix` and `Range.suffix` MUST return `error.OutOfBounds` for a point outside
+`[start, end]`.
+
+`InclusiveRange.fromBounds` MUST return `error.InvalidRange` for inverted bounds and the excluded
+full-domain bounds. `InclusiveRange.fromStartLen` MUST return `error.InvalidRange` for zero length
+and `error.Overflow` for an unrepresentable endpoint. `InclusiveRange.span`,
+`InclusiveRange.toRange`, `InclusiveRange.shiftForward`, and `InclusiveRange.shiftBackward` MUST
+return `error.Overflow` under their specified overflow conditions. `InclusiveRange.prefix` and
+`InclusiveRange.suffix` MUST return `error.OutOfBounds` for a point outside `[start, end]`.
+
+An invalid type argument MUST cause a compile error. An operation that requires a valid range
+value MUST assert when the value is invalid.
 
 ## Implementation constraints
 
-Every public operation is $O(1)$. Every public operation is allocation-free and non-blocking. `Range(T)` is a value type; it creates no handles, borrowed storage, or invalidatable references.
+Every public operation MUST be $O(1)$, allocation-free, and non-blocking. `Range(T)` and
+`InclusiveRange(T)` MUST create no handles, borrowed storage, or invalidatable references.
+
+Operations MUST NOT invoke callbacks, perform I/O, read clocks, access hidden globals, call
+scheduler or backend APIs, or establish synchronization or memory-ordering effects.
+
+Implementations MUST use checked or proven-safe endpoint arithmetic. They MUST NOT use wrapping
+or saturating arithmetic to satisfy a range operation.
 
 ## Testing
 
-Tests MUST exercise `Range(usize)` and at least one small unsigned instantiation such as `Range(u8)`. Constructor tests MUST verify valid and empty bounds, rejection of `end < start`, compile-time `of` validation, and `fromStartLen` overflow. These tests prove construction and numeric-boundary behavior.
+Tests MUST exercise `Range(usize)`, `InclusiveRange(usize)`, and at least one small unsigned
+instantiation of each type, such as `u8`.
 
-Query and arithmetic tests MUST verify empty and non-empty lengths; inclusion of `start` and exclusion of `end`; empty subranges at both containing boundaries; adjacent and empty non-overlap; adjacency; intersection and disjoint `null`; disjoint span; prefix and suffix at start, middle, and end; outside-point `error.OutOfBounds`; `offsetOf`/`atOffset` round trips; `atOffset(len()) == null`; forward overflow; and backward underflow. These tests prove half-open semantics and preserve all range-arithmetic boundaries.
+`Range` constructor tests MUST verify valid and empty bounds, rejection of `end < start`,
+compile-time `of` validation, and `fromStartLen` overflow. `Range` query and arithmetic tests
+MUST verify empty and non-empty lengths; inclusion of `start` and exclusion of `end`; empty
+subranges at both containing boundaries; adjacent and empty non-overlap; adjacency; intersection
+and disjoint `null`; disjoint span; prefix and suffix at start, middle, and end; outside-point
+`error.OutOfBounds`; `offsetOf`/`atOffset` round trips; `atOffset(len()) == null`; forward
+overflow; and backward underflow.
 
-Compile-fail testing MUST instantiate `Range` with a signed integer type and verify that compilation fails. This proves the unsigned-domain restriction without relying on a runtime test.
+`InclusiveRange` constructor tests MUST verify valid bounds, singleton bounds,
+`single`, rejection of `end < start`, rejection of `[0, std.math.maxInt(T)]`, compile-time `of`
+validation, zero-length rejection, and `fromStartLen` overflow.
+
+`InclusiveRange` cardinality tests MUST verify singleton length, ordinary length, and the maximum
+valid length. They MUST verify that `[0, maxInt(T) - 1]` and `[1, maxInt(T)]` each have length
+`maxInt(T)`.
+
+`InclusiveRange` relationship tests MUST verify inclusion of both endpoints; containment;
+disjoint ranges; overlap at one shared endpoint; adjacency in both orders and near numeric
+boundaries; singleton intersection; disjoint `null`; successful disjoint span; and
+`error.Overflow` when valid inputs span `[0, std.math.maxInt(T)]`.
+
+`InclusiveRange` prefix and suffix tests MUST exercise the start, middle, and end points,
+singleton outer results, the shared split point, and `error.OutOfBounds` below and above the
+range. Offset tests MUST verify `offsetOf`/`atOffset` round trips, inclusion of the final offset,
+and rejection of the first offset after the end. Shift tests MUST verify forward overflow and
+backward underflow.
+
+Conversion tests MUST verify non-empty `Range` conversion, empty `Range` conversion to `null`,
+successful round trips, singleton conversion, and `InclusiveRange.toRange` overflow when
+`end == std.math.maxInt(T)`.
+
+Compile-fail tests MUST reject signed integer instantiations of both types and
+`InclusiveRange(u0)`.
+
+## Usage examples
+
+A caller that requires the complete value domain of an unsigned integer type MUST use an
+`InclusiveRange` backing type that can represent the domain cardinality. `InclusiveRange(u32)`
+can represent all `u16` values:
+
+```zig
+const U16Domain = stdx.core.InclusiveRange(u32);
+const all_u16 = U16Domain.of(0, 65_535);
+
+comptime {
+    std.debug.assert(all_u16.len() == 65_536);
+}
+```

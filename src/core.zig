@@ -8,6 +8,7 @@ pub const debug = @import("core/debug.zig");
 
 pub const SafetyMode = @import("core/options.zig").SafetyMode;
 pub const Range = @import("core/range.zig").Range;
+pub const InclusiveRange = @import("core/range.zig").InclusiveRange;
 pub const Order = traits.Order;
 pub const Compare = traits.Compare;
 pub const LessThan = traits.LessThan;
