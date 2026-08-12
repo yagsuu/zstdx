@@ -12,7 +12,6 @@ fn requireUnsignedInt(comptime Word: type) void {
     }
 }
 
-/// Returns the number of words needed to hold `bit_capacity` bits.
 pub fn count(comptime Word: type, bit_capacity: usize) usize {
     comptime requireUnsignedInt(Word);
     const bits: usize = @bitSizeOf(Word);
@@ -32,13 +31,11 @@ pub fn lastMask(comptime Word: type, bit_capacity: usize) Word {
     return (@as(Word, 1) << shift) - 1;
 }
 
-/// Returns the word index that contains `bit_index`.
 pub fn indexOf(comptime Word: type, bit_index: usize) usize {
     comptime requireUnsignedInt(Word);
     return @divFloor(bit_index, @bitSizeOf(Word));
 }
 
-/// Returns the single-bit mask at `bit_index % @bitSizeOf(Word)`.
 pub fn maskOf(comptime Word: type, bit_index: usize) Word {
     comptime requireUnsignedInt(Word);
     const shift: std.math.Log2Int(Word) = @intCast(bit_index % @bitSizeOf(Word));

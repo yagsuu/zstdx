@@ -69,7 +69,6 @@ pub const Arena = struct {
             return allocSliceInto(T, self.buffer, &self.index, len);
         }
 
-        /// Views the same arena as `std.mem.Allocator`.
         pub fn allocator(self: *Bounded) std.mem.Allocator {
             return .{ .ptr = self, .vtable = &bounded_allocator_vtable };
         }
@@ -106,7 +105,6 @@ pub const Arena = struct {
             buffer: [capacity_bytes]u8 = undefined,
             index: usize = 0,
 
-            /// Checkpoint type for this arena variant and capacity.
             pub const Mark = struct {
                 index: usize,
             };
@@ -162,7 +160,6 @@ pub const Arena = struct {
                 return allocSliceInto(T, self.buffer[0..], &self.index, len);
             }
 
-            /// Views the same arena as `std.mem.Allocator`.
             pub fn allocator(self: *Self) std.mem.Allocator {
                 return .{ .ptr = self, .vtable = &allocator_vtable };
             }

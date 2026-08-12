@@ -22,12 +22,10 @@ pub const Instant = enum(u64) {
         return @intFromEnum(self);
     }
 
-    /// Returns nanosecond zero. The backend defines its epoch.
     pub fn zero() Instant {
         return fromNanos(0);
     }
 
-    /// Returns `error.Overflow` if the result falls outside the `u64` range.
     pub fn add(self: Instant, delta: Duration) Error!Instant {
         const wide = @as(i128, self.nanos()) + @as(i128, delta.nanos());
         const narrowed = std.math.cast(u64, wide) orelse return error.Overflow;
@@ -66,17 +64,14 @@ pub const Duration = enum(i64) {
         return @intFromEnum(self);
     }
 
-    /// Returns `error.Overflow` if `us * 1_000` exceeds `i64`.
     pub fn fromMicros(us: i64) Error!Duration {
         return fromNanos(std.math.mul(i64, us, 1_000) catch return error.Overflow);
     }
 
-    /// Returns `error.Overflow` if `ms * 1_000_000` exceeds `i64`.
     pub fn fromMillis(ms: i64) Error!Duration {
         return fromNanos(std.math.mul(i64, ms, 1_000_000) catch return error.Overflow);
     }
 
-    /// Returns `error.Overflow` if `s * 1_000_000_000` exceeds `i64`.
     pub fn fromSeconds(s: i64) Error!Duration {
         return fromNanos(std.math.mul(i64, s, 1_000_000_000) catch return error.Overflow);
     }

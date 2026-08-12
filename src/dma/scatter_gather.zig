@@ -72,7 +72,6 @@ pub const List = struct {
             /// `OutOfBounds`: The index is at or past `count`.
             pub const Error = error{ Full, OutOfBounds };
 
-            /// The compile-time capacity in segments.
             pub const segment_capacity = capacity_segments;
 
             pub fn init() Self {
@@ -262,7 +261,6 @@ pub const Builder = struct {
             /// `Misaligned`: The segment fails `isAligned(alignment)`.
             pub const Error = error{ Full, Misaligned };
 
-            /// Appended segments must meet this alignment.
             pub const segment_alignment = alignment;
 
             pub fn init() Self {
@@ -339,7 +337,6 @@ pub const Builder = struct {
             /// `Misaligned`: The segment fails `isAligned(alignment)`.
             pub const Error = error{ Full, Misaligned };
 
-            /// Appended segments must meet this alignment.
             pub const segment_alignment = alignment;
 
             pub fn wrap(buf: []Segment) Self {

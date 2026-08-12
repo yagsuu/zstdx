@@ -79,8 +79,6 @@ pub fn Rendezvous(comptime Backend: type) type {
         /// Backend-provided error set for `wait`.
         pub const WaitError = Backend.WaitError;
 
-        /// Comptime-capacity variant. `Static(0)` and any capacity greater
-        /// than `maxInt(u32)` are rejected at compile time.
         pub fn Static(comptime capacity_parties: usize) type {
             comptime {
                 if (capacity_parties == 0) {
@@ -100,7 +98,6 @@ pub fn Rendezvous(comptime Backend: type) type {
                 /// Backend-provided error set for `wait`.
                 pub const WaitError = Backend.WaitError;
 
-                /// Comptime party capacity.
                 pub const party_capacity: usize = capacity_parties;
 
                 const capacity_u32: u32 = @intCast(capacity_parties);

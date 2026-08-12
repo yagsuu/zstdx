@@ -24,7 +24,6 @@ pub const RawSpinLock = struct {
 
     const Self = @This();
 
-    /// Returns a lock in the `unlocked` state.
     pub fn init() Self {
         return .{ .state = AtomicCell(u32).init(@intFromEnum(State.unlocked)) };
     }

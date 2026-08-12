@@ -48,7 +48,6 @@ pub const RFLAGS = packed struct(u64) {
 
 const target = @import("../target.zig");
 
-/// Executes `pushfq; pop rNN` and returns RFLAGS.
 /// Privilege: unprivileged.
 pub fn read() RFLAGS {
     target.ensureSupported();
@@ -59,7 +58,6 @@ pub fn read() RFLAGS {
     ));
 }
 
-/// Push `value.raw()` and execute `popfq`.
 /// Privilege: unprivileged.
 /// Effects: bits the caller cannot modify at the current CPL are silently ignored.
 /// Clobbers: `memory`, `cc`.

@@ -23,7 +23,6 @@ pub const BitSet = struct {
 
             pub const word_bits = @bitSizeOf(Word);
 
-            /// The comptime slot count.
             pub const bit_capacity = capacity_bits;
 
             pub const word_count = word.count(Word, capacity_bits);
@@ -32,19 +31,16 @@ pub const BitSet = struct {
                 return .{};
             }
 
-            /// Returns a set with every valid bit set and every unused high bit clear.
             pub fn full() Self {
                 var self: Self = .{};
                 self.setAll();
                 return self;
             }
 
-            /// Clears every valid bit; slot count is unchanged.
             pub fn clearRetainingCapacity(self: *Self) void {
                 for (&self.words) |*w| w.* = 0;
             }
 
-            /// Sets every valid bit; unused high bits stay clear.
             pub fn setAll(self: *Self) void {
                 for (&self.words) |*w| w.* = ~@as(Word, 0);
                 self.clearUnused();
@@ -62,7 +58,6 @@ pub const BitSet = struct {
                 return self.words[word_count - 1] == word.lastMask(Word, bit_capacity);
             }
 
-            /// Returns the number of set bits.
             pub fn count(self: *const Self) usize {
                 self.assertValid();
 
@@ -112,7 +107,6 @@ pub const BitSet = struct {
                 return (w.* & bit) != 0;
             }
 
-            /// Returns the lowest set index, or `null` when empty.
             pub fn firstSet(self: *const Self) ?usize {
                 self.assertValid();
                 for (self.words, 0..) |w, word_index| {
@@ -121,7 +115,6 @@ pub const BitSet = struct {
                 return null;
             }
 
-            /// Removes and returns the lowest set index, or `null` when empty.
             pub fn popFirstSet(self: *Self) ?usize {
                 const index = self.firstSet() orelse return null;
                 _ = self.unset(index) catch unreachable;
@@ -168,7 +161,6 @@ pub const BitSet = struct {
                 self.clearUnused();
             }
 
-            /// Asserts that unused bits past `bit_capacity` in the last word are zero.
             pub fn assertValid(self: *const Self) void {
                 std.debug.assert((self.words[word_count - 1] & ~word.lastMask(Word, bit_capacity)) == 0);
             }

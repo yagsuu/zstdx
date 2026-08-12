@@ -55,7 +55,7 @@ pub const gdtr = struct {
             std.debug.assert(@offsetOf(Self, "base") == 2);
         }
     };
-    /// Executes `lgdt [ptr]`.
+
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
@@ -67,7 +67,6 @@ pub const gdtr = struct {
             : .{ .memory = true });
     }
 
-    /// Executes `sgdt` and returns the current GDTR.
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: `memory`.
     pub fn read() GDTR {
@@ -103,7 +102,7 @@ pub const idtr = struct {
             std.debug.assert(@offsetOf(Self, "base") == 2);
         }
     };
-    /// Executes `lidt [ptr]`.
+
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
@@ -115,7 +114,6 @@ pub const idtr = struct {
             : .{ .memory = true });
     }
 
-    /// Executes `sidt` and returns the current IDTR.
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: `memory`.
     pub fn read() IDTR {
@@ -133,7 +131,7 @@ pub const idtr = struct {
 
 pub const tr = struct {
     pub const TR = selector(.tr);
-    /// Executes `ltr selector`.
+
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or invalid selector state.
     /// Clobbers: `memory`.
@@ -145,7 +143,6 @@ pub const tr = struct {
             : .{ .memory = true });
     }
 
-    /// Executes `str` and returns the current task-register selector.
     /// Privilege: CPU/OS policy at CPL > 0.
     pub fn read() TR {
         target.ensureSupported();
@@ -157,7 +154,7 @@ pub const tr = struct {
 
 pub const ldtr = struct {
     pub const LDTR = selector(.ldtr);
-    /// Executes `lldt selector`.
+
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or invalid/non-present LDT descriptor.
     /// Clobbers: `memory`.
@@ -169,7 +166,6 @@ pub const ldtr = struct {
             : .{ .memory = true });
     }
 
-    /// Executes `sldt` and returns the current LDT selector.
     /// Privilege: CPU/OS policy at CPL > 0.
     /// Clobbers: registers only.
     pub fn read() LDTR {

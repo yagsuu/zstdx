@@ -23,10 +23,8 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
 
         const Self = @This();
 
-        /// The tag type distinguishes address domains.
         pub const TagType = Tag;
 
-        /// The raw unsigned integer representation.
         pub const Raw = Int;
 
         /// `Overflow` occurs when arithmetic would fall outside the `Int` range.
@@ -35,7 +33,6 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         /// `InvalidAlignment` occurs when `alignment` is zero or not a power of two.
         pub const AlignError = error{InvalidAlignment};
 
-        /// This union combines `OverflowError` and `AlignError`.
         pub const Error = OverflowError || AlignError;
 
         pub fn fromInt(value: Int) Self {
@@ -62,7 +59,6 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
             return fromInt(std.math.sub(Int, self.raw(), amount) catch return error.Overflow);
         }
 
-        /// Returns `self - base` as a raw `Int`. It returns `error.Overflow` when `self < base`.
         pub fn diff(self: Self, base: Self) OverflowError!Int {
             return std.math.sub(Int, self.raw(), base.raw()) catch return error.Overflow;
         }
@@ -71,7 +67,6 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
             if (alignment == 0 or !bits.isPowerOfTwo(Int, alignment)) return error.InvalidAlignment;
         }
 
-        /// Round the address up to a multiple of `alignment`.
         pub fn alignUp(self: Self, alignment: Int) Error!Self {
             try validateAlignment(alignment);
 
@@ -80,7 +75,6 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
             return fromInt(added & ~mask);
         }
 
-        /// Round the address down to a multiple of `alignment`. Never overflows.
         pub fn alignDown(self: Self, alignment: Int) AlignError!Self {
             try validateAlignment(alignment);
             return fromInt(self.raw() & ~(alignment - 1));

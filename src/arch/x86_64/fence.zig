@@ -2,7 +2,6 @@
 
 const target = @import("target.zig");
 
-/// Executes `lfence`.
 /// Privilege: unprivileged.
 /// Ordering: architectural load fence.
 /// Clobbers: `memory`.
@@ -11,7 +10,6 @@ pub fn lfence() void {
     asm volatile ("lfence" ::: .{ .memory = true });
 }
 
-/// Executes `sfence`.
 /// Privilege: unprivileged.
 /// Ordering: architectural store fence.
 /// Clobbers: `memory`.
@@ -20,7 +18,6 @@ pub fn sfence() void {
     asm volatile ("sfence" ::: .{ .memory = true });
 }
 
-/// Executes `mfence`.
 /// Privilege: unprivileged.
 /// Ordering: architectural full memory fence.
 /// Clobbers: `memory`.

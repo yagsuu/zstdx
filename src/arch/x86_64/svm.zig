@@ -36,7 +36,6 @@ pub const VMCB = extern struct {
     }
 };
 
-/// Executes `vmrun` with the VMCB physical address in `RAX`.
 /// Effects: enters guest execution; returns after `#VMEXIT`.
 /// Privilege: CPL 0.
 /// Faults: may `#GP` or `#UD`.
@@ -49,7 +48,6 @@ pub fn vmrun(vmcb: PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// Executes `vmload` with the VMCB physical address in `RAX`.
 /// Effects: loads FS/GS/TR/LDTR selectors and SYSCALL/SYSENTER MSRs.
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
@@ -61,7 +59,6 @@ pub fn vmload(vmcb: PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// Executes `vmsave` with the VMCB physical address in `RAX`.
 /// Effects: saves the same processor-state subset that `vmload` restores.
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
@@ -73,7 +70,6 @@ pub fn vmsave(vmcb: PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// Executes `stgi`.
 /// Effects: sets the Global Interrupt Flag.
 /// Privilege: CPL 0.
 /// Requirements: `EFER.SVME = 1`.
@@ -83,7 +79,6 @@ pub fn stgi() void {
     asm volatile ("stgi" ::: .{ .memory = true });
 }
 
-/// Executes `clgi`.
 /// Effects: clears the Global Interrupt Flag, blocking maskable interrupts,
 /// NMI, SMI, INIT, and #MC.
 /// Privilege: CPL 0.
@@ -94,7 +89,6 @@ pub fn clgi() void {
     asm volatile ("clgi" ::: .{ .memory = true });
 }
 
-/// Executes `invlpga` with linear address in `RAX` and ASID in `ECX`.
 /// Effects: invalidates one TLB entry on the current logical processor.
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
@@ -108,7 +102,6 @@ pub fn invlpga(virt_addr: u64, asid: u32) void {
         : .{ .memory = true });
 }
 
-/// Executes `skinit` with the SL image physical base in `EAX`.
 /// Effects: clears processor state, measures the SL image, and transfers
 /// control to that image (`noreturn`).
 /// Privilege: CPL 0.

@@ -18,7 +18,6 @@ pub const Backoff = struct {
     attempt: u32,
     next_wait: Duration,
 
-    /// Field order matches the specification's Approved API.
     pub const Policy = struct {
         spin_iterations: u32,
         yield_iterations: u32,
@@ -43,7 +42,6 @@ pub const Backoff = struct {
         timeout,
     };
 
-    /// In build-mode checks, invokes `policy.assertValid()`.
     pub fn init(policy: Policy) Backoff {
         if (debug.checksEnabled(.build_mode)) policy.assertValid();
         return .{
@@ -97,8 +95,6 @@ pub const Backoff = struct {
         return self.attempt;
     }
 
-    /// Asserts the policy invariant and `next_wait` bounds. Runs
-    /// unconditionally.
     pub fn assertValid(self: *const Backoff) void {
         self.policy.assertValid();
         std.debug.assert(self.next_wait.nanos() >= 0);
@@ -115,8 +111,6 @@ fn growWait(wait: Duration, policy: Backoff.Policy) Duration {
     return Duration.fromNanos(clamped);
 }
 
-/// Validates the compile-time `clock: anytype` seam. Accepts `C` or `*C`;
-/// rejects a missing or incompatible `now` method and error-union returns.
 fn requireClock(comptime C: type) void {
     const T = switch (@typeInfo(C)) {
         .pointer => |p| p.child,

@@ -12,7 +12,6 @@ pub fn Latch(comptime Backend: type) type {
     return struct {
         pub const WaitError = Backend.WaitError;
 
-        /// Comptime-capacity variant. Rejects zero and values above `maxInt(u32)`.
         pub fn Static(comptime capacity_arrivals: usize) type {
             comptime {
                 if (capacity_arrivals == 0) {
@@ -50,7 +49,7 @@ pub fn Latch(comptime Backend: type) type {
                     return waitShared(&self.state, &self.backend);
                 }
 
-                /// Returns remaining arrivals. Uses acquire.
+                /// Ordering: Acquire.
                 pub fn pending(self: *const Self) u32 {
                     return self.state.remaining();
                 }
@@ -60,14 +59,13 @@ pub fn Latch(comptime Backend: type) type {
                     return capacity_u32;
                 }
 
-                /// Returns whether released. Uses acquire.
+                /// Ordering: Acquire.
                 pub fn isReleased(self: *const Self) bool {
                     return self.state.isReleased();
                 }
             };
         }
 
-        /// Runtime-capacity variant.
         pub const Bounded = struct {
             total_capacity: u32,
             state: State,
@@ -98,7 +96,7 @@ pub fn Latch(comptime Backend: type) type {
                 return waitShared(&self.state, &self.backend);
             }
 
-            /// Returns remaining arrivals. Uses acquire.
+            /// Ordering: Acquire.
             pub fn pending(self: *const Bounded) u32 {
                 return self.state.remaining();
             }
@@ -107,7 +105,7 @@ pub fn Latch(comptime Backend: type) type {
                 return self.total_capacity;
             }
 
-            /// Returns whether released. Uses acquire.
+            /// Ordering: Acquire.
             pub fn isReleased(self: *const Bounded) bool {
                 return self.state.isReleased();
             }
@@ -138,12 +136,12 @@ pub const State = struct {
         return current != @intFromEnum(token);
     }
 
-    /// Returns remaining arrivals. Uses acquire.
+    /// Ordering: Acquire.
     pub fn remaining(self: *const State) u32 {
         return self.word.load(.acquire);
     }
 
-    /// Returns whether released. Uses acquire.
+    /// Ordering: Acquire.
     pub fn isReleased(self: *const State) bool {
         return self.word.load(.acquire) == 0;
     }

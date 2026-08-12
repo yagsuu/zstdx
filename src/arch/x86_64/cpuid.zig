@@ -23,16 +23,12 @@ pub const Leaf = enum(u32) {
     _,
 };
 
-/// Executes `cpuid` with `ecx = 0` against `which` and returns the four
-/// output registers.
 /// Privilege: unprivileged.
 pub fn leaf(which: Leaf) Result {
     target.ensureSupported();
     return subleaf(which, 0);
 }
 
-/// Executes `cpuid` with `eax = which` and `ecx = sub`, returning the four
-/// output registers.
 /// Privilege: unprivileged.
 pub fn subleaf(which: Leaf, sub: u32) Result {
     target.ensureSupported();
@@ -89,7 +85,6 @@ pub const Version = struct {
     eax: u32,
 };
 
-/// Returns true when any `_reserved_` field in a packed mask is non-zero.
 fn maskHasReserved(comptime T: type, self: T) bool {
     inline for (@typeInfo(T).@"struct".fields) |f| {
         if (comptime std.mem.startsWith(u8, f.name, "_reserved_")) {

@@ -51,13 +51,11 @@ pub const PanicLog = struct {
             /// both little-endian.
             pub const header_bytes: usize = 8;
 
-            /// Comptime capacity in bytes (equals the `Static` factory argument).
             pub const capacity_bytes_const: usize = capacity_bytes;
 
             /// Largest payload accepted by `write`.
             pub const max_payload_bytes: usize = capacity_bytes - header_bytes;
 
-            /// Initializes all fields without allocation.
             pub fn init() Self {
                 return .{};
             }

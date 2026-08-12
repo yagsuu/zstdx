@@ -40,7 +40,6 @@ pub fn EndianInt(comptime T: type, comptime endian: std.builtin.Endian) type {
 
         const Self = @This();
 
-        /// Returns `value` encoded in the wrapper's byte order.
         pub fn fromNative(value: T) Self {
             var self: Self = .{ .bytes = [_]u8{0} ** bytes_len };
             var i: usize = 0;
@@ -57,7 +56,6 @@ pub fn EndianInt(comptime T: type, comptime endian: std.builtin.Endian) type {
             return self;
         }
 
-        /// Returns the native integer decoded from the wrapper's bytes.
         pub fn native(self: Self) T {
             var value: T = 0;
             var i: usize = 0;

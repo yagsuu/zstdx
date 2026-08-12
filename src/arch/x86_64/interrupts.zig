@@ -3,7 +3,6 @@
 const target = @import("target.zig");
 const rflags = @import("register/rflags.zig");
 
-/// Executes `sti`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
@@ -12,7 +11,6 @@ pub fn enable() void {
     asm volatile ("sti" ::: .{ .memory = true });
 }
 
-/// Executes `cli`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.

@@ -54,7 +54,6 @@ fn Selector(comptime kind: SelectorKind) type {
 pub const cs = struct {
     pub const CS = Selector(.cs);
 
-    /// Executes `mov rNN, cs` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() CS {
         target.ensureSupported();
@@ -83,7 +82,6 @@ pub const cs = struct {
 pub const ds = struct {
     pub const DS = Selector(.ds);
 
-    /// Executes `mov rNN, ds` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() DS {
         target.ensureSupported();
@@ -92,7 +90,6 @@ pub const ds = struct {
         ));
     }
 
-    /// Executes `mov ds, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -108,7 +105,6 @@ pub const ds = struct {
 pub const es = struct {
     pub const ES = Selector(.es);
 
-    /// Executes `mov rNN, es` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() ES {
         target.ensureSupported();
@@ -117,7 +113,6 @@ pub const es = struct {
         ));
     }
 
-    /// Executes `mov es, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -133,7 +128,6 @@ pub const es = struct {
 pub const fs = struct {
     pub const FS = Selector(.fs);
 
-    /// Executes `mov rNN, fs` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() FS {
         target.ensureSupported();
@@ -142,7 +136,6 @@ pub const fs = struct {
         ));
     }
 
-    /// Executes `mov fs, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -158,7 +151,6 @@ pub const fs = struct {
 pub const gs = struct {
     pub const GS = Selector(.gs);
 
-    /// Executes `mov rNN, gs` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() GS {
         target.ensureSupported();
@@ -167,7 +159,6 @@ pub const gs = struct {
         ));
     }
 
-    /// Executes `mov gs, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -183,7 +174,6 @@ pub const gs = struct {
 pub const ss = struct {
     pub const SS = Selector(.ss);
 
-    /// Executes `mov rNN, ss` and returns the current selector.
     /// Privilege: unprivileged.
     pub fn read() SS {
         target.ensureSupported();
@@ -192,7 +182,6 @@ pub const ss = struct {
         ));
     }
 
-    /// Executes `mov ss, rNN` loading `selector`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0 or architectural selector violations.
     /// Clobbers: `memory`.
@@ -239,7 +228,6 @@ pub const fs_base = struct {
         ));
     }
 
-    /// Writes the FS base with `wrfsbase`.
     /// Clobbers: `memory`.
     pub fn write(value: FSBase) void {
         target.ensureSupported();
@@ -284,7 +272,6 @@ pub const gs_base = struct {
         ));
     }
 
-    /// Writes the GS base with `wrgsbase`.
     /// Clobbers: `memory`.
     pub fn write(value: GSBase) void {
         target.ensureSupported();
@@ -294,7 +281,6 @@ pub const gs_base = struct {
             : .{ .memory = true });
     }
 
-    /// Executes `swapgs`.
     /// Privilege: CPL 0.
     /// Effects: exchanges `GS.base` with `IA32_KERNEL_GS_BASE`.
     /// Clobbers: `memory`.

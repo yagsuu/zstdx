@@ -18,7 +18,6 @@ pub fn lineSize() usize {
     return @as(usize, clflush_qwords) * 8;
 }
 
-/// Executes `clflush [addr]`.
 /// Privilege: unprivileged.
 /// Clobbers: `memory`.
 pub fn flush(addr: usize) void {
@@ -29,7 +28,6 @@ pub fn flush(addr: usize) void {
         : .{ .memory = true });
 }
 
-/// Executes `clflushopt [addr]`.
 /// Privilege: unprivileged.
 /// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLFLUSHOPT`.
 /// Clobbers: `memory`.
@@ -41,7 +39,6 @@ pub fn flushOptimized(addr: usize) void {
         : .{ .memory = true });
 }
 
-/// Executes `clwb [addr]`.
 /// Privilege: unprivileged.
 /// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLWB`.
 /// Clobbers: `memory`.
@@ -69,7 +66,6 @@ pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
     rangeWalk(ptr, len, writeBack);
 }
 
-/// Executes `wbinvd`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
@@ -78,7 +74,6 @@ pub fn writeBackInvalidate() void {
     asm volatile ("wbinvd" ::: .{ .memory = true });
 }
 
-/// Executes `invd`.
 /// Privilege: CPL 0.
 /// Faults: `#GP` at CPL > 0.
 /// Effects: loses dirty cache state when no prior write-back was issued.

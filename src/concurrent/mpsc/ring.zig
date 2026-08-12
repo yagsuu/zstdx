@@ -53,7 +53,6 @@ pub const Ring = struct {
             /// another producer; ring is unchanged.
             pub const Error = error{ Full, Contended };
 
-            /// Comptime capacity in items.
             pub const item_capacity = capacity_items;
 
             /// Resets head, tail, and every slot's publication ticket to
@@ -66,7 +65,6 @@ pub const Ring = struct {
                 }
             }
 
-            /// Fixed capacity in items.
             pub fn capacity(self: *const Self) usize {
                 _ = self;
                 return item_capacity;

@@ -133,7 +133,6 @@ pub fn Buffer(comptime T: type) type {
             };
         }
 
-        /// Debug builds check the invariants that construction establishes.
         pub fn assertValid(self: Self) void {
             std.debug.assert((self.dma.raw() & (@as(Address.Raw, @alignOf(T)) - 1)) == 0);
             const virt_len: Address.Raw = std.math.cast(Address.Raw, self.virt.len) orelse unreachable;

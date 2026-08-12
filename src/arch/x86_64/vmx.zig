@@ -117,9 +117,8 @@ inline fn mapRflags(rflags: u64) Error!void {
     if (rflags & 0x40 != 0) return Error.VMfailValid;
 }
 
-/// Executes `vmxon [region]`. `region` is a Zig pointer to a `PhysAddr`
-/// value in host memory; the CPU dereferences it as m64 to obtain the
-/// VMXON region's physical address.
+/// Operand: `region` points to a `PhysAddr` value in host memory. The CPU
+/// dereferences that value as m64 to obtain the VMXON region's physical address.
 /// Privilege: CPL 0.
 /// Faults: may `#GP` or `#UD`.
 /// Returns: `Error!void` mapped from RFLAGS.
@@ -136,10 +135,8 @@ pub fn vmxon(region: *const PhysAddr) Error!void {
     return mapRflags(rflags);
 }
 
-/// Executes `vmxoff`.
 /// Privilege: CPL 0.
 /// Requirements: VMX root operation.
-/// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmxoff() Error!void {
     target.ensureSupported();
     var rflags: u64 = undefined;
@@ -153,10 +150,8 @@ pub fn vmxoff() Error!void {
     return mapRflags(rflags);
 }
 
-/// Executes `vmclear [vmcs]`.
 /// Effects: marks the VMCS inactive and clear on the logical processor.
 /// Privilege: CPL 0.
-/// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmclear(vmcs: *const PhysAddr) Error!void {
     target.ensureSupported();
     var rflags: u64 = undefined;
@@ -170,10 +165,8 @@ pub fn vmclear(vmcs: *const PhysAddr) Error!void {
     return mapRflags(rflags);
 }
 
-/// Executes `vmptrld [vmcs]`.
 /// Effects: makes the referenced region the current VMCS.
 /// Privilege: CPL 0.
-/// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
     target.ensureSupported();
 
@@ -189,10 +182,8 @@ pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
     return mapRflags(rflags);
 }
 
-/// Executes `vmptrst [out]`.
 /// Effects: writes the current VMCS pointer, or all-ones when no VMCS is current.
 /// Privilege: CPL 0.
-/// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmptrst(out: *PhysAddr) Error!void {
     target.ensureSupported();
 
@@ -208,10 +199,8 @@ pub fn vmptrst(out: *PhysAddr) Error!void {
     return mapRflags(rflags);
 }
 
-/// Executes `vmlaunch`.
 /// Effects: on success, transfers control to the guest (`noreturn`).
 /// Privilege: CPL 0.
-/// Returns: only RFLAGS-visible failure paths return, as `Error`.
 pub fn vmlaunch() Error!noreturn {
     target.ensureSupported();
 
@@ -228,10 +217,8 @@ pub fn vmlaunch() Error!noreturn {
     unreachable;
 }
 
-/// Executes `vmresume`.
 /// Effects: on success, transfers control to the guest (`noreturn`).
 /// Privilege: CPL 0.
-/// Returns: only RFLAGS-visible failure paths return, as `Error`.
 pub fn vmresume() Error!noreturn {
     target.ensureSupported();
 
@@ -248,8 +235,8 @@ pub fn vmresume() Error!noreturn {
     unreachable;
 }
 
-/// Executes `vmread encoding, value` (Intel operand order: `VMREAD r/m64, r64`).
-/// Operands: `encoding` is the raw 32-bit VMCS field encoding.
+/// Operands: Intel order is `VMREAD r/m64, r64`; `encoding` is the raw
+/// 32-bit VMCS field encoding.
 /// Privilege: CPL 0.
 pub fn vmread(encoding: u32) Error!u64 {
     target.ensureSupported();
@@ -269,8 +256,8 @@ pub fn vmread(encoding: u32) Error!u64 {
     return value;
 }
 
-/// Executes `vmwrite value, encoding` (Intel operand order: `VMWRITE r64, r/m64`).
-/// Operands: fields narrower than 64 bits are still exchanged as `u64`.
+/// Operands: Intel order is `VMWRITE r64, r/m64`; fields narrower than 64
+/// bits are still exchanged as `u64`.
 /// Privilege: CPL 0.
 pub fn vmwrite(encoding: u32, value: u64) Error!void {
     target.ensureSupported();
@@ -288,10 +275,9 @@ pub fn vmwrite(encoding: u32, value: u64) Error!void {
     return mapRflags(rflags);
 }
 
-/// Executes `invept kind, [descriptor]` (Intel: `INVEPT r64, m128`).
+/// Operands: Intel order is `INVEPT r64, m128`.
 /// Effects: invalidates EPT-derived mappings on the issuing logical processor.
 /// Privilege: CPL 0.
-/// Returns: `Error!void` mapped from RFLAGS.
 pub fn invept(kind: InveptKind, descriptor: *const InveptDescriptor) Error!void {
     target.ensureSupported();
 
@@ -307,10 +293,9 @@ pub fn invept(kind: InveptKind, descriptor: *const InveptDescriptor) Error!void 
     return mapRflags(rflags);
 }
 
-/// Executes `invvpid kind, [descriptor]` (Intel: `INVVPID r64, m128`).
+/// Operands: Intel order is `INVVPID r64, m128`.
 /// Effects: invalidates VPID-tagged mappings on the issuing logical processor.
 /// Privilege: CPL 0.
-/// Returns: `Error!void` mapped from RFLAGS.
 pub fn invvpid(kind: InvvpidKind, descriptor: *const InvvpidDescriptor) Error!void {
     target.ensureSupported();
 

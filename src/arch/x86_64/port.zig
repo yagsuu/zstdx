@@ -13,7 +13,6 @@ pub const Port = enum(u16) {
         return @intFromEnum(self);
     }
 
-    /// Executes `in al, dx` and returns the byte.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -26,7 +25,6 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Executes `in ax, dx` and returns the word.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -39,7 +37,6 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Executes `in eax, dx` and returns the dword.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -52,7 +49,6 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Executes `out dx, al` writing `value`.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -66,7 +62,6 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Executes `out dx, ax` writing `value`.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -80,7 +75,6 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Executes `out dx, eax` writing `value`.
     /// Privilege: IOPL/TSS I/O bitmap permits access.
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
@@ -94,7 +88,6 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Executes `rep insb` reading `dst.len` bytes from the port into `dst`.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice8(self: Port, dst: []u8) void {
@@ -108,7 +101,6 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
-    /// Executes `rep insw` reading `dst.len` 16-bit words into `dst`.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice16(self: Port, dst: []u16) void {
@@ -122,7 +114,6 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
-    /// Executes `rep insd` reading `dst.len` 32-bit dwords into `dst`.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice32(self: Port, dst: []u32) void {
@@ -136,7 +127,6 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rdi = true, .memory = true });
     }
 
-    /// Executes `rep outsb` writing `src.len` bytes to the port.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice8(self: Port, src: []const u8) void {
@@ -150,7 +140,6 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rsi = true, .memory = true });
     }
 
-    /// Executes `rep outsw` writing `src.len` 16-bit words.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice16(self: Port, src: []const u16) void {
@@ -164,7 +153,6 @@ pub const Port = enum(u16) {
             : .{ .rcx = true, .rsi = true, .memory = true });
     }
 
-    /// Executes `rep outsd` writing `src.len` 32-bit dwords.
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice32(self: Port, src: []const u32) void {
@@ -179,7 +167,6 @@ pub const Port = enum(u16) {
     }
 };
 
-/// Executes a legacy I/O delay by writing zero to port `0x80`.
 /// Privilege: IOPL/TSS I/O bitmap permits access.
 /// Faults: `#GP` when access is denied.
 /// Clobbers: `memory`.

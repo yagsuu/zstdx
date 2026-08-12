@@ -110,7 +110,6 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return @intFromEnum(self);
             }
 
-            /// Returns the frame index in page-size units.
             pub fn frameIndex(self: This) AddressInt {
                 return self.addressInt() >> Size.shift;
             }
@@ -127,7 +126,6 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return (addr_value.raw() & Size.mask) == 0;
             }
 
-            /// Returns the frame at the containing page boundary.
             pub fn containingAddress(addr_value: Addr) Error!This {
                 return fromAddressInt(addr_value.raw() & ~Size.mask);
             }
@@ -183,7 +181,6 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return fromBaseCount(base, try Count.fromBytesExact(bytes));
             }
 
-            /// Returns an empty range anchored at `at`.
             pub fn empty(at: Frame) This {
                 return .{ .base = at, .count = Count.zero() };
             }
@@ -209,7 +206,6 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return self.count.toBytes() catch unreachable;
             }
 
-            /// Returns the exclusive end frame. The receiver must be valid.
             pub fn end(self: This) Frame {
                 self.assertValid();
                 return self.base.add(self.count) catch unreachable;
@@ -276,7 +272,6 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 return fromBaseCount(base, count) catch unreachable;
             }
 
-            /// Returns the smallest range that covers both inputs and any gap.
             pub fn span(self: This, other: This) This {
                 self.assertValid();
                 other.assertValid();

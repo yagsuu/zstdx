@@ -50,7 +50,6 @@ pub const RateCounter = struct {
         std.debug.assert(@sizeOf(Self) == 32);
     }
 
-    /// In build-mode checks, invokes `config.assertValid()`.
     pub fn init(config: Config) Self {
         if (debug.checksEnabled(.build_mode)) config.assertValid();
         return .{
@@ -69,8 +68,6 @@ pub const RateCounter = struct {
         self.last_wrap_count = 0;
     }
 
-    /// Returns the projected counter without changing wrap state. It is safe
-    /// to call between `sample` calls.
     pub fn peek(self: *const Self, clock: anytype) u64 {
         comptime requireClock(@TypeOf(clock));
         const p = project(self, clock.now());
@@ -135,8 +132,6 @@ fn project(self: *const RateCounter, now: Instant) Projection {
     };
 }
 
-/// Validates the compile-time `clock: anytype` seam. Accepts `C` or `*C`;
-/// rejects a missing or incompatible `now` method and error-union returns.
 fn requireClock(comptime C: type) void {
     const T = switch (@typeInfo(C)) {
         .pointer => |p| p.child,

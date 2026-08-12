@@ -62,8 +62,6 @@ pub const Deadline = enum(u64) {
     }
 };
 
-/// Validates the compile-time `clock: anytype` seam. Accepts `C` or `*C`;
-/// rejects a missing or incompatible `now` method and error-union returns.
 fn requireClock(comptime C: type) void {
     const T = switch (@typeInfo(C)) {
         .pointer => |p| p.child,

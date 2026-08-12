@@ -47,13 +47,11 @@ pub const EFER = packed struct(u64) {
     }
 };
 
-/// Executes `rdmsr` for `IA32_EFER` and returns the typed value.
 /// Privilege: CPL 0.
 pub fn read() EFER {
     return EFER.fromInt(MSR.efer.read());
 }
 
-/// Executes `wrmsr` for `IA32_EFER` with `value`.
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn write(value: EFER) void {

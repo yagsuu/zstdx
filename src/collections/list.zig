@@ -25,7 +25,6 @@ pub const List = struct {
             /// `index > count`.
             pub const Error = error{ Full, OutOfBounds };
 
-            /// Comptime capacity in items.
             pub const item_capacity = capacity_items;
 
             pub fn init() Self {

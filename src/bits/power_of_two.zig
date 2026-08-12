@@ -14,7 +14,6 @@ fn requireUnsignedInt(comptime T: type) void {
     }
 }
 
-/// Returns `true` if `value` is a non-zero power of two; `0` returns `false`.
 pub fn isPowerOfTwo(comptime T: type, value: T) bool {
     comptime requireUnsignedInt(T);
     return value != 0 and (value & (value - 1)) == 0;

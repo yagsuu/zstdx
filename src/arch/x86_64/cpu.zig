@@ -4,7 +4,6 @@ const std = @import("std");
 
 const target = @import("target.zig");
 
-/// Executes `hlt`.
 /// Privilege: CPL 0.
 /// Effects: halts the CPU until the next interrupt.
 /// Clobbers: `memory`.
@@ -13,7 +12,6 @@ pub fn halt() void {
     asm volatile ("hlt" ::: .{ .memory = true });
 }
 
-/// Executes `pause`.
 /// Privilege: unprivileged.
 /// Clobbers: `memory`.
 pub fn pause() void {
@@ -21,7 +19,6 @@ pub fn pause() void {
     asm volatile ("pause" ::: .{ .memory = true });
 }
 
-/// Executes `int3`.
 /// Privilege: unprivileged.
 /// Faults: raises `#BP`; behavior depends on the installed handler.
 /// Clobbers: `memory`.
@@ -40,7 +37,6 @@ pub const tsc = struct {
         aux: u32,
     };
 
-    /// Executes `rdtsc` and returns the combined `edx:eax` as `u64`.
     /// Privilege: unprivileged unless `Cr4.TSD` blocks userspace.
     /// Faults: `#GP` at CPL > 0 when `Cr4.TSD` is set.
     /// Ordering: not serializing.
@@ -58,7 +54,6 @@ pub const tsc = struct {
         return (@as(u64, hi) << 32) | @as(u64, lo);
     }
 
-    /// Executes `rdtscp` and returns `Reading{ tsc, aux }`.
     /// Privilege: unprivileged unless `Cr4.TSD` blocks userspace.
     /// Requirements: `RDTSCP` support.
     /// Faults: `#UD` when unsupported; `#GP` at CPL > 0 when `Cr4.TSD` is set.
@@ -112,7 +107,6 @@ pub const tlb = struct {
         pub const alignment: usize = 16;
     };
 
-    /// Executes `invlpg [addr]`.
     /// Privilege: CPL 0.
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
@@ -124,8 +118,6 @@ pub const tlb = struct {
             : .{ .memory = true });
     }
 
-    /// Executes `invpcid rax, [rdx]` with `rax = @intFromEnum(kind)`
-    /// and `rdx = descriptor`.
     /// Privilege: CPL 0.
     /// Requirements: `INVPCID` support.
     /// Faults: `#GP` at CPL > 0; `#UD` when unsupported.

@@ -23,7 +23,6 @@ pub const Ring = struct {
             /// `Full`: `pushBack` at capacity; ring is unchanged.
             pub const Error = error{Full};
 
-            /// Comptime capacity in items.
             pub const item_capacity = capacity_items;
 
             pub fn init() Self {

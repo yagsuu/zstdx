@@ -205,7 +205,6 @@ fn releaseSlot(
 const alloc_fill: u8 = 0xCD;
 const free_fill: u8 = 0xFD;
 
-// Fills payload bytes only when safety checks are enabled.
 inline fn fillPayload(comptime T: type, payload: *T, pattern: u8) void {
     if (!debug.checksEnabled(.build_mode)) return;
     const bytes: [*]u8 = @ptrCast(payload);
