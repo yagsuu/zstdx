@@ -1,5 +1,17 @@
 const std = @import("std");
 
+const CompileFixture = struct {
+    name: []const u8,
+    path: []const u8,
+    target: []const u8,
+    expected: Expected,
+
+    const Expected = union(enum) {
+        success,
+        failure: []const u8,
+    };
+};
+
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
@@ -10,123 +22,95 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const tests_root = b.createModule(.{
+    const test_step = b.step("test", "Run all tests");
+    addHostTests(b, test_step, stdx, target, optimize);
+    addCompileFixtureTests(b, test_step);
+}
+
+fn addHostTests(
+    b: *std.Build,
+    test_step: *std.Build.Step,
+    stdx: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    const root = b.createModule(.{
         .root_source_file = b.path("test/all.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{.{ .name = "stdx", .module = stdx }},
     });
-    const tests = b.addTest(.{ .root_module = tests_root });
+
+    const tests = b.addTest(.{ .root_module = root });
     const run_tests = b.addRunArtifact(tests);
 
-    const test_step = b.step("test", "Run host-side tests");
-    test_step.dependOn(&run_tests.step);
-    addTargetFixtureTests(b, test_step);
+    const host_step = b.step("test-host", "Run host-side tests");
+    host_step.dependOn(&run_tests.step);
+    test_step.dependOn(host_step);
 }
 
-fn addTargetFixtureTests(b: *std.Build, test_step: *std.Build.Step) void {
-    const fixtures = b.addWriteFiles();
+fn addCompileFixtureTests(b: *std.Build, test_step: *std.Build.Step) void {
+    const fixtures = [_]CompileFixture{
+        .{
+            .name = "arch/x86_64/paging/explicit_target",
+            .path = "test/fixtures/arch/x86_64/paging/explicit_target.zig",
+            .target = "aarch64-freestanding-none",
+            .expected = .success,
+        },
+        .{
+            .name = "arch/x86_64/paging/current_cpu_target",
+            .path = "test/fixtures/arch/x86_64/paging/current_cpu_target.zig",
+            .target = "aarch64-freestanding-none",
+            .expected = .{ .failure = "this operation requires an x86_64 target" },
+        },
+        .{
+            .name = "arch/x86_64/registers/descriptor_wrappers",
+            .path = "test/fixtures/arch/x86_64/registers/descriptor_wrappers.zig",
+            .target = "x86_64-freestanding-none",
+            .expected = .success,
+        },
+        .{
+            .name = "core/range/inclusive_signed_type",
+            .path = "test/fixtures/core/range/inclusive_signed_type.zig",
+            .target = "native",
+            .expected = .{ .failure = "InclusiveRange requires a non-zero-width unsigned integer type" },
+        },
+        .{
+            .name = "core/range/inclusive_zero_width_type",
+            .path = "test/fixtures/core/range/inclusive_zero_width_type.zig",
+            .target = "native",
+            .expected = .{ .failure = "InclusiveRange requires a non-zero-width unsigned integer type" },
+        },
+        .{
+            .name = "core/range/inclusive_full_domain",
+            .path = "test/fixtures/core/range/inclusive_full_domain.zig",
+            .target = "native",
+            .expected = .{ .failure = "InclusiveRange.of excludes [0, maxInt(T)]" },
+        },
+    };
 
-    const explicit_target_test = addCompileFixture(
-        b,
-        fixtures.add("paging-explicit-target.zig", pagingExplicitTargetFixture()),
-        "aarch64-freestanding-none",
-    );
-    explicit_target_test.expectExitCode(0);
+    const fixture_step = b.step("test-compile", "Run compile fixtures");
+    test_step.dependOn(fixture_step);
 
-    const current_cpu_target_test = addCompileFixture(
-        b,
-        fixtures.add("paging-current-cpu-target.zig", pagingCurrentCpuTargetFixture()),
-        "aarch64-freestanding-none",
-    );
-    current_cpu_target_test.expectExitCode(1);
-    current_cpu_target_test.expectStdErrMatch("this operation requires an x86_64 target");
+    for (fixtures) |fixture| {
+        const compile = addCompileFixture(b, b.path(fixture.path), fixture.target);
+        compile.setName(b.fmt("compile fixture {s}", .{fixture.name}));
 
-    const descriptor_wrapper_test = addCompileFixture(
-        b,
-        fixtures.add("x86-descriptor-wrappers.zig", descriptorWrapperFixture()),
-        "x86_64-freestanding-none",
-    );
-    descriptor_wrapper_test.expectExitCode(0);
+        switch (fixture.expected) {
+            .success => compile.expectExitCode(0),
+            .failure => |stderr| {
+                compile.expectExitCode(1);
+                compile.expectStdErrMatch(stderr);
+            },
+        }
 
-    test_step.dependOn(&explicit_target_test.step);
-    test_step.dependOn(&current_cpu_target_test.step);
-    test_step.dependOn(&descriptor_wrapper_test.step);
-}
-
-fn pagingExplicitTargetFixture() []const u8 {
-    return
-    \\const paging = @import("stdx").arch.x86_64.paging;
-    \\
-    \\const Reader = struct {
-    \\    pub const Error = error{};
-    \\    pub fn readEntry(_: *Reader, _: paging.PhysAddr) Error!paging.PagingStructureEntry {
-    \\        return paging.PagingStructureEntry.empty();
-    \\    }
-    \\};
-    \\
-    \\export fn instantiatePagingWalker() void {
-    \\    var reader = Reader{};
-    \\    const Walker = paging.Walker(Reader);
-    \\    const walker = Walker.init(.{
-    \\        .root_table_base = paging.PhysAddr.fromInt(0),
-    \\        .mode = .level4,
-    \\        .physical_address_width = .bits_48,
-    \\    }, &reader) catch unreachable;
-    \\    _ = walker.translate(
-    \\        paging.LinearAddress.fromInt(0),
-    \\        .read(.supervisor),
-    \\    ) catch unreachable;
-    \\}
-    ;
-}
-
-fn pagingCurrentCpuTargetFixture() []const u8 {
-    return
-    \\const paging = @import("stdx").arch.x86_64.paging;
-    \\
-    \\const Reader = struct {
-    \\    pub const Error = error{};
-    \\    pub fn readEntry(_: *Reader, _: paging.PhysAddr) Error!paging.PagingStructureEntry {
-    \\        unreachable;
-    \\    }
-    \\};
-    \\
-    \\export fn instantiateCurrentCPUWalker() void {
-    \\    var reader = Reader{};
-    \\    _ = paging.Walker(Reader).initCurrentCPU(&reader) catch unreachable;
-    \\}
-    ;
-}
-
-fn descriptorWrapperFixture() []const u8 {
-    return
-    \\const registers = @import("stdx").arch.x86_64.registers;
-    \\
-    \\export fn descriptorWrites(
-    \\    gdtr: registers.gdtr.GDTR,
-    \\    idtr: registers.idtr.IDTR,
-    \\    tr: registers.tr.TR,
-    \\    ldtr: registers.ldtr.LDTR,
-    \\) void {
-    \\    registers.gdtr.write(gdtr);
-    \\    registers.idtr.write(idtr);
-    \\    registers.tr.write(tr);
-    \\    registers.ldtr.write(ldtr);
-    \\}
-    \\
-    \\export fn descriptorReads() void {
-    \\    _ = registers.gdtr.read();
-    \\    _ = registers.idtr.read();
-    \\    _ = registers.tr.read();
-    \\    _ = registers.ldtr.read();
-    \\}
-    ;
+        fixture_step.dependOn(&compile.step);
+    }
 }
 
 fn addCompileFixture(
     b: *std.Build,
-    root_source_file: std.Build.LazyPath,
+    root: std.Build.LazyPath,
     target: []const u8,
 ) *std.Build.Step.Run {
     const compile = b.addSystemCommand(&.{
@@ -138,7 +122,7 @@ fn addCompileFixture(
         "stdx",
         "-fno-emit-bin",
     });
-    compile.addPrefixedFileArg("-Mroot=", root_source_file);
+    compile.addPrefixedFileArg("-Mroot=", root);
     compile.addPrefixedFileArg("-Mstdx=", b.path("src/stdx.zig"));
     return compile;
 }
