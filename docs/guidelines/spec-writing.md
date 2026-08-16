@@ -80,8 +80,8 @@ omit irrelevant conditional sections.
 1. `# <Spec title>` — Essential.
 2. `Status: Draft.`, `Status: Approved.`, or `Status: Superseded by <path>.` — Essential.
 3. Short description — Essential.
-4. `## What this spec is` — Essential.
-5. `## What this spec is not` — Essential.
+4. `## What this spec is` — Conditional.
+5. `## What this spec is not` — Conditional.
 6. `## Terminology` — Conditional.
 7. `## Public namespace` — Essential.
 8. `## Cross-spec relationships` — High.
@@ -110,27 +110,33 @@ Rules:
 
 ### What this spec is
 
-Value: Essential.
+Value: Conditional.
+
+Include this section only when the short description, public namespace, API,
+invariants, and testing sections do not make the owned scope clear.
 
 Rules:
 
-- This section MUST list the public namespace and each applicable owned type,
-  operation, storage rule, state transition, ordering rule, invalidation rule,
-  and required test.
-- This section MUST include only scope controlled by this specification.
+- This section MUST list only scope controlled by this specification.
+- This section MUST identify each applicable owned type, operation, storage rule,
+  state transition, ordering rule, invalidation rule, or required test.
+- This section MUST NOT duplicate a contract stated elsewhere in the
+  specification.
 - This section MUST NOT include motivation or implementation strategy.
 
 ### What this spec is not
 
-Value: Essential.
+Value: Conditional.
+
+Include this section only when an explicit exclusion prevents ambiguity,
+prevents misuse, or distinguishes ownership from an adjacent specification.
 
 Rules:
 
-- This section MUST explicitly exclude adjacent policy domains.
-- This section MUST exclude scheduler, allocation, blocking, callback,
-  ownership, hardware, and runtime policy that the primitive does not own.
-- This section MUST name a sibling specification that owns excluded behavior.
-- This section MUST NOT include rationale.
+- This section MUST explicitly exclude only applicable adjacent policy domains.
+- This section MUST name a sibling specification when that specification owns an
+  excluded behavior.
+- This section MUST NOT include generic disclaimers or rationale.
 
 ### Terminology
 
@@ -322,13 +328,15 @@ Status: Draft.
 
 <One-paragraph short description.>
 
+<!-- Omit when the short description and contract sections make scope clear. -->
 ## What this spec is
 
-<Owned scope.>
+<Owned scope that is not clear elsewhere.>
 
+<!-- Omit when no explicit exclusion prevents ambiguity or misuse. -->
 ## What this spec is not
 
-<Non-goals and excluded policy domains.>
+<Excluded policy domains or adjacent-spec ownership.>
 
 ## Terminology
 
