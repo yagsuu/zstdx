@@ -2,15 +2,16 @@
 
 Status: Approved.
 
-`zstdx` uses one public package facade, thin domain facades, domain implementation directories, and a mirrored `test/` tree aggregated by `test/all.zig`.
+This specification defines repository ownership boundaries, dependency
+direction, architecture isolation, build-module shape, and test aggregation.
+It does not approve a public API or implementation without an approved owning
+specification.
 
-## What this spec is
+## Repository structure
 
-This spec defines repository ownership boundaries, dependency direction, architecture isolation, build-module shape, and test aggregation.
-
-## What this spec is not
-
-This spec does not approve an empty file or directory, a public API, or an implementation that lacks an approved owning specification.
+`zstdx` uses one public package facade, thin domain facades, domain
+implementation directories, and a mirrored `test/` tree aggregated by
+`test/all.zig`.
 
 ## Public namespace and source ownership
 

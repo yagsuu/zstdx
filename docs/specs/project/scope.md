@@ -2,15 +2,16 @@
 
 Status: Approved.
 
-`zstdx` is a domain-neutral Zig primitive library. It owns reusable low-level mechanisms with explicit allocation, waiting, capacity, ownership, invalidation, and ordering contracts.
+`zstdx` is a domain-neutral Zig primitive library. It provides reusable
+low-level mechanisms with explicit allocation, waiting, capacity, ownership,
+invalidation, and ordering contracts.
 
-## What this spec is
+## Purpose and boundary
 
-This spec defines the package identity, project-level scope boundary, public naming policy, and minimum contract content for `zstdx` primitives.
-
-## What this spec is not
-
-`zstdx` is not a kernel, firmware, driver framework, hardware enumerator, storage stack, filesystem, hypervisor substrate, or protocol implementation. Per-primitive specifications own exact APIs, algorithms, and implementation eligibility.
+This specification defines package identity, project scope, public naming
+policy, and minimum primitive-contract content. System policy and protocol
+implementations remain with downstream packages; per-primitive specifications
+define exact APIs, algorithms, and implementation eligibility.
 
 ## Public namespace and source ownership
 

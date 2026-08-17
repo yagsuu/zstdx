@@ -12,9 +12,8 @@ fixed-storage and intrusive collections, synchronization, concurrent data
 structures, barriers, architecture wrappers, MMIO, DMA data structures, time,
 and diagnostics.
 
-The public Zig module is `stdx`. The library does not provide a kernel, driver
-framework, hardware discovery, scheduler policy, platform memory-map ownership,
-DMA mapping policy, protocol implementations, or device drivers.
+The public Zig module is `stdx`. It provides mechanisms, while system policy
+and platform integration remain with the caller.
 
 ## Features
 
