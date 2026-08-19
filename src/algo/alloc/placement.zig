@@ -6,10 +6,8 @@ const std = @import("std");
 
 const power_of_two = @import("../../bits/power_of_two.zig");
 
-/// Half-open `[start, end)` extent in caller-defined units.
 pub const Range = @import("../../core/range.zig").Range(usize);
 
-/// Placement request and arithmetic errors.
 pub const Error = error{
     InvalidRequest,
     InvalidAlignment,
@@ -34,9 +32,11 @@ pub const Selection = struct {
 pub const FirstFit = struct {
     pub fn select(free_ranges: []const Range, request: Request) Error!?Selection {
         try validateRequest(request);
+
         for (free_ranges, 0..) |source, index| {
             if (try candidateFor(source, index, request)) |selection| return selection;
         }
+
         return null;
     }
 };
@@ -45,6 +45,7 @@ pub const FirstFit = struct {
 pub const BestFit = struct {
     pub fn select(free_ranges: []const Range, request: Request) Error!?Selection {
         try validateRequest(request);
+
         var best: ?Selection = null;
         var best_leftover: usize = 0;
         for (free_ranges, 0..) |source, index| {
@@ -54,15 +55,19 @@ pub const BestFit = struct {
             if (best) |current_best| {
                 const strictly_smaller = leftover < best_leftover;
                 const tied_and_earlier = leftover == best_leftover and isEarlier(candidate, current_best);
+
                 if (strictly_smaller or tied_and_earlier) {
                     best = candidate;
                     best_leftover = leftover;
                 }
-            } else {
-                best = candidate;
-                best_leftover = leftover;
+
+                continue;
             }
+
+            best = candidate;
+            best_leftover = leftover;
         }
+
         return best;
     }
 };
@@ -71,6 +76,7 @@ pub const BestFit = struct {
 pub const WorstFit = struct {
     pub fn select(free_ranges: []const Range, request: Request) Error!?Selection {
         try validateRequest(request);
+
         var best: ?Selection = null;
         var best_leftover: usize = 0;
         for (free_ranges, 0..) |source, index| {
@@ -80,14 +86,17 @@ pub const WorstFit = struct {
             if (best) |current_best| {
                 const strictly_larger = leftover > best_leftover;
                 const tied_and_earlier = leftover == best_leftover and isEarlier(candidate, current_best);
+
                 if (strictly_larger or tied_and_earlier) {
                     best = candidate;
                     best_leftover = leftover;
                 }
-            } else {
-                best = candidate;
-                best_leftover = leftover;
+
+                continue;
             }
+
+            best = candidate;
+            best_leftover = leftover;
         }
         return best;
     }
@@ -107,6 +116,7 @@ fn candidateFor(source: Range, index: usize, request: Request) Error!?Selection 
     const sum = std.math.add(usize, source.start, mask) catch return error.Overflow;
     const candidate_start = sum & ~mask;
     const candidate_end = std.math.add(usize, candidate_start, request.len) catch return error.Overflow;
+
     if (candidate_end > source.end) return null;
 
     std.debug.assert(candidate_start >= source.start);

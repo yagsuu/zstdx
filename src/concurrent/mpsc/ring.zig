@@ -5,17 +5,8 @@ const std = @import("std");
 const bits = @import("../../bits.zig");
 const cache = @import("../../mem/cache.zig");
 
+const AtomicUsize = std.atomic.Value(usize);
 const CachePad = cache.CachePad;
-
-fn requireRuntimeValue(comptime T: type) void {
-    if (@sizeOf(T) == 0) @compileError("MPSC ring element type must have nonzero size");
-}
-
-fn requireStaticCapacity(comptime capacity_items: usize) void {
-    if (!bits.isPowerOfTwo(usize, capacity_items)) {
-        @compileError("MPSC ring capacity must be non-zero and a power of two");
-    }
-}
 
 /// Family of bounded multi-producer/single-consumer FIFO rings. Both
 /// variants share slot publication protocol, one-attempt producer
@@ -23,18 +14,16 @@ fn requireStaticCapacity(comptime capacity_items: usize) void {
 /// and publication only; wake, scheduler, and waiting policy belong to
 /// the caller (typically paired with `stdx.sync.Signal`).
 pub const Ring = struct {
-    /// Inline `[capacity_items]Slot` storage. Capacity is a comptime
+    /// Inline `[cap]Slot` storage. Capacity is a comptime
     /// non-zero power of two; zero-sized `T` is rejected at compile time.
-    pub fn Static(comptime T: type, comptime capacity_items: usize) type {
+    pub fn Static(comptime T: type, comptime cap: usize) type {
         comptime requireRuntimeValue(T);
-        comptime requireStaticCapacity(capacity_items);
+        comptime requireStaticCapacity(cap);
 
         return struct {
             slots: [item_capacity]Slot = undefined,
-            head: CachePad(std.atomic.Value(usize)) =
-                .{ .value = std.atomic.Value(usize).init(0) },
-            tail: CachePad(std.atomic.Value(usize)) =
-                .{ .value = std.atomic.Value(usize).init(0) },
+            head: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
+            tail: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
 
             const Self = @This();
 
@@ -43,7 +32,7 @@ pub const Ring = struct {
             /// release-publishes `item`. The consumer reads `item` only
             /// after observing `sequence == head + 1`.
             pub const Slot = struct {
-                sequence: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+                sequence: AtomicUsize = AtomicUsize.init(0),
                 item: T = undefined,
             };
 
@@ -53,7 +42,7 @@ pub const Ring = struct {
             /// another producer; ring is unchanged.
             pub const Error = error{ Full, Contended };
 
-            pub const item_capacity = capacity_items;
+            pub const item_capacity = cap;
 
             /// Resets head, tail, and every slot's publication ticket to
             /// zero. Must be called before any concurrent use.
@@ -112,10 +101,8 @@ pub const Ring = struct {
 
         return struct {
             slots: []Slot,
-            head: CachePad(std.atomic.Value(usize)) =
-                .{ .value = std.atomic.Value(usize).init(0) },
-            tail: CachePad(std.atomic.Value(usize)) =
-                .{ .value = std.atomic.Value(usize).init(0) },
+            head: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
+            tail: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
 
             const Self = @This();
 
@@ -139,9 +126,11 @@ pub const Ring = struct {
             /// slice length. Must be called before any concurrent use.
             pub fn init(self: *Self, slots: []Slot) void {
                 std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+
                 self.slots = slots;
                 self.head.value.store(0, .monotonic);
                 self.tail.value.store(0, .monotonic);
+
                 for (self.slots) |*slot| {
                     slot.sequence.store(0, .monotonic);
                 }
@@ -255,4 +244,14 @@ fn isEmptyImpl(
 
     // Ordering: the acquire load pairs with the producer's release-store of slot.sequence in tryPushBackImpl.
     return slot.sequence.load(.acquire) != observed_head +% 1;
+}
+
+fn requireRuntimeValue(comptime T: type) void {
+    if (@sizeOf(T) == 0) @compileError("MPSC ring element type must have nonzero size");
+}
+
+fn requireStaticCapacity(comptime capacity_items: usize) void {
+    if (!bits.isPowerOfTwo(usize, capacity_items)) {
+        @compileError("MPSC ring capacity must be non-zero and a power of two");
+    }
 }

@@ -196,10 +196,6 @@ pub fn InclusiveRange(comptime T: type) type {
             return .{ .start = self.start, .end = end };
         }
 
-        pub fn assertValid(self: Self) void {
-            std.debug.assert(self.isValid());
-        }
-
         pub fn isValid(self: Self) bool {
             return self.start <= self.end and
                 !(self.start == 0 and self.end == std.math.maxInt(T));
@@ -296,6 +292,10 @@ pub fn InclusiveRange(comptime T: type) type {
             self.assertValid();
             if (amount > self.start) return error.Overflow;
             return .{ .start = self.start - amount, .end = self.end - amount };
+        }
+
+        pub fn assertValid(self: Self) void {
+            std.debug.assert(self.isValid());
         }
     };
 }

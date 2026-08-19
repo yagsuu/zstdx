@@ -15,6 +15,7 @@ pub fn CacheAlign(comptime T: type) type {
 /// Isolates adjacent values in disjoint cache lines.
 pub fn CachePad(comptime T: type) type {
     validatePayload(T, "CachePad");
+
     const pad_bytes = paddingFor(T);
     return struct {
         value: T align(cache_line),

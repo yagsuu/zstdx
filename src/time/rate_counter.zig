@@ -15,6 +15,11 @@ const nanos_per_second: u128 = 1_000_000_000;
 /// single-owner value type neither allocates nor reads time except through the
 /// supplied clock's `now` method; concurrent callers serialize externally.
 pub const RateCounter = struct {
+    base: Instant,
+    rate_hz: u64,
+    width_bits: u7,
+    last_wrap_count: u64,
+
     /// Defines a `RateCounter`'s base, rate, and width. To change any of
     /// these fields, construct a new `RateCounter`.
     pub const Config = struct {
@@ -38,11 +43,6 @@ pub const RateCounter = struct {
         value: u64,
         wrapped: bool,
     };
-
-    base: Instant,
-    rate_hz: u64,
-    width_bits: u7,
-    last_wrap_count: u64,
 
     const Self = @This();
 

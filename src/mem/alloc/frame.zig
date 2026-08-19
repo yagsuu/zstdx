@@ -23,7 +23,6 @@ pub const FrameAllocator = struct {
             pub const FrameRange = Page.FrameRange;
             pub const AddressInt = Page.AddressInt;
 
-            /// Superset of errors from all frame allocator operations.
             pub const Error = FrameError;
 
             pub fn init() Self {

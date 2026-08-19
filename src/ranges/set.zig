@@ -16,6 +16,7 @@ pub const RangeSet = struct {
 
             pub const Range = core.Range(T);
             pub const Error = error{ Full, InvalidRange };
+
             pub const range_capacity = capacity_ranges;
 
             pub fn init() Self {

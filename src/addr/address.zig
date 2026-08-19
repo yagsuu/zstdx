@@ -18,21 +18,17 @@ pub const DMAAddr = Address(DMATag, u64);
 /// Instantiations with different tags are distinct Zig types, even when `Int` matches.
 pub fn Address(comptime Tag: type, comptime Int: type) type {
     comptime requireUnsignedInt(Int);
+
     return enum(Int) {
         _,
 
         const Self = @This();
 
         pub const TagType = Tag;
-
         pub const Raw = Int;
 
-        /// `Overflow` occurs when arithmetic would fall outside the `Int` range.
         pub const OverflowError = error{Overflow};
-
-        /// `InvalidAlignment` occurs when `alignment` is zero or not a power of two.
         pub const AlignError = error{InvalidAlignment};
-
         pub const Error = OverflowError || AlignError;
 
         pub fn fromInt(value: Int) Self {

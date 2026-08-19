@@ -143,10 +143,12 @@ pub const Clock = struct {
             /// In build-mode checks, asserts that time never moves backwards.
             pub fn now(self: *Self) Instant {
                 const t = self.backend.now();
+
                 if (check_monotonic) {
                     std.debug.assert(t.nanos() >= self.last.nanos());
                     self.last = t;
                 }
+
                 return t;
             }
 
@@ -164,6 +166,7 @@ fn requireBackendNow(comptime Backend: type) void {
     if (!@hasDecl(Backend, "now")) {
         @compileError("Clock.Monotonic backend: missing pub fn now(*Backend) Instant");
     }
+
     const info = @typeInfo(@TypeOf(Backend.now)).@"fn";
     if (info.return_type.? != Instant) {
         @compileError(
@@ -178,12 +181,15 @@ fn requireBackendSleep(comptime Backend: type) void {
     if (info.params.len != 2) {
         @compileError("Clock.Monotonic backend: sleep must be fn(*Backend, Duration) void");
     }
+
     if (info.params[0].type.? != *Backend) {
         @compileError("Clock.Monotonic backend: sleep first parameter must be *Backend");
     }
+
     if (info.params[1].type.? != Duration) {
         @compileError("Clock.Monotonic backend: sleep second parameter must be Duration");
     }
+
     if (info.return_type.? != void) {
         @compileError(
             "Clock.Monotonic backend: sleep must return void, " ++

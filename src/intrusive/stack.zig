@@ -65,7 +65,10 @@ pub fn Stack(comptime T: type, comptime node_field: []const u8) type {
                 const next_fast = constNext(fast_item) orelse break;
                 fast = constNext(next_fast);
                 slow = if (slow) |slow_item| constNext(slow_item) else null;
-                if (fast) |f| if (slow) |s| if (f == s) unreachable;
+
+                if (fast) |f| if (slow) |s| {
+                    if (f == s) unreachable;
+                };
             }
         }
 

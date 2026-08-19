@@ -22,9 +22,12 @@ pub fn blockSize(order: u8) Error!usize {
 pub fn orderForLen(len: usize) Error!u8 {
     if (len == 0) return error.InvalidRequest;
     if (len == 1) return 0;
+
     const bits = @bitSizeOf(usize);
     const raw = bits - @clz(len - 1);
+
     if (raw >= bits) return error.Overflow;
+
     return @intCast(raw);
 }
 
@@ -41,6 +44,7 @@ pub fn buddyOf(block: Block) Error!Block {
 
 pub fn parentOf(block: Block) Error!Block {
     if (block.order == std.math.maxInt(u8)) return error.Overflow;
+
     const parent_order: u8 = block.order + 1;
     const parent_size = try blockSize(parent_order);
     const parent_start = block.start & ~(parent_size - 1);
@@ -50,9 +54,11 @@ pub fn parentOf(block: Block) Error!Block {
 
 pub fn split(block: Block) Error![2]Block {
     if (block.order == 0) return error.InvalidRequest;
+
     const child_order: u8 = block.order - 1;
     const child_size = try blockSize(child_order);
     const right_start = std.math.add(usize, block.start, child_size) catch return error.Overflow;
+
     return .{
         .{ .start = block.start, .order = child_order },
         .{ .start = right_start, .order = child_order },

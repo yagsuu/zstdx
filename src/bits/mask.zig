@@ -13,6 +13,7 @@ fn requireUnsignedInt(comptime T: type) void {
 pub fn low(comptime T: type, count: usize) T {
     comptime requireUnsignedInt(T);
     std.debug.assert(count <= @bitSizeOf(T));
+
     if (count == @bitSizeOf(T)) return ~@as(T, 0);
 
     const shift: std.math.Log2Int(T) = @intCast(count);

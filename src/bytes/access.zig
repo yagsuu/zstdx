@@ -23,6 +23,5 @@ pub fn storeSlice(bytes: []u8, offset: usize, src: []const u8) Error!void {
 fn checkedEnd(bytes_len: usize, offset: usize, len: usize) Error!usize {
     if (offset > bytes_len) return error.EndOfStream;
     if (len > bytes_len - offset) return error.EndOfStream;
-
     return offset + len;
 }

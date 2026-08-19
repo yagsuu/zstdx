@@ -3,16 +3,13 @@
 
 const std = @import("std");
 
-fn requireRuntimeValue(comptime T: type) void {
-    if (@sizeOf(T) == 0) @compileError("ring element type must have nonzero size");
-}
-
 /// Family of fixed-capacity FIFO rings. `Static(T, N)` owns inline storage;
 /// `Bounded(T)` borrows caller-provided storage. Neither allocates nor waits.
 pub const Ring = struct {
     pub fn Static(comptime T: type, comptime capacity_items: usize) type {
         comptime requireRuntimeValue(T);
         comptime if (capacity_items == 0) @compileError("Ring.Static capacity_items must be non-zero");
+
         return struct {
             buffer: [capacity_items]T = undefined,
             head: usize = 0,
@@ -49,37 +46,6 @@ pub const Ring = struct {
 
             pub fn isFull(self: *const Self) bool {
                 return self.len() == item_capacity;
-            }
-
-            /// Drops every live item without releasing storage. Leaves `head`
-            /// in place; the next `pushBack` enqueues at the current `head`.
-            pub fn clearRetainingCapacity(self: *Self) void {
-                self.assertValid();
-                self.count = 0;
-            }
-
-            fn advance(index: usize) usize {
-                if (item_capacity == 0) return 0;
-
-                var next = index + 1;
-                if (next == item_capacity) next = 0;
-                return next;
-            }
-
-            fn addWrap(index: usize, amount: usize) usize {
-                if (item_capacity == 0) return 0;
-
-                var result = index + amount;
-                if (result >= item_capacity) result -= item_capacity;
-                return result;
-            }
-
-            fn backIndex(self: *const Self) usize {
-                return addWrap(self.head, self.count - 1);
-            }
-
-            fn nextBackIndex(self: *const Self) usize {
-                return addWrap(self.head, self.count);
             }
 
             pub fn pushBack(self: *Self, item: T) Error!void {
@@ -147,9 +113,40 @@ pub const Ring = struct {
                 return &self.buffer[self.backIndex()];
             }
 
+            /// Drops every live item without releasing storage. Leaves `head`
+            /// in place; the next `pushBack` enqueues at the current `head`.
+            pub fn clearRetainingCapacity(self: *Self) void {
+                self.assertValid();
+                self.count = 0;
+            }
+
             pub fn assertValid(self: *const Self) void {
                 std.debug.assert(self.count <= item_capacity);
                 if (item_capacity > 0) std.debug.assert(self.head < item_capacity);
+            }
+
+            fn addWrap(index: usize, amount: usize) usize {
+                if (item_capacity == 0) return 0;
+
+                var result = index + amount;
+                if (result >= item_capacity) result -= item_capacity;
+                return result;
+            }
+
+            fn advance(index: usize) usize {
+                if (item_capacity == 0) return 0;
+
+                var next = index + 1;
+                if (next == item_capacity) next = 0;
+                return next;
+            }
+
+            fn backIndex(self: *const Self) usize {
+                return addWrap(self.head, self.count - 1);
+            }
+
+            fn nextBackIndex(self: *const Self) usize {
+                return addWrap(self.head, self.count);
             }
         };
     }
@@ -189,35 +186,6 @@ pub const Ring = struct {
 
             pub fn isFull(self: *const Self) bool {
                 return self.len() == self.capacity();
-            }
-
-            pub fn clearRetainingCapacity(self: *Self) void {
-                self.assertValid();
-                self.count = 0;
-            }
-
-            fn advance(self: *const Self, index: usize) usize {
-                if (self.buffer.len == 0) return 0;
-
-                var next = index + 1;
-                if (next == self.buffer.len) next = 0;
-                return next;
-            }
-
-            fn addWrap(self: *const Self, index: usize, amount: usize) usize {
-                if (self.buffer.len == 0) return 0;
-
-                var result = index + amount;
-                if (result >= self.buffer.len) result -= self.buffer.len;
-                return result;
-            }
-
-            fn backIndex(self: *const Self) usize {
-                return self.addWrap(self.head, self.count - 1);
-            }
-
-            fn nextBackIndex(self: *const Self) usize {
-                return self.addWrap(self.head, self.count);
             }
 
             pub fn pushBack(self: *Self, item: T) Error!void {
@@ -281,10 +249,43 @@ pub const Ring = struct {
                 return &self.buffer[self.backIndex()];
             }
 
+            pub fn clearRetainingCapacity(self: *Self) void {
+                self.assertValid();
+                self.count = 0;
+            }
+
             pub fn assertValid(self: *const Self) void {
                 std.debug.assert(self.count <= self.buffer.len);
                 if (self.buffer.len > 0) std.debug.assert(self.head < self.buffer.len);
             }
+
+            fn advance(self: *const Self, index: usize) usize {
+                if (self.buffer.len == 0) return 0;
+
+                var next = index + 1;
+                if (next == self.buffer.len) next = 0;
+                return next;
+            }
+
+            fn addWrap(self: *const Self, index: usize, amount: usize) usize {
+                if (self.buffer.len == 0) return 0;
+
+                var result = index + amount;
+                if (result >= self.buffer.len) result -= self.buffer.len;
+                return result;
+            }
+
+            fn backIndex(self: *const Self) usize {
+                return self.addWrap(self.head, self.count - 1);
+            }
+
+            fn nextBackIndex(self: *const Self) usize {
+                return self.addWrap(self.head, self.count);
+            }
         };
     }
 };
+
+fn requireRuntimeValue(comptime T: type) void {
+    if (@sizeOf(T) == 0) @compileError("ring element type must have nonzero size");
+}

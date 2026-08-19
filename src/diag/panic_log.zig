@@ -7,40 +7,42 @@ const debug = @import("../core/debug.zig");
 const cache = @import("../mem/cache.zig");
 const endian = @import("../layout/endian.zig");
 
+const AtomicUsize = std.atomic.Value(usize);
+const AtomicU8 = std.atomic.Value(u8);
+const AtomicU64 = std.atomic.Value(u64);
+
 const CachePad = cache.CachePad;
 const Le = endian.Le;
 
-/// Panic-safe ring log sink family. `Static(capacity_bytes)` is the
+/// Panic-safe ring log sink family. `Static(cap)` is the
 /// inline-storage variant; `DrainState` carries the reader's
 /// resume/resync cursor.
 pub const PanicLog = struct {
-    /// Inline byte storage plus atomic counters. `capacity_bytes`
+    /// Inline byte storage plus atomic counters. `cap`
     /// must be at least `2 * header_bytes` and at most
     /// `std.math.maxInt(u32)` — offsets in the on-wire header are
     /// `u32` little-endian.
-    pub fn Static(comptime capacity_bytes: usize) type {
-        if (capacity_bytes < 2 * 8) {
+    pub fn Static(comptime cap: usize) type {
+        if (cap < 2 * 8) {
             @compileError("PanicLog.Static: capacity_bytes must be >= 2 * header_bytes (16)");
         }
 
-        if (capacity_bytes > std.math.maxInt(u32)) {
+        if (cap > std.math.maxInt(u32)) {
             @compileError("PanicLog.Static: capacity_bytes exceeds the u32 offset-format limit (maxInt(u32))");
         }
 
         return struct {
-            bytes: [capacity_bytes]u8 = [_]u8{0} ** capacity_bytes,
-            head: CachePad(std.atomic.Value(usize)) =
-                .{ .value = std.atomic.Value(usize).init(0) },
-            tail: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-            seat: std.atomic.Value(u8) = std.atomic.Value(u8).init(0),
-            seq: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
-            dropped_seq: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+            bytes: [cap]u8 = [_]u8{0} ** cap,
+            head: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
+            tail: AtomicUsize = AtomicUsize.init(0),
+            seat: AtomicU8 = AtomicU8.init(0),
+            seq: AtomicU64 = AtomicU64.init(0),
+            dropped_seq: AtomicU64 = AtomicU64.init(0),
 
             const Self = @This();
 
-            /// `WriterBusy` means that seat acquisition lost to a concurrent writer; the drop is already counted.
-            /// `PayloadTooLarge` means that `payload.len` exceeds `max_payload_bytes`.
-            /// `EmptyPayload` means that a zero-length write is invalid.
+            /// `WriterBusy`: seat acquisition lost to a concurrent writer; the drop is already counted.
+            /// `PayloadTooLarge`: `payload.len` exceeds `max_payload_bytes`.
             pub const Error = error{
                 WriterBusy,
                 PayloadTooLarge,
@@ -50,11 +52,8 @@ pub const PanicLog = struct {
             /// Fixed 8-byte on-wire header: `[u32 len][u32 seq_low]`,
             /// both little-endian.
             pub const header_bytes: usize = 8;
-
-            pub const capacity_bytes_const: usize = capacity_bytes;
-
-            /// Largest payload accepted by `write`.
-            pub const max_payload_bytes: usize = capacity_bytes - header_bytes;
+            pub const capacity_bytes: usize = cap;
+            pub const max_payload_bytes: usize = cap - header_bytes;
 
             pub fn init() Self {
                 return .{};
@@ -85,40 +84,37 @@ pub const PanicLog = struct {
                 if (payload.len == 0) return error.EmptyPayload;
                 if (payload.len > max_payload_bytes) return error.PayloadTooLarge;
 
-                // Ordering: Pairs with the release store to `seat` at the end of `write`.
                 if (self.seat.cmpxchgStrong(0, 1, .acquire, .monotonic) != null) {
-                    // Ordering: Publishes the drop count to the acquire load of `dropped_seq` in `drain`.
                     _ = self.dropped_seq.fetchAdd(1, .release);
                     return error.WriterBusy;
                 }
 
-                const needed: usize = header_bytes + payload.len;
                 var head_val = self.head.value.load(.monotonic);
                 var tail_val = self.tail.load(.monotonic);
 
-                while (capacity_bytes - (head_val - tail_val) < needed) {
-                    const tail_off = tail_val % capacity_bytes;
-                    const flen: usize = readU32Wrap(&self.bytes, tail_off, capacity_bytes);
+                const needed: usize = header_bytes + payload.len;
+                while (cap - (head_val - tail_val) < needed) {
+                    const tail_off = tail_val % cap;
+                    const flen: usize = readU32Wrap(&self.bytes, tail_off, cap);
+
                     tail_val += header_bytes + flen;
+
                     self.tail.store(tail_val, .release);
-                    // Ordering: Publishes the drop count to the acquire load of `dropped_seq` in `drain`.
                     _ = self.dropped_seq.fetchAdd(1, .release);
                 }
 
                 const new_seq: u64 = self.seq.load(.monotonic) + 1;
-                const head_off = head_val % capacity_bytes;
+                const head_off = head_val % cap;
                 const len_u32: u32 = @intCast(payload.len);
                 const seq_low: u32 = @truncate(new_seq);
 
-                writeHeader(&self.bytes, head_off, len_u32, seq_low, capacity_bytes);
-                copyInWrap(&self.bytes, (head_off + header_bytes) % capacity_bytes, payload, capacity_bytes);
+                writeHeader(&self.bytes, head_off, len_u32, seq_low, cap);
+                copyInWrap(&self.bytes, (head_off + header_bytes) % cap, payload, cap);
 
                 head_val += needed;
-                // Ordering: Publishes the header and payload bytes to the acquire load of `head` in `drain`.
+
                 self.head.value.store(head_val, .release);
-                // Ordering: Publishes the new sequence value to the acquire load of `seq` in `drain`.
                 self.seq.store(new_seq, .release);
-                // Ordering: Publishes the header and payload writes to the next `seat` CAS.
                 self.seat.store(0, .release);
             }
 
@@ -159,7 +155,7 @@ pub const PanicLog = struct {
                         var walk_cursor = tail_now;
                         var walk_seq = self.oldestSurvivingSeq();
                         while (walk_seq < reader_state.next_seq and walk_cursor < head_now) : (walk_seq += 1) {
-                            const flen: usize = readU32Wrap(&self.bytes, walk_cursor % capacity_bytes, capacity_bytes);
+                            const flen: usize = readU32Wrap(&self.bytes, walk_cursor % cap, cap);
                             if (flen > max_payload_bytes) {
                                 cursor_ready = false;
                                 break;
@@ -178,8 +174,8 @@ pub const PanicLog = struct {
                         continue;
                     }
 
-                    const cursor_off = cursor % capacity_bytes;
-                    const frame_len_val: usize = readU32Wrap(&self.bytes, cursor_off, capacity_bytes);
+                    const cursor_off = cursor % cap;
+                    const frame_len_val: usize = readU32Wrap(&self.bytes, cursor_off, cap);
                     if (frame_len_val == 0 or frame_len_val > max_payload_bytes) {
                         cursor_ready = false;
                         continue;
@@ -190,8 +186,8 @@ pub const PanicLog = struct {
                         continue;
                     }
 
-                    const payload_off = (cursor_off + header_bytes) % capacity_bytes;
-                    try emitWrap(sink, &self.bytes, payload_off, frame_len_val, capacity_bytes);
+                    const payload_off = (cursor_off + header_bytes) % cap;
+                    try emitWrap(sink, &self.bytes, payload_off, frame_len_val, cap);
 
                     if (self.dropped_seq.load(.acquire) != reader_state.dropped_snapshot) {
                         cursor_ready = false;
@@ -230,7 +226,7 @@ pub const PanicLog = struct {
                 const dropped_val = self.dropped_seq.load(.acquire);
 
                 if (tail_val > head_val) return false;
-                if (head_val - tail_val > capacity_bytes) return false;
+                if (head_val - tail_val > cap) return false;
                 if (seat_val > 1) return false;
                 if (dropped_val > seq_val) return false;
 
@@ -239,7 +235,7 @@ pub const PanicLog = struct {
                     while (pos < head_val) {
                         const remaining = head_val - pos;
                         if (remaining < header_bytes) return false;
-                        const flen: usize = readU32Wrap(&self.bytes, pos % capacity_bytes, capacity_bytes);
+                        const flen: usize = readU32Wrap(&self.bytes, pos % cap, cap);
                         pos += header_bytes + flen;
                         if (pos > head_val) return false;
                     }
@@ -266,8 +262,9 @@ pub const PanicLog = struct {
                 const tail_val = self.tail.load(.acquire);
                 if (tail_val == self.head.value.load(.acquire)) return seq_now + 1;
 
-                const seq_low: u64 = readU32Wrap(&self.bytes, (tail_val + 4) % capacity_bytes, capacity_bytes);
+                const seq_low: u64 = readU32Wrap(&self.bytes, (tail_val + 4) % cap, cap);
                 const high = seq_now & (~@as(u64, std.math.maxInt(u32)));
+
                 var candidate: u64 = high | seq_low;
                 if (candidate > seq_now) {
                     candidate -%= @as(u64, 1) << 32;

@@ -3,13 +3,14 @@
 
 const std = @import("std");
 
-const align_ops = @import("../../align.zig");
 const debug = @import("../../../core/debug.zig");
 const power_of_two = @import("../../../bits/power_of_two.zig");
 const slab_allocator = @import("allocator.zig");
 
 const PerCPU = @import("../../../cpu/per_cpu.zig").PerCPU;
 const RawSpinLock = @import("../../../sync/raw_spin_lock.zig").RawSpinLock;
+
+const alignUp = @import("../../align.zig").alignUp;
 
 pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
     comptime requireRuntimeValue(T);
@@ -25,16 +26,6 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
         region_count: usize = 0,
         live_count: usize = 0,
         next_color: usize = 0,
-
-        const ValidationTotals = struct {
-            region_count: usize = 0,
-            live_count: usize = 0,
-
-            fn add(self: *ValidationTotals, other: ValidationTotals) void {
-                self.region_count += other.region_count;
-                self.live_count += other.live_count;
-            }
-        };
 
         const Self = @This();
 
@@ -226,6 +217,16 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
 
             return totals.region_count == self.region_count and totals.live_count == self.live_count;
         }
+
+        const ValidationTotals = struct {
+            region_count: usize = 0,
+            live_count: usize = 0,
+
+            fn add(self: *ValidationTotals, other: ValidationTotals) void {
+                self.region_count += other.region_count;
+                self.live_count += other.live_count;
+            }
+        };
 
         fn listTotals(
             self: *const Self,
@@ -460,8 +461,7 @@ fn SlabCacheLayout(comptime T: type, comptime RegionSource: type) type {
         const Self = @This();
 
         fn init() Self {
-            const first_slot_offset =
-                align_ops.alignUp(usize, @sizeOf(Header), @alignOf(LayoutSlot)) catch unreachable;
+            const first_slot_offset = alignUp(usize, @sizeOf(Header), @alignOf(LayoutSlot)) catch unreachable;
             const color_stride = @max(std.atomic.cache_line, @alignOf(LayoutSlot));
             const colored_slots = slotCount(first_slot_offset + color_stride);
 
@@ -663,7 +663,7 @@ fn requireRegionSlotCapacity(
     comptime slots_per_region: usize,
 ) void {
     const region_bytes: usize = RegionSource.region_bytes;
-    const slot_start = align_ops.alignUp(usize, @sizeOf(Header), @alignOf(Slot)) catch |err| {
+    const slot_start = alignUp(usize, @sizeOf(Header), @alignOf(Slot)) catch |err| {
         @compileError("SlabCache slot start alignment overflowed: " ++ @errorName(err));
     };
 

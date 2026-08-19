@@ -16,15 +16,12 @@ pub const BitSet = struct {
 
             const Self = @This();
 
-            /// `OutOfBounds`: mutator received an index at or past `bit_capacity`.
             pub const Error = error{OutOfBounds};
 
             pub const Word = u64;
 
             pub const word_bits = @bitSizeOf(Word);
-
             pub const bit_capacity = capacity_bits;
-
             pub const word_count = word.count(Word, capacity_bits);
 
             pub fn init() Self {
@@ -54,13 +51,16 @@ pub const BitSet = struct {
 
             pub fn isFull(self: *const Self) bool {
                 self.assertValid();
-                for (self.words[0 .. word_count - 1]) |w| if (w != ~@as(Word, 0)) return false;
+
+                for (self.words[0 .. word_count - 1]) |w| {
+                    if (w != ~@as(Word, 0)) return false;
+                }
+
                 return self.words[word_count - 1] == word.lastMask(Word, bit_capacity);
             }
 
             pub fn count(self: *const Self) usize {
                 self.assertValid();
-
                 var total: usize = 0;
                 for (self.words) |w| total += @popCount(w);
                 return total;
@@ -131,7 +131,10 @@ pub const BitSet = struct {
                 self.assertValid();
                 other.assertValid();
 
-                for (self.words, other.words) |a, b| if ((a & b) != b) return false;
+                for (self.words, other.words) |a, b| {
+                    if ((a & b) != b) return false;
+                }
+
                 return true;
             }
 

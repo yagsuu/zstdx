@@ -18,7 +18,7 @@ const testing = std.testing;
 //   - `Static(std.math.maxInt(u32) + 1)`: exceeds the u32 offset limit.
 comptime {
     const S = PanicLog.Static(64);
-    std.debug.assert(S.capacity_bytes_const == 64);
+    std.debug.assert(S.capacity_bytes == 64);
     std.debug.assert(S.header_bytes == 8);
     std.debug.assert(S.max_payload_bytes == 56);
     std.debug.assert(@sizeOf(S) >= 64 + @sizeOf(CachePad(std.atomic.Value(usize))));

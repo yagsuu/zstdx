@@ -4,10 +4,6 @@ const std = @import("std");
 
 const core = @import("../core.zig");
 
-fn requireRuntimeValue(comptime V: type) void {
-    if (@sizeOf(V) == 0) @compileError("range map value type must have nonzero size");
-}
-
 pub const RangeMap = struct {
     pub fn Static(comptime T: type, comptime V: type, comptime capacity_entries: usize) type {
         comptime requireRuntimeValue(V);
@@ -24,8 +20,10 @@ pub const RangeMap = struct {
                 range: Range,
                 value: V,
             };
+
             pub const Error = error{ Full, InvalidRange, Overlap };
             pub const UpdateError = error{ Full, InvalidRange };
+
             pub const entry_capacity = capacity_entries;
 
             pub fn init() Self {
@@ -480,4 +478,8 @@ fn classify(comptime Range: type, stored: Range, range: Range) Topology {
     if (range.start <= stored.start) return .trim_left;
     if (range.end >= stored.end) return .trim_right;
     return .split;
+}
+
+fn requireRuntimeValue(comptime V: type) void {
+    if (@sizeOf(V) == 0) @compileError("range map value type must have nonzero size");
 }

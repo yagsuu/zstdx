@@ -4,16 +4,13 @@
 
 const std = @import("std");
 
-fn requireRuntimeValue(comptime T: type) void {
-    if (@sizeOf(T) == 0) @compileError("list element type must have nonzero size");
-}
-
 /// Fixed-capacity list family. Both variants preserve insertion order, do not
 /// allocate, and leave the list unchanged on error.
 pub const List = struct {
     pub fn Static(comptime T: type, comptime capacity_items: usize) type {
         comptime requireRuntimeValue(T);
         comptime if (capacity_items == 0) @compileError("List.Static capacity_items must be non-zero");
+
         return struct {
             buffer: [capacity_items]T = undefined,
             count: usize = 0,
@@ -120,7 +117,11 @@ pub const List = struct {
 
                 const out = self.buffer[index];
                 self.count -= 1;
-                if (index != self.count) self.buffer[index] = self.buffer[self.count];
+
+                if (index != self.count) {
+                    self.buffer[index] = self.buffer[self.count];
+                }
+
                 return out;
             }
 
@@ -151,6 +152,7 @@ pub const List = struct {
     /// Borrows caller-provided storage. Capacity is the slice length.
     pub fn Bounded(comptime T: type) type {
         comptime requireRuntimeValue(T);
+
         return struct {
             buffer: []T,
             count: usize = 0,
@@ -284,3 +286,7 @@ pub const List = struct {
         };
     }
 };
+
+fn requireRuntimeValue(comptime T: type) void {
+    if (@sizeOf(T) == 0) @compileError("list element type must have nonzero size");
+}

@@ -5,13 +5,6 @@ const std = @import("std");
 
 const debug = @import("../core/debug.zig");
 
-fn requireUnsignedInt(comptime Word: type) void {
-    const info = @typeInfo(Word);
-    if (info != .int or info.int.signedness != .unsigned) {
-        @compileError("bits.word requires an unsigned integer type");
-    }
-}
-
 pub fn count(comptime Word: type, bit_capacity: usize) usize {
     comptime requireUnsignedInt(Word);
     const bits: usize = @bitSizeOf(Word);
@@ -23,10 +16,14 @@ pub fn count(comptime Word: type, bit_capacity: usize) usize {
 /// multiple of `@bitSizeOf(Word)`.
 pub fn lastMask(comptime Word: type, bit_capacity: usize) Word {
     comptime requireUnsignedInt(Word);
+
     if (bit_capacity == 0) return 0;
+
     const bits: usize = @bitSizeOf(Word);
     const rem: usize = bit_capacity % bits;
+
     if (rem == 0) return ~@as(Word, 0);
+
     const shift: std.math.Log2Int(Word) = @intCast(rem);
     return (@as(Word, 1) << shift) - 1;
 }
@@ -47,8 +44,12 @@ pub fn maskOf(comptime Word: type, bit_index: usize) Word {
 /// precondition is asserted; under release it is undefined behavior.
 pub fn isSet(comptime Word: type, words: []const Word, bit_index: usize) bool {
     comptime requireUnsignedInt(Word);
+
     const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled(.build_mode)) std.debug.assert(word_index < words.len);
+    if (debug.checksEnabled(.build_mode)) {
+        std.debug.assert(word_index < words.len);
+    }
+
     return (words[word_index] & maskOf(Word, bit_index)) != 0;
 }
 
@@ -56,8 +57,12 @@ pub fn isSet(comptime Word: type, words: []const Word, bit_index: usize) bool {
 /// `isSet`.
 pub fn set(comptime Word: type, words: []Word, bit_index: usize) void {
     comptime requireUnsignedInt(Word);
+
     const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled(.build_mode)) std.debug.assert(word_index < words.len);
+    if (debug.checksEnabled(.build_mode)) {
+        std.debug.assert(word_index < words.len);
+    }
+
     words[word_index] |= maskOf(Word, bit_index);
 }
 
@@ -65,7 +70,18 @@ pub fn set(comptime Word: type, words: []Word, bit_index: usize) void {
 /// `isSet`.
 pub fn clear(comptime Word: type, words: []Word, bit_index: usize) void {
     comptime requireUnsignedInt(Word);
+
     const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled(.build_mode)) std.debug.assert(word_index < words.len);
+    if (debug.checksEnabled(.build_mode)) {
+        std.debug.assert(word_index < words.len);
+    }
+
     words[word_index] &= ~maskOf(Word, bit_index);
+}
+
+fn requireUnsignedInt(comptime Word: type) void {
+    const info = @typeInfo(Word);
+    if (info != .int or info.int.signedness != .unsigned) {
+        @compileError("bits.word requires an unsigned integer type");
+    }
 }

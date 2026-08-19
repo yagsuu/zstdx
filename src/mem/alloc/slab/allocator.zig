@@ -18,17 +18,17 @@ pub const SlabAllocator = struct {
             bump_index: usize = 0,
             live_count: usize = 0,
 
-            /// `free` links the intrusive free list; `occupied` stores live `T`.
-            pub const Slot = union(enum) {
-                free: ?*Slot,
-                occupied: T,
-            };
+            pub const item_capacity = capacity_items;
 
             const Self = @This();
 
             pub const Error = error{OutOfMemory};
 
-            pub const item_capacity = capacity_items;
+            /// `free` links the intrusive free list; `occupied` stores live `T`.
+            pub const Slot = union(enum) {
+                free: ?*Slot,
+                occupied: T,
+            };
 
             pub fn init() Self {
                 return .{};

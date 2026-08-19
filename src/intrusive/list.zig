@@ -67,10 +67,11 @@ pub const List = struct {
                 if (self.tail) |tail_item| {
                     node(tail_item).next = node(item);
                     self.tail = item;
-                } else {
-                    self.head = item;
-                    self.tail = item;
+                    return;
                 }
+
+                self.head = item;
+                self.tail = item;
             }
 
             /// `previous` must belong to this list; `item`'s node must be detached.

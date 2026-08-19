@@ -306,6 +306,7 @@ pub const TimerWheel = struct {
                 deadline: Deadline,
                 item: T,
             };
+
             pub const Error = error{ Full, OutOfRange };
             pub const RangeError = error{OutOfRange};
 

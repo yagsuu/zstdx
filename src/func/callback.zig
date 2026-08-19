@@ -22,8 +22,8 @@ pub fn Callback(comptime Fn: type) type {
 
     return struct {
         context: ?*anyopaque,
-
         invoke: *const Invoke,
+
         pub const Signature: type = Fn;
         pub const Args: type = std.meta.ArgsTuple(Fn);
         pub const Return: type = RetType(Fn);
@@ -62,6 +62,7 @@ pub fn Callback(comptime Fn: type) type {
                     return @call(.auto, fn_ptr, .{typed} ++ args);
                 }
             };
+
             return .{ .context = @ptrCast(ctx), .invoke = &Thunk.invoke };
         }
 

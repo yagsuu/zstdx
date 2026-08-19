@@ -10,9 +10,6 @@ const endian = @import("../layout/endian.zig");
 /// against DMA payloads or other MMIO accesses with `stdx.barrier.mmio` and
 /// `stdx.barrier.dma`.
 pub const MMIO = struct {
-    /// This is the default `min_align_bytes` for the `Window64` alias. It
-    /// matches the alignment guaranteed by page-aligned or canonical NVMe
-    /// register blocks.
     pub const default_align: usize = @alignOf(u64);
 
     /// Typed volatile storage lane for a memory-mapped device register. `T`
@@ -75,9 +72,6 @@ pub const MMIO = struct {
             /// Minimum required alignment of the wrapped byte range.
             pub const min_align: usize = min_align_bytes;
 
-            /// `OutOfBounds`: `offset + @sizeOf(T)` exceeds `self.len` or
-            /// would overflow `usize`.
-            /// `Misaligned`: `(base + offset)` is not aligned to `@alignOf(T)`.
             pub const Error = error{ OutOfBounds, Misaligned };
 
             /// Wraps a caller-owned MMIO byte range. The `align` annotation on
@@ -91,13 +85,9 @@ pub const MMIO = struct {
                 return self.len;
             }
 
-            /// Typed pointer into the window at `offset`. Returns
-            /// `error.OutOfBounds` when the register would extend past the
-            /// window (including on `usize`-overflowing `offset`), and
-            /// `error.Misaligned` when `(base + offset)` is not aligned to
-            /// `@alignOf(T)`. The returned pointer aliases `self.base +
-            /// offset` and is valid for the lifetime of the underlying MMIO
-            /// mapping.
+            /// Typed pointer into the window at `offset`.
+            /// The returned pointer aliases `self.base + offset`
+            /// and is valid for the lifetime of the underlying MMIO mapping.
             pub fn register(
                 self: Self,
                 comptime T: type,
@@ -143,13 +133,7 @@ pub const MMIO = struct {
                 return self.register(FieldT, @offsetOf(Layout, field_name));
             }
 
-            /// Typed pointer into the window at `offset` without runtime
-            /// checks. The caller must have proven bounds and alignment
-            /// through another mechanism such as a comptime-known offset or
-            /// prior validated computation. Under
-            /// `core.debug.checksEnabled(.build_mode)` the same conditions
-            /// `register` returns as errors are asserted; in release builds
-            /// this is one pointer-arithmetic step.
+            /// Typed pointer into the window at `offset` without runtime checks
             pub fn registerUnchecked(
                 self: Self,
                 comptime T: type,

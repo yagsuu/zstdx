@@ -101,6 +101,7 @@ pub fn bound(
                 "{s}: {s} parameter {d} has no concrete type",
                 .{ kind, @typeName(Callee), i + 1 },
             ));
+
         if (expected != got) {
             @compileError(std.fmt.comptimePrint(
                 "{s}: {s} parameter {d} is {s}, expected {s}",
@@ -112,6 +113,7 @@ pub fn bound(
     const expected_ret = fn_info.return_type.?;
     const got_ret = callee_info.return_type orelse
         @compileError(kind ++ ": " ++ @typeName(Callee) ++ " has no return type");
+
     if (got_ret != expected_ret) {
         @compileError(
             kind ++ ": " ++ @typeName(Callee) ++ " returns " ++ @typeName(got_ret) ++

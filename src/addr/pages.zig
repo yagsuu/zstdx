@@ -10,31 +10,17 @@ pub const _64kib = 64 * 1024;
 pub const _2mib = 2 * 1024 * 1024;
 pub const _1gib = 1024 * 1024 * 1024;
 
-fn requireAddress(comptime Addr: type) void {
-    if (!@hasDecl(Addr, "Raw")) @compileError("Page requires an Address-compatible type with Raw");
-    if (!@hasDecl(Addr, "fromInt")) @compileError("Page requires an Address-compatible type with fromInt");
-    if (!@hasDecl(Addr, "raw")) @compileError("Page requires an Address-compatible type with raw");
-
-    const info = @typeInfo(Addr.Raw);
-    if (info != .int or info.int.signedness != .unsigned) {
-        @compileError("Page requires Address.Raw to be an unsigned integer type");
-    }
-
-    const zero: Addr = Addr.fromInt(0);
-    const raw_value: Addr.Raw = zero.raw();
-    _ = raw_value;
-}
-
 pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
     comptime {
         requireAddress(Addr);
-        if (page_size == 0) @compileError("Page page_size must be non-zero");
-        if (!bits.isPowerOfTwo(Addr.Raw, page_size)) @compileError("Page page_size must be a power of two");
+        if (page_size == 0) @compileError("Page size must be non-zero");
+        if (!bits.isPowerOfTwo(Addr.Raw, page_size)) @compileError("Page size must be a power of two");
     }
 
     return struct {
         pub const Address = Addr;
         pub const AddressInt = Addr.Raw;
+
         pub const Error = error{ Misaligned, Overflow, OutOfBounds };
 
         pub const Size = struct {
@@ -91,9 +77,9 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
             const This = @This();
 
             /// Requires `addr_value` to be page-aligned; otherwise returns `error.Misaligned`.
-            pub fn fromAddress(addr_value: Addr) Error!This {
-                if (!isAlignedAddress(addr_value)) return error.Misaligned;
-                return @enumFromInt(addr_value.raw());
+            pub fn fromAddress(addr: Addr) Error!This {
+                if (!isAlignedAddress(addr)) return error.Misaligned;
+                return @enumFromInt(addr.raw());
             }
 
             /// Has the same contract as `fromAddress` for an integer address.
@@ -122,18 +108,18 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
                 std.debug.assert(self.isValid());
             }
 
-            pub fn isAlignedAddress(addr_value: Addr) bool {
-                return (addr_value.raw() & Size.mask) == 0;
+            pub fn isAlignedAddress(addr: Addr) bool {
+                return (addr.raw() & Size.mask) == 0;
             }
 
-            pub fn containingAddress(addr_value: Addr) Error!This {
-                return fromAddressInt(addr_value.raw() & ~Size.mask);
+            pub fn containingAddress(addr: Addr) Error!This {
+                return fromAddressInt(addr.raw() & ~Size.mask);
             }
 
             /// Rounds up to the next page boundary; returns `error.Overflow` when padding overflows.
-            pub fn nextAlignedAddress(addr_value: Addr) Error!This {
-                if (isAlignedAddress(addr_value)) return fromAddress(addr_value);
-                const added = std.math.add(AddressInt, addr_value.raw(), Size.mask) catch return error.Overflow;
+            pub fn nextAlignedAddress(addr: Addr) Error!This {
+                if (isAlignedAddress(addr)) return fromAddress(addr);
+                const added = std.math.add(AddressInt, addr.raw(), Size.mask) catch return error.Overflow;
                 return fromAddressInt(added & ~Size.mask);
             }
 
@@ -218,9 +204,9 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
             }
 
             /// Tests membership in `[base.addressInt(), end.addressInt())`; `address` need not be page-aligned.
-            pub fn containsAddress(self: This, address: Addr) bool {
+            pub fn containsAddress(self: This, addr: Addr) bool {
                 self.assertValid();
-                return self.base.addressInt() <= address.raw() and address.raw() < self.end().addressInt();
+                return self.base.addressInt() <= addr.raw() and addr.raw() < self.end().addressInt();
             }
 
             /// Tests full containment. Empty ranges may anchor at `[base, end]` boundaries.
@@ -303,4 +289,19 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
             }
         };
     };
+}
+
+fn requireAddress(comptime Addr: type) void {
+    if (!@hasDecl(Addr, "Raw")) @compileError("Page requires an Address-compatible type with Raw");
+    if (!@hasDecl(Addr, "fromInt")) @compileError("Page requires an Address-compatible type with fromInt");
+    if (!@hasDecl(Addr, "raw")) @compileError("Page requires an Address-compatible type with raw");
+
+    const info = @typeInfo(Addr.Raw);
+    if (info != .int or info.int.signedness != .unsigned) {
+        @compileError("Page requires Address.Raw to be an unsigned integer type");
+    }
+
+    const zero: Addr = Addr.fromInt(0);
+    const raw_value: Addr.Raw = zero.raw();
+    _ = raw_value;
 }

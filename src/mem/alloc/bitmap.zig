@@ -14,9 +14,9 @@ const Shift = std.math.Log2Int(BitmapWord);
 const bitmap_word_bits = @bitSizeOf(BitmapWord);
 
 pub const BitmapAllocator = struct {
-    /// Owns inline bitmap storage.
     pub fn Static(comptime capacity_units: usize) type {
         comptime if (capacity_units == 0) @compileError("BitmapAllocator.Static capacity_units must be non-zero");
+
         return struct {
             words: [word_count]Word = [_]Word{0} ** word_count,
 

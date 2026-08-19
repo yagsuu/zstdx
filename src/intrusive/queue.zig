@@ -44,10 +44,11 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
             if (self.tail) |tail_item| {
                 node(tail_item).next = node(item);
                 self.tail = item;
-            } else {
-                self.head = item;
-                self.tail = item;
+                return;
             }
+
+            self.head = item;
+            self.tail = item;
         }
 
         /// A non-null return has its selected node detached.

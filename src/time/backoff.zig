@@ -44,6 +44,7 @@ pub const Backoff = struct {
 
     pub fn init(policy: Policy) Backoff {
         if (debug.checksEnabled(.build_mode)) policy.assertValid();
+
         return .{
             .policy = policy,
             .attempt = 0,

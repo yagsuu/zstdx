@@ -9,6 +9,14 @@ const FrameIndex = usize;
 const SourceLocation = std.builtin.SourceLocation;
 const Writer = std.Io.Writer;
 
+pub fn fmt(comptime format: []const u8, args: anytype) FormattedDetail(@TypeOf(args), format) {
+    return .{ .args = args };
+}
+
+pub fn scope(diag: anytype, options: anytype) Scope(ScopeDiag(@TypeOf(diag)), @TypeOf(options)) {
+    return makeScope(scopeDiagValue(diag), options);
+}
+
 pub fn FormattedDetail(comptime Args: type, comptime format: []const u8) type {
     return struct {
         args: Args,
@@ -19,14 +27,6 @@ pub fn FormattedDetail(comptime Args: type, comptime format: []const u8) type {
             return std.fmt.allocPrint(allocator, format, self.args) catch null;
         }
     };
-}
-
-pub fn fmt(comptime format: []const u8, args: anytype) FormattedDetail(@TypeOf(args), format) {
-    return .{ .args = args };
-}
-
-pub fn scope(diag: anytype, options: anytype) Scope(ScopeDiag(@TypeOf(diag)), @TypeOf(options)) {
-    return makeScope(scopeDiagValue(diag), options);
 }
 
 pub const Diagnostics = struct {

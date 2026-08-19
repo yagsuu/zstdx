@@ -131,12 +131,12 @@ pub const BasicFeatureEdx = packed struct(u32) {
     _reserved_30: u1 = 0,
     pbe: bool,
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
-    }
-
     pub fn hasReserved(self: BasicFeatureEdx) bool {
         return maskHasReserved(BasicFeatureEdx, self);
+    }
+
+    comptime {
+        std.debug.assert(@bitSizeOf(@This()) == 32);
     }
 };
 
@@ -175,12 +175,12 @@ pub const BasicFeatureEcx = packed struct(u32) {
     rdrand: bool,
     hypervisor: bool,
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
-    }
-
     pub fn hasReserved(self: BasicFeatureEcx) bool {
         return maskHasReserved(BasicFeatureEcx, self);
+    }
+
+    comptime {
+        std.debug.assert(@bitSizeOf(@This()) == 32);
     }
 };
 
@@ -219,12 +219,12 @@ pub const StructuredEbx = packed struct(u32) {
     avx512bw: bool,
     avx512vl: bool,
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
-    }
-
     pub fn hasReserved(self: StructuredEbx) bool {
         return maskHasReserved(StructuredEbx, self);
+    }
+
+    comptime {
+        std.debug.assert(@bitSizeOf(@This()) == 32);
     }
 };
 
@@ -259,12 +259,12 @@ pub const StructuredEcx = packed struct(u32) {
     sgx_lc: bool,
     pks: bool,
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
-    }
-
     pub fn hasReserved(self: StructuredEcx) bool {
         return maskHasReserved(StructuredEcx, self);
+    }
+
+    comptime {
+        std.debug.assert(@bitSizeOf(@This()) == 32);
     }
 };
 
@@ -301,12 +301,12 @@ pub const StructuredEdx = packed struct(u32) {
     ia32_core_capabilities: bool,
     ssbd: bool,
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
-    }
-
     pub fn hasReserved(self: StructuredEdx) bool {
         return maskHasReserved(StructuredEdx, self);
+    }
+
+    comptime {
+        std.debug.assert(@bitSizeOf(@This()) == 32);
     }
 };
 
@@ -323,12 +323,12 @@ pub const ExtendedFeatureEdx = packed struct(u32) {
     lm: bool,
     _reserved_30: u2 = 0,
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
-    }
-
     pub fn hasReserved(self: ExtendedFeatureEdx) bool {
         return maskHasReserved(ExtendedFeatureEdx, self);
+    }
+
+    comptime {
+        std.debug.assert(@bitSizeOf(@This()) == 32);
     }
 };
 
@@ -358,12 +358,12 @@ pub const ExtendedFeatureEcx = packed struct(u32) {
     perfctr_nb: bool,
     _reserved_25: u7 = 0,
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
-    }
-
     pub fn hasReserved(self: ExtendedFeatureEcx) bool {
         return maskHasReserved(ExtendedFeatureEcx, self);
+    }
+
+    comptime {
+        std.debug.assert(@bitSizeOf(@This()) == 32);
     }
 };
 
@@ -430,11 +430,15 @@ pub const cache = struct {
 
         pub fn next(self: *Iterator) ?cache.Descriptor {
             target.ensureSupported();
+
             if (maxBasicLeaf() < 4) return null;
+
             const r = subleaf(@as(Leaf, @enumFromInt(4)), self.index);
             const raw_kind: u5 = @truncate(r.eax);
             if (raw_kind == 0) return null;
+
             self.index += 1;
+
             return .{
                 .level = @truncate(r.eax >> 5),
                 .kind = @as(cache.Kind, @enumFromInt(raw_kind)),
@@ -494,6 +498,7 @@ pub fn vendorString() [12]u8 {
 /// Intel SDM Vol.2 Chapter 3 / AMD APM Vol.3 §CPUID Fn0000_0001_EAX.
 pub fn version() Version {
     target.ensureSupported();
+
     const eax = leaf(.feature_info).eax;
     const base_family: u4 = @truncate(eax >> 8);
     const base_model: u4 = @truncate(eax >> 4);
@@ -516,6 +521,7 @@ pub fn version() Version {
 /// Returns `null` when the leaves are unavailable.
 pub fn brandString() ?[48]u8 {
     target.ensureSupported();
+
     if (maxExtendedLeaf() < 0x8000_0004) return null;
 
     var out: [48]u8 = @splat(0);
@@ -546,6 +552,7 @@ pub fn basicFeatures() BasicFeatures {
 /// Returns an all-zero bundle when `maxBasicLeaf() < 7`.
 pub fn structuredFeatures() StructuredFeatures {
     target.ensureSupported();
+
     if (maxBasicLeaf() < 7) {
         return .{
             .ebx = @bitCast(@as(u32, 0)),
@@ -553,6 +560,7 @@ pub fn structuredFeatures() StructuredFeatures {
             .edx = @bitCast(@as(u32, 0)),
         };
     }
+
     const r = subleaf(.structured_extended_features, 0);
     return .{
         .ebx = @bitCast(r.ebx),

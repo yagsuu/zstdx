@@ -12,44 +12,7 @@ const AtomicWord = std.atomic.Value(Word);
 const PaddedWord = CachePad(AtomicWord);
 const SlotStorage = CachePad(AtomicWord);
 
-comptime {
-    std.debug.assert(@alignOf(SlotStorage) == std.atomic.cache_line);
-    std.debug.assert(@sizeOf(SlotStorage) >= std.atomic.cache_line);
-}
-
 const max_participants = @as(usize, std.math.maxInt(u32)) + 1;
-
-const SlotWord = enum(Word) {
-    _,
-
-    const offline_bit: Word = @as(Word, 1) << 63;
-    const generation_mask: Word = offline_bit - 1;
-
-    fn offline() SlotWord {
-        return @enumFromInt(offline_bit);
-    }
-
-    fn online(reported_generation: Word) SlotWord {
-        std.debug.assert(reported_generation <= generation_mask);
-        return @enumFromInt(reported_generation);
-    }
-
-    fn fromRaw(encoded: Word) SlotWord {
-        return @enumFromInt(encoded);
-    }
-
-    fn raw(self: SlotWord) Word {
-        return @intFromEnum(self);
-    }
-
-    fn isOffline(self: SlotWord) bool {
-        return self.raw() & offline_bit != 0;
-    }
-
-    fn generation(self: SlotWord) Word {
-        return self.raw() & generation_mask;
-    }
-};
 
 /// Grace-period target generation token.
 pub const GracePeriod = enum(u64) {
@@ -200,6 +163,38 @@ pub const Domain = struct {
     };
 };
 
+const SlotWord = enum(Word) {
+    _,
+
+    const offline_bit: Word = @as(Word, 1) << 63;
+    const generation_mask: Word = offline_bit - 1;
+
+    fn offline() SlotWord {
+        return @enumFromInt(offline_bit);
+    }
+
+    fn online(reported_generation: Word) SlotWord {
+        std.debug.assert(reported_generation <= generation_mask);
+        return @enumFromInt(reported_generation);
+    }
+
+    fn fromRaw(encoded: Word) SlotWord {
+        return @enumFromInt(encoded);
+    }
+
+    fn raw(self: SlotWord) Word {
+        return @intFromEnum(self);
+    }
+
+    fn isOffline(self: SlotWord) bool {
+        return self.raw() & offline_bit != 0;
+    }
+
+    fn generation(self: SlotWord) Word {
+        return self.raw() & generation_mask;
+    }
+};
+
 fn requireStaticCapacity(comptime capacity_participants: usize) void {
     if (capacity_participants == 0) {
         @compileError("QSBR Static capacity must be non-zero");
@@ -268,11 +263,13 @@ fn beginGracePeriodImpl(global_generation: *PaddedWord) GracePeriod {
     var current = global_generation.value.load(.acquire);
     while (true) {
         std.debug.assert(current < SlotWord.generation_mask);
+
         const next = current + 1;
         if (global_generation.value.cmpxchgWeak(current, next, .acq_rel, .acquire)) |observed| {
             current = observed;
             continue;
         }
+
         return @enumFromInt(next);
     }
 }
@@ -285,4 +282,9 @@ fn isCompleteImpl(slots: []const SlotStorage, grace_period: GracePeriod) bool {
         if (word.generation() < target) return false;
     }
     return true;
+}
+
+comptime {
+    std.debug.assert(@alignOf(SlotStorage) == std.atomic.cache_line);
+    std.debug.assert(@sizeOf(SlotStorage) >= std.atomic.cache_line);
 }

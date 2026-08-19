@@ -7,13 +7,6 @@ const std = @import("std");
 /// representable power of two for `T`.
 pub const Error = error{Overflow};
 
-fn requireUnsignedInt(comptime T: type) void {
-    const info = @typeInfo(T);
-    if (info != .int or info.int.signedness != .unsigned) {
-        @compileError("power-of-two helpers require an unsigned integer type");
-    }
-}
-
 pub fn isPowerOfTwo(comptime T: type, value: T) bool {
     comptime requireUnsignedInt(T);
     return value != 0 and (value & (value - 1)) == 0;
@@ -34,4 +27,11 @@ pub fn nextPowerOfTwo(comptime T: type, value: T) Error!T {
 
     const shift_amount: std.math.Log2Int(T) = @intCast(bits - @clz(value - 1));
     return @as(T, 1) << shift_amount;
+}
+
+fn requireUnsignedInt(comptime T: type) void {
+    const info = @typeInfo(T);
+    if (info != .int or info.int.signedness != .unsigned) {
+        @compileError("power-of-two helpers require an unsigned integer type");
+    }
 }
