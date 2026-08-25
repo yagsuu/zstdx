@@ -12,23 +12,21 @@ const Backoff = backoff.Backoff;
 const Duration = monotonic.Duration;
 const Instant = monotonic.Instant;
 
-/// Concrete return type derived from a predicate's shape. For a predicate
-/// whose call returns `PredicateError!?T`, the return type is
-/// `(Deadline.TimeoutError || PredicateError)!T`. Exported so callers can
-/// name the return type in intermediate signatures.
+/// Names `until`'s return type for `Predicate`.
+/// A `PredicateError!?T` predicate yields
+/// `(Deadline.TimeoutError || PredicateError)!T`.
 pub fn PollReturnType(comptime Predicate: type) type {
     const shape = analyzePredicate(Predicate);
     return (Deadline.TimeoutError || shape.error_set)!shape.payload;
 }
 
-/// Polls `predicate` until it returns a payload, propagates an error, or the
-/// deadline expires.
-/// Ordering: The predicate runs first on every iteration, and only `null`
-/// advances the backoff.
-/// Deadline: `Backoff.next` owns the deadline check per
-/// `docs/specs/time/backoff.md`.
-/// Effects: Does not allocate or lock. It accesses the clock and backoff only
-/// through their public contracts. The caller owns `*Backoff`.
+/// Polls `predicate` until it returns a payload or error, or `bo.next` times out.
+/// Ordering: The predicate runs before every backoff step. Only `null` invokes
+/// `bo.next`.
+/// Requirements: `clock`, `dl`, and `bo` must use one compatible monotonic clock.
+/// Concurrency: The caller retains exclusive access to `bo`.
+/// Deadline: `Backoff.next` performs deadline checks.
+/// Effects: Does not allocate or lock.
 pub fn until(
     clock: anytype,
     dl: Deadline,

@@ -128,13 +128,6 @@ test "unit: Register(packed struct(u32)) piecemeal update preserves reserved bit
     try testing.expectEqual(@as(u28, 0xDEADBEE), final._rsvd0);
 }
 
-// Register(layout.Le(Cc)) where Cc is `packed struct(u32)` is described in
-// docs/specs/io/mmio.md:562-564 but cannot be realized: the endian wrapper's
-// contract at docs/specs/layout/endian.md:140 explicitly excludes packed
-// structs, so `layout.Le` @compileErrors on packed-struct T. The two specs
-// are mutually incompatible on that specific composition; the mmio scope
-// records the incompatibility here and does not extend `layout.Le`.
-
 test "unit: Register(T) positive comptime instantiations pin the accepted set" {
     comptime {
         _ = MMIO.Register(u8);
@@ -153,17 +146,6 @@ test "unit: Register(T) positive comptime instantiations pin the accepted set" {
     }
 }
 
-// Compile-error cases for `Register(T)` are guarded by `@compileError` in
-// `src/io/mmio.zig`'s `requireRegisterType` and cannot be tested at runtime.
-// The rejected shapes are:
-//   - `Register(u7)`, `Register(u24)`, `Register(u40)`, `Register(u128)`;
-//   - `Register(usize)`, `Register(isize)`, `Register(i32)`;
-//   - `Register(bool)`, `Register(f32)`;
-//   - `Register([4]u8)`, `Register(*u32)`, `Register(?u32)`;
-//   - `Register(packed struct(u24) { a: u12, b: u12 })` — backing integer
-//     is not one of `u8`/`u16`/`u32`/`u64`;
-//   - `Register(packed struct { a: u32 })` — no explicit backing integer.
-
 test "unit: Window(min_align) factory accepts every power-of-two min_align_bytes" {
     comptime {
         _ = MMIO.Window(@alignOf(u64));
@@ -175,12 +157,6 @@ test "unit: Window(min_align) factory accepts every power-of-two min_align_bytes
         _ = MMIO.Window(8);
     }
 }
-
-// Compile-error cases for `Window(min_align_bytes)` are guarded by
-// `@compileError` in `requireWindowAlign`. Rejected shapes:
-//   - `Window(0)` — must be at least 1;
-//   - `Window(3)`, `Window(5)`, `Window(6)`, `Window(7)`, ... — must be a
-//     power of two.
 
 test "unit: MMIO.Window32 and MMIO.Window64 resolve to Window(min_align)" {
     comptime {
@@ -215,9 +191,6 @@ test "unit: Window32.register(u32, 0) succeeds on a 4-byte-aligned scratch buffe
 }
 
 test "unit: Window32.register(u32, offset) rejects misalignment on a 4-byte-aligned base whose runtime address is odd modulo 4" {
-    // On a scratch buffer with `align(4)`, offset 2 puts (base + offset) at
-    // an address that is 2-mod-4; `@alignOf(u32) == 4` so `register`
-    // returns error.Misaligned. This exercises the runtime alignment path.
     var buf: [16]u8 align(4) = [_]u8{0} ** 16;
     const aligned: []align(4) volatile u8 = @alignCast(buf[0..]);
     const window = MMIO.Window32.wrap(aligned);
@@ -262,8 +235,6 @@ test "unit: Window.registerUnchecked returns aliased pointer for a validated off
 test "unit: Window.field returns the same pointer as register at the field's offset" {
     @memset(&scratch, 0);
     const window = openWindow();
-    // Layout uses plain scalar fields; `field` wraps each in Register(T)
-    // per the spec signature `Register(@FieldType(Layout, field_name))`.
     const Layout = extern struct {
         cap: u64,
         vs: u32,
@@ -296,12 +267,3 @@ test "unit: Window.field propagates OutOfBounds and Misaligned from register" {
 
     try testing.expectError(error.OutOfBounds, window.field(Layout, "cap"));
 }
-
-// Compile-error cases for `Window.field` are guarded by `@compileError` in
-// `src/io/mmio.zig`'s `Window.field`. Rejected shapes:
-//   - `field(Layout, "missing")` — layout has no such field;
-//   - a `Layout` whose named field extends past `@sizeOf(Layout)` — defense
-//     against packed/manually-authored layouts;
-//   - a `Layout` whose field type is a disallowed `Register(T)` argument
-//     (e.g. `Register(u24)`) — rejected transitively via `Register(T)`'s
-//     own compile-error surface in `requireRegisterType`.

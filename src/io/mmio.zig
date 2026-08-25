@@ -5,20 +5,17 @@ const std = @import("std");
 const debug = @import("../core/debug.zig");
 const endian = @import("../layout/endian.zig");
 
-/// `MMIO` provides register lanes and byte windows.
-/// Ordering: Its accesses are compiler-ordered. The caller must order them
-/// against DMA payloads or other MMIO accesses with `stdx.barrier.mmio` and
-/// `stdx.barrier.dma`.
+/// Ordering: Volatile accesses are compiler-ordered only. Use
+/// `stdx.barrier.mmio` or `stdx.barrier.dma` to order them with other MMIO
+/// accesses or DMA payloads.
 pub const MMIO = struct {
     pub const default_align: usize = @alignOf(u64);
 
-    /// Typed volatile storage lane for a memory-mapped device register. `T`
-    /// must be `u8`, `u16`, `u32`, `u64`; `layout.Le`/`Be` over one of those
-    /// widths; or a `packed struct(uN)` whose backing integer is one of
-    /// those widths. Every other `T` is a compile error. The returned type
-    /// is an `extern struct` with a single field, so it composes losslessly
-    /// inside overlay `extern struct`s that model fixed device register
-    /// blocks. `@sizeOf == @sizeOf(T)` and `@alignOf == @alignOf(T)`.
+    /// Requirements: `T` must be `u8`, `u16`, `u32`, or `u64`; `layout.Le` or
+    /// `layout.Be` over one of those types; or a `packed struct(uN)` backed by
+    /// one of those types. Other types are compile errors.
+    /// Representation: The returned `extern struct` has one `T` field, with
+    /// the same size and alignment as `T`, so it composes in register overlays.
     pub fn Register(comptime T: type) type {
         comptime requireRegisterType(T);
 
@@ -31,35 +28,28 @@ pub const MMIO = struct {
 
             pub const width_bytes: comptime_int = @sizeOf(T);
 
-            /// Loads `T` with one volatile access at the lane's natural width
-            /// and alignment on targets whose native access widths match
-            /// `@sizeOf(T)`.
-            /// Ordering: Compiler-ordered against other volatile accesses. It
-            /// emits no ISA fence or cross-CPU or cross-DMA synchronization.
+            /// Loads `T` through one volatile access at the lane's natural width and
+            /// alignment when the target supports that width.
+            /// Ordering: The access is compiler-ordered only. It emits no ISA fence
+            /// and does not synchronize CPUs, DMA, or devices.
             pub fn load(self: *const volatile Self) T {
                 return self.value;
             }
 
-            /// Stores `T` with one volatile access at the lane's natural width
+            /// Stores `value` through one volatile access at the lane's natural width
             /// and alignment.
-            /// Ordering: Compiler-ordered against other volatile accesses. It
-            /// emits no ISA fence or cross-CPU or cross-DMA synchronization.
+            /// Ordering: The access is compiler-ordered only. It emits no ISA fence
+            /// and does not synchronize CPUs, DMA, or devices.
             pub fn store(self: *volatile Self, value: T) void {
                 self.value = value;
             }
         };
     }
 
-    /// Byte-window value factory over a caller-owned MMIO byte range.
-    /// `min_align_bytes` is the guaranteed alignment of the wrapped byte
-    /// range; it must be a power of two and at least 1. Values other than
-    /// powers of two are compile errors. The returned type owns nothing; it
-    /// borrows the caller's mapping for its lifetime.
-    ///
-    /// `Register(T)` used through the returned window's `register` /
-    /// `registerUnchecked` requires `@alignOf(T) <= min_align_bytes`.
-    /// Attempts to instantiate an over-aligned lane are rejected at compile
-    /// time.
+    /// Returns a non-owning window over a caller-owned MMIO byte range.
+    /// Requirements: `min_align_bytes` is a non-zero power of two; other values
+    /// are compile errors. `register` and `registerUnchecked` require
+    /// `@alignOf(T) <= min_align_bytes`; over-aligned lanes are compile errors.
     pub fn Window(comptime min_align_bytes: usize) type {
         comptime requireWindowAlign(min_align_bytes);
 
@@ -74,20 +64,21 @@ pub const MMIO = struct {
 
             pub const Error = error{ OutOfBounds, Misaligned };
 
-            /// Wraps a caller-owned MMIO byte range. The `align` annotation on
-            /// the parameter makes lesser-aligned inputs a compile error
-            /// rather than a runtime one.
+            /// Borrows `bytes` without allocation, copying, validation, or device access.
+            /// The declared slice alignment enforces `min_align` at compile time.
             pub fn wrap(bytes: []align(min_align_bytes) volatile u8) Self {
                 return .{ .base = bytes.ptr, .len = bytes.len };
             }
 
+            /// Returns the borrowed byte range length.
             pub fn byteLen(self: Self) usize {
                 return self.len;
             }
 
-            /// Typed pointer into the window at `offset`.
-            /// The returned pointer aliases `self.base + offset`
-            /// and is valid for the lifetime of the underlying MMIO mapping.
+            /// Returns a `Register(T)` pointer at `offset`.
+            /// Faults: `OutOfBounds` when the lane does not fit and `Misaligned` when
+            /// its address is not aligned for `T`.
+            /// Ownership: The pointer borrows the underlying MMIO mapping.
             pub fn register(
                 self: Self,
                 comptime T: type,
@@ -103,10 +94,10 @@ pub const MMIO = struct {
                 return @ptrFromInt(addr);
             }
 
-            /// Typed pointer to `Layout`'s named field, treating `Layout` as
-            /// an overlay anchored at the start of the window. `Layout` and
-            /// `field_name` are validated at compile time; runtime bounds
-            /// and alignment checks are delegated to `register`.
+            /// Returns a pointer to `field_name` in a `Layout` overlay at the window base.
+            /// Requirements: `Layout` contains `field_name`, whose type is accepted by
+            /// `Register`.
+            /// Effects: Delegates runtime bounds and alignment checks to `register`.
             pub fn field(
                 self: Self,
                 comptime Layout: type,
@@ -133,7 +124,9 @@ pub const MMIO = struct {
                 return self.register(FieldT, @offsetOf(Layout, field_name));
             }
 
-            /// Typed pointer into the window at `offset` without runtime checks
+            /// Returns a `Register(T)` pointer at `offset`.
+            /// Requirements: The caller establishes the accepted type, bounds, and address
+            /// alignment. Checked builds assert those conditions.
             pub fn registerUnchecked(
                 self: Self,
                 comptime T: type,
@@ -155,12 +148,10 @@ pub const MMIO = struct {
         };
     }
 
-    /// Pre-instantiated window alias for MMIO regions guaranteed
-    /// 8-byte-aligned (page-aligned BARs, canonical NVMe register blocks).
+    /// Use for MMIO regions guaranteed 8-byte alignment, such as page-aligned BARs.
     pub const Window64 = Window(@alignOf(u64));
 
-    /// Pre-instantiated window alias for MMIO regions advertised with only
-    /// 4-byte alignment (some legacy PCI BARs).
+    /// Use for MMIO regions with only 4-byte alignment, such as legacy PCI BARs.
     pub const Window32 = Window(@alignOf(u32));
 };
 
