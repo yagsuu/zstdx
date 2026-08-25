@@ -119,12 +119,10 @@ const pa = PhysAddr.fromInt(0x1000);
 ```zig
 const stdx = @import("stdx");
 
-const bits = stdx.bits;
 const mem = stdx.mem;
 const addr = stdx.addr;
 
 const aligned = mem.alignUp(size, 4096);
-const is_pow2 = bits.isPowerOfTwo(4096);
 const pa = addr.PhysAddr.fromInt(0x1000);
 ```
 

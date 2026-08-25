@@ -4,7 +4,6 @@
 const std = @import("std");
 
 const debug = @import("../../../core/debug.zig");
-const power_of_two = @import("../../../bits/power_of_two.zig");
 const slab_allocator = @import("allocator.zig");
 
 const PerCPU = @import("../../../cpu/per_cpu.zig").PerCPU;
@@ -643,7 +642,7 @@ fn requireRegionAlignment(comptime RegionSource: type, comptime Header: type) vo
     if (region_bytes == 0) @compileError("SlabCache RegionSource.region_bytes must be non-zero");
     if (region_align == 0) @compileError("SlabCache RegionSource.region_align must be non-zero");
 
-    if (!power_of_two.isPowerOfTwo(usize, region_align)) {
+    if (!std.math.isPowerOfTwo(region_align)) {
         @compileError("SlabCache RegionSource.region_align must be a power of two");
     }
 

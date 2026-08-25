@@ -4,7 +4,6 @@
 const std = @import("std");
 
 const address = @import("../addr/address.zig");
-const bits = @import("../bits.zig");
 const buffer = @import("buffer.zig");
 
 const DMAAddr = address.DMAAddr;
@@ -46,8 +45,7 @@ pub const Segment = struct {
 
     /// Returns `false` for zero or non-power-of-two alignment.
     pub fn isAligned(self: Segment, alignment: DMARaw) bool {
-        if (alignment == 0) return false;
-        if (!bits.isPowerOfTwo(DMARaw, alignment)) return false;
+        if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return false;
         const mask = alignment - 1;
         if ((self.addr.raw() & mask) != 0) return false;
         return (self.len_bytes & mask) == 0;
@@ -242,7 +240,7 @@ pub const List = struct {
 
 fn requireAlignment(comptime alignment: DMARaw) void {
     if (alignment == 0) @compileError("Builder alignment must be non-zero");
-    if (!bits.isPowerOfTwo(DMARaw, alignment)) @compileError("Builder alignment must be a power of two");
+    if (!std.math.isPowerOfTwo(alignment)) @compileError("Builder alignment must be a power of two");
 }
 
 /// Builders require a uniform alignment for each appended segment.

@@ -121,7 +121,7 @@ The API does not provide equality or ordering methods. Callers use Zig same-type
 A valid alignment is nonzero and a power of two in `Int`:
 
 ```zig
-alignment != 0 and stdx.bits.isPowerOfTwo(Int, alignment)
+alignment != 0 and std.math.isPowerOfTwo(alignment)
 ```
 
 `alignUp` returns the smallest valid-alignment multiple greater than or equal to `self`. It returns `error.InvalidAlignment` for an invalid alignment and `error.Overflow` when rounding up is not representable by `Int`.

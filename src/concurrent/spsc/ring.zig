@@ -2,7 +2,6 @@
 
 const std = @import("std");
 
-const bits = @import("../../bits.zig");
 const cache = @import("../../mem/cache.zig");
 
 const AtomicUsize = std.atomic.Value(usize);
@@ -71,7 +70,7 @@ pub const Ring = struct {
             /// Structural sanity check for exclusive or quiescent access.
             /// Does not prove absence of concurrent races.
             pub fn assertValid(self: *const Self) void {
-                std.debug.assert(bits.isPowerOfTwo(usize, item_capacity));
+                std.debug.assert(item_capacity != 0 and std.math.isPowerOfTwo(item_capacity));
                 std.debug.assert(
                     self.tail.value.load(.monotonic) -% self.head.value.load(.monotonic) <= item_capacity,
                 );
@@ -104,7 +103,7 @@ pub const Ring = struct {
             /// non-zero power-of-two slice length. Must be called before
             /// any concurrent use.
             pub fn init(self: *Self, slots: []Slot) void {
-                std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+                std.debug.assert(slots.len != 0 and std.math.isPowerOfTwo(slots.len));
                 self.slots = slots;
                 self.head.value.store(0, .monotonic);
                 self.tail.value.store(0, .monotonic);
@@ -139,7 +138,7 @@ pub const Ring = struct {
             /// Does not prove absence of concurrent races.
             pub fn assertValid(self: *const Self) void {
                 const item_capacity = self.slots.len;
-                std.debug.assert(bits.isPowerOfTwo(usize, item_capacity));
+                std.debug.assert(item_capacity != 0 and std.math.isPowerOfTwo(item_capacity));
                 std.debug.assert(
                     self.tail.value.load(.monotonic) -% self.head.value.load(.monotonic) <= item_capacity,
                 );
@@ -156,8 +155,7 @@ fn tryPushBackImpl(
     tail: *CachePad(std.atomic.Value(usize)),
     item: T,
 ) error{Full}!void {
-    std.debug.assert(slots.len != 0);
-    std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+    std.debug.assert(slots.len != 0 and std.math.isPowerOfTwo(slots.len));
 
     const capacity = slots.len;
     const mask = capacity - 1;
@@ -183,8 +181,7 @@ fn popFrontImpl(
     head: *CachePad(std.atomic.Value(usize)),
     tail: *const CachePad(std.atomic.Value(usize)),
 ) ?T {
-    std.debug.assert(slots.len != 0);
-    std.debug.assert(bits.isPowerOfTwo(usize, slots.len));
+    std.debug.assert(slots.len != 0 and std.math.isPowerOfTwo(slots.len));
 
     const observed_head = head.value.load(.monotonic);
 
@@ -218,7 +215,7 @@ fn requireRuntimeValue(comptime T: type) void {
 }
 
 fn requireStaticCapacity(comptime capacity_items: usize) void {
-    if (!bits.isPowerOfTwo(usize, capacity_items)) {
+    if (capacity_items == 0 or !std.math.isPowerOfTwo(capacity_items)) {
         @compileError("SPSC ring capacity must be non-zero and a power of two");
     }
 }

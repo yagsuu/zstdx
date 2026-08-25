@@ -4,8 +4,6 @@
 
 const std = @import("std");
 
-const power_of_two = @import("../../bits/power_of_two.zig");
-
 pub const Range = @import("../../core/range.zig").Range(usize);
 
 pub const Error = error{
@@ -104,7 +102,7 @@ pub const WorstFit = struct {
 
 fn validateRequest(request: Request) Error!void {
     if (request.len == 0) return error.InvalidRequest;
-    if (request.alignment == 0 or !power_of_two.isPowerOfTwo(usize, request.alignment)) {
+    if (request.alignment == 0 or !std.math.isPowerOfTwo(request.alignment)) {
         return error.InvalidAlignment;
     }
 }

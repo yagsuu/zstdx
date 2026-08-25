@@ -3,7 +3,6 @@
 const std = @import("std");
 
 const address = @import("../addr/address.zig");
-const bits = @import("../bits.zig");
 
 const DMAAddr = address.DMAAddr;
 
@@ -47,7 +46,7 @@ pub fn Buffer(comptime T: type) type {
         /// Validates `dma` against `max(alignment, @alignOf(T))` and the buffer address range.
         /// A zero or non-power-of-two alignment returns `error.Misaligned`.
         pub fn initAligned(virt: []T, dma: Address, alignment: Address.Raw) InitError!Self {
-            if (alignment == 0 or !bits.isPowerOfTwo(Address.Raw, alignment)) return error.Misaligned;
+            if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return error.Misaligned;
             return initAlignedWith(virt, dma, alignment);
         }
 

@@ -4,8 +4,6 @@
 
 const std = @import("std");
 
-const bits = @import("../bits.zig");
-
 pub const PhysTag = opaque {};
 pub const VirtTag = opaque {};
 pub const DMATag = opaque {};
@@ -60,7 +58,7 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         }
 
         fn validateAlignment(alignment: Int) AlignError!void {
-            if (alignment == 0 or !bits.isPowerOfTwo(Int, alignment)) return error.InvalidAlignment;
+            if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return error.InvalidAlignment;
         }
 
         pub fn alignUp(self: Self, alignment: Int) Error!Self {
@@ -77,8 +75,7 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         }
 
         pub fn isAligned(self: Self, alignment: Int) bool {
-            std.debug.assert(alignment != 0);
-            std.debug.assert(bits.isPowerOfTwo(Int, alignment));
+            std.debug.assert(alignment != 0 and std.math.isPowerOfTwo(alignment));
             return (self.raw() & (alignment - 1)) == 0;
         }
     };

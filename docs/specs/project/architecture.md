@@ -46,8 +46,8 @@ pub const bits = @import("bits.zig");
 Domain facades export implementation declarations through declarations of this form:
 
 ```zig
-pub const power_of_two = @import("bits/power_of_two.zig");
-pub const isPowerOfTwo = power_of_two.isPowerOfTwo;
+pub const mask = @import("bits/mask.zig");
+pub const BitSet = @import("bits/set.zig").BitSet;
 ```
 
 ## Implementation constraints

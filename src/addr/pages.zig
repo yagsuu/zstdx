@@ -2,8 +2,6 @@
 
 const std = @import("std");
 
-const bits = @import("../bits.zig");
-
 pub const _4kib = 4 * 1024;
 pub const _16kib = 16 * 1024;
 pub const _64kib = 64 * 1024;
@@ -14,7 +12,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
     comptime {
         requireAddress(Addr);
         if (page_size == 0) @compileError("Page size must be non-zero");
-        if (!bits.isPowerOfTwo(Addr.Raw, page_size)) @compileError("Page size must be a power of two");
+        if (!std.math.isPowerOfTwo(page_size)) @compileError("Page size must be a power of two");
     }
 
     return struct {

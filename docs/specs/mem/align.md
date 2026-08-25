@@ -92,7 +92,7 @@ if (stdx.mem.isAligned(usize, offset, 8)) {
 `alignment` is valid when it is a non-zero power of two:
 
 ```zig
-alignment != 0 and stdx.bits.isPowerOfTwo(T, alignment)
+alignment != 0 and std.math.isPowerOfTwo(alignment)
 ```
 
 `alignUp` and `alignDown` return `error.InvalidAlignment` when `alignment` is zero or not a power of two. `isAligned` asserts the same precondition because it returns a plain `bool` (no error union); `alignment` is overwhelmingly a comptime constant in practice.
@@ -175,7 +175,7 @@ These helpers perform no allocation, waiting, hidden global access, atomics, or 
 
 Implementations MUST:
 
-- reuse or exactly match `stdx.bits.isPowerOfTwo` semantics for alignment validation;
+- validate nonzero alignment before calling `std.math.isPowerOfTwo`;
 - avoid unchecked overflow;
 - avoid loops;
 - compile for all unsigned integer widths Zig supports;

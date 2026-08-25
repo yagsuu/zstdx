@@ -2,8 +2,6 @@
 
 const std = @import("std");
 
-const bits = @import("../bits.zig");
-
 /// `InvalidAlignment`: `alignment` is zero or not a power of two.
 /// `Overflow`: rounding up exceeds `T`.
 pub const AlignError = error{InvalidAlignment};
@@ -26,8 +24,7 @@ pub fn alignDown(comptime T: type, value: T, alignment: T) AlignError!T {
 /// Asserts that `alignment` is non-zero and a power of two.
 pub fn isAligned(comptime T: type, value: T, alignment: T) bool {
     comptime requireUnsignedInt(T);
-    std.debug.assert(alignment != 0);
-    std.debug.assert(bits.isPowerOfTwo(T, alignment));
+    std.debug.assert(alignment != 0 and std.math.isPowerOfTwo(alignment));
     return (value & (alignment - 1)) == 0;
 }
 
@@ -50,5 +47,5 @@ fn requireUnsignedInt(comptime T: type) void {
 
 fn validate(comptime T: type, alignment: T) AlignError!void {
     comptime requireUnsignedInt(T);
-    if (alignment == 0 or !bits.isPowerOfTwo(T, alignment)) return error.InvalidAlignment;
+    if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return error.InvalidAlignment;
 }
