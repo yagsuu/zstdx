@@ -281,6 +281,54 @@ MUST follow this convention:
     stalls the queue if the NMI is preempted mid-CAS-loop.
   No std equivalent for freestanding contexts.
 
+- `docs/specs/sync/mcs-lock.md` — FIFO queue spinlock with local waiter polling.
+
+  Decision proposal:
+  - adopt `stdx.sync.McsLock`, a Mellor-Crummey and Scott (MCS) queue lock, as
+    a separate primitive; do not alter `RawSpinLock` or use a ticket lock for
+    this purpose;
+  - expose `McsLock.Node`; each concurrent `acquire` or successful `tryAcquire`
+    supplies one caller-owned node and passes the same node to `release`;
+  - make `McsLock` and `McsLock.Node` cache-line-padded. The lock tail is
+    exchange-shared. Each queued caller spins only on its own node. The
+    predecessor writes that node once to hand off ownership;
+  - use `init()` for both types. `McsLock` has a null tail. `Node` is detached.
+    A caller MUST NOT move, reuse, or destroy a node from its call to `acquire`
+    until `release` returns;
+  - expose `acquire(self: *McsLock, node: *Node) void`,
+    `tryAcquire(self: *McsLock, node: *Node) bool`, and
+    `release(self: *McsLock, node: *Node) void`. `tryAcquire` succeeds only
+    when a CAS changes a null tail to `node`; failure does not enqueue `node`;
+  - make `acquire` append `node` with an acquire-release tail exchange. When a
+    predecessor exists, the caller release-links `node` from that predecessor
+    and acquire-spins on `node` until the predecessor release-signals it;
+  - make `release` release-CAS an uncontended tail to null. If a successor
+    already exchanged into the tail but has not yet linked itself, the holder
+    spins on its own successor pointer. The holder release-signals the linked
+    successor before it returns;
+  - define FIFO order by successful tail exchange. The lock guarantees mutual
+    exclusion and FIFO handoff for callers that complete `acquire`; it does not
+    guarantee bounded wait when a holder or an enqueuer is preempted;
+  - state that the lock removes repeated shared-state RMW invalidations from
+    the contended wait loop. It does not remove one shared tail exchange per
+    enqueue, predecessor-link traffic, or handoff traffic;
+  - exclude reentrancy, cancellation, timeout, parking, backoff policy,
+    interrupt save/restore, condition-variable pairing, and holder identity.
+    `acquire` is not safe in NMI or interrupt context. A caller that is
+    preempted after tail exchange and before predecessor linking stalls the
+    predecessor's `release`;
+  - require representation tests for padded lock and node storage; transition
+    tests for uncontended and queued handoff; a deterministic interleaving
+    model for late predecessor linking; a release/acquire payload-publication
+    test; FIFO-order stress tests; and a contention benchmark that reports
+    throughput and tail latency against `RawSpinLock` without making a fixed
+    performance result normative.
+
+  Open question:
+  - Should `McsLock.Node` be zero-initializable, or should callers use
+    `Node.init()` only? Recommendation: require `Node.init()`; its detached
+    representation is private, while `McsLock` remains valid when zeroed.
+
 - `docs/specs/mem/deferred-free-list.md` — Grace-period-safe deferred free paired with `concurrent/qsbr.md`.
 
   Distinct value: `std` has no primitive with this contract.
