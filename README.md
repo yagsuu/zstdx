@@ -1,34 +1,20 @@
 # zstdx
 
-`zstdx` is a Zig-native library of domain-neutral, low-level primitives with
-explicit contracts for storage, allocation, ownership, waiting, invalidation,
-and ordering.
+`zstdx` is a library of freestanding-first, domain-neutral primitives for systems code.
 
-## Overview
+## Included primitives
 
-`zstdx` owns reusable primitives for core contracts, bit operations, addresses
-and ranges, layout and byte access, explicit-allocation memory mechanisms,
-fixed-storage and intrusive collections, synchronization, concurrent data
-structures, barriers, architecture wrappers, MMIO, DMA data structures, time,
-and diagnostics.
-
-The public Zig module is `stdx`. It provides mechanisms, while system policy
-and platform integration remain with the caller.
-
-## Features
-
-- Strong address, page, frame, range, and duration types.
-- Checked bit, layout, alignment, and endian byte-access primitives.
-- `Static` inline-storage and `Bounded` caller-storage collection variants.
-- Explicit allocator-backed arenas, slab allocators, and slab caches.
-- Intrusive lists, queues, and stacks with caller-owned nodes.
-- Atomic cells, spin locks, one-time initialization, latches, rendezvous, and
-  signals.
-- SPSC and MPSC rings with explicit concurrency contracts.
-- Generic barriers, MMIO wrappers, x86_64 instruction and register wrappers,
-  DMA buffers, and scatter/gather lists.
-- Monotonic clocks, deadlines, backoff, rate counters, deadline queues, and
-  timer wheels.
+- **Types and layout:** addresses, pages, frames, ranges, durations, bit
+  operations, alignment, endian values, and byte access.
+- **Storage and collections:** `Static` inline storage, `Bounded`
+  caller-provided storage, allocator-backed arenas, slab allocators and caches,
+  and intrusive containers.
+- **Synchronization and concurrency:** atomic cells, spin locks, one-time
+  initialization, latches, rendezvous, signals, and SPSC/MPSC rings.
+- **Hardware-facing primitives:** barriers, MMIO, x86_64 instruction and
+  register wrappers, DMA buffers, and scatter/gather lists.
+- **Time:** monotonic clocks, deadlines, backoff, rate counters, deadline
+  queues, and timer wheels.
 
 ## Requirements and platform support
 
@@ -38,9 +24,8 @@ and platform integration remain with the caller.
 | Package | `zstdx` |
 | Public module | `stdx` |
 | Dependencies | None |
-| Runtime model | Freestanding-compatible; primitives do not require OS services, a heap, or a threading runtime unless their contracts state otherwise |
-| Architecture support | Generic primitives are target-neutral; architecture-specific APIs are exposed under `stdx.arch` and target-gated by their contracts |
-| Default test suite | Host tests plus compile fixtures; no external tools required |
+| Runtime | No OS services, heap, or threading runtime unless a primitive contract requires one. |
+| Architecture | Generic APIs are target-neutral. `stdx.arch` APIs are target-gated. |
 
 ## Quick start
 
@@ -59,24 +44,9 @@ exe.root_module.addImport("stdx", zstdx.module("stdx"));
 const stdx = @import("stdx");
 ```
 
-Use an inline, fixed-capacity FIFO:
-
-```zig
-const std = @import("std");
-const stdx = @import("stdx");
-
-pub fn main() !void {
-    var ready = stdx.Ring.Static(u32, 64).init();
-    try ready.pushBack(42);
-
-    const next = ready.popFront() orelse unreachable;
-    std.debug.print("next: {d}\n", .{next});
-}
-```
-
 ## Common workflows
 
-### Use caller-provided fixed storage
+### Caller-provided fixed storage
 
 `Static` owns inline storage. `Bounded` borrows caller-provided storage. Neither
 variant allocates.
@@ -89,7 +59,7 @@ var ready = stdx.Ring.Bounded(u32).wrap(&storage);
 try ready.pushBack(42);
 ```
 
-### Use strong address types
+### Strong address types
 
 Address aliases remain under `stdx.addr`; callers do not use raw integers after
 conversion.
@@ -129,21 +99,16 @@ defer lock.release();
 | `stdx.arch`, `stdx.io`, `stdx.dma`, `stdx.cpu` | Target wrappers, MMIO, DMA data structures, and per-CPU substrate |
 | `stdx.time`, `stdx.tags`, `stdx.func`, `stdx.diag` | Time, tag allocation, callbacks, and diagnostics |
 
-`stdx.List` and `stdx.Ring` are root-promoted collection families. All other
-public declarations remain under their owning namespaces.
-
 ## Design
 
-- **No hidden policy.** Platform discovery, scheduling, DMA mapping, and device
-  protocol policy remain with the caller or a downstream package.
+- **Caller-owned policy.** Platform discovery, scheduling, DMA mapping, and
+  device protocol policy remain with the caller or a downstream package.
 - **Explicit storage and allocation.** `Static` owns inline storage; `Bounded`
   borrows fixed storage; allocator-backed types state their allocator use.
-- **Explicit effects.** Public contracts define applicable allocation, waiting,
+- **Explicit effects.** Public contracts state applicable allocation, waiting,
   capacity, ownership, invalidation, errors, concurrency, and ordering effects.
 - **Domain-neutral APIs.** The library provides mechanisms, not a kernel,
   firmware, driver, hypervisor, or protocol stack.
-- **Contract-driven implementation.** Each public module has an approved owning
-  specification; planning documents do not define production behavior.
 - **Target isolation.** Architecture-specific instructions remain under
   `stdx.arch` and do not leak into generic primitives.
 
@@ -161,14 +126,13 @@ Check Zig source format:
 zig fmt --check build.zig src test
 ```
 
-The default suite runs the host tests and compile fixtures. The fixtures verify
-supported and rejected target-specific API uses. The suite requires no external
-tools.
+The default suite runs host tests and compile fixtures for supported targets and
+selected rejected API uses. It requires no external tools.
 
 ## Documentation
 
-Normative contracts are under [`docs/specs/`](docs/specs/). Planning documents
-do not define the public API.
+[Normative contracts](docs/specs/) define public behavior. Planning documents do
+not define the public API.
 
 - [`docs/specs/project/scope.md`](docs/specs/project/scope.md) — package scope,
   naming, and storage terminology
