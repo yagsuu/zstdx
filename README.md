@@ -1,14 +1,16 @@
 # zstdx
 
-`zstdx` is a library of freestanding-first, domain-neutral primitives for systems code.
+## Overview
 
-## Included primitives
+`zstdx` provides domain-neutral primitives for freestanding systems code.
+
+## Features
 
 - **Types and layout:** addresses, pages, frames, ranges, durations, bit
   operations, alignment, endian values, and byte access.
-- **Storage and collections:** `Static` inline storage, `Bounded`
-  caller-provided storage, allocator-backed arenas, slab allocators and caches,
-  and intrusive containers.
+- **Storage and collections:** inline `Static` storage, caller-provided
+  `Bounded` storage, allocator-backed arenas, slab allocators, caches, and
+  intrusive containers.
 - **Synchronization and concurrency:** atomic cells, spin locks, one-time
   initialization, latches, rendezvous, signals, and SPSC/MPSC rings.
 - **Hardware-facing primitives:** barriers, MMIO, x86_64 instruction and
@@ -24,13 +26,12 @@
 | Package | `zstdx` |
 | Public module | `stdx` |
 | Dependencies | None |
-| Runtime | No OS services, heap, or threading runtime unless a primitive contract requires one. |
+| Runtime | No OS services, heap, or threading runtime required. |
 | Architecture | Generic APIs are target-neutral. `stdx.arch` APIs are target-gated. |
 
 ## Quick start
 
-Add `zstdx` to the consuming project's build configuration and import the
-package module as `stdx`:
+Add `zstdx` to your build configuration, then import its module as `stdx`:
 
 ```zig
 const zstdx = b.dependency("zstdx", .{
@@ -46,23 +47,20 @@ const stdx = @import("stdx");
 
 ## Common workflows
 
-### Caller-provided fixed storage
+### Caller-provided FIFO storage
 
-`Static` owns inline storage. `Bounded` borrows caller-provided storage. Neither
-variant allocates.
+`stdx.Ring.Bounded` is a caller-storage FIFO. Concurrent SPSC and MPSC queues
+are under `stdx.concurrent`.
 
 ```zig
 const stdx = @import("stdx");
 
 var storage: [64]u32 = undefined;
-var ready = stdx.Ring.Bounded(u32).wrap(&storage);
-try ready.pushBack(42);
+var queue = stdx.Ring.Bounded(u32).wrap(&storage);
+try queue.pushBack(42);
 ```
 
 ### Strong address types
-
-Address aliases remain under `stdx.addr`; callers do not use raw integers after
-conversion.
 
 ```zig
 const stdx = @import("stdx");
@@ -72,7 +70,7 @@ const aligned = try base.alignUp(4096);
 _ = aligned;
 ```
 
-### Synchronize without scheduler policy
+### Spin locks
 
 `RawSpinLock` provides mutual exclusion by spinning. It does not yield, sleep,
 or allocate.
@@ -87,7 +85,7 @@ defer lock.release();
 
 ## Public API
 
-`src/stdx.zig` is the public facade. It re-exports these namespaces:
+The public facade is `src/stdx.zig`. It re-exports these namespaces:
 
 | Namespace | Purpose |
 | --- | --- |
@@ -101,16 +99,16 @@ defer lock.release();
 
 ## Design
 
-- **Caller-owned policy.** Platform discovery, scheduling, DMA mapping, and
-  device protocol policy remain with the caller or a downstream package.
+- **Caller-owned policy.** The caller or a downstream package owns platform
+  discovery, scheduling, DMA mapping, and device-protocol policy.
 - **Explicit storage and allocation.** `Static` owns inline storage; `Bounded`
-  borrows fixed storage; allocator-backed types state their allocator use.
+  borrows fixed storage; allocator-backed types identify their allocator use.
 - **Explicit effects.** Public contracts state applicable allocation, waiting,
-  capacity, ownership, invalidation, errors, concurrency, and ordering effects.
-- **Domain-neutral APIs.** The library provides mechanisms, not a kernel,
-  firmware, driver, hypervisor, or protocol stack.
+  capacity, ownership, invalidation, error, concurrency, and ordering effects.
+- **Domain-neutral APIs.** The library provides mechanisms rather than a
+  kernel, firmware, driver, hypervisor, or protocol stack.
 - **Target isolation.** Architecture-specific instructions remain under
-  `stdx.arch` and do not leak into generic primitives.
+  `stdx.arch`. They do not leak into generic primitives.
 
 ## Build and test
 
@@ -126,19 +124,10 @@ Check Zig source format:
 zig fmt --check build.zig src test
 ```
 
-The default suite runs host tests and compile fixtures for supported targets and
-selected rejected API uses. It requires no external tools.
+The default suite runs host tests, supported-target compile fixtures, and
+fixtures that reject selected invalid API uses. It requires no external tools.
 
 ## Documentation
 
-[Normative contracts](docs/specs/) define public behavior. Planning documents do
-not define the public API.
-
-- [`docs/specs/project/scope.md`](docs/specs/project/scope.md) — package scope,
-  naming, and storage terminology
-- [`docs/specs/project/architecture.md`](docs/specs/project/architecture.md) —
-  facade, source ownership, layering, and test aggregation
-- [`docs/specs/stdx.md`](docs/specs/stdx.md) — exact public facade exports
-- [`docs/guidelines/testing.md`](docs/guidelines/testing.md) — test requirements
-- [`docs/guidelines/spec-writing.md`](docs/guidelines/spec-writing.md) —
-  specification requirements
+See [`docs/specs/`](docs/specs/) for public API contracts and
+[`docs/guidelines/`](docs/guidelines/) for project conventions.
