@@ -46,6 +46,125 @@ test "unit: RangeMap construction and capacity" {
     try testing.expect(zero_bounded.isFull());
 }
 
+test "unit: RangeMap dynamic construction capacity and release" {
+    const Unmanaged = RangeMap.Unmanaged(u64, Kind);
+    const UnmanagedRange = Unmanaged.Range;
+    var unmanaged = Unmanaged.init();
+    defer unmanaged.deinit(testing.allocator);
+
+    try testing.expect(unmanaged.isEmpty());
+    try testing.expect(unmanaged.isFull());
+    try unmanaged.ensureTotalCapacity(testing.allocator, 2);
+    try testing.expect(unmanaged.capacity() >= 2);
+    try unmanaged.insert(testing.allocator, try r(UnmanagedRange, 1, 2), .a);
+    unmanaged.assertValid();
+    unmanaged.clearRetainingCapacity();
+    try testing.expect(unmanaged.isEmpty());
+    try testing.expect(unmanaged.capacity() >= 2);
+    unmanaged.clearAndFree(testing.allocator);
+    try testing.expectEqual(@as(usize, 0), unmanaged.capacity());
+
+    const Managed = RangeMap.Managed(u64, Kind);
+    const ManagedRange = Managed.Range;
+    var managed = try Managed.initCapacity(testing.allocator, 2);
+    defer managed.deinit();
+
+    try testing.expect(managed.capacity() >= 2);
+    try managed.assign(try r(ManagedRange, 10, 20), .b);
+    try testing.expectEqual(Kind.b, managed.get(15).?.*);
+    managed.assertValid();
+    managed.clearAndFree();
+    try testing.expect(managed.isEmpty());
+    try testing.expectEqual(@as(usize, 0), managed.capacity());
+    try managed.insert(try r(ManagedRange, 20, 30), .c);
+    try testing.expect(managed.capacity() > 0);
+    try testing.expectEqual(Kind.c, managed.get(25).?.*);
+    managed.assertValid();
+}
+
+test "unit: RangeMap dynamic mutations grow and preserve entries on allocation failure" {
+    try testing.checkAllAllocationFailures(testing.allocator, dynamicAllocationFailures, .{});
+    try expectDynamicInsertOutOfMemory();
+    try expectDynamicAssignOutOfMemory();
+    try expectDynamicRemoveOutOfMemory();
+}
+
+fn dynamicAllocationFailures(allocator: std.mem.Allocator) !void {
+    const Map = RangeMap.Unmanaged(u8, Kind);
+    const Range = Map.Range;
+    var map = Map.init();
+    defer map.deinit(allocator);
+
+    try map.insert(allocator, try r(Range, 0, 5), .a);
+    var before: [1]Map.Entry = undefined;
+    @memcpy(before[0..], map.asConstSlice());
+
+    map.ensureTotalCapacity(allocator, map.capacity() + 1) catch |err| {
+        try expectEntries(Map, &before, map.asConstSlice());
+        return err;
+    };
+}
+
+fn expectDynamicInsertOutOfMemory() !void {
+    const Map = RangeMap.Unmanaged(u8, Kind);
+    const Range = Map.Range;
+    var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1 });
+    const allocator = failing.allocator();
+    var map = Map.init();
+    defer map.deinit(allocator);
+
+    try map.ensureTotalCapacity(allocator, 8);
+    for (0..8) |index| {
+        const start: u8 = @intCast(index * 10);
+        try map.insert(allocator, try r(Range, start, start + 5), .a);
+    }
+
+    var before: [8]Map.Entry = undefined;
+    @memcpy(before[0..], map.asConstSlice());
+    try testing.expectError(error.OutOfMemory, map.insert(allocator, try r(Range, 80, 85), .b));
+    try expectEntries(Map, &before, map.asConstSlice());
+}
+
+fn expectDynamicAssignOutOfMemory() !void {
+    const Map = RangeMap.Unmanaged(u8, Kind);
+    const Range = Map.Range;
+    var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1 });
+    const allocator = failing.allocator();
+    var map = Map.init();
+    defer map.deinit(allocator);
+
+    try map.ensureTotalCapacity(allocator, 8);
+    for (0..8) |index| {
+        const start: u8 = @intCast(index * 10);
+        try map.insert(allocator, try r(Range, start, start + 5), .a);
+    }
+
+    var before: [8]Map.Entry = undefined;
+    @memcpy(before[0..], map.asConstSlice());
+    try testing.expectError(error.OutOfMemory, map.assign(allocator, try r(Range, 1, 4), .b));
+    try expectEntries(Map, &before, map.asConstSlice());
+}
+
+fn expectDynamicRemoveOutOfMemory() !void {
+    const Map = RangeMap.Unmanaged(u8, Kind);
+    const Range = Map.Range;
+    var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1 });
+    const allocator = failing.allocator();
+    var map = Map.init();
+    defer map.deinit(allocator);
+
+    try map.ensureTotalCapacity(allocator, 8);
+    for (0..8) |index| {
+        const start: u8 = @intCast(index * 10);
+        try map.insert(allocator, try r(Range, start, start + 5), .a);
+    }
+
+    var before: [8]Map.Entry = undefined;
+    @memcpy(before[0..], map.asConstSlice());
+    try testing.expectError(error.OutOfMemory, map.remove(allocator, try r(Range, 1, 4)));
+    try expectEntries(Map, &before, map.asConstSlice());
+}
+
 test "unit: RangeMap insert sorts allows adjacency and rejects overlap" {
     const Map = RangeMap.Static(u64, Kind, 4);
     const Range = Map.Range;
@@ -206,6 +325,20 @@ test "unit: RangeMap coalesceAdjacent is explicit and callback-driven" {
         .{ .range = try r(Range, 0, 20), .value = .a },
         .{ .range = try r(Range, 20, 30), .value = .b },
         .{ .range = try r(Range, 40, 50), .value = .a },
+    }, map.asConstSlice());
+}
+
+test "unit: RangeMap coalesceAdjacent merges complete adjacent runs" {
+    const Map = RangeMap.Static(u64, Kind, 3);
+    const Range = Map.Range;
+    var map = Map.init();
+    try map.insert(try r(Range, 0, 10), .a);
+    try map.insert(try r(Range, 10, 20), .a);
+    try map.insert(try r(Range, 20, 30), .a);
+
+    map.coalesceAdjacent({}, eqlKind);
+    try expectEntries(Map, &.{
+        .{ .range = try r(Range, 0, 30), .value = .a },
     }, map.asConstSlice());
 }
 
