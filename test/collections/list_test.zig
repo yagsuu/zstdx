@@ -5,30 +5,37 @@ const std = @import("std");
 
 const stdx = @import("stdx");
 
-const List = stdx.List;
+const List = stdx.collections.List;
 
 const testing = std.testing;
 
-fn exerciseSequence(comptime L: type, list_ptr: *L) !void {
-    try testing.expect(list_ptr.isEmpty());
-    try list_ptr.append(1);
-    try list_ptr.appendSlice(&.{ 2, 3 });
-    try testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, list_ptr.asConstSlice());
-    try testing.expectError(error.Full, list_ptr.append(4));
-    try testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, list_ptr.asConstSlice());
-    try testing.expectError(error.OutOfBounds, list_ptr.insert(4, 9));
-    try testing.expectEqual(@as(u8, 2), (try list_ptr.at(1)).*);
-    try testing.expectEqual(@as(u8, 3), (try list_ptr.constAt(2)).*);
-    try testing.expectEqual(@as(u8, 2), try list_ptr.orderedRemove(1));
-    try testing.expectEqualSlices(u8, &.{ 1, 3 }, list_ptr.asConstSlice());
-    try list_ptr.insert(1, 2);
-    try testing.expectEqual(@as(u8, 1), try list_ptr.swapRemove(0));
-    try testing.expectEqual(@as(usize, 2), list_ptr.len());
-    _ = list_ptr.pop();
-    _ = list_ptr.pop();
-    try testing.expectEqual(@as(?u8, null), list_ptr.pop());
-    list_ptr.clearRetainingCapacity();
-    list_ptr.assertValid();
+fn exerciseSequence(comptime L: type, list: *L) !void {
+    try testing.expect(list.isEmpty());
+
+    try list.append(1);
+    try list.appendSlice(&.{ 2, 3 });
+
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, list.asConstSlice());
+    try testing.expectError(error.Full, list.append(4));
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, list.asConstSlice());
+    try testing.expectError(error.OutOfBounds, list.insert(4, 9));
+    try testing.expectEqual(@as(u8, 2), (try list.at(1)).*);
+    try testing.expectEqual(@as(u8, 3), (try list.constAt(2)).*);
+    try testing.expectEqual(@as(u8, 2), try list.orderedRemove(1));
+    try testing.expectEqualSlices(u8, &.{ 1, 3 }, list.asConstSlice());
+
+    try list.insert(1, 2);
+
+    try testing.expectEqual(@as(u8, 1), try list.swapRemove(0));
+    try testing.expectEqual(@as(usize, 2), list.len());
+
+    _ = list.pop();
+    _ = list.pop();
+
+    try testing.expectEqual(@as(?u8, null), list.pop());
+
+    list.clearRetainingCapacity();
+    list.assertValid();
 }
 
 test "unit: List.Static runs the append/remove/insert sequence" {

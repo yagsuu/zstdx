@@ -2,13 +2,6 @@
 
 const std = @import("std");
 
-fn requireUnsignedInt(comptime T: type) void {
-    const info = @typeInfo(T);
-    if (info != .int or info.int.signedness != .unsigned or info.int.bits == 0) {
-        @compileError("bits.mask requires a non-zero-width unsigned integer type");
-    }
-}
-
 /// Requirements: `T` is a non-zero-width unsigned integer and `count <= @bitSizeOf(T)`.
 pub fn low(comptime T: type, count: usize) T {
     comptime requireUnsignedInt(T);
@@ -37,4 +30,11 @@ pub fn range(comptime T: type, first: usize, last: usize) T {
     const width = last - first + 1;
     const first_shift: std.math.Log2Int(T) = @intCast(first);
     return low(T, width) << first_shift;
+}
+
+fn requireUnsignedInt(comptime T: type) void {
+    const info = @typeInfo(T);
+    if (info != .int or info.int.signedness != .unsigned or info.int.bits == 0) {
+        @compileError("bits.mask requires a non-zero-width unsigned integer type");
+    }
 }

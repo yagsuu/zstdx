@@ -3,7 +3,9 @@
 const std = @import("std");
 
 const stdx = @import("stdx");
+
 const IntrusiveList = stdx.intrusive.List;
+
 const testing = std.testing;
 
 const Item = struct {
@@ -21,6 +23,7 @@ const DoublyOther = IntrusiveList.DoublyLinked(Item, "doubly_other");
 
 fn expectSinglyOrder(list: *Singly, expected: []const *Item) !void {
     list.assertValid();
+
     var current = list.front();
     var index: usize = 0;
     while (current) |item| {
@@ -29,7 +32,9 @@ fn expectSinglyOrder(list: *Singly, expected: []const *Item) !void {
         current = Singly.next(item);
         index += 1;
     }
+
     try testing.expectEqual(expected.len, index);
+
     if (expected.len == 0) {
         try testing.expectEqual(@as(?*Item, null), list.back());
     } else {
@@ -39,6 +44,7 @@ fn expectSinglyOrder(list: *Singly, expected: []const *Item) !void {
 
 fn expectDoublyOrder(list: *Doubly, expected: []const *Item) !void {
     list.assertValid();
+
     var current = list.front();
     var index: usize = 0;
     while (current) |item| {

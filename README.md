@@ -49,14 +49,14 @@ const stdx = @import("stdx");
 
 ### Caller-provided FIFO storage
 
-`stdx.Ring.Bounded` is a caller-storage FIFO. Concurrent SPSC and MPSC queues
-are under `stdx.concurrent`.
+`stdx.collections.Ring.Bounded` is a FIFO around caller provided storage.
+Concurrent SPSC and MPSC queues are under `stdx.concurrent`.
 
 ```zig
 const stdx = @import("stdx");
 
 var storage: [64]u32 = undefined;
-var queue = stdx.Ring.Bounded(u32).wrap(&storage);
+var queue = stdx.collections.Ring.Bounded(u32).wrap(&storage);
 try queue.pushBack(42);
 ```
 

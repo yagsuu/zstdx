@@ -57,10 +57,6 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
             return std.math.sub(Int, self.raw(), base.raw()) catch return error.Overflow;
         }
 
-        fn validateAlignment(alignment: Int) AlignError!void {
-            if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return error.InvalidAlignment;
-        }
-
         pub fn alignUp(self: Self, alignment: Int) Error!Self {
             try validateAlignment(alignment);
 
@@ -77,6 +73,10 @@ pub fn Address(comptime Tag: type, comptime Int: type) type {
         pub fn isAligned(self: Self, alignment: Int) bool {
             std.debug.assert(alignment != 0 and std.math.isPowerOfTwo(alignment));
             return (self.raw() & (alignment - 1)) == 0;
+        }
+
+        fn validateAlignment(alignment: Int) AlignError!void {
+            if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return error.InvalidAlignment;
         }
     };
 }
