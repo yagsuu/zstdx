@@ -144,7 +144,7 @@ pub const DeadlineQueue = struct {
             pub const Error = Impl.Error;
 
             pub fn wrap(slots: []Slot, heap: []usize) Self {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(slots.len == heap.len);
                 }
 
@@ -314,7 +314,7 @@ fn Common(comptime T: type, comptime Self: type) type {
         }
 
         pub fn insertAssumeCapacity(self: *Self, dl: Deadline, item: T) Handle {
-            if (debug.checksEnabled(.build_mode)) {
+            if (debug.checksEnabled()) {
                 std.debug.assert(!self.isFull());
             }
 

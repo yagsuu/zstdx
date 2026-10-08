@@ -92,7 +92,7 @@ fn rangeWalk(ptr: [*]const u8, len: usize, comptime op: fn (usize) void) void {
     std.debug.assert(std.math.isPowerOfTwo(line));
 
     const start = @intFromPtr(ptr);
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         std.debug.assert(len <= std.math.maxInt(usize) - start);
     }
 

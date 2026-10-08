@@ -125,7 +125,7 @@ After a null predicate result, `until` dispatches `Backoff.next(deadline, clock)
 
 `Backoff.next` owns the deadline checks, phase state, productive-attempt count, and sleep-duration clipping. `until` MUST NOT duplicate those checks or alter the returned duration.
 
-For `.yield`, `Backoff` guarantees `backoff.policy.yield != null`. When `stdx.core.debug.checksEnabled(.build_mode)` is true, `until` asserts that condition immediately before unwrapping the hook. When the check is false, the unwrap remains. The assertion identifies a broken `Backoff` invariant; it does not validate caller input.
+For `.yield`, `Backoff` guarantees `backoff.policy.yield != null`. When `stdx.core.debug.checksEnabled()` is true, `until` asserts that condition immediately before unwrapping the hook. When the check is false, the unwrap remains. The assertion identifies a broken `Backoff` invariant; it does not validate caller input.
 
 For `.sleep(d)`, `until` passes the exact `Duration` returned by `Backoff.next` to `clock.sleep`. `until` does not independently read the clock, clip the sleep, or inspect a deadline.
 

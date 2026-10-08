@@ -328,21 +328,8 @@ test "unit: Backoff.assertValid holds after productive next calls" {
 //     - next_wait.nanos() < 0
 //     - next_wait.nanos() > policy.max_wait.nanos()
 //
-//   Backoff.init traps under checksEnabled(.build_mode) whenever
+//   Backoff.init traps under checksEnabled() whenever
 //   Policy.assertValid would trap on the provided policy.
-
-test "contract: Backoff.init runs Policy.assertValid under checksEnabled" {
-    // Positive shape: any valid policy through Backoff.init returns a value
-    // whose Backoff.assertValid also holds. If Backoff.init were to skip
-    // the check under .build_mode a caller mistake would still surface on
-    // the first assertValid, but that is a weaker guarantee than the spec
-    // demands, so this test at least pins the happy path.
-    if (!stdx.core.debug.checksEnabled(.build_mode)) return;
-
-    const p = samplePolicy(1, 1, &testYieldHook);
-    const bo = Backoff.init(p);
-    bo.assertValid();
-}
 
 test "contract: Deadline.never sleep growth never overflows i64" {
     const p: Backoff.Policy = .{

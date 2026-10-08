@@ -274,7 +274,7 @@ pub fn sleep(self: *Self, delta: Duration) void;
 `pub fn sleep(self: *Backend, delta: Duration) void` at instantiation. When
 present, `sleep` calls `self.backend.sleep(delta)` and returns.
 
-Under `core.debug.checksEnabled(.build_mode)`, `sleep` asserts
+Under `core.debug.checksEnabled()`, `sleep` asserts
 `delta.nanos() >= 0` before forwarding. Non-positive deltas are legal on
 the backend seam.
 

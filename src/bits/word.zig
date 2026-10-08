@@ -46,7 +46,7 @@ pub fn isSet(comptime Word: type, words: []const Word, bit_index: usize) bool {
     comptime requireUnsignedInt(Word);
 
     const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         std.debug.assert(word_index < words.len);
     }
 
@@ -59,7 +59,7 @@ pub fn set(comptime Word: type, words: []Word, bit_index: usize) void {
     comptime requireUnsignedInt(Word);
 
     const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         std.debug.assert(word_index < words.len);
     }
 
@@ -72,7 +72,7 @@ pub fn clear(comptime Word: type, words: []Word, bit_index: usize) void {
     comptime requireUnsignedInt(Word);
 
     const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         std.debug.assert(word_index < words.len);
     }
 

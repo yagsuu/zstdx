@@ -35,7 +35,7 @@ A *word* is one `Word` value. A *padding bit* is a bit above a bitmap's `bit_cap
 
 `Word` MUST be an unsigned integer type. Signed integers, floats, bools, enums, pointers, and comptime integers without an explicit `Word` are compile errors.
 
-`count`, `lastMask`, `indexOf`, and `maskOf` accept every `usize` input. `isSet`, `set`, and `clear` require `indexOf(Word, bit_index) < words.len`. The caller MUST enforce that precondition. When `debug.checksEnabled(.build_mode)` is true, the implementation asserts the precondition. When it is false, an invalid index has undefined behavior.
+`count`, `lastMask`, `indexOf`, and `maskOf` accept every `usize` input. `isSet`, `set`, and `clear` require `indexOf(Word, bit_index) < words.len`. The caller MUST enforce that precondition. When `debug.checksEnabled()` is true, the implementation asserts the precondition. When it is false, an invalid index has undefined behavior.
 
 All operations have $O(1)$ time complexity. They do not allocate, wait, access hidden globals, perform atomics, barriers, volatile access, target probing, syscalls, or I/O. They establish no ordering. Callers MUST externally synchronize concurrent mutable access to `words`.
 

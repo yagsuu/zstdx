@@ -170,7 +170,7 @@ The API provides no `[]T` view. The caller MUST access a payload in a padded-slo
 
 `capacity()` returns `N` for `Static` and the backing-slice length for `Bounded`. `len()` returns the same value. Both operations are `O(1)`, infallible, non-allocating, and non-waiting.
 
-`assertValid()` asserts that the slot-storage base is aligned to `@alignOf(Padded)`. When at least two slots exist, it also asserts that the first two slots are exactly `@sizeOf(Padded)` bytes apart. `assertValid()` runs its assertions whenever the caller invokes it; the caller can gate the invocation with `stdx.core.debug.checksEnabled(.build_mode)`.
+`assertValid()` asserts that the slot-storage base is aligned to `@alignOf(Padded)`. When at least two slots exist, it also asserts that the first two slots are exactly `@sizeOf(Padded)` bytes apart. `assertValid()` runs its assertions whenever the caller invokes it; the caller can gate the invocation with `stdx.core.debug.checksEnabled()`.
 
 ## Implementation constraints
 

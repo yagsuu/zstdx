@@ -75,7 +75,7 @@ pub fn Latch(comptime Backend: type) type {
 
             /// Requirements: `capacity_arrivals > 0`. Initialize before sharing.
             pub fn init(capacity_arrivals: u32, backend: Backend) Bounded {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(capacity_arrivals > 0);
                 }
 
@@ -119,7 +119,7 @@ pub const State = struct {
 
     /// Requirements: `capacity > 0`.
     pub fn init(capacity: u32) State {
-        if (debug.checksEnabled(.build_mode)) {
+        if (debug.checksEnabled()) {
             std.debug.assert(capacity > 0);
         }
         return .{ .word = std.atomic.Value(u32).init(capacity) };
@@ -167,7 +167,7 @@ fn arriveShared(state: *State, backend: anytype) void {
 
         if (rem == 0) {
             // Saturate over-arrival at zero; debug builds trap.
-            if (debug.checksEnabled(.build_mode)) unreachable;
+            if (debug.checksEnabled()) unreachable;
             return;
         }
 

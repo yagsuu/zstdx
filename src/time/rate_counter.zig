@@ -51,7 +51,7 @@ pub const RateCounter = struct {
     }
 
     pub fn init(config: Config) Self {
-        if (debug.checksEnabled(.build_mode)) config.assertValid();
+        if (debug.checksEnabled()) config.assertValid();
         return .{
             .base = config.base,
             .rate_hz = config.rate_hz,
@@ -104,7 +104,7 @@ const Projection = struct {
 /// Keeps the `u128` intermediate isolated from the hot `RateCounter` type
 /// body.
 fn project(self: *const RateCounter, now: Instant) Projection {
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         std.debug.assert(now.afterOrEq(self.base));
     }
 

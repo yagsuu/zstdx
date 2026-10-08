@@ -213,19 +213,19 @@ fn tokenFromWord(word: Word) Token {
 threadlocal var current_claim: ?*const State = null;
 
 fn checkNotRecursive(state: *const State) void {
-    if (comptime !debug.checksEnabled(.build_mode)) return;
+    if (comptime !debug.checksEnabled()) return;
     if (comptime builtin.single_threaded) return;
     std.debug.assert(current_claim != state);
 }
 
 fn enterClaim(state: *const State) void {
-    if (comptime !debug.checksEnabled(.build_mode)) return;
+    if (comptime !debug.checksEnabled()) return;
     if (comptime builtin.single_threaded) return;
     current_claim = state;
 }
 
 fn leaveClaim(state: *const State) void {
-    if (comptime !debug.checksEnabled(.build_mode)) return;
+    if (comptime !debug.checksEnabled()) return;
     if (comptime builtin.single_threaded) return;
     if (current_claim == state) current_claim = null;
 }

@@ -146,7 +146,7 @@ is pinned by a `comptime` assertion inside the type body.
 
 `RateCounter.init(config)` returns a `RateCounter` with the identity
 fields copied from `config` and `last_wrap_count = 0`. Under
-`stdx.core.debug.checksEnabled(.build_mode)`, `init` calls
+`stdx.core.debug.checksEnabled()`, `init` calls
 `config.assertValid()`.
 
 `init` does not touch the clock. Consumers that anchor at "now" pass
@@ -177,7 +177,7 @@ The intermediate `elapsed_ns * rate_hz` is computed in `u128` to avoid
 overflow across the full `Instant` and `rate_hz` domains.
 
 `elapsed_ns` must be non-negative. Under
-`stdx.core.debug.checksEnabled(.build_mode)`, `peek` and `sample` assert
+`stdx.core.debug.checksEnabled()`, `peek` and `sample` assert
 `now.afterOrEq(base)`. A `base` sourced from the same monotonic clock
 cannot trip this assertion.
 
@@ -218,7 +218,7 @@ counts as a wrap on the call that crosses into the new interval.
 
 `RateCounter.assertValid` recurses into the embedded config invariants
 via a projected `Config`. Runs unconditionally. `RateCounter.init` calls
-`config.assertValid()` under `checksEnabled(.build_mode)` only.
+`config.assertValid()` under `checksEnabled()` only.
 
 ## Behavior contract
 

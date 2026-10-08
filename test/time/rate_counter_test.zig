@@ -279,7 +279,7 @@ test "unit: assertValid accepts freshly-initialized value" {
 test "unchecked: peek and sample tolerate now < base when checks disabled" {
     // In unchecked builds, `now < base` is outside the contract but must not trap.
     // This test verifies that runtime-safe behavior.
-    if (stdx.core.debug.checksEnabled(.build_mode)) return;
+    if (stdx.core.debug.checksEnabled()) return;
 
     var rc: RateCounter = .init(.{
         .base = Instant.fromNanos(1_000),
@@ -322,17 +322,11 @@ test "unit: Config.assertValid accepts boundary-legal shapes" {
 //     - width_bits == 0
 //     - width_bits > 64 (values 65..127 reachable via u7)
 //
-//   RateCounter.init traps under checksEnabled(.build_mode) whenever
+//   RateCounter.init traps under checksEnabled() whenever
 //   Config.assertValid would trap on the provided config.
 //
-//   peek and sample trap under checksEnabled(.build_mode) when
+//   peek and sample trap under checksEnabled() when
 //   clock.now() returns an Instant strictly before self.base.
-
-test "contract: RateCounter.init runs Config.assertValid under checksEnabled" {
-    if (!stdx.core.debug.checksEnabled(.build_mode)) return;
-    const rc = pmCounter(0);
-    rc.assertValid();
-}
 
 test "contract: @sizeOf(RateCounter) is stable" {
     // Concrete literal so a field-shape drift trips the test.

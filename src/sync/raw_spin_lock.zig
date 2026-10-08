@@ -58,11 +58,11 @@ pub const RawSpinLock = struct {
 
     /// Release-publishes the unlocked state.
     ///
-    /// Under `core.debug.checksEnabled(.build_mode)`, `assertHeld` runs first;
+    /// Under `core.debug.checksEnabled()`, `assertHeld` runs first;
     /// a stray release traps in Debug/ReleaseSafe. In ReleaseFast/ReleaseSmall,
     /// the store is unconditional.
     pub fn release(self: *Self) void {
-        if (debug.checksEnabled(.build_mode)) self.assertHeld();
+        if (debug.checksEnabled()) self.assertHeld();
         self.state.storeRelease(@intFromEnum(State.unlocked));
     }
 
@@ -75,9 +75,9 @@ pub const RawSpinLock = struct {
 
     /// Trap if the state word is not `locked`. Runs unconditionally when
     /// called; consumers gate at the call site under
-    /// `core.debug.checksEnabled(.build_mode)`. `release()` invokes this
+    /// `core.debug.checksEnabled()`. `release()` invokes this
     /// internally under the same gate.
     pub fn assertHeld(self: *const Self) void {
-        if (debug.checksEnabled(.build_mode)) std.debug.assert(self.isHeld());
+        if (debug.checksEnabled()) std.debug.assert(self.isHeld());
     }
 };

@@ -135,7 +135,7 @@ pub const MMIO = struct {
                 comptime requireRegisterType(T);
                 comptime std.debug.assert(@alignOf(T) <= min_align_bytes);
 
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     const width = @sizeOf(T);
                     std.debug.assert(width <= self.len);
                     std.debug.assert(offset <= self.len - width);

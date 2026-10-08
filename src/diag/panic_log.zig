@@ -62,7 +62,7 @@ pub const PanicLog = struct {
             /// Resets counters and zeros the byte storage only when no writer holds
             /// the seat and no reader is mid-drain.
             pub fn clear(self: *Self) void {
-                if (comptime debug.checksEnabled(.build_mode)) {
+                if (comptime debug.checksEnabled()) {
                     std.debug.assert(self.seat.load(.acquire) == 0);
                 }
 

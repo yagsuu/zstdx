@@ -155,7 +155,7 @@ At compile time, the operation MUST reject a missing field and a field whose `@o
 
 `registerUnchecked(T, offset)` returns the same pointer that a successful `register(T, offset)` returns. The caller MUST establish the accepted type, bounds, and address alignment before the call.
 
-When `stdx.core.debug.checksEnabled(.build_mode)` is true, the operation asserts the same bounds and alignment conditions enforced by `register`. When the check is false, it performs unchecked pointer arithmetic. A caller MUST NOT rely on debug assertions for release-mode validation.
+When `stdx.core.debug.checksEnabled()` is true, the operation asserts the same bounds and alignment conditions enforced by `register`. When the check is false, it performs unchecked pointer arithmetic. A caller MUST NOT rely on debug assertions for release-mode validation.
 
 ## Implementation constraints
 

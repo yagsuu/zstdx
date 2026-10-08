@@ -103,10 +103,10 @@ test "contract: assertHeld is a no-op when the lock is held" {
 // caller misuse and covered by the debug asserts in
 // `src/sync/raw_spin_lock.zig`.
 //
-//   RawSpinLock.assertHeld traps under checksEnabled(.build_mode) when:
+//   RawSpinLock.assertHeld traps under checksEnabled() when:
 //     - the state word is `unlocked` (never acquired or already released).
 //
-//   RawSpinLock.release traps under checksEnabled(.build_mode) when:
+//   RawSpinLock.release traps under checksEnabled() when:
 //     - assertHeld would trap on the same instance (release without a
 //       prior successful acquire/tryAcquire).
 

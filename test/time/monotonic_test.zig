@@ -146,7 +146,7 @@ test "unit: Clock.Monotonic.init and now return the backend's values verbatim" {
 }
 
 test "unit: Clock.Monotonic release build has sizeof equal to backend" {
-    if (stdx.core.debug.checksEnabled(.build_mode)) return;
+    if (stdx.core.debug.checksEnabled()) return;
     try testing.expectEqual(
         @sizeOf(TestBackend),
         @sizeOf(stdx.time.Clock.Monotonic(TestBackend)),

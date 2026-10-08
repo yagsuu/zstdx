@@ -152,7 +152,7 @@ past `max_wait` saturate.
 - `initial_wait.nanos() <= max_wait.nanos()`.
 
 `Policy.assertValid` runs unconditionally when called. `Backoff.init` and
-`Backoff.assertValid` call it under `checksEnabled(.build_mode)` only.
+`Backoff.assertValid` call it under `checksEnabled()` only.
 
 ## Backoff semantics
 
@@ -160,7 +160,7 @@ past `max_wait` saturate.
 
 `Backoff.init(policy)` returns a `Backoff` with `policy` stored,
 `attempt = 0`, `next_wait = policy.initial_wait`. Under
-`checksEnabled(.build_mode)`, `init` calls `policy.assertValid()`.
+`checksEnabled()`, `init` calls `policy.assertValid()`.
 
 ### Step transitions
 
@@ -215,7 +215,7 @@ type is `u32` matching the field.
 - `self.next_wait.nanos() <= self.policy.max_wait.nanos()`.
 
 Runs unconditionally when called. Consumers gate the call under
-`checksEnabled(.build_mode)` per `core/debug.md` convention.
+`checksEnabled()` per `core/debug.md` convention.
 
 ## Clock parameter
 

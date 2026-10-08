@@ -97,7 +97,7 @@ pub const Clock = struct {
     pub fn Monotonic(comptime Backend: type) type {
         requireBackendNow(Backend);
 
-        const check_monotonic = debug.checksEnabled(.build_mode);
+        const check_monotonic = debug.checksEnabled();
 
         if (!@hasDecl(Backend, "sleep")) {
             return struct {

@@ -320,7 +320,7 @@ responsibility.
   of the same order and calls `self.parent.free(range)`. Errors from
   `free` are contract violations (the caller passed a foreign or
   double-freed region) and are asserted under
-  `stdx.core.debug.checksEnabled(.build_mode)`; in release builds the
+  `stdx.core.debug.checksEnabled()`; in release builds the
   error is silently swallowed to match `RegionSource.release`'s
   infallible signature.
 
@@ -363,7 +363,7 @@ concurrent callers MUST synchronize externally.
 `isValid()` returns whether the same conditions hold, without
 asserting.
 
-Under `stdx.core.debug.checksEnabled(.build_mode)`, `alloc`, `free`, and
+Under `stdx.core.debug.checksEnabled()`, `alloc`, `free`, and
 `reserve` MAY assert `assertValid()` after mutation. On release builds
 the check is compiled out.
 

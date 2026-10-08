@@ -1,12 +1,11 @@
 //! Core primitives.
-//! See `docs/specs/core/options.md`, `docs/specs/core/debug.md`,
-//! See `docs/specs/core/range.md`,`docs/specs/core/traits.md`.
+//! See `docs/specs/core/debug.md`, `docs/specs/core/range.md`,
+//! and `docs/specs/core/traits.md`.
 
 const traits = @import("core/traits.zig");
 
 pub const debug = @import("core/debug.zig");
 
-pub const SafetyMode = @import("core/options.zig").SafetyMode;
 pub const Range = @import("core/range.zig").Range;
 pub const InclusiveRange = @import("core/range.zig").InclusiveRange;
 pub const Order = traits.Order;

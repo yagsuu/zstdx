@@ -409,7 +409,7 @@ fn allocImpl(
         current = pair[0];
     }
 
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         const slot = current.start >> @as(Shift, @intCast(current.order));
         std.debug.assert(!bitIsSet(words, unit_capacity, current.order, slot));
     }
@@ -427,7 +427,7 @@ fn freeImpl(
 
     const size = @as(usize, 1) << @as(Shift, @intCast(block.order));
     const aligned = block.start % size == 0;
-    if (debug.checksEnabled(.build_mode)) std.debug.assert(aligned);
+    if (debug.checksEnabled()) std.debug.assert(aligned);
     if (!aligned) return error.InvalidRequest;
 
     const end = std.math.add(usize, block.start, size) catch return error.InvalidRequest;
@@ -435,7 +435,7 @@ fn freeImpl(
 
     const slot = block.start >> @as(Shift, @intCast(block.order));
     if (bitIsSet(words, unit_capacity, block.order, slot)) {
-        if (debug.checksEnabled(.build_mode)) std.debug.assert(false);
+        if (debug.checksEnabled()) std.debug.assert(false);
         return error.NotAllocated;
     }
 
@@ -460,7 +460,7 @@ fn freeImpl(
         current.start >> @as(Shift, @intCast(current.order)),
     );
 
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         std.debug.assert(!hasBothBuddiesFree(words, unit_capacity, order_count));
     }
 }

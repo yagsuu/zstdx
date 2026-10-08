@@ -41,7 +41,7 @@ pub fn until(
         switch (bo.next(dl, clock)) {
             .spin => std.atomic.spinLoopHint(),
             .yield => {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(bo.policy.yield != null);
                 }
 

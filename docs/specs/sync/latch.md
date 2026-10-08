@@ -156,7 +156,7 @@ pub const Bounded = struct {
 `docs/specs/sync/rendezvous.md`. `Static(capacity)` with
 `capacity > std.math.maxInt(u32)` is a compile-time error.
 `Bounded.init(0, backend)` is a caller-contract violation and traps under
-`stdx.core.debug.checksEnabled(.build_mode)`.
+`stdx.core.debug.checksEnabled()`.
 
 There is no `reset`, `rearm`, `resize`, `arriveAndWait`, `tryArrive`,
 `tryWait`, `arriveTimeout`, or `waitUntil` alias in this spec. `arrive` is
@@ -232,7 +232,7 @@ out of the released state.
 
 `State.init(capacity)` returns a state with `remaining = capacity`.
 `capacity` must be strictly positive; passing zero is a caller-contract
-violation and traps under `stdx.core.debug.checksEnabled(.build_mode)`.
+violation and traps under `stdx.core.debug.checksEnabled()`.
 
 `Latch(Backend).Static(capacity).init(backend)` returns a `Self` with the
 state pre-armed to `remaining = capacity` and the supplied backend stored
@@ -242,7 +242,7 @@ error.
 `Latch(Backend).Bounded.init(capacity, backend)` returns a `Bounded` with
 the state pre-armed to `remaining = capacity` and the runtime `capacity`
 stored in the struct. `capacity == 0` is a caller-contract violation and
-traps under `checksEnabled(.build_mode)`.
+traps under `checksEnabled()`.
 
 `init` must complete before any concurrent use.
 
@@ -267,7 +267,7 @@ pub fn arrive(self: *Self) void {
             // Over-arrival: caller-contract violation. Trap under
             // checksEnabled; saturate at zero in release without wrap and
             // without a second wakeAll.
-            if (stdx.core.debug.checksEnabled(.build_mode)) unreachable;
+            if (stdx.core.debug.checksEnabled()) unreachable;
             return;
         }
 
@@ -292,7 +292,7 @@ Required behavior:
   arrival count;
 - over-arrival (calling `arrive` after `remaining == 0`) is a caller-
   contract violation and traps under
-  `stdx.core.debug.checksEnabled(.build_mode)`; in release builds the
+  `stdx.core.debug.checksEnabled()`; in release builds the
   primitive saturates at zero, does not wrap, and does not invoke
   `wakeAll` a second time;
 - `arrive` does not allocate.
@@ -300,7 +300,7 @@ Required behavior:
 Static-only additional constraint: the `capacity` argument passed to
 `Static(N)` must satisfy `N > 0` and `N <= std.math.maxInt(u32)`. Bounded
 enforces `capacity > 0` at runtime under
-`stdx.core.debug.checksEnabled(.build_mode)`.
+`stdx.core.debug.checksEnabled()`.
 
 ## Wait semantics
 
@@ -445,8 +445,8 @@ Implementation must:
 - avoid hidden globals and target-specific waits in the latch layer;
 - compile-error `Static(0)` and any `Static(N)` with `N > u32max`;
 - assert `capacity > 0` in `Bounded.init` under
-  `stdx.core.debug.checksEnabled(.build_mode)`;
-- trap over-arrival under `stdx.core.debug.checksEnabled(.build_mode)` and
+  `stdx.core.debug.checksEnabled()`;
+- trap over-arrival under `stdx.core.debug.checksEnabled()` and
   saturate at zero in release without wrapping and without a second
   `wakeAll`.
 

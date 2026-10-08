@@ -385,7 +385,7 @@ return an error from `work` instead of panicking.
 Invoking `call` or `callChecked` on the same `Once` from inside `work` is a
 caller contract violation and produces unspecified behavior.
 
-Under `stdx.core.debug.checksEnabled(.build_mode)`, on targets where
+Under `stdx.core.debug.checksEnabled()`, on targets where
 `builtin.single_threaded` is `false`, the primitive detects direct recursion
 using a module-level `threadlocal` current-claim pointer:
 
@@ -393,19 +393,19 @@ using a module-level `threadlocal` current-claim pointer:
 threadlocal var current_claim: ?*const anyopaque = null;
 
 fn checkNotRecursive(state: *const State) void {
-    if (stdx.core.debug.checksEnabled(.build_mode)) {
+    if (stdx.core.debug.checksEnabled()) {
         std.debug.assert(current_claim != state);
     }
 }
 
 fn enterClaim(state: *const State) void {
-    if (stdx.core.debug.checksEnabled(.build_mode)) {
+    if (stdx.core.debug.checksEnabled()) {
         current_claim = state;
     }
 }
 
 fn leaveClaim(state: *const State) void {
-    if (stdx.core.debug.checksEnabled(.build_mode)) {
+    if (stdx.core.debug.checksEnabled()) {
         if (current_claim == state) current_claim = null;
     }
 }
@@ -413,7 +413,7 @@ fn leaveClaim(state: *const State) void {
 
 The check has these limits:
 
-- it runs only when `checksEnabled(.build_mode)` is `true` and
+- it runs only when `checksEnabled()` is `true` and
   `builtin.single_threaded` is `false`;
 - it detects direct recursion from inside `work` on the same thread;
 - it does not detect mutual recursion through two different `Once` instances;

@@ -323,7 +323,7 @@ unconditionally on hot paths.
 
 ## Debug fill
 
-When `stdx.core.debug.checksEnabled(.build_mode)` is `true`, `acquire` and
+When `stdx.core.debug.checksEnabled()` is `true`, `acquire` and
 `release` overwrite the payload byte window with fixed patterns so that
 use-after-free and use-before-init errors are visible in Debug and
 ReleaseSafe:
@@ -338,7 +338,7 @@ ReleaseSafe:
   window; only bytes at offsets `[@sizeOf(?*Slot), @sizeOf(T))` remain
   observable as `0xFD` for use-after-free diagnostics.
 
-When `checksEnabled(.build_mode)` is `false` (ReleaseFast and
+When `checksEnabled()` is `false` (ReleaseFast and
 ReleaseSmall), neither fill runs and the payload window is left in
 whatever state the last public operation left it. Callers that need
 deterministic zeroing must do it themselves.
@@ -428,15 +428,15 @@ Verification uses boundary-capacity cases, raw storage inspection under enabled 
 Required with a payload type large enough that the last byte lies beyond
 `@sizeOf(?*Slot)`, e.g. `[64]u8` or `struct { bytes: [64]u8 }`:
 
-- under `stdx.core.debug.checksEnabled(.build_mode) == true`, every byte
+- under `stdx.core.debug.checksEnabled() == true`, every byte
   of the payload window returned by `acquire` equals `0xCD`;
-- under `checksEnabled(.build_mode) == true`, immediately after
+- under `checksEnabled() == true`, immediately after
   `release` every byte of the payload window at offsets
   `[@sizeOf(?*Slot), @sizeOf(T))` equals `0xFD` when read through a raw
   pointer that outlives the release. Bytes at offsets
   `[0, @sizeOf(?*Slot))` are overwritten by the free-list link and MUST
   NOT be asserted;
-- under `checksEnabled(.build_mode) == false`, the fill patterns MUST
+- under `checksEnabled() == false`, the fill patterns MUST
   NOT appear. The test asserts that neither `0xCD` nor `0xFD` is
   observed in the payload window after `acquire` or after `release`;
 - fills do not affect `len`, `remaining`, `bump_index`, `free_head`,

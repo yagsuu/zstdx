@@ -74,7 +74,7 @@ pub const PerCPU = struct {
             /// Zig array-bounds policy: trap in Debug/ReleaseSafe, undefined
             /// in ReleaseFast/ReleaseSmall.
             pub fn get(self: *const Self, index: usize) T {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(index < N);
                 }
                 return self.storage[index].value;
@@ -83,7 +83,7 @@ pub const PerCPU = struct {
             /// Unchecked pointer to the payload in slot `index`. Same bounds
             /// policy as `get`.
             pub fn getPtr(self: *Self, index: usize) *T {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(index < N);
                 }
                 return &self.storage[index].value;
@@ -117,7 +117,7 @@ pub const PerCPU = struct {
 
             /// Invariant: The storage base is padded-aligned, and adjacent slots are
             /// exactly `@sizeOf(Padded)` apart. This method does not gate checks;
-            /// callers can gate it with `stdx.core.debug.checksEnabled(.build_mode)`.
+            /// callers can gate it with `stdx.core.debug.checksEnabled()`.
             pub fn assertValid(self: *const Self) void {
                 assertValidPadded(Padded, self.storage[0..]);
             }
@@ -180,14 +180,14 @@ pub const PerCPU = struct {
             }
 
             pub fn get(self: *const Self, index: usize) T {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(index < self.slots_backing.len);
                 }
                 return self.slots_backing[index].value;
             }
 
             pub fn getPtr(self: *Self, index: usize) *T {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(index < self.slots_backing.len);
                 }
                 return &self.slots_backing[index].value;
@@ -213,7 +213,7 @@ pub const PerCPU = struct {
 
             /// Invariant: The backing-slice base is padded-aligned, and adjacent slots
             /// are exactly `@sizeOf(Padded)` apart. This method does not gate checks;
-            /// callers can gate it with `stdx.core.debug.checksEnabled(.build_mode)`.
+            /// callers can gate it with `stdx.core.debug.checksEnabled()`.
             pub fn assertValid(self: *const Self) void {
                 assertValidPadded(Padded, self.slots_backing);
             }

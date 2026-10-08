@@ -319,7 +319,7 @@ Logic:
    - otherwise break.
 5. Set the bit for `(block.order, block.start >> block.order)`.
 
-Under `stdx.core.debug.checksEnabled(.build_mode)`, `free` asserts after
+Under `stdx.core.debug.checksEnabled()`, `free` asserts after
 step 5 that no two same-order buddies are both free — a violation would mean
 step 4 missed a coalesce and is a bug in this primitive rather than in the
 caller.
@@ -367,7 +367,7 @@ exactly matches what `alloc` returned. Passing a `block` with a different
 order — even one aligned to that order and inside the allocator's range — is
 a caller contract violation.
 
-Under `stdx.core.debug.checksEnabled(.build_mode)`:
+Under `stdx.core.debug.checksEnabled()`:
 
 - `free` traps when `block.start % (1 << block.order) != 0`;
 - `free` traps when the bit is already set (double-free);
@@ -401,7 +401,7 @@ callers MUST serialize externally.
 
 ## Debug assertion behavior
 
-`stdx.core.debug.checksEnabled(.build_mode)` gates:
+`stdx.core.debug.checksEnabled()` gates:
 
 - `free`'s trap on unaligned `block.start`;
 - `free`'s trap on double-free (bit already set) instead of the release-mode
@@ -524,7 +524,7 @@ Boundary tests use small allocator configurations to verify construction, splitt
 
 ### Debug assertions
 
-- Under `checksEnabled(.build_mode)`, `free(Block{ .start = 1, .order = 1 })`
+- Under `checksEnabled()`, `free(Block{ .start = 1, .order = 1 })`
   (start not `(1 << 1)`-aligned) traps.
 - Under `checksEnabled`, double-free traps instead of returning
   `error.NotAllocated`.

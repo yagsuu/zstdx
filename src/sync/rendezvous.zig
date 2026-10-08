@@ -18,9 +18,9 @@ pub const State = struct {
     word: std.atomic.Value(u64),
 
     /// `capacity_parties` must be strictly positive; zero traps under
-    /// `core.debug.checksEnabled(.build_mode)`. Generation starts at `0`.
+    /// `core.debug.checksEnabled()`. Generation starts at `0`.
     pub fn init(capacity_parties: u32) State {
-        if (debug.checksEnabled(.build_mode)) {
+        if (debug.checksEnabled()) {
             std.debug.assert(capacity_parties > 0);
         }
         return .{ .word = std.atomic.Value(u64).init(packWord(capacity_parties, 0)) };
@@ -145,7 +145,7 @@ pub fn Rendezvous(comptime Backend: type) type {
 
         /// Runtime-capacity variant. `capacity_parties` is set at
         /// construction; `0` is a caller-contract violation and traps
-        /// under `core.debug.checksEnabled(.build_mode)`.
+        /// under `core.debug.checksEnabled()`.
         pub const Bounded = struct {
             capacity_parties: u32,
             state: State,
@@ -157,7 +157,7 @@ pub fn Rendezvous(comptime Backend: type) type {
             /// Returns a rendezvous pre-armed for the first generation
             /// with `backend` stored by value.
             pub fn init(capacity_parties: u32, backend: Backend) Bounded {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(capacity_parties > 0);
                 }
                 return .{

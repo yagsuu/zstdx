@@ -155,7 +155,7 @@ generation into `offline_bit`.
 - `Static(0)` is a compile-time error.
 - `Static(N)` where `N > std.math.maxInt(u32) + 1` is a compile-time error.
 - `Bounded.wrap` with an empty slot slice is a caller-contract violation and
-  traps/asserts when `stdx.core.debug.checksEnabled(.build_mode)` is true.
+  traps/asserts when `stdx.core.debug.checksEnabled()` is true.
 - `Bounded.wrap` with `slots.len > std.math.maxInt(u32) + 1` is a
   caller-contract violation and traps/asserts when checks are enabled.
 - Every participant token names one numeric slot index.
@@ -786,7 +786,7 @@ Tests MUST verify the observable participant-state, grace-period, reclamation-sa
 
 A deterministic model MUST represent each participant as offline or online at a reported generation and MUST compare `isComplete` with the definition of completion for every modeled state. The model MUST cover capacity one, all slots offline, one online slot, multiple online slots, repeated `offline`, repeated `online`, overlapping grace periods, and reports at both an earlier and the latest target generation. It MUST verify that an online participant blocks a target until it reports a generation at or above that target or goes offline, that a later completed target implies completion of earlier targets, and that a participant that becomes online after a target begins does not block that target solely by becoming online. This proves the grace-period state machine and reclamation-safety predicate.
 
-Compile-time tests MUST reject `Static(0)` and static capacities that `Participant` cannot represent. Runtime boundary tests MUST verify that `participant(index)` rejects indices at or above capacity and that `Bounded.wrap` rejects empty and unrepresentable slot slices when `stdx.core.debug.checksEnabled(.build_mode)` enables the relevant assertion. Tests MUST verify that `Static.init` and `Bounded.wrap` set generation zero and all slots offline. These tests prove construction and capacity fault behavior without requiring detection of caller-owned slot-ownership or false-quiescence violations.
+Compile-time tests MUST reject `Static(0)` and static capacities that `Participant` cannot represent. Runtime boundary tests MUST verify that `participant(index)` rejects indices at or above capacity and that `Bounded.wrap` rejects empty and unrepresentable slot slices when `stdx.core.debug.checksEnabled()` enables the relevant assertion. Tests MUST verify that `Static.init` and `Bounded.wrap` set generation zero and all slots offline. These tests prove construction and capacity fault behavior without requiring detection of caller-owned slot-ownership or false-quiescence violations.
 
 ### Memory ordering and reclamation safety
 

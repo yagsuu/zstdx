@@ -152,7 +152,7 @@ pub const Bounded = struct {
 `docs/specs/bits/set/static.md`. `Static(capacity_parties)` with
 `capacity_parties > std.math.maxInt(u32)` is a compile-time error.
 `Bounded.init(0, backend)` is a caller-contract violation and traps under
-`stdx.core.debug.checksEnabled(.build_mode)`.
+`stdx.core.debug.checksEnabled()`.
 
 There is no `reset`, `resize`, `dropParty`, `tryArrive`, `arriveTimeout`,
 `arriveUntil`, or `arriveAndWait` alias in this spec. `arrive` is the only
@@ -231,7 +231,7 @@ comparison. Tests do not execute that many generation advances.
 `State.init(capacity_parties)` returns a state with `remaining =
 capacity_parties` and `generation = 0`. `capacity_parties` must be strictly
 positive; passing zero is a caller-contract violation and traps under
-`stdx.core.debug.checksEnabled(.build_mode)`.
+`stdx.core.debug.checksEnabled()`.
 
 `Rendezvous(Backend).Static(capacity_parties).init(backend)` returns a `Self`
 with the state pre-armed for the first generation and the supplied backend
@@ -313,7 +313,7 @@ Required behavior:
 Static-only additional constraint: the `capacity_parties` argument passed to
 `Static(N)` must satisfy `N > 0` and `N <= std.math.maxInt(u32)`. Bounded
 enforces `capacity_parties > 0` at runtime under
-`stdx.core.debug.checksEnabled(.build_mode)`.
+`stdx.core.debug.checksEnabled()`.
 
 ## Lost-wakeup contract
 
@@ -425,7 +425,7 @@ Implementation must:
 - avoid hidden globals and target-specific waits in the rendezvous layer;
 - compile-error `Static(0)` and any `Static(N)` with `N > u32max`;
 - assert `capacity_parties > 0` in `Bounded.init` under
-  `stdx.core.debug.checksEnabled(.build_mode)`.
+  `stdx.core.debug.checksEnabled()`.
 
 ## std.Io lane
 

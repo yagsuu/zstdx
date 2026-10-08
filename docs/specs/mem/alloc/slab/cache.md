@@ -303,7 +303,7 @@ Logic:
 
 1. Mask `@intFromPtr(item)` down to `region_align` to recover the region
    base, then recover the `RegionHeader`.
-2. Under `stdx.core.debug.checksEnabled(.build_mode)`, assert that the
+2. Under `stdx.core.debug.checksEnabled()`, assert that the
    header belongs to this cache.
 3. Call `header.inner.release(item)`.
 4. Decrement `live_count`.
@@ -582,5 +582,5 @@ and `drain` grow and shrink the oracle by `slots_per_region`.
 
 - `SlabCache`'s acquired pointers are subject to the same
   `0xCD` / `0xFD` fill discipline as `SlabAllocator` under
-  `checksEnabled(.build_mode) == true` — the test relies on the
+  `checksEnabled() == true` — the test relies on the
   underlying `SlabAllocator.Bounded(T)` inside each region enforcing it.

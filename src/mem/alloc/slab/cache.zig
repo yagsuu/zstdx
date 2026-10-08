@@ -142,7 +142,7 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
         }
 
         fn assertOwnsHeader(self: *const Self, header: *const RegionHeader) void {
-            if (debug.checksEnabled(.build_mode)) {
+            if (debug.checksEnabled()) {
                 std.debug.assert(self.ownsHeader(header));
             }
         }

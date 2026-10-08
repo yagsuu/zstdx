@@ -205,7 +205,7 @@ test "unit: SlabAllocator.Static debug fill patterns match spec" {
     var pool = SlabAllocator.Static(FillPayload, 2).init();
     const item = try pool.acquire();
 
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         for (item.bytes) |b| try testing.expectEqual(@as(u8, 0xCD), b);
     } else {
         var saw_cd = false;
@@ -222,7 +222,7 @@ test "unit: SlabAllocator.Static debug fill patterns match spec" {
     const SlabT = SlabAllocator.Static(FillPayload, 2);
     const link_size = @sizeOf(?*SlabT.Slot);
     const raw: [*]const u8 = @ptrCast(item);
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         var i: usize = link_size;
         while (i < @sizeOf(FillPayload)) : (i += 1) {
             try testing.expectEqual(@as(u8, 0xFD), raw[i]);
@@ -249,13 +249,13 @@ test "unit: SlabAllocator.Bounded debug fill honors payload window" {
 
     const item = try pool.acquire();
 
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         for (item.bytes) |b| try testing.expectEqual(@as(u8, 0xCD), b);
     }
 
     pool.release(item);
 
-    if (debug.checksEnabled(.build_mode)) {
+    if (debug.checksEnabled()) {
         const link_size = @sizeOf(?*SlabT.Slot);
         const raw: [*]const u8 = @ptrCast(item);
         var i: usize = link_size;

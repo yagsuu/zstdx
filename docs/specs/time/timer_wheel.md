@@ -345,7 +345,7 @@ pub const Self = struct {
 
 `Bounded(T, config).wrap(slots, buckets, origin)` requires
 `buckets.len == config.slot_count`. Length mismatch is a caller contract
-violation and traps when `core.debug.checksEnabled(.build_mode)` is true.
+violation and traps when `core.debug.checksEnabled()` is true.
 `slots.len == 0` is valid and produces a zero-entry-capacity wheel.
 
 There is no `enqueue`, `dequeue`, `front`, `back`, `peek`, `peekItem`,
@@ -451,7 +451,7 @@ target_tick = floor((now.nanos() - origin().nanos()) / config.tick_ns)
 ```
 
 when `now >= origin()`. Passing `now` before `cursor()` is a caller contract
-violation and traps when `core.debug.checksEnabled(.build_mode)` is true.
+violation and traps when `core.debug.checksEnabled()` is true.
 Release builds do not guarantee recovery from backwards time.
 
 If `target_tick == current_tick`, `advanceTo` does not move the cursor.
@@ -494,7 +494,7 @@ live handle.
 `insertAssumeCapacity(deadline, item)` performs the same deadline range check
 and returns `error.OutOfRange` on range failure. Calling it when `isFull()` is
 true and the deadline is in range is a caller contract violation and traps when
-`core.debug.checksEnabled(.build_mode)` is true.
+`core.debug.checksEnabled()` is true.
 
 The returned handle remains live until the entry is removed by `remove`,
 `popExpired`, or `clearRetainingCapacity`. Later insertions do not invalidate

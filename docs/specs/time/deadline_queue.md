@@ -297,7 +297,7 @@ pub const Self = struct {
 
 `Bounded(T).wrap(slots, heap)` requires `slots.len == heap.len`. Length mismatch
 is a caller contract violation and traps when
-`core.debug.checksEnabled(.build_mode)` is true. `slots.len == 0` and
+`core.debug.checksEnabled()` is true. `slots.len == 0` and
 `heap.len == 0` are valid and produce a zero-capacity queue.
 
 There is no `enqueue`, `dequeue`, `front`, `back`, `peek`, `peekItem`,
@@ -345,7 +345,7 @@ unchanged.
 
 `insertAssumeCapacity(deadline, item)` adds a live entry and returns a new live
 handle. Calling it when `isFull()` is true is a caller contract violation and
-traps when `core.debug.checksEnabled(.build_mode)` is true.
+traps when `core.debug.checksEnabled()` is true.
 
 The returned handle remains live until the entry is removed by `remove`,
 `popExpired`, `popNext`, or `clearRetainingCapacity`. Later insertions do not

@@ -178,7 +178,7 @@ Required behavior:
 
 ```zig
 pub fn release(self: *RawSpinLock) void {
-    if (stdx.core.debug.checksEnabled(.build_mode)) self.assertHeld();
+    if (stdx.core.debug.checksEnabled()) self.assertHeld();
     self.state.storeRelease(@intFromEnum(State.unlocked));
 }
 ```
@@ -188,7 +188,7 @@ Required behavior:
 - writes preceding `release()` on the same thread are visible to the
   next `acquire()`/`tryAcquire()` winner under acquire semantics;
 - the store is release-ordered;
-- under `stdx.core.debug.checksEnabled(.build_mode)`, `release()`
+- under `stdx.core.debug.checksEnabled()`, `release()`
   calls `assertHeld()` before storing; a stray release traps;
 - never allocates, never yields, never touches interrupt state;
 - calling `release()` without a prior successful `acquire`/`tryAcquire`
@@ -216,7 +216,7 @@ does not affect correctness-critical control flow.
 
 `assertHeld()` traps if the state word is not `locked` when called.
 Runs unconditionally when called. Consumers gate the call under
-`stdx.core.debug.checksEnabled(.build_mode)` per `core/debug.md`
+`stdx.core.debug.checksEnabled()` per `core/debug.md`
 convention. `release()` calls it internally under the same gate.
 
 ## Ordering contract
@@ -252,7 +252,7 @@ other targets) or ensure interrupt handlers cannot reach `L`. This
 spec does not import `arch`; the composition is caller code.
 
 **Release without prior acquire is a caller contract violation** caught
-by `assertHeld` under `checksEnabled(.build_mode)` and undefined in
+by `assertHeld` under `checksEnabled()` and undefined in
 release builds.
 
 ## Behavior contract
@@ -327,7 +327,7 @@ Debug assertion in a diagnostic snapshot:
 
 ```zig
 fn snapshot(lock: *const stdx.sync.RawSpinLock) Snapshot {
-    if (stdx.core.debug.checksEnabled(.build_mode)) {
+    if (stdx.core.debug.checksEnabled()) {
         lock.assertHeld();
     }
     return .{ .counter = counter };

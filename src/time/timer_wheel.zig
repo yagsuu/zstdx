@@ -152,7 +152,7 @@ pub const TimerWheel = struct {
                 item: T,
             ) RangeError!Handle {
                 const due_tick = try self.quantize(dl);
-                if (debug.checksEnabled(.build_mode)) std.debug.assert(!self.isFull());
+                if (debug.checksEnabled()) std.debug.assert(!self.isFull());
                 return self.insertDueAssumeCapacity(dl, item, due_tick);
             }
 
@@ -326,7 +326,7 @@ pub const TimerWheel = struct {
                 buckets: []Bucket,
                 origin_value: Instant,
             ) Self {
-                if (debug.checksEnabled(.build_mode)) {
+                if (debug.checksEnabled()) {
                     std.debug.assert(buckets.len == config.slot_count);
                 }
 
@@ -408,7 +408,7 @@ pub const TimerWheel = struct {
                 item: T,
             ) RangeError!Handle {
                 const due_tick = try self.quantize(dl);
-                if (debug.checksEnabled(.build_mode)) std.debug.assert(!self.isFull());
+                if (debug.checksEnabled()) std.debug.assert(!self.isFull());
                 return self.insertDueAssumeCapacity(dl, item, due_tick);
             }
 
@@ -676,7 +676,7 @@ fn advanceToStorage(
     const cursor_ns = instantNsForTick(origin, cursor_tick.*, config.tick_ns) orelse unreachable;
     const now_ns = now.nanos();
 
-    if (debug.checksEnabled(.build_mode)) std.debug.assert(now_ns >= cursor_ns);
+    if (debug.checksEnabled()) std.debug.assert(now_ns >= cursor_ns);
     if (now_ns <= cursor_ns) return;
 
     const target_tick = tickFloor(origin, now, config.tick_ns);
