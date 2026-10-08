@@ -4,7 +4,7 @@ const std = @import("std");
 
 const List = @import("list.zig").List;
 
-pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
+pub fn Queue(comptime T: type, comptime field: []const u8) type {
     return struct {
         head: ?*T = null,
         tail: ?*T = null,
@@ -72,11 +72,12 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
                 current = if (item_node.next) |next_node| itemFromNode(next_node) else null;
                 item_node.next = null;
             }
+
             self.head = null;
             self.tail = null;
         }
 
-        /// Invariant: Endpoint symmetry, tail reachability, a null terminal link, and no cycle reachable from `head`.
+        /// Assert endpoint symmetry, tail reachability, a null terminal link, and no cycle reachable from `head`.
         pub fn assertValid(self: *const Self) void {
             if (self.head == null) {
                 std.debug.assert(self.tail == null);
@@ -107,19 +108,19 @@ pub fn Queue(comptime T: type, comptime node_field: []const u8) type {
         }
 
         fn node(item: *T) *Node {
-            return &@field(item.*, node_field);
+            return &@field(item.*, field);
         }
 
         fn constNode(item: *const T) *const Node {
-            return &@field(item.*, node_field);
+            return &@field(item.*, field);
         }
 
         fn itemFromNode(item_node: *Node) *T {
-            return @fieldParentPtr(node_field, item_node);
+            return @fieldParentPtr(field, item_node);
         }
 
         fn constItemFromNode(item_node: *const Node) *const T {
-            return @fieldParentPtr(node_field, item_node);
+            return @fieldParentPtr(field, item_node);
         }
 
         fn next(item: *T) ?*T {

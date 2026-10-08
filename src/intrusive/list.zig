@@ -6,7 +6,7 @@ pub const List = struct {
     pub const SinglyLinkedNode = std.SinglyLinkedList.Node;
     pub const DoublyLinkedNode = std.DoublyLinkedList.Node;
 
-    pub fn SinglyLinked(comptime T: type, comptime node_field: []const u8) type {
+    pub fn SinglyLinked(comptime T: type, comptime field: []const u8) type {
         return struct {
             head: ?*T = null,
             tail: ?*T = null,
@@ -104,6 +104,7 @@ pub const List = struct {
             pub fn tryRemove(self: *Self, item: *T) bool {
                 var previous: ?*T = null;
                 var current = self.head;
+
                 while (current) |current_item| {
                     const current_node = node(current_item);
 
@@ -172,19 +173,19 @@ pub const List = struct {
             }
 
             fn node(item: *T) *Node {
-                return &@field(item.*, node_field);
+                return &@field(item.*, field);
             }
 
             fn constNode(item: *const T) *const Node {
-                return &@field(item.*, node_field);
+                return &@field(item.*, field);
             }
 
             fn itemFromNode(item_node: *Node) *T {
-                return @fieldParentPtr(node_field, item_node);
+                return @fieldParentPtr(field, item_node);
             }
 
             fn constItemFromNode(item_node: *const Node) *const T {
-                return @fieldParentPtr(node_field, item_node);
+                return @fieldParentPtr(field, item_node);
             }
 
             fn assertDetached(item: *T) void {
