@@ -10,71 +10,6 @@ backend contract in `docs/specs/time/monotonic.md`.
 `RateCounter` owns the projection and the wrap-edge detector; the caller
 owns any register storage, status bit, or interrupt delivery.
 
-`RateCounter` is a value, not a scheduler primitive. It never sleeps,
-never parks, and never touches the backend beyond calling
-`Backend.now()`.
-
-## What this spec is
-
-This spec owns:
-
-- `stdx.time.RateCounter`, the projection value type;
-- `stdx.time.RateCounter.Config`, the caller-provided anchor, rate, and
-  width;
-- `stdx.time.RateCounter.Sample`, the tagged result of `sample`;
-- the `Instant`-to-counter projection formula and its overflow domain;
-- the wrap-edge detector state and its update contract;
-- the `clock: anytype` composition seam, duck-typed against
-  `Backend.now`;
-- debug-only structural validation of `Config` and `RateCounter` under
-  `stdx.core.debug.checksEnabled`;
-- required tests.
-
-## What this spec is not
-
-This spec does not own:
-
-- wrap-boundary scheduling — arming callbacks or interrupts at the next
-  wrap `Instant` is the caller's job through `Deadline` or a hardware
-  timer;
-- status-bit register writes, SCI raise, or any device-side side effect
-  of `wrapped = true`;
-- non-integer-Hz precision — every configured rate is an integer number
-  of hertz;
-- concurrent access — `RateCounter` is single-owner, matching
-  `Clock.Monotonic`;
-- mutation of identity fields (`base`, `rate_hz`, `width_bits`) after
-  `init`;
-
-## Public namespace
-
-`RateCounter` lives under `stdx.time`:
-
-```zig
-stdx.time.RateCounter
-stdx.time.RateCounter.Config
-stdx.time.RateCounter.Sample
-```
-
-Source ownership:
-
-```text
-src/time.zig
-src/time/rate_counter.zig
-test/time/rate_counter_test.zig
-```
-
-`src/time.zig` re-exports:
-
-```zig
-pub const rate_counter = @import("time/rate_counter.zig");
-
-pub const RateCounter = rate_counter.RateCounter;
-```
-
-`src/time.zig` is a thin facade. It contains no logic beyond re-exporting
-and aliasing.
-
 ## API
 
 ```zig
@@ -154,9 +89,7 @@ fields copied from `config` and `last_wrap_count = 0`. Under
 
 ### Reset
 
-`reset(clock)` sets `base = clock.now()` and `last_wrap_count = 0`. The
-next `sample` reports `wrapped = false` regardless of prior history.
-`rate_hz` and `width_bits` are unchanged.
+`reset(clock)` MUST set `base = clock.now()` and `last_wrap_count = 0`, preserving rate and width. Subsequent samples detect wraps since the new base; reset does not suppress a wrap that occurs before the next sample.
 
 ### Projection formula
 
@@ -173,13 +106,9 @@ wrap_count   = unbounded >> width_bits           // wrap counter, or 0 at width 
 `maxInt(u64)` for `width_bits == 64`. `wrap_count` is `0` for
 `width_bits == 64`.
 
-The intermediate `elapsed_ns * rate_hz` is computed in `u128` to avoid
-overflow across the full `Instant` and `rate_hz` domains.
+The caller MUST supply a non-negative elapsed separation that fits `i64`. For widths below 64, the computed `wrap_count` MUST fit `u64` for both `peek` and `sample`. The `u128` multiplication avoids intermediate overflow within this domain.
 
-`elapsed_ns` must be non-negative. Under
-`stdx.core.debug.checksEnabled()`, `peek` and `sample` assert
-`now.afterOrEq(base)`. A `base` sourced from the same monotonic clock
-cannot trip this assertion.
+When `core.debug.checksEnabled()` is true, `peek` and `sample` MUST assert `now.afterOrEq(base)`.
 
 ### peek
 
@@ -197,14 +126,9 @@ formula, sets `wrapped = wrap_count > self.last_wrap_count`, updates
 `self.last_wrap_count = wrap_count`, and returns
 `.{ .value = value, .wrapped = wrapped }`.
 
-`wrapped` is `true` iff the unbounded tick count crossed a
-`1 << width_bits` boundary between the previous `sample` (or `init` /
-`reset`) and this call. Multiple wraps between two `sample` calls
-produce a single `wrapped = true` return; consumers who need a wrap
-count read `last_wrap_count` directly.
+For `width_bits < 64`, `wrapped` MUST be true when the wrap count increases since the previous sample or initialization/reset. Multiple wraps produce one event; `last_wrap_count` stores the count. Reaching an exact wrap boundary increases that count.
 
-`sample` at the exact wrap boundary (`unbounded % (1 << width_bits) == 0`)
-counts as a wrap on the call that crosses into the new interval.
+For `width_bits == 64`, `wrap_count` is zero and `wrapped` MUST be false.
 
 ### assertValid
 
@@ -237,9 +161,10 @@ performs no allocation, no locking, no syscall, and no atomic operation.
 
 ## Testing
 
-Testing MUST use a caller-controlled `FakeClock` and must not read a real clock. This method isolates the projection and wrap detector from backend timing.
+Tests MUST use a caller-controlled clock.
 
-- Boundary and validation tests verify that invalid `rate_hz` and `width_bits` values trap, that `init` copies the identity fields and clears `last_wrap_count`, and that debug-only checks reject a clock reading before `base` while release-mode behavior does not add that trap.
-- Projection-model tests compare `peek` with the specified `u128` formula across the anchor, whole-second conversion, masked widths, and `width_bits == 64`. They prove masking and intermediate-overflow behavior without relying on a backend.
-- Transition tests drive the fake clock across zero, an exact wrap boundary, and multiple wrap intervals. They verify that `sample` reports one wrap event per sampling interval, `peek` does not alter detector state, and `reset` re-anchors and suppresses the next wrap report.
-- Compile-time tests reject clocks without `now(*Self) Instant`, verify the fixed `RateCounter` size assertion, and compile the module for a non-x86 target. These tests prove the clock seam and representation constraints.
+- Check configuration boundaries, initial detector state, and enabled checks for readings before the base.
+- Compare `peek` with the projection formula within the supported elapsed-time and wrap-count bounds.
+- Cross exact and multiple-wrap boundaries; check that `peek` preserves detector state and reset discards prior history while detecting subsequent wraps.
+- Check that width 64 returns the projected value with `wrapped == false`.
+- Reject invalid clock shapes at compile time and compile for a non-x86 target.

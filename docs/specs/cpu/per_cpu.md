@@ -4,43 +4,13 @@ Status: Approved.
 
 `stdx.cpu.PerCPU` provides fixed-capacity, cache-line-padded storage for one typed value per caller-selected CPU index.
 
-## What this spec is
-
-This spec owns `stdx.cpu.PerCPU`, its `Static` and `Bounded` type factories, padded slot representation, initialization, indexed access, padded-slot views, layout validation, and their required tests.
-
-`Static(T, N)` owns inline storage for exactly `N` slots. `Bounded(T)` borrows a caller-provided slice of padded slots.
-
-## What this spec is not
-
-This spec does not own CPU discovery, CPU-count queries, current-CPU lookup, affinity, migration handling, topology decoding, CPU-slot registration, or index validation policy.
-
-This spec does not provide atomic accessors or cross-CPU synchronization. Callers that require atomic payload access can use `stdx.sync.AtomicCell(T)` as `T`. This spec does not provide growth, sharded lookup, an unpadded `[]T` view, a `PerCPU.Atomic` type, `pin`, or `getCurrent`.
+`Static(T, N)` owns inline storage for exactly `N` slots. `Bounded(T)` borrows caller-provided padded slots. The caller selects CPU indexes and supplies any payload synchronization, for example through `stdx.sync.AtomicCell(T)`.
 
 ## Terminology
 
 - **slot:** One `Padded` element and its `value` payload, selected by a `usize` CPU index.
 - **payload:** The `T` value in a slot's public `Padded.value` field.
 - **padded slot:** A `stdx.mem.CachePad(T)` value.
-
-## Public namespace and source ownership
-
-The public namespace is:
-
-```zig
-stdx.cpu.PerCPU
-stdx.cpu.PerCPU.Static
-stdx.cpu.PerCPU.Bounded
-```
-
-The owning files are:
-
-```text
-src/cpu.zig
-src/cpu/per_cpu.zig
-test/cpu/per_cpu_test.zig
-```
-
-`src/cpu.zig` is a thin facade. It re-exports `cpu/per_cpu.zig` as `per_cpu` and re-exports `per_cpu.PerCPU` as `PerCPU`. It contains no implementation logic.
 
 ## Cross-spec relationships
 
@@ -128,8 +98,6 @@ pub fn slotsConst(self: *const Self) []const Padded;
 pub fn assertValid(self: *const Self) void;
 ```
 
-There is no root-level `PerCPU.Padded(T)` alias, iterator type, `slice() []T` method, atomic sibling type, CPU-pinning method, or current-CPU accessor.
-
 ### Initialization
 
 `Static.init(default)` MUST copy `default` into every slot payload.
@@ -182,9 +150,7 @@ The implementation MUST remain target-independent: it MUST NOT read CPU identity
 
 ## Testing
 
-Tests in `test/cpu/per_cpu_test.zig` must verify the production contract rather than test names or private helpers.
-
-Layout tests must instantiate legal `Static` shapes and verify that inline storage size, `Padded` alignment, and adjacent payload-pointer stride match `CachePad`. These checks prove that each slot has the required padded representation without relying on timing measurements. A compile-fail check must verify that `Static(u64, 0)` is rejected with a legible capacity error.
+Layout tests MUST verify inline storage, `Padded` alignment, and adjacent payload-pointer stride against `CachePad`. A compile-fail check MUST reject `Static(u64, 0)`.
 
 Initialization tests must verify that each initializer writes the required payloads, that callback initializers invoke their callback once per slot in ascending index order, and that undefined initialization is written before it is read. Equivalent tests for `Bounded` must verify that initialization uses the caller's storage and that copies sharing a backing slice observe each other's writes.
 
@@ -194,4 +160,4 @@ Validation tests must verify that `assertValid` succeeds for aligned `Static` an
 
 A concurrency model test may use one writer per distinct non-atomic slot and verify the final sum after all writers join. The test must verify padded stride structurally and must not use wall-clock timing to infer false-sharing behavior. A separate atomic-payload model test must use the payload type's documented synchronization operations and a completion edge before a reader sums the slots. Stress tests must not assume thread scheduling.
 
-A target-independence compilation test must instantiate both factories without x86-specific behavior. This proves that the module has no architectural CPU-discovery dependency.
+A target-independence compilation test MUST instantiate both factories on a non-x86 target.

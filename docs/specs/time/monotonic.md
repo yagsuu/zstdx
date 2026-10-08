@@ -6,79 +6,6 @@ Status: Approved.
 types. `stdx.time.Clock.Monotonic(Backend)` is a caller-composed wrapper that
 enforces the monotonic-reader contract on top of a caller-supplied backend.
 
-Together they give polling protocols (device init handshakes, completion
-timeouts, retry loops) one vocabulary. The wrapper enforces the monotonic
-contract on `now` and forwards a backend-supplied `sleep` verbatim when
-present. Both methods reduce to a direct backend call in release builds.
-
-## What this spec is
-
-This spec owns:
-
-- `stdx.time.Instant` (`enum(u64) { _ }`, monotonic nanoseconds);
-- `stdx.time.Duration` (`enum(i64) { _ }`, signed nanoseconds);
-- `stdx.time.Clock.Monotonic(Backend)` wrapper;
-- backend interface required by `Clock.Monotonic`, including the optional
-  `sleep` capability method that `Clock.Monotonic` forwards verbatim when the
-  backend exposes it;
-- debug-only monotonicity assertion gated by `core.debug.checksEnabled`;
-- debug-only non-negative-delta assertion on the forwarded `sleep`, gated by
-  `core.debug.checksEnabled`;
-- required tests.
-
-## What this spec is not
-
-This spec does not own:
-
-- `time.Deadline` composites;
-- `time.Backoff` or `time.RetryPolicy`;
-- wallclock or system-time variants (`Clock.System`, `Clock.Wall`,
-  `Clock.CoarseMonotonic`);
-- scheduler policy, cancellation semantics, drift correction, or leap-second
-  policy — `Clock.Monotonic` forwards a backend-provided `sleep` verbatim and
-  adds no scheduler, cancellation, or dispatch behavior of its own;
-- duration formatting, parsing, or unit-string helpers;
-- picosecond, sub-nanosecond, or `u128` domains;
-- concrete backend implementations (HPET, TSC, APIC, PIT, `clock_gettime`,
-  synthetic test clocks);
-- backend construction, initialization failure, or feature detection;
-- global default clocks;
-- root exports.
-
-## Public namespace
-
-Time primitives live under `stdx.time`:
-
-```zig
-stdx.time.Instant
-stdx.time.Duration
-stdx.time.Clock
-stdx.time.Clock.Monotonic
-```
-
-Source ownership:
-
-```text
-src/time.zig
-src/time/monotonic.zig
-test/time/monotonic_test.zig
-```
-
-`src/time.zig`:
-
-```zig
-//! Time primitives. Spec: docs/specs/time/monotonic.md.
-
-pub const monotonic = @import("time/monotonic.zig");
-
-pub const Instant = monotonic.Instant;
-pub const Duration = monotonic.Duration;
-pub const Clock = monotonic.Clock;
-```
-
-`src/time.zig` is a thin facade. It contains no logic beyond re-exporting and
-aliasing.
-
 ## API
 
 ```zig
@@ -127,7 +54,7 @@ pub const Clock = struct {
 ```zig
 pub const Self = struct {
     backend: Backend,
-    last: if (stdx.core.debug.checksEnabled) Instant else void,
+    last: if (stdx.core.debug.checksEnabled()) Instant else void,
 
     pub fn init(backend: Backend) Self;
     pub fn now(self: *Self) Instant;
@@ -147,9 +74,7 @@ pub fn now(self: *Backend) stdx.time.Instant;
 pub fn sleep(self: *Backend, delta: stdx.time.Duration) void;
 ```
 
-`Backend` is stored by value inside `Clock.Monotonic(Backend)`. Callers whose
-backend state is large, mutable, or shared elsewhere pass a pointer type as
-`Backend` (`*HpetClock`, `*PosixClock`).
+`Backend` is stored by value. For shared or large backend state, use a small backend struct containing a pointer and implementing the required methods.
 
 The `Backend.now` signature is verified at compile time when
 `Clock.Monotonic(Backend)` is instantiated. `anyerror` and error-union return
@@ -242,9 +167,7 @@ Construction:
 pub fn init(backend: Backend) Self;
 ```
 
-`init` stores `backend` by value and initializes the debug-only `last` field
-to `Instant.zero()` when `core.debug.checksEnabled` is true. In release builds
-`last` has type `void` and occupies no space.
+`init` stores `backend` by value. When `core.debug.checksEnabled()` is true, `last` starts at `Instant.zero()`. In ReleaseFast and ReleaseSmall, `last` has type `void`.
 
 Reading:
 
@@ -253,10 +176,10 @@ pub fn now(self: *Self) Instant;
 ```
 
 `now` calls `self.backend.now()` and returns the result. Under
-`core.debug.checksEnabled`, `now` asserts that the returned instant is not
+`core.debug.checksEnabled()`, `now` asserts that the returned instant is not
 less than the previously returned instant, then updates the stored last value.
 
-Under `core.debug.checksEnabled == false`, `now` is exactly one backend call
+When `core.debug.checksEnabled()` is false, `now` is exactly one backend call
 plus a return.
 
 The wrapper is not thread-safe. `Clock.Monotonic(Backend)` is a single-owner
@@ -275,10 +198,9 @@ pub fn sleep(self: *Self, delta: Duration) void;
 present, `sleep` calls `self.backend.sleep(delta)` and returns.
 
 Under `core.debug.checksEnabled()`, `sleep` asserts
-`delta.nanos() >= 0` before forwarding. Non-positive deltas are legal on
-the backend seam.
+`delta.nanos() >= 0` before forwarding. Zero is legal.
 
-Under `core.debug.checksEnabled == false`, `sleep` is exactly one backend
+When `core.debug.checksEnabled()` is false, `sleep` is exactly one backend
 call plus a return.
 
 Sleep granularity, preemption, signal restart, partial completion, and
@@ -362,10 +284,10 @@ without observable side effects.
 
 Time primitives perform no heap allocation, hidden global access, or target
 probing. `Clock.Monotonic.now` delegates all work to the backend and adds
-one comparison plus one store under `core.debug.checksEnabled`.
+one comparison plus one store under `core.debug.checksEnabled()`.
 `Clock.Monotonic.sleep`, when generated, delegates all work to the backend
 and adds one non-negative-delta assertion under
-`core.debug.checksEnabled`. Any actual sleeping, blocking, or scheduler
+`core.debug.checksEnabled()`. Actual sleeping, blocking, or scheduler
 interaction occurs inside the backend, not the wrapper.
 
 ## Error behavior
@@ -383,10 +305,10 @@ interaction occurs inside the backend, not the wrapper.
   `Clock.Monotonic(Backend)` has no `sleep` method, and any callsite
   invoking `sleep` fails to compile.
 - `Clock.Monotonic.now` never returns an error at the wrapper layer; debug
-  builds gated by `core.debug.checksEnabled` assert on non-monotonic
+  builds gated by `core.debug.checksEnabled()` assert on non-monotonic
   returns.
 - `Clock.Monotonic.sleep`, when generated, never returns an error at the
-  wrapper layer; debug builds gated by `core.debug.checksEnabled` assert on
+  wrapper layer; builds gated by `core.debug.checksEnabled()` assert on
   negative deltas.
 
 ## Implementation constraints
@@ -397,7 +319,7 @@ Implementation must:
 - avoid unchecked overflow in `Instant.add`, `Duration.fromMicros`,
   `Duration.fromMillis`, `Duration.fromSeconds`;
 - compile the debug-mode monotonicity assertion out entirely when
-  `core.debug.checksEnabled` is false, including the `last` field storage;
+  `core.debug.checksEnabled()` is false, including the `last` field storage;
 - validate `Backend.now` signature at compile time and reject error-union
   returns with a `@compileError` naming the required signature;
 - generate `Clock.Monotonic(Backend).sleep` iff `Backend` declares `sleep`;
@@ -405,26 +327,27 @@ Implementation must:
   reject mismatched parameters, error-union returns, or `anyerror` returns
   with a `@compileError` naming the required signature;
 - compile the debug-mode non-negative-delta assertion on `sleep` out
-  entirely when `core.debug.checksEnabled` is false;
+  entirely when `core.debug.checksEnabled()` is false;
 - avoid runtime target probing;
 - avoid hidden global state;
 - avoid allocation;
 - keep `Clock.Monotonic` free of atomics — the concurrency contract is
   single-owner, not lock-free;
 - lower `Clock.Monotonic.now` and `Clock.Monotonic.sleep` to direct backend
-  calls in release builds.
+  calls in ReleaseFast and ReleaseSmall.
+
 ## Testing
 
-Testing MUST use fixed values and caller-controlled backend sequences. This method verifies arithmetic and wrapper behavior without hardware clocks or scheduler timing.
+Tests MUST use fixed values and caller-controlled backend sequences.
 
 ### Value-domain boundaries
 
-Tests exercise zero, positive, negative, equality, `u64` endpoint, signed-duration endpoint, and unit-conversion overflow values. They prove `Instant.add`, `Instant.since`, `Instant.afterOrEq`, `Duration` conversion, sign, and overflow contracts at their domain boundaries.
+Tests MUST cover zero, both signs, equality, representable instant separation, signed-duration endpoints, and unit-conversion overflow.
 
 ### Backend interface model
 
-Compile-time fixtures provide valid and invalid backend shapes. They verify required `now`, optional `sleep`, receiver and return types, rejection of error unions and `anyerror`, and absence of generated `sleep` when unsupported. These fixtures prove that the wrapper accepts only its stated clock contract.
+Compile-time checks MUST cover required `now`, optional `sleep`, receiver and return types, rejected error unions, and absence of generated `sleep` when unsupported.
 
 ### Clock transitions
 
-A caller-controlled backend supplies increasing, constant, and decreasing readings, and records forwarded sleep durations. Tests verify by-value backend ownership, exact `now` forwarding, the debug-only monotonicity assertion, its release-mode absence, debug-only negative-sleep assertion, unchanged sleep forwarding, and removal of debug storage in release builds. These transitions prove the wrapper adds only the stated debug checks to backend behavior.
+Backend sequences MUST cover increasing, constant, and decreasing readings and record sleep durations. Check monotonicity and non-negative sleep assertions in Debug/ReleaseSafe, unchanged forwarding and absent validation storage in ReleaseFast/ReleaseSmall, and by-value backend ownership.

@@ -83,7 +83,7 @@ omit irrelevant conditional sections.
 4. `## What this spec is` — Conditional.
 5. `## What this spec is not` — Conditional.
 6. `## Terminology` — Conditional.
-7. `## Public namespace` — Essential.
+7. `## Public namespace` — Conditional; omit when the introduction or API identifies the public paths.
 8. `## Cross-spec relationships` — High.
 9. `## Data structures and representation` — High when state or layout matters.
 10. `## Global invariants` — Essential.
@@ -153,13 +153,11 @@ Rules:
 
 ### Public namespace
 
-Value: Essential.
+Value: Conditional.
 
-This section MUST state:
+Each specification MUST identify its public import, module, or package paths in the introduction, API, or this section.
 
-- public import, module, or package paths owned by this specification;
-- public exports from a facade owned by this specification, when applicable;
-- explicit non-exports that prevent ambiguity or namespace collisions.
+Use this section only when additional public-path or facade ownership information prevents ambiguity. Include non-exports only when they prevent a concrete namespace collision.
 
 Rules:
 
@@ -296,6 +294,7 @@ Rules:
   applicable.
 - Tests MUST NOT cover incidental implementation mechanics unless
   representation is normative.
+- State test inputs and observable results. Omit proof claims, verification narration, and summaries that repeat the required cases.
 - This section MAY group tests by purpose:
   - construction and capacity;
   - positive behavior;
@@ -344,8 +343,7 @@ Status: Draft.
 
 ## Public namespace
 
-<Public import, module, or package paths and facade exports owned by this
-spec.>
+<Additional public-path or facade ownership information. Omit when the introduction or API suffices.>
 
 ## Cross-spec relationships
 

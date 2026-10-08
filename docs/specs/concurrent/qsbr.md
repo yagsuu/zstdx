@@ -7,39 +7,6 @@ substrate. It tracks participant progress across grace periods so callers can
 determine when objects removed from read-mostly shared structures are safe to
 reclaim.
 
-## What this spec is
-
-This spec owns:
-
-- `stdx.concurrent.qsbr`;
-- `qsbr.GracePeriod`;
-- `qsbr.Participant`;
-- `qsbr.Domain.Static(N)`;
-- `qsbr.Domain.Bounded`;
-- participant online, offline, and quiescent reporting;
-- grace-period creation and completion polling;
-- fixed participant capacity and slot lifetime;
-- required unit, model, stress, and layout tests.
-
-QSBR owns reclamation lifetime observation only.
-
-## What this spec is not
-
-This spec is not:
-
-- a hazard-pointer system;
-- a generic epoch-based garbage collector;
-- a full RCU read-side API;
-- a reader critical-section guard API;
-- a dynamic participant registry;
-- a deferred-free list, retired-object queue, callback list, or destructor ABI;
-- a table, map, pointer-publication, payload-consistency, or writer-serialization
-  primitive;
-- a scheduler, futex, wait queue, wake, yield, backoff, deadline, timeout,
-  cancellation, or interrupt policy;
-- a heap-allocating or dynamically growing reclamation domain;
-- an ABI, wire, or packed-layout contract for the domain or slot types;
-
 ## Terminology
 
 A **participant** is one caller-owned execution-context slot in a QSBR domain.
@@ -63,33 +30,6 @@ but not yet reclaimed because a grace period is still pending.
 
 A **reclaimed object** is a retired object whose required grace period has
 completed and whose storage may be reused or freed by the caller.
-
-## Public namespace and source ownership
-
-The QSBR namespace lives under `stdx.concurrent`:
-
-```zig
-stdx.concurrent.qsbr
-stdx.concurrent.qsbr.GracePeriod
-stdx.concurrent.qsbr.Participant
-stdx.concurrent.qsbr.Domain
-stdx.concurrent.qsbr.Domain.Static
-stdx.concurrent.qsbr.Domain.Bounded
-```
-
-Source ownership:
-
-```text
-src/concurrent.zig       -- domain facade
-src/concurrent/qsbr.zig  -- QSBR implementation
-test/concurrent/qsbr_test.zig
-```
-
-`src/concurrent.zig` re-exports:
-
-```zig
-pub const qsbr = @import("concurrent/qsbr.zig");
-```
 
 ## Cross-spec relationships
 
@@ -268,21 +208,9 @@ offline.
 `Static(0)` is a compile-time error. `Static(capacity_participants)` where the
 capacity cannot be represented by `Participant` is a compile-time error.
 
-#### State transitions
-
-Creates a new domain in the initialized state. No participant is online.
-
 #### Errors and fault behavior
 
 Returns no error. Invalid static capacities fail at compile time.
-
-#### Locking and waiting
-
-Never locks and never waits.
-
-#### Allocation behavior
-
-Never allocates and never frees. Slot storage is inline in the returned value.
 
 #### Memory ordering
 
@@ -321,14 +249,6 @@ is discarded.
 Returns no error. Passing an empty slice or a slice whose length cannot be
 represented by `Participant` is a caller-contract violation and traps/asserts
 when checks are enabled.
-
-#### Locking and waiting
-
-Never locks and never waits.
-
-#### Allocation behavior
-
-Never allocates and never frees. The returned domain borrows `slots`.
 
 #### Memory ordering
 
@@ -447,14 +367,6 @@ Returns no error. An out-of-capacity participant or duplicate concurrent slot
 ownership is a caller-contract violation. Duplicate ownership is not required
 to be detected.
 
-#### Locking and waiting
-
-Never locks and never waits.
-
-#### Allocation behavior
-
-Never allocates and never frees.
-
 #### NMI/interrupt safety
 
 Safe from NMI and interrupt context when that context owns the participant slot
@@ -511,14 +423,6 @@ offline -> offline
 Returns no error. Calling `offline` while the participant still holds protected
 references is a caller-contract violation and can lead to use-after-free by the
 caller. QSBR is not required to detect this violation.
-
-#### Locking and waiting
-
-Never locks and never waits.
-
-#### Allocation behavior
-
-Never allocates and never frees.
 
 #### NMI/interrupt safety
 
@@ -581,14 +485,6 @@ Returns no error. Reporting quiescence while still holding protected references
 is a caller-contract violation and can lead to use-after-free by the caller.
 QSBR is not required to detect this violation.
 
-#### Locking and waiting
-
-Never locks and never waits.
-
-#### Allocation behavior
-
-Never allocates and never frees.
-
 #### NMI/interrupt safety
 
 Safe from NMI and interrupt context when that context owns the participant slot
@@ -647,14 +543,6 @@ Participant slots are not modified.
 Returns no error. Generation exhaustion is a caller/environment-contract
 violation. Checked builds trap/assert before exhaustion can publish a generation
 that encodes as offline.
-
-#### Locking and waiting
-
-Never locks and never waits.
-
-#### Allocation behavior
-
-Never allocates and never frees.
 
 #### NMI/interrupt safety
 
@@ -716,14 +604,7 @@ Returns no error. Passing a `GracePeriod` from another domain is outside the
 contract unless the caller intentionally compares against the same generation
 space and accepts the result. `GracePeriod` carries no domain identity.
 
-#### Locking and waiting
-
-Never locks and never waits. It performs one bounded scan of the participant
-slot array.
-
-#### Allocation behavior
-
-Never allocates and never frees.
+`isComplete` MUST perform one bounded scan of the participant slots.
 
 #### NMI/interrupt safety
 
@@ -780,22 +661,13 @@ Implementation must:
 
 ## Testing
 
-Tests MUST verify the observable participant-state, grace-period, reclamation-safety, ordering, and representation contracts. Tests MUST NOT treat QSBR as a payload-publication primitive.
+Tests MUST use a reference model of offline/online participants and reported generations.
 
-### Deterministic state model and boundaries
-
-A deterministic model MUST represent each participant as offline or online at a reported generation and MUST compare `isComplete` with the definition of completion for every modeled state. The model MUST cover capacity one, all slots offline, one online slot, multiple online slots, repeated `offline`, repeated `online`, overlapping grace periods, and reports at both an earlier and the latest target generation. It MUST verify that an online participant blocks a target until it reports a generation at or above that target or goes offline, that a later completed target implies completion of earlier targets, and that a participant that becomes online after a target begins does not block that target solely by becoming online. This proves the grace-period state machine and reclamation-safety predicate.
-
-Compile-time tests MUST reject `Static(0)` and static capacities that `Participant` cannot represent. Runtime boundary tests MUST verify that `participant(index)` rejects indices at or above capacity and that `Bounded.wrap` rejects empty and unrepresentable slot slices when `stdx.core.debug.checksEnabled()` enables the relevant assertion. Tests MUST verify that `Static.init` and `Bounded.wrap` set generation zero and all slots offline. These tests prove construction and capacity fault behavior without requiring detection of caller-owned slot-ownership or false-quiescence violations.
-
-### Memory ordering and reclamation safety
-
-The model MUST place a participant report both before and after a writer begins a grace period. A report that observes the new generation MUST permit an acquire scan to observe completion; a report that races before the increment MUST NOT complete the new target until a later report observes that target. Tests MUST verify that an `offline` transition can satisfy a pending target and that a quiescent report preserves online state. This proves the release publication of participant state and the acquire observation used by `isComplete`; caller-owned pointer removal and payload publication remain outside the test contract.
-
-### Concurrent stress and progress
-
-Stress tests MUST run distinct participant slots concurrently with a writer that repeatedly begins and polls grace periods. They MUST also run concurrent `beginGracePeriod` callers and verify unique, monotonic returned generations. A stress case with an online participant that never reports quiescence MUST verify that `isComplete` returns false without blocking. These tests exercise independent-slot concurrency, the lock-free grace-period increment, and the bounded non-blocking scan; they do not prove scheduling fairness or caller compliance with protected-reference rules.
-
-### Representation
-
-Representation tests MUST verify that `Static(N).Slot` and `Bounded.Slot` are `stdx.mem.CachePad(std.atomic.Value(u64))`, that slot alignment equals `std.atomic.cache_line`, that adjacent static slots occupy distinct padded elements, and that the global generation is padded separately. They MUST verify that offline encoding sets the high bit and online encoding clears it while retaining the reported low-bit generation. These tests prove the required isolation and state encoding without asserting an ABI for the enclosing domain.
+- Cover capacity one, all-offline state, multiple participants, repeated online/offline reports, and overlapping targets.
+- Verify that each online participant blocks a target until it reports at or above that target or goes offline.
+- Compare reports before and after a grace-period increment, including reports that race with that increment.
+- Reject invalid static capacities at compile time and invalid bounded capacities/indexes under enabled checks.
+- Check generation zero and offline slots after construction.
+- Run distinct participant slots concurrently with grace-period creation and polling; concurrent creators MUST return unique generations.
+- Keep one participant online without reporting and verify that polling returns false without waiting.
+- Verify padded slot/global-generation representation and offline-bit encoding.

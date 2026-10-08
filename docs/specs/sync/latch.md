@@ -7,72 +7,7 @@ of waiters on a fixed number of arrivals; once the remaining count reaches
 zero the latch is released, sticky, and every current and future waiter
 returns without blocking.
 
-## Owned scope
-
-This spec owns:
-
-- `sync.latch.State`, the atomic remaining-count word;
-- `sync.latch.Token`, an observed state snapshot;
-- `sync.Latch(Backend)`, the wait-capable one-shot countdown-latch family;
-- `sync.Latch(Backend).Static(N)` and `sync.Latch(Backend).Bounded` storage
-  variants;
-- `arrive`, `wait`, `pending`, `capacity`, and `isReleased` semantics;
-- backend requirements delegated to the shared wait/wake contract defined in
-  `docs/specs/sync/spin.md`;
-- lost-wakeup prevention via token comparison and backend recheck;
-- allocation, waiting, concurrency, and ordering contracts;
-- required tests.
-
-## Deferred scope and non-goals
-
-This spec does not own:
-
-- reusable cyclic barriers (see `docs/specs/sync/rendezvous.md`);
-- one-shot init with a return-of-writes contract (see
-  `docs/specs/sync/once.md`);
-- `reset`, `rearm`, `resize`, `arriveAndWait`, `tryArrive`, `tryWait`,
-  timed arrival, deadlines, cancellation, or interrupt policy;
-- negative or additive counter updates (`add(delta)` in
-  `sync.WaitGroup`-style APIs);
-- per-arrival identity, per-party tokens, or arriver-to-waiter affinity;
-- scheduler parking, priority-inheritance, futex, or kernel wait queues;
-- heap allocation or dynamic waiter allocation;
-- data visibility for buffers, rings, or other structures published across
-  the latch (arrivers own their own release/acquire on those structures);
-
-A backend may provide scheduler-specific waiter behavior. That behavior is
-explicit in the `Latch(Backend)` type and is not owned by this spec.
-
-## Public namespace
-
-`Latch` lives under `stdx.sync`; its backend-independent state substrate
-lives under the `stdx.sync.latch` submodule so the `Latch(Backend)` factory
-can keep its call syntax while backends name stable state/token types:
-
-```zig
-stdx.sync.Latch
-stdx.sync.latch.State
-stdx.sync.latch.Token
-```
-
-Source ownership:
-
-```text
-src/sync.zig
-src/sync/latch.zig
-test/sync/latch_test.zig
-```
-
-`src/sync.zig` re-exports:
-
-```zig
-pub const latch = @import("sync/latch.zig");
-
-pub const Latch = latch.Latch;
-```
-
-`src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
-and aliasing.
+`stdx.sync.latch.State` and `Token` provide the backend-independent state and observation types. Backend waiting behavior follows [the shared wait/wake contract](spin.md).
 
 ## API
 
@@ -158,11 +93,7 @@ pub const Bounded = struct {
 `Bounded.init(0, backend)` is a caller-contract violation and traps under
 `stdx.core.debug.checksEnabled()`.
 
-There is no `reset`, `rearm`, `resize`, `arriveAndWait`, `tryArrive`,
-`tryWait`, `arriveTimeout`, or `waitUntil` alias in this spec. `arrive` is
-the only spelling for the "decrement remaining, wake waiters if last" step;
-`wait` is the only spelling for the "block until released" step. Waiters
-never decrement the counter; arrivers never enter the backend wait path.
+Waiters MUST NOT decrement the counter. Arrivers MUST NOT enter the backend wait path.
 
 ## Backend interface
 
@@ -292,7 +223,7 @@ Required behavior:
   arrival count;
 - over-arrival (calling `arrive` after `remaining == 0`) is a caller-
   contract violation and traps under
-  `stdx.core.debug.checksEnabled()`; in release builds the
+  `stdx.core.debug.checksEnabled()`; in ReleaseFast and ReleaseSmall the
   primitive saturates at zero, does not wrap, and does not invoke
   `wakeAll` a second time;
 - `arrive` does not allocate.
@@ -385,10 +316,7 @@ Callers requiring NMI safety MUST use different primitives.
 - acquire semantics on the wait-loop `State.observe` so that a returning
   waiter synchronizes-with the last arriver's release publication.
 
-The primitive does not order accesses outside its own state word. Data
-visibility for buffers, rings, or other structures published across the
-latch must be established by the participating arrivers using appropriate
-atomics or barriers on those structures.
+Writes sequenced before each arrival MUST be visible to a waiter that acquire-observes release. Arrivals accumulate publication through their acquire/release state transitions. Concurrent accesses outside this protocol require caller-owned synchronization.
 
 ## Behavior contract
 
@@ -450,15 +378,6 @@ Implementation must:
   saturate at zero in release without wrapping and without a second
   `wakeAll`.
 
-## std.Io lane
-
-`sync.Latch(Backend)` serves both spec-queue lanes:
-
-1. Composes inside a downstream `std.Io` backend that satisfies the shared
-   wait/wake contract.
-2. Serves freestanding consumers via `Latch(sync.spin.Backend)` where
-   `std.Io` is unavailable.
-
 ## Examples
 
 Backend shape:
@@ -519,12 +438,12 @@ try l.wait();
 
 ## Testing
 
-Compile-time tests MUST reject `Static(0)` and invalid backend declarations, and MUST instantiate both storage variants with `sync.spin.Backend`. These tests prove the capacity and backend-shape contracts.
+Tests MUST:
 
-Deterministic backend tests MUST use a controllable backend that records waits and wakes and can return a selected `WaitError`. Tests MUST verify construction boundaries, non-final and final arrival transitions, one final `wakeAll`, post-release fast-path waiting, over-arrival behavior, `Bounded` equivalence with `Static`, and unchanged error propagation. These tests prove the sticky-release state machine, error behavior, and wake rule.
-
-Lost-wakeup model tests MUST enumerate arrival, waiter observation, waiter registration, and recheck interleavings. They MUST verify that a final arrival before registration is detected by `changedSince` and that a final arrival after registration wakes the waiter.
-
-Memory-ordering tests MUST publish a payload before the last arrival and read it after a waiter acquire-observes release. The waiter MUST observe the payload. This test proves the final-arrival release/acquire edge.
-
-Stress tests MUST run multiple arrivers and waiters against both storage variants with `sync.spin.Backend`, verify that each waiter returns once after the final arrival, and verify that no over-arrival or duplicate final wake occurs. Cross-target compilation MUST include a non-x86 target. Stress tests exercise progress; the model tests prove the lost-wakeup protocol.
+- Reject invalid static capacities and backend declarations at compile time.
+- Exercise both storage variants with spin and controllable wait/wake backends.
+- Check non-final/final arrivals, exactly one final wake, sticky release, over-arrival behavior, and unchanged backend errors.
+- Model final arrival before/after waiter registration and verify recheck or wake prevents a lost wakeup.
+- Publish payloads before arrivals and verify visibility after a waiter observes release.
+- Run multiple arrivers/waiters and verify all waiters finish after the final arrival.
+- Compile for a non-x86 target.

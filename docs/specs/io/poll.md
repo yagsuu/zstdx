@@ -4,31 +4,11 @@ Status: Approved.
 
 `stdx.io.poll.until` repeatedly invokes a caller-supplied predicate until the predicate returns a payload or an error, or a `time.Backoff` step reports deadline expiry. It composes a caller-supplied clock, `time.Deadline`, and caller-owned `time.Backoff`.
 
-## What this spec is
-
-This spec defines `stdx.io.poll.until`, `stdx.io.poll.PollReturnType`, accepted predicate and clock shapes, poll-loop dispatch, timeout and error propagation, ownership of polling state, and required verification.
-
-## What this spec is not
-
-This spec does not define clock construction, monotonic-clock behavior, deadline arithmetic, backoff policy, scheduler policy, cancellation tokens, retry batching, logging, allocation, locking, or `std.Io` integration. `docs/specs/time/monotonic.md`, `docs/specs/time/deadline.md`, and `docs/specs/time/backoff.md` own those contracts. This spec does not promote `poll` or `until` to `stdx`.
-
 ## Terminology
 
 - **Predicate:** The callable supplied to `until`. A predicate returns `null` to continue, a payload to complete, or an error to stop.
 - **Productive attempt:** A non-timeout `Backoff.next` result. `Backoff.attempts()` counts productive attempts.
 - **Polling clock:** The clock argument passed to `until` and to `Backoff.next`.
-
-## Public namespace and source ownership
-
-The public declarations are `stdx.io.poll.until` and `stdx.io.poll.PollReturnType`.
-
-```text
-src/io.zig
-src/io/poll.zig
-test/io/poll_test.zig
-```
-
-`src/io.zig` re-exports `poll`. The facade contains no implementation logic.
 
 ## Cross-spec relationships
 
@@ -125,7 +105,7 @@ After a null predicate result, `until` dispatches `Backoff.next(deadline, clock)
 
 `Backoff.next` owns the deadline checks, phase state, productive-attempt count, and sleep-duration clipping. `until` MUST NOT duplicate those checks or alter the returned duration.
 
-For `.yield`, `Backoff` guarantees `backoff.policy.yield != null`. When `stdx.core.debug.checksEnabled()` is true, `until` asserts that condition immediately before unwrapping the hook. When the check is false, the unwrap remains. The assertion identifies a broken `Backoff` invariant; it does not validate caller input.
+For `.yield`, `Backoff` guarantees a non-null hook. When `stdx.core.debug.checksEnabled()` is true, `until` MUST assert this invariant before invoking it.
 
 For `.sleep(d)`, `until` passes the exact `Duration` returned by `Backoff.next` to `clock.sleep`. `until` does not independently read the clock, clip the sleep, or inspect a deadline.
 
@@ -137,12 +117,12 @@ The implementation MUST call the predicate before `Backoff.next` on every iterat
 
 ## Testing
 
-Host-model tests use a deterministic fake clock with caller-controlled `Instant` state and a sleep log, plus deterministic predicates and `Backoff.Policy` values. They verify observable calls, returned values and errors, backoff attempt state, yield count, and exact sleep durations. They do not prove real monotonic-clock behavior, scheduler behavior, CPU spin instructions, NMI safety, or hardware timing.
+Tests MUST use a deterministic fake clock and predicates, recording calls, returned values/errors, attempts, yields, and sleep durations.
 
-State-transition tests MUST prove immediate success does not consume a backoff step or sleep; late success consumes one productive step for each preceding `null`; predicate error and cancellation error propagate without a step in their terminating iteration; and an expired deadline still permits one predicate observation. Dispatch tests MUST establish the predicate-before-step order across spin, yield, sleep, and timeout, and verify that a sleep receives the exact duration returned by `Backoff.next`.
+State-transition tests MUST verify that immediate success consumes no backoff step; each preceding `null` consumes one productive step; predicate errors consume no terminating step; and an expired deadline permits one predicate observation. Dispatch tests MUST verify predicate-before-step order and exact forwarded sleep durations.
 
 Timeout and boundary tests MUST use a bounded fake-clock deadline and a never-ready predicate. They MUST verify that `.timeout` returns `error.Timeout`, does not increment `attempts()`, and does not execute another predicate call. Tests with a deadline equal to the current fake instant distinguish the one-observation progress rule from an implementation that checks the deadline first.
 
-Compile-fail checks MUST exercise unsupported predicate return types, `anyerror`, invalid predicate arity, missing `call`, and invalid clock `now` or `sleep` signatures. Compile-time return-type checks MUST prove that `PollReturnType` contains `Timeout` and the declared predicate error set. These checks prove accepted and rejected type shapes; they do not execute polling.
+Compile-fail checks MUST cover unsupported predicate returns, `anyerror`, invalid arity, missing `call`, and invalid clock signatures. Return-type checks MUST verify that `PollReturnType` contains `Timeout` and the predicate error set.
 
-Debug-check tests MUST verify that a legal `.yield` step has a non-null hook when debug checks are enabled. The concrete `*Backoff` API cannot produce `.yield` with a null hook, and a normal Zig unit-test process cannot recover from an assertion trap. Consequently, host tests cannot directly force or observe the broken-invariant trap; they establish the legal boundary and rely on the `Backoff` state-machine contract for the unreachable illegal state.
+Yield tests MUST verify that a configured hook is invoked and a null hook skips the yield phase.

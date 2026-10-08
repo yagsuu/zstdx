@@ -7,71 +7,6 @@ caller-supplied backing region. It manages abstract unit indexes at multiple
 orders, splits blocks on demand, and coalesces buddies eagerly on `free`. It
 does not own the resources those indexes name.
 
-The allocator is for page frames, DMA regions, guest-page tables, descriptor
-groups, and any resource domain where the allocation grain is a power-of-two
-count of fixed units. It never allocates backing memory and never performs
-domain-specific policy.
-
-## What this spec is
-
-This spec owns:
-
-- `mem.alloc.BuddyAllocator.Static(unit_capacity, order_count)`;
-- `mem.alloc.BuddyAllocator.Bounded`;
-- per-order bitmap free-list discipline over caller-provided backing words;
-- `alloc`/`free`/`reserve` semantics with the shared
-  `algo.alloc.buddy.Block` value shape;
-- eager on-`free` coalescing;
-- deterministic lowest-index split-and-place policy;
-- exhaustion, bounds, order-range, invalid-request, double-reserve, and
-  double-free behavior;
-- no-mutation-on-error behavior;
-- structural invariants and `assertValid` contract;
-- required tests (unit, model, stress).
-
-## What this spec is not
-
-This spec does not own:
-
-- byte-level allocation; `alloc` returns `algo.alloc.buddy.Block` values, never `*u8`;
-- page-size policy, page-frame types, physical or virtual address translation;
-- NUMA locality, per-CPU caches, or hot-path per-order counters;
-- dynamic backing growth or shrinkage;
-- coalesce policies other than eager on `free`;
-- defragmentation, compaction, or page migration;
-- concurrency, atomics, locking, or wait behavior;
-- iteration over live allocations, watermarks, statistics, or tracing;
-- automatic zeroing or poisoning of allocated regions;
-- alignment override, generation counts, or handle stability guarantees
-  across `free`;
-- `std.mem.Allocator` views — this is not a byte allocator;
-
-## Public namespace and source ownership
-
-`BuddyAllocator` lives under `stdx.mem.alloc`:
-
-```zig
-stdx.mem.alloc.BuddyAllocator
-stdx.mem.alloc.BuddyAllocator.Static
-stdx.mem.alloc.BuddyAllocator.Bounded
-```
-
-Source ownership:
-
-```text
-src/mem.zig
-src/mem/alloc/buddy.zig
-test/mem/alloc/buddy_test.zig
-```
-
-`src/mem/alloc.zig` re-exports:
-
-```zig
-pub const buddy = @import("alloc/buddy.zig");
-
-pub const BuddyAllocator = buddy.BuddyAllocator;
-```
-
 ## API
 
 ```zig
@@ -143,12 +78,7 @@ pub const Self = struct {
 };
 ```
 
-There is no `Static.wrap` and no `Bounded.init` — construction shape is
-deliberately split.
-
-There is no byte-level `alloc`, no `[]u8` return, no `*T` conversion, and no
-`std.mem.Allocator` interface. `Block` values are unit-indexed and the caller
-translates to whatever domain they own.
+`Block` values identify units; the caller translates them into its resource domain.
 
 ## Unit and block model
 
@@ -319,10 +249,7 @@ Logic:
    - otherwise break.
 5. Set the bit for `(block.order, block.start >> block.order)`.
 
-Under `stdx.core.debug.checksEnabled()`, `free` asserts after
-step 5 that no two same-order buddies are both free — a violation would mean
-step 4 missed a coalesce and is a bug in this primitive rather than in the
-caller.
+When `stdx.core.debug.checksEnabled()` is true, `free` MUST assert that no same-order buddies below `maxOrder()` remain free after coalescing.
 
 ## `reserve(range)` semantics
 
@@ -373,11 +300,7 @@ Under `stdx.core.debug.checksEnabled()`:
 - `free` traps when the bit is already set (double-free);
 - `assertValid` fails when the free-list state is internally inconsistent.
 
-In release builds without `checksEnabled`, `free` returns `error.NotAllocated`
-on double-free and `error.InvalidRequest` on unaligned starts, both without
-mutation. Passing a `block` with a start aligned to a different order but
-matching a currently-allocated block at that other order is undefined
-behavior; the primitive does not defend against this case.
+In ReleaseFast and ReleaseSmall, `free` returns `error.NotAllocated` on double-free and `error.InvalidRequest` on unaligned starts, without mutation. Passing the wrong order for an allocated block is outside the caller contract.
 
 ## Behavior contract
 
@@ -406,7 +329,7 @@ callers MUST serialize externally.
 - `free`'s trap on unaligned `block.start`;
 - `free`'s trap on double-free (bit already set) instead of the release-mode
   `error.NotAllocated`;
-- the post-`free` invariant check that no same-order buddies are both free;
+- the post-`free` invariant check that no same-order buddies below `maxOrder()` are both free;
 - `alloc`'s post-condition that the returned block's bit is now clear.
 
 `assertValid()` runs unconditionally when called. Common structural failures
@@ -415,26 +338,20 @@ it catches:
 - `order_count == 0`, `order_count > 32`, or
   `unit_capacity > (maxInt(usize) >> (order_count - 1))`;
 - `words.len < required_word_count(unit_capacity, order_count)`;
-- a same-order buddy pair both marked free;
+- a same-order buddy pair below `maxOrder()` both marked free;
 - unused high bits set in any order's tail word;
 - `allocatedUnits() + remainingUnits() != capacity()`.
 
 `isValid()` returns whether the same conditions hold, without trapping.
 
 ## Testing
-Verification combines boundary cases, direct bitmap-corruption checks, a bool-array reference model, and randomized stress sequences. It observes the initial decomposition, deterministic splitting, eager coalescing, fragmentation, error atomicity, and structural invariants; the model and stress sequence prove that each operation preserves the free-block partition.
-
-Boundary tests use small allocator configurations to verify construction, splitting, coalescing, and error behavior. A bool-array reference model verifies allocation state after mixed operations. Random operation sequences verify that the free-block partition and model equivalence persist under stress.
+Tests MUST compare mixed allocation, free, and reserve operations with a bool-array reference model and check the free-block partition after each operation.
 
 ### `Static(...)` factory
 
 - `Static(16, 5)` compiles.
 - `Static(0, 5)`, `Static(16, 0)`, `Static(16, 33)`, and
   `Static(std.math.maxInt(usize), 5)` are compile errors.
-- `Static(16, 5).unit_capacity_const == 16`,
-  `Static(16, 5).order_count_const == 5`, and
-  `Static(16, 5).max_order_const == 4`.
-- `@sizeOf(Static(16, 5)) > 0` and `@sizeOf(Static(16, 5)) < @sizeOf([16]u64)`.
 
 ### `wrap` behavior
 
@@ -526,18 +443,15 @@ Boundary tests use small allocator configurations to verify construction, splitt
 
 - Under `checksEnabled()`, `free(Block{ .start = 1, .order = 1 })`
   (start not `(1 << 1)`-aligned) traps.
-- Under `checksEnabled`, double-free traps instead of returning
-  `error.NotAllocated`.
-- Under `checksEnabled`, no test path observes two same-order buddies both
-  free after any `free` (invariant checker inside `free`).
-- Under `checksEnabled == false`, double-free returns `error.NotAllocated`
+- When `checksEnabled()` is true, double-free traps rather than returning `error.NotAllocated`.
+- After free, no same-order buddies below `maxOrder()` remain free.
+- When `checksEnabled()` is false, double-free returns `error.NotAllocated`
   and unaligned-start `free` returns `error.InvalidRequest`.
 
 ### `isValid` / `assertValid`
 
 - Fresh `Static` / `Bounded` values are `isValid() == true`.
-- Values with a manually mutated bitmap that marks both order-`k` buddies
-  free fail `isValid()`; `assertValid()` traps.
+- Values marking both order-`k` buddies free for `k < maxOrder()` fail `isValid()`; `assertValid()` traps.
 - Values with `unit_capacity > (maxInt(usize) >> (order_count - 1))`
   (constructed via test-only backdoor) fail `isValid()`.
 
@@ -548,7 +462,7 @@ naive "find lowest-index aligned power-of-two run" allocator.
 
 - Random-op sequence over `alloc`/`free`/`reserve` (valid inputs only).
 - Assert allocator state matches the reference bit-for-bit after every op.
-- Assert no same-order buddy pair is both free at any point.
+- Assert no same-order buddy pair below `maxOrder()` is both free.
 - Parameter grid: `unit_capacity ∈ {1, 4, 8, 16, 64}` and
   `order_count ∈ {1, 2, 3, 5}`.
 

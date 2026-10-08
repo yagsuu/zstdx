@@ -7,50 +7,7 @@ timer wheel keyed by `stdx.time.Deadline`. It stores caller payloads, returns
 handles for cancellation and reprioritization, advances explicitly against a
 caller-supplied `Instant`, and drains entries whose quantized bucket is due.
 
-`TimerWheel` is a coarse timer mechanism, not a scheduler. It never sleeps,
-parks, wakes, resumes, calls callbacks, touches a clock backend, or owns
-cancellation policy. It may expire entries later than their original deadline by
-less than one configured tick; it must not expire entries early.
-
-## What this spec is
-
-This spec owns:
-
-- `stdx.time.TimerWheel`;
-- `TimerWheel.Config`;
-- `TimerWheel.Static(T, capacity_items, config)` with inline fixed storage;
-- `TimerWheel.Bounded(T, config)` with caller-provided fixed storage;
-- a single-level fixed-tick bucket wheel;
-- deadline-to-tick quantization;
-- finite-horizon `error.OutOfRange` behavior;
-- explicit cursor advancement by caller-supplied `Instant`;
-- timer handles and stale-handle invalidation;
-- insertion, removal, deadline update, next-wake, expired pop, clearing,
-  capacity, and invariant-check operations;
-- allocation, waiting, capacity, no-mutation-on-error, ownership,
-  invalidation, and concurrency contracts;
-- required tests.
-
-## What this spec is not
-
-This spec does not own:
-
-- exact deadline ordering; use `docs/specs/time/deadline_queue.md`;
-- sleeping, blocking, parking, yielding, spinning on external state, or
-  scheduler interaction;
-- wake dispatch, fiber resumption, task completion, callback execution, or
-  cancellation propagation;
-- a replacement for Zig `std.Io.Timeout`, `std.Io.sleep`, `Future`,
-  `Executor`, `Runtime`, or a user-facing async API;
-- hardware timer programming, clock construction, clock selection, clock
-  resolution policy, drift correction, wallclock time, or system time;
-- hierarchical or cascading timer wheels;
-- overflow wheels, overflow lists, or automatic far-future rearming;
-- intrusive timer nodes or multi-membership nodes;
-- dynamic allocation, managed storage, unmanaged allocator-taking storage, or
-  automatic growth;
-- stable FIFO ordering within a bucket;
-- priority inversion, fairness, scheduler, or ready-queue policy;
+The caller advances and drains the wheel explicitly. Future deadlines round up to tick boundaries; processing latency depends on the caller.
 
 ## Terminology
 
@@ -75,33 +32,6 @@ been reused with a different generation.
 A **wheel horizon** is the set of due ticks accepted by insertion and update:
 `current_tick <= due_tick < current_tick + config.slot_count`.
 
-## Public namespace and source ownership
-
-`TimerWheel` lives under `stdx.time`:
-
-```zig
-stdx.time.TimerWheel
-```
-
-Source ownership:
-
-```text
-src/time.zig
-src/time/timer_wheel.zig
-test/time/timer_wheel_test.zig
-```
-
-`src/time.zig` re-exports:
-
-```zig
-pub const timer_wheel = @import("time/timer_wheel.zig");
-
-pub const TimerWheel = timer_wheel.TimerWheel;
-```
-
-`src/time.zig` is a thin facade. It contains no logic beyond re-exporting and
-aliasing.
-
 ## Cross-spec relationships
 
 This spec depends on:
@@ -110,15 +40,7 @@ This spec depends on:
   domain;
 - `docs/specs/time/deadline.md` for `Deadline` and `Deadline.never`.
 
-This spec composes with but does not own:
-
-- `docs/specs/time/deadline_queue.md`; exact or far-future timers use
-  `DeadlineQueue` instead of `TimerWheel`;
-- Zig `std.Io.Timeout`; downstream backends may translate `std.Io.Timeout`
-  values into wheel entries internally when coarse timing is acceptable, but
-  `TimerWheel` does not expose or depend on `std.Io`;
-- hardware timer programming; callers use `nextWake()` to decide whether and
-  when to arm their backend timer.
+Use [DeadlineQueue](deadline_queue.md) for exact ordering or deadlines beyond the wheel horizon. Callers use `nextWake()` to arm a backend timer.
 
 ## Data structures and representation
 
@@ -348,10 +270,6 @@ pub const Self = struct {
 violation and traps when `core.debug.checksEnabled()` is true.
 `slots.len == 0` is valid and produces a zero-entry-capacity wheel.
 
-There is no `enqueue`, `dequeue`, `front`, `back`, `peek`, `peekItem`,
-`peekEntry`, `pop`, iterator, live payload pointer, callback, `deinit`,
-`clearAndFree`, allocator-taking method, or root export.
-
 ## Config validation
 
 `Config.tick_ns` is the fixed tick size in nanoseconds. It must be greater than
@@ -434,10 +352,7 @@ If the due tick falls outside that horizon, or if computing the due instant
 would overflow the `Instant` domain, insertion or update returns
 `error.OutOfRange` and leaves the wheel unchanged.
 
-Accepted entries must not expire before their original deadline. They may expire
-at their original deadline if it lies exactly on a tick boundary, otherwise at
-the next tick boundary. Maximum lateness is less than `config.tick_ns`
-nanoseconds.
+Entries MUST NOT expire before their original deadline. A future deadline's rounding error MUST be less than `config.tick_ns`; an exact tick boundary has zero error. Already-due deadlines expire at the current cursor. The wheel does not bound delay caused by late advancement or draining.
 
 ## Cursor advancement
 
@@ -520,10 +435,7 @@ rely on FIFO ordering within a bucket.
 `remove(handle)` removes the entry identified by a live handle from a bucket or
 from the expired list and returns its `Entry`.
 
-If `handle` is stale or was not produced by this wheel instance, `remove`
-returns `null` and leaves the wheel unchanged. A fabricated handle that happens
-to match a live implementation encoding is outside the caller contract; callers
-must use only handles returned by this wheel.
+The caller MUST use handles returned by this wheel instance. A stale same-instance handle MUST return `null` without mutation. Foreign or fabricated handles are outside the contract; handle encodings do not identify their originating instance.
 
 When removal succeeds, the handle becomes stale before `remove` returns. Other
 live handles remain valid.
@@ -536,8 +448,7 @@ wake dispatch, callback, or scheduler action.
 `updateDeadline(handle, deadline)` changes the deadline of the entry identified
 by a live handle.
 
-If `handle` is stale or was not produced by this wheel instance,
-`updateDeadline` returns `false` and leaves the wheel unchanged.
+A stale same-instance handle MUST return `false` without mutation.
 
 If `deadline` is `Deadline.never`, outside the wheel horizon, or would overflow
 due-instant arithmetic, `updateDeadline` returns `error.OutOfRange` and leaves
@@ -637,9 +548,6 @@ The following operations do not invalidate other live handles:
 
 ## Implementation constraints
 
-Implementations must not allocate, free heap memory, call a clock backend, call
-scheduler APIs, call user callbacks, access hidden globals, or perform syscalls.
-
 Mutating operations require exclusive ownership of the wheel. The primitive does
 not provide internal synchronization. Concurrent callers must serialize
 externally.
@@ -658,20 +566,20 @@ values.
 
 ## Testing
 
-Testing MUST use caller-controlled `Instant` values and a reference model that quantizes deadlines to due ticks. This method verifies wheel behavior without a clock backend, allocator, scheduler, or callback.
+Tests MUST use caller-controlled `Instant` values and a reference model that quantizes deadlines to due ticks.
 
 ### Configuration, capacity, and range boundaries
 
-Compile-time tests reject zero ticks, invalid bucket counts, and configurations whose accepted due-instant arithmetic cannot fit the `Instant` domain. Construction tests cover static and bounded storage, cursor initialization, zero entry capacity, and debug bucket-length validation. Insertion tests verify range-before-capacity precedence, `error.Full`, `error.OutOfRange`, and no mutation on every error path. These tests prove configuration, capacity, and finite-horizon contracts.
+Tests MUST reject invalid configurations at compile time, cover both storage variants and zero entry capacity, and check initial cursor and enabled bucket-length assertions. Insertion tests MUST verify range-before-capacity error precedence and no mutation on range/capacity errors.
 
 ### Quantization and cursor transitions
 
-Boundary tests place deadlines at the cursor, within a tick, exactly on a tick boundary, one nanosecond after a boundary, at the last accepted due tick, and at the first rejected due tick. Advancement tests cover same-tick movement, exact due ticks, skipped ticks, jumps of at least one wheel revolution, and debug rejection of backwards time. They prove no early expiration, less-than-one-tick lateness, horizon limits, and bounded cursor advancement.
+Boundary tests MUST cover already-due deadlines, exact tick boundaries, rounding within a tick, the last accepted due tick, and the first rejected due tick. Advancement tests MUST cover same-tick movement, exact due ticks, skipped ticks, and jumps of at least one wheel revolution. Check no early expiration and less-than-one-tick rounding error for future deadlines; isolate enabled-check rejection of backwards time.
 
 ### Expiration, ordering, and next wake
 
-Tests advance then drain expired entries, observe empty and pending states, and remove entries before and after they become due. Same-bucket tests compare membership and count rather than order. `nextWake` tests verify null for empty state, `cursor()` for pending expiration, and quantized future wake instants. These tests prove expired-pop, unspecified bucket order, and caller-owned wake behavior.
+Tests MUST advance then drain entries, remove entries before/after expiry, and check empty/pending state. Compare same-bucket membership/count without assuming order. Check `nextWake` for empty, pending, and future states.
 
 ### Handle and reference-model tests
 
-Tests exercise removal, update, clearing, stale-handle queries, and slot reuse. They verify invalidation boundaries, liveness preservation after successful updates, payload ownership, and no mutation for stale or out-of-range operations. Randomized sequences of insert, remove, update, advance, next wake, expired pop, and clear compare observable state with the quantized reference model, treating same-bucket order as unordered. Contract tests verify allocator independence, `void` and pointer payloads, absence of the root export, and invariant checks after public mutations and deliberate corruption. These tests prove the lifetime, capacity, ordering, and invariant contracts across long state transitions.
+Tests MUST cover removal, update, clear, stale-handle queries, and slot reuse, checking invalidation, liveness preservation, returned payloads, and no mutation on stale/range errors. Mixed operations MUST match a quantized reference model with unordered same-bucket entries. Include `void` and pointer payloads and invariant validation after mutations.

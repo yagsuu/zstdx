@@ -11,65 +11,6 @@ owns the actual spin/yield/sleep.
 `Backoff` is a value, not a scheduler. It does not spin, does not yield,
 does not sleep, and never touches the clock beyond querying the deadline.
 
-## What this spec is
-
-This spec owns:
-
-- `time.Backoff`, the retry-delay state machine;
-- `time.Backoff.Policy`, the caller-provided tuning of spin/yield/sleep
-  phases and geometric growth;
-- `time.Backoff.Step`, the tagged-union result of `next`;
-- deadline-aware clipping via `stdx.time.Deadline` and a caller-supplied
-  clock;
-- the yield-hook seam as an optional function pointer on `Policy`;
-- reset semantics for retry state;
-- debug-only structural validation of `Policy` and `Backoff` under
-  `stdx.core.debug.checksEnabled`;
-- required tests.
-
-## What this spec is not
-
-This spec does not own:
-
-- executing the spin, yield, or sleep — the caller invokes
-  `std.atomic.spinLoopHint`, the yield hook, or a wait mechanism itself;
-- scheduler awareness beyond the caller-supplied `yield` function pointer;
-- randomization or jitter — deterministic-first;
-- global default `Backoff.Policy` values;
-- attempt outcome tracking, retry-on-error batching, or `RetryPolicy`
-  composites;
-- `std.Io` integration;
-- dynamic allocation — every `Backoff` is a caller-owned value;
-
-## Public namespace
-
-`Backoff` lives under `stdx.time`:
-
-```zig
-stdx.time.Backoff
-stdx.time.Backoff.Policy
-stdx.time.Backoff.Step
-```
-
-Source ownership:
-
-```text
-src/time.zig
-src/time/backoff.zig
-test/time/backoff_test.zig
-```
-
-`src/time.zig` re-exports:
-
-```zig
-pub const backoff = @import("time/backoff.zig");
-
-pub const Backoff = backoff.Backoff;
-```
-
-`src/time.zig` is a thin facade. It contains no logic beyond re-exporting
-and aliasing.
-
 ## API
 
 ```zig
@@ -111,11 +52,6 @@ pub const Backoff = struct {
 };
 ```
 
-There is no `Backoff.spin`, `Backoff.yield`, or `Backoff.sleep` that
-performs the action; every phase result is returned and the caller
-executes it. There is no jitter parameter, no `Policy.random`, no
-`Backoff.Batched`, no async future variant.
-
 `policy`, `attempt`, and `next_wait` are public fields. Callers may inspect
 `next_wait` between calls for logging or heuristic sizing, and may
 overwrite `policy` in place before calling `reset()` when they need to
@@ -151,8 +87,7 @@ past `max_wait` saturate.
 - `max_wait.nanos() >= 0`;
 - `initial_wait.nanos() <= max_wait.nanos()`.
 
-`Policy.assertValid` runs unconditionally when called. `Backoff.init` and
-`Backoff.assertValid` call it under `checksEnabled()` only.
+Explicit `Policy.assertValid()` and `Backoff.assertValid()` calls MUST validate the policy. `Backoff.init()` performs automatic policy validation when `core.debug.checksEnabled()` is true.
 
 ## Backoff semantics
 
@@ -210,12 +145,11 @@ type is `u32` matching the field.
 
 `Backoff.assertValid` checks:
 
-- `self.policy.assertValid()` (recursed);
+- `self.policy.assertValid()`;
 - `self.next_wait.nanos() >= 0`;
 - `self.next_wait.nanos() <= self.policy.max_wait.nanos()`.
 
-Runs unconditionally when called. Consumers gate the call under
-`checksEnabled()` per `core/debug.md` convention.
+Explicit validation uses `std.debug.assert`. Callers may gate the invocation with `checksEnabled()` as specified in [the Zig guidelines](../../guidelines/zig.md).
 
 ## Clock parameter
 
@@ -246,9 +180,9 @@ syscall, and no atomic operation.
 
 ## Testing
 
-Testing MUST use a caller-controlled `FakeClock` and observe phase selection and deadline clipping without executing spin, yield, or sleep. This method isolates the state machine from scheduler behavior.
+Tests MUST use a caller-controlled clock to check phase selection and deadline clipping without executing spin, yield, or sleep.
 
 - Phase-transition tests exercise spin, configured yield, skipped yield, sleep, constant growth, geometric growth, and saturation. They verify that `next` returns the prescribed action and updates `attempt` and `next_wait` only for productive steps.
 - Deadline-boundary tests use already-expired, exact-boundary, and positive-remaining deadlines. They verify that timeout takes precedence, sleep duration is clipped to the remaining duration, and `.timeout` does not increment `attempt`.
-- Reset and validation tests verify restoration of `attempt` and `next_wait`, preservation of `policy`, and debug validation of invalid policy or caller-mutated state. They prove the state-machine reset and invariant contracts.
-- Compile-time tests reject invalid clock shapes, assert the fixed `Policy` and `Backoff` size constraints, and compile the module for a non-x86 target. They prove the clock seam and representation constraints.
+- Reset tests MUST verify restoration of `attempt` and `next_wait` and preservation of `policy`. Isolated validation tests MUST reject invalid policies and caller-mutated state.
+- Compile-time tests MUST reject invalid clock shapes and compile the module for a non-x86 target.

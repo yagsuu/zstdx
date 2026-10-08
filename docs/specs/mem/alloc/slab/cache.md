@@ -12,59 +12,6 @@ slot to that region's slab allocator without touching the region-source.
 `SlabCache` never hides allocation. `acquire` never calls the `RegionSource`.
 Growth is a caller decision expressed by `refill`.
 
-## What this spec is
-
-This spec owns:
-
-- `mem.alloc.SlabCache(T, RegionSource)`;
-- `SlabCache.PerCpu(cpu_count, local_capacity)`;
-- the `RegionSource` interface contract (comptime-duck-typed);
-- intrusive per-region metadata (`RegionHeader`) laid out inside each region;
-- slab coloring during `refill`;
-- empty / partial / full region-list membership;
-- `acquire`, `release`, `refill`, `drain`, and `contains` semantics;
-- exhaustion behavior when every region is full;
-- pointer stability for outstanding acquisitions across `acquire`, `release`,
-  `refill`, and other regions' `drain`;
-- required tests.
-
-## What this spec is not
-
-- concrete region sources (page allocators, boot heaps, IOMMU-mapped
-  regions, huge-page providers);
-- CPU discovery, affinity, or interrupt policy;
-- a general-purpose thread-safe `SlabCache`;
-- destructors, release callbacks, or value finalizers;
-- generation counters, stale-handle detection, or hazard-pointer schemes;
-- iteration over live objects across regions;
-- automatic zeroing or poisoning beyond the `SlabAllocator` debug-fill contract
-  inherited from `docs/specs/mem/alloc/slab/allocator.md`;
-- `std.mem.Allocator` views.
-
-## Public namespace and source ownership
-
-`SlabCache` lives under `stdx.mem.alloc`:
-
-```zig
-stdx.mem.alloc.SlabCache
-```
-
-Source ownership:
-
-```text
-src/mem.zig
-src/mem/alloc/slab/cache.zig
-test/mem/alloc/slab/cache_test.zig
-```
-
-`src/mem/alloc/slab.zig` re-exports:
-
-```zig
-pub const cache = @import("slab/cache.zig");
-
-pub const SlabCache = cache.SlabCache;
-```
-
 ## `RegionSource` interface
 
 `RegionSource` is a comptime-duck-typed interface. Any type used as
@@ -208,7 +155,7 @@ Every mutating operation preserves this partition. Transitions are:
 | --- | --- | --- |
 | `acquire` moves a region from empty | empty | partial (or full if `slots_per_region == 1`) |
 | `acquire` fills the region's last slot | partial | full |
-| `release` frees a slot from a full region | full | partial |
+| `release` frees a slot from a full region | full | partial (or empty if `slots_per_region == 1`) |
 | `release` frees the region's last live slot | partial | empty |
 | `refill` adds a fresh region | (none) | empty |
 | `drain` returns an empty region | empty | (none) |
@@ -347,10 +294,7 @@ any list.
 
 `isEmpty()` returns `live_count == 0`.
 
-There is no `isFull()`. A cache with every held region full is not
-"full" in the usual sense — the caller can grow it with `refill()`.
-Callers that need to detect the acquire-must-refill boundary observe
-`remaining() == 0` or handle `acquire`'s `error.OutOfMemory` directly.
+When `remaining() == 0`, `acquire` MUST return `error.OutOfMemory`; the caller may grow the cache with `refill()`.
 
 None of these operations walks a list or calls the source.
 
@@ -475,8 +419,6 @@ Implementation MUST:
 - avoid heap fallback and hidden globals.
 
 ## Testing
-Verification uses a counted region source, layout boundary cases, deliberate metadata corruption, a randomized region model, and per-CPU concurrency scenarios. It observes region ownership, color capacity, list transitions, source-call boundaries, pointer lifetime, error atomicity, and local-cache accounting; the model proves that region and live-object totals remain consistent through refill, drain, acquire, and release.
-
 A counted region source records each `acquire` and `release` call for tests that verify source-call boundaries and balancing. Tests that exercise a concrete source use that source.
 
 ### Construction

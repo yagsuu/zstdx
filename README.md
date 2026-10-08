@@ -107,8 +107,6 @@ The public facade is `src/stdx.zig`. It re-exports these namespaces:
   capacity, ownership, invalidation, error, concurrency, and ordering effects.
 - **Domain-neutral APIs.** The library provides mechanisms rather than a
   kernel, firmware, driver, hypervisor, or protocol stack.
-- **Target isolation.** Architecture-specific instructions remain under
-  `stdx.arch`. They do not leak into generic primitives.
 
 ## Build and test
 

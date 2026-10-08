@@ -2,82 +2,7 @@
 
 Status: Approved.
 
-`stdx.sync.RawSpinLock` is the minimum viable mutual-exclusion primitive:
-one atomic word, an `acquire()` that spins until it wins, a `release()`
-that publishes the exit. No fairness, no queueing, no interrupt policy,
-no scheduler awareness, no backoff. It is the raw form; fair and
-backoff-aware variants live in sibling specs (`sync.TicketLock`,
-`sync.SpinLock`).
-
-`RawSpinLock` is a spinlock, not a mutex. It never yields, never sleeps,
-never allocates. Every caller pays for contention in wasted cycles on
-the requesting CPU.
-
-## Owned scope
-
-This spec owns:
-
-- `sync.RawSpinLock`, the atomic-word spinlock;
-- `sync.RawSpinLock.State`, the two-value state enum;
-- `acquire`, `tryAcquire`, and `release` semantics;
-- test-and-test-and-set spin strategy on the acquire path;
-- ordering contract: acquire on the winning CAS, release on the
-  publish store;
-- `isHeld` predicate and `assertHeld` debug check under
-  `stdx.core.debug.checksEnabled`;
-- interaction rules for recursive acquire, interrupt context, and
-  sleeping-while-held (all caller responsibility);
-- required tests.
-
-## Deferred scope and non-goals
-
-This spec does not own:
-
-- fairness — `sync.TicketLock` addresses that (queued);
-- queueing spinlocks (MCS, CLH, K42) — separate specs when consumers
-  surface concrete need;
-- backoff — `sync.SpinLock` layers `time.Backoff` on top (queued);
-- interrupt save/restore — the caller wraps
-  `arch.x86_64.Interrupts.disable`/`enable` on x86_64 or the
-  equivalent on other targets; `sync → arch` dependency is not
-  approved and this spec does not introduce it;
-- timeout or deadline composition — callers compose `time.Deadline`
-  with `tryAcquire` themselves;
-- condition variables, waiter notification, or wait-queue integration;
-- reader/writer variants;
-- reentrant / recursive locking — recursive acquire is a caller
-  contract violation;
-- `Guard` / RAII wrapper — Zig idiom is `defer lock.release();`;
-- poisoning or tainted state on holder panic;
-- lock-holder identity tracking beyond the debug assertion.
-
-## Public namespace
-
-`RawSpinLock` lives under `stdx.sync`:
-
-```zig
-stdx.sync.RawSpinLock
-stdx.sync.RawSpinLock.State
-```
-
-Source ownership:
-
-```text
-src/sync.zig
-src/sync/raw_spin_lock.zig
-test/sync/raw_spin_lock_test.zig
-```
-
-`src/sync.zig` re-exports:
-
-```zig
-pub const raw_spin_lock = @import("sync/raw_spin_lock.zig");
-
-pub const RawSpinLock = raw_spin_lock.RawSpinLock;
-```
-
-`src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
-and aliasing.
+`stdx.sync.RawSpinLock` is a single-word spinlock. Acquisition spins without yielding or fairness guarantees. The caller owns interrupt discipline.
 
 ## API
 
@@ -101,10 +26,7 @@ pub const RawSpinLock = struct {
 };
 ```
 
-There is no `Guard` type, no `withLock` helper, no `acquireIrqSave`, no
-`acquireTimeout`, no `tryAcquireN`, and no reader/writer surface. `State`
-values are `unlocked = 0` and `locked = 1`; adding a third state value
-is a spec break.
+`State` has `unlocked = 0` and `locked = 1`.
 
 ## Semantics
 
@@ -188,14 +110,8 @@ Required behavior:
 - writes preceding `release()` on the same thread are visible to the
   next `acquire()`/`tryAcquire()` winner under acquire semantics;
 - the store is release-ordered;
-- under `stdx.core.debug.checksEnabled()`, `release()`
-  calls `assertHeld()` before storing; a stray release traps;
-- never allocates, never yields, never touches interrupt state;
-- calling `release()` without a prior successful `acquire`/`tryAcquire`
-  is a caller contract violation. In release builds the state word is
-  overwritten with `unlocked` unconditionally; whichever context
-  believed it still held the lock now shares the state with any new
-  acquirer.
+- when `stdx.core.debug.checksEnabled()` is true, `release()` calls `assertHeld()` before storing and traps if the lock is unlocked;
+- the caller MUST release only a lock it successfully acquired. The lock does not track holder identity.
 
 ### `isHeld`
 
@@ -214,10 +130,7 @@ does not affect correctness-critical control flow.
 
 ### `assertHeld`
 
-`assertHeld()` traps if the state word is not `locked` when called.
-Runs unconditionally when called. Consumers gate the call under
-`stdx.core.debug.checksEnabled()` per `core/debug.md`
-convention. `release()` calls it internally under the same gate.
+When `stdx.core.debug.checksEnabled()` is true, `assertHeld()` MUST assert that the state word is locked. It is a diagnostic check, not proof that the calling context owns the lock.
 
 ## Ordering contract
 
@@ -227,8 +140,6 @@ convention. `release()` calls it internally under the same gate.
   previous `release()` on the same lock;
 - writes performed by the previous holder before `release()` are
   visible to the new holder after `acquire()`/`tryAcquire()` returns;
-- writes performed by the current holder while the lock is held are
-  not visible to any other observer until the holder calls `release()`;
 - concurrent `isHeld()` observers see values consistent with monotonic
   ordering on the state word; no synchronize-with edge on `isHeld`.
 
@@ -251,9 +162,7 @@ interrupts around `acquire()` (using
 other targets) or ensure interrupt handlers cannot reach `L`. This
 spec does not import `arch`; the composition is caller code.
 
-**Release without prior acquire is a caller contract violation** caught
-by `assertHeld` under `checksEnabled()` and undefined in
-release builds.
+Releasing from a context that did not acquire the lock is outside the caller contract. The diagnostic check detects an unlocked word, not wrong-context ownership.
 
 ## Behavior contract
 
@@ -265,21 +174,6 @@ release builds.
 | `release` | never | never | O(1) | single holder | release | asserts under `checksEnabled` |
 | `isHeld` | never | never | O(1) | reader | monotonic | infallible |
 | `assertHeld` | never | never | O(1) | reader | monotonic | asserts on unheld |
-
-`RawSpinLock` is safe from any execution context including NMI when
-paired with the caller's own interrupt discipline. The primitive
-performs no allocation, no lock (beyond itself), no syscall, no target
-probing.
-
-## std.Io lane
-
-`RawSpinLock` serves lane 2 exclusively: freestanding consumers where
-`std.Io` is unavailable. A `std.Io`-integrated lock yields to the
-scheduler under contention — that is a different primitive, not this
-one.
-
-Not a substitute for `std.Thread.Mutex` in hosted userspace. Hosted
-callers who want lock semantics use `std.Thread.Mutex`.
 
 ## Examples
 
@@ -336,10 +230,12 @@ fn snapshot(lock: *const stdx.sync.RawSpinLock) Snapshot {
 
 ## Testing
 
-Compile-time tests MUST verify the single-word representation, `State` tags and values, and that all-zero storage is an unlocked lock. These tests prove the representation and bulk-initialization contracts.
+Tests MUST:
 
-Deterministic transition tests MUST verify `init`, successful and failed `tryAcquire`, `acquire`, `release`, `isHeld`, and debug-mode traps for `release` or `assertHeld` on an unheld lock. The failed `tryAcquire` test MUST verify that it does not modify the lock state. These tests prove exclusive ownership and failure behavior.
-
-An ordering test MUST have one holder publish a payload before `release` and a subsequent holder read it after `acquire`. The subsequent holder MUST observe the payload. This test proves the release/acquire critical-section edge.
-
-Stress tests MUST run multiple contenders that increment a shared counter while holding the lock and verify the exact final count. A coordinated contention test MUST hold the lock while other callers enter `acquire`, then release it and verify that each caller eventually completes one critical section. These tests exercise progress under contention without asserting fairness. Cross-target compilation MUST include a non-x86 target.
+- Verify the single-word representation and unlocked all-zero state.
+- Check successful/failed acquisition, release, and held-state observation; failed `tryAcquire` MUST preserve state.
+- Isolate enabled assertion failures on releasing/checking an unlocked lock.
+- Publish a payload before release and verify visibility to a subsequent acquiring holder.
+- Run concurrent guarded increments and verify the exact count.
+- Hold the lock while contenders attempt acquisition, then release it and verify completion without assuming fairness.
+- Compile for a non-x86 target.

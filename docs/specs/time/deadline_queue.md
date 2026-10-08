@@ -7,44 +7,6 @@ Status: Approved.
 cancellation and reprioritization, and exposes earliest-deadline peek and
 expired-pop operations against a caller-supplied `Instant`.
 
-`DeadlineQueue` is a mechanism, not a scheduler. It never sleeps, parks, wakes,
-resumes, calls callbacks, touches a clock backend, or owns cancellation policy.
-
-## What this spec is
-
-This spec owns:
-
-- `stdx.time.DeadlineQueue`;
-- `DeadlineQueue.Static(T, capacity_items)` with inline fixed storage;
-- `DeadlineQueue.Bounded(T)` with caller-provided fixed storage;
-- queue handles and stale-handle invalidation;
-- exact ordering by `Deadline.instant().nanos()`;
-- insertion, removal, deadline update, earliest-deadline peek, expired pop,
-  earliest pop, clearing, capacity, and invariant-check operations;
-- allocation, waiting, capacity, no-mutation-on-error, ownership,
-  invalidation, and concurrency contracts;
-- required tests.
-
-## What this spec is not
-
-This spec does not own:
-
-- sleeping, blocking, parking, yielding, spinning on external state, or
-  scheduler interaction;
-- wake dispatch, fiber resumption, task completion, callback execution, or
-  cancellation propagation;
-- a replacement for Zig `std.Io.Timeout`, `std.Io.sleep`, `Future`,
-  `Executor`, `Runtime`, or a user-facing async API;
-- hardware timer programming, clock construction, clock selection, clock
-  resolution policy, drift correction, wallclock time, or system time;
-- intrusive timer nodes or multi-membership nodes;
-- dynamic allocation, managed storage, unmanaged allocator-taking storage, or
-  automatic growth;
-- stable FIFO ordering for equal deadlines;
-- priority inversion, fairness, scheduler, or ready-queue policy;
-- coarse bucketed timers or cascading wheels;
-  `docs/specs/time/timer_wheel.md` owns timer wheels.
-
 ## Terminology
 
 A **deadline key** is the unsigned nanosecond value returned by
@@ -62,33 +24,6 @@ been reused with a different generation.
 A **finite clock reading** is any monotonic reading below `maxInt(u64)`, matching
 the finite `Instant` domain in `docs/specs/time/deadline.md`.
 
-## Public namespace and source ownership
-
-`DeadlineQueue` lives under `stdx.time`:
-
-```zig
-stdx.time.DeadlineQueue
-```
-
-Source ownership:
-
-```text
-src/time.zig
-src/time/deadline_queue.zig
-test/time/deadline_queue_test.zig
-```
-
-`src/time.zig` re-exports:
-
-```zig
-pub const deadline_queue = @import("time/deadline_queue.zig");
-
-pub const DeadlineQueue = deadline_queue.DeadlineQueue;
-```
-
-`src/time.zig` is a thin facade. It contains no logic beyond re-exporting and
-aliasing.
-
 ## Cross-spec relationships
 
 This spec depends on:
@@ -98,17 +33,7 @@ This spec depends on:
 - `docs/specs/time/deadline.md` for `Deadline`, `Deadline.never`, and the
   `now.afterOrEq(deadline.instant())` expiration boundary.
 
-This spec composes with but does not own:
-
-- `docs/specs/io/poll.md`; single-operation poll loops continue to use
-  `time.Deadline` and `time.Backoff` directly;
-- Zig `std.Io.Timeout`; downstream backends may translate `std.Io.Timeout`
-  into queue entries internally, but `DeadlineQueue` does not expose or depend
-  on `std.Io`;
-- `docs/specs/heaps/indexed-heap.md`; an implementation may use an indexed heap
-  substrate, but this spec's public contract is time-specific and does not
-  depend on that public heap API;
-- `docs/specs/time/timer_wheel.md` for coarse high-fanout timer buckets.
+Exact ordering uses `Deadline.instant().nanos()`. [TimerWheel](timer_wheel.md) provides coarse bucketed timers.
 
 ## Data structures and representation
 
@@ -300,10 +225,6 @@ is a caller contract violation and traps when
 `core.debug.checksEnabled()` is true. `slots.len == 0` and
 `heap.len == 0` are valid and produce a zero-capacity queue.
 
-There is no `enqueue`, `dequeue`, `front`, `back`, `peek`, `peekItem`,
-`peekEntry`, `pop`, `update`, `cancel`, iterator, live payload pointer,
-callback, `deinit`, `clearAndFree`, allocator-taking method, or root export.
-
 ## Initialization
 
 `Static(T, N).init()` returns an empty queue with capacity `N`. `N` must be
@@ -416,10 +337,7 @@ clearing must drain with `popNext()` before `clearRetainingCapacity()`.
 `remove(handle)` removes the entry identified by a live handle and returns its
 `Entry`.
 
-If `handle` is stale or was not produced by this queue instance, `remove`
-returns `null` and leaves the queue unchanged. A fabricated handle that happens
-to match a live implementation encoding is outside the caller contract; callers
-must use only handles returned by this queue.
+The caller MUST use handles returned by this queue instance. A stale same-instance handle MUST return `null` without mutation. Foreign or fabricated handles are outside the contract; handle encodings do not identify their originating instance.
 
 When removal succeeds, the handle becomes stale before `remove` returns. Other
 live handles remain valid.
@@ -432,8 +350,7 @@ wake dispatch, callback, or scheduler action.
 `updateDeadline(handle, deadline)` changes the deadline key of the entry
 identified by a live handle and returns `true`.
 
-If `handle` is stale or was not produced by this queue instance,
-`updateDeadline` returns `false` and leaves the queue unchanged.
+A stale same-instance handle MUST return `false` without mutation.
 
 A successful update preserves the handle's liveness. Updating to an earlier
 deadline, a later deadline, the same deadline, or `Deadline.never` is valid.
@@ -516,9 +433,6 @@ The following operations do not invalidate other live handles:
 
 ## Implementation constraints
 
-Implementations must not allocate, free heap memory, call a clock backend, call
-scheduler APIs, call user callbacks, access hidden globals, or perform syscalls.
-
 Mutating operations require exclusive ownership of the queue. The primitive does
 not provide internal synchronization. Concurrent callers must serialize
 externally.
@@ -531,27 +445,24 @@ Operations are safe from interrupt or NMI context only when the caller
 guarantees exclusive access without blocking and copying `T` is valid in that
 context. The primitive itself adds no context-unsafe side effect.
 
-The implementation must not move payloads during heap maintenance in any way
-that exposes a live payload pointer because the API exposes no live payload
-pointers. Whether the internal representation moves bytes is not observable
-except through returned `Entry` values.
+The API returns payloads by value and exposes no live payload pointers.
 
 ## Testing
 
-Testing MUST use caller-controlled `Instant` values and a reference priority-queue model. This method verifies queue behavior without a clock backend, allocator, scheduler, or callback.
+Tests MUST use caller-controlled `Instant` values and a reference priority-queue model.
 
 ### Capacity and error boundaries
 
-Construction tests cover static and bounded storage, including zero-capacity bounded queues and debug storage-length validation. Full-queue tests verify `error.Full` and no mutation of length, entries, handles, or ordering; they also verify the checked and assume-capacity insertion contracts. These tests prove capacity and no-mutation-on-error requirements.
+Construction tests MUST cover both storage variants, zero-capacity bounded storage, and enabled length checks. Full-queue tests MUST verify `error.Full` without changes to entries, handles, count, or order.
 
 ### Ordering and expiration
 
-Tests insert finite and `Deadline.never` keys, then observe `peekDeadline`, `popNext`, and `popExpired` before, at, and after a deadline. Drain tests hold one `now` value constant and verify that only expired entries leave the queue. Equal-key tests compare membership and count rather than order. These tests prove minimum-key selection, the inclusive expiration boundary, sentinel ordering, and intentionally unspecified equal-key order.
+Tests MUST insert finite and `Deadline.never` keys and check peek/pop before, at, and after deadlines. A fixed-time drain MUST remove only expired entries. Equal-key checks MUST compare membership/count without assuming order.
 
 ### Handle and state transitions
 
-Tests exercise insertion, removal, reprioritization, clearing, stale-handle queries, and slot reuse. They verify each stated invalidation boundary, preservation of other live handles, payload ownership on removal, and no mutation for stale handles. These transitions prove generation protection and handle lifetime.
+Tests MUST check insertion, removal, reprioritization, clear, and slot reuse, including stale same-instance handles, preservation of other live handles, and no mutation on stale operations.
 
 ### Reference-model and contract tests
 
-Randomized sequences of insert, remove, update, peek, expired pop, next pop, and clear compare observable state with a reference model that treats equal-key order as unordered. Contract tests verify allocator independence, `void` and pointer payloads, absence of the root export, and invariant checking after public mutations and deliberate corruption. Together these tests prove ordering, capacity, payload, representation, and invariant contracts across long operation sequences.
+Mixed insert, remove, update, peek, expired-pop, next-pop, and clear operations MUST match a reference model that treats equal-key order as unordered. Tests MUST cover `void` and pointer payloads and call invariant validation after mutations.

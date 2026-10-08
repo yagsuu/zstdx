@@ -4,31 +4,11 @@ Status: Approved.
 
 `stdx.io.MMIO.Register(T)` provides typed volatile access to one memory-mapped register lane. `stdx.io.MMIO.Window` borrows an MMIO byte range and produces typed register pointers at checked offsets.
 
-## What this spec is
-
-This spec defines the `stdx.io.MMIO` namespace, supported register-lane types, register representation, volatile access, borrowed-window lifetime, bounds and alignment checks, compiler ordering, barrier composition, and required verification.
-
-## What this spec is not
-
-This spec does not define device register maps, register-field policy, read-modify-write helpers, PCI configuration, DMA mapping, cache maintenance, or hardware ordering. `docs/specs/barrier/dma.md` owns the barrier operations that callers use when hardware ordering is required. This spec does not promote MMIO declarations to `stdx`.
-
 ## Terminology
 
 - **Register lane:** One `Register(T)` object accessed at the width and alignment of `T`.
 - **Window:** A non-owning `Window(min_align_bytes)` value over a caller-owned MMIO mapping.
 - **Volatile access:** A Zig load or store through a `*volatile T` access path.
-
-## Public namespace and source ownership
-
-The public namespace is `stdx.io.MMIO`, with `stdx.io.mmio` as the module facade.
-
-```text
-src/io.zig
-src/io/mmio.zig
-test/io/mmio_test.zig
-```
-
-`src/io.zig` re-exports `mmio` and `MMIO`. The facade contains no implementation logic.
 
 ## Cross-spec relationships
 
@@ -165,10 +145,10 @@ The implementation MUST use Zig volatile lowering for `load` and `store`; it MUS
 
 Host tests use aligned ordinary byte buffers as a model of mapped storage. They verify wrapper representation, pointer arithmetic, byte representation, and volatile load/store behavior. They do not prove device side effects, bus transactions, ISA instruction counts, or hardware ordering; those properties require target-specific inspection and hardware validation.
 
-Compile-fail checks MUST instantiate rejected register types, invalid window alignments, over-aligned window lanes, missing fields, and invalid field layouts. Each check proves the API rejects an invalid compile-time shape; it cannot exercise a runtime error path.
+Compile-fail checks MUST cover rejected register types, invalid window alignments, over-aligned lanes, missing fields, and invalid field layouts.
 
-Boundary tests MUST cover the first valid offset, the last offset that fits exactly, the first offset that exceeds the window, and an extreme `usize` offset. These tests prove the subtraction-based bounds check prevents overflow before address arithmetic. Alignment tests MUST cover aligned and misaligned runtime addresses and the declared-alignment requirement of `wrap`.
+Boundary tests MUST cover the first valid offset, an exact fit, the first out-of-bounds offset, and an extreme `usize` offset. Alignment tests MUST cover aligned and misaligned addresses and `wrap`'s declared-alignment requirement.
 
-Representation tests MUST verify each supported lane width, endian-wrapper bytes, packed-struct lanes, and offsets in an `extern struct` overlay. They prove the public layout and host-model byte representation, not a device protocol.
+Representation tests MUST verify supported lane widths, endian-wrapper bytes, packed-struct lanes, and offsets in an `extern struct` overlay.
 
-State and error tests MUST verify that `register` and `field` return `error.OutOfBounds` and `error.Misaligned` as applicable, and that a successful returned pointer aliases the model buffer. Debug-mode tests MUST verify the checked `registerUnchecked` path for valid input and, where the test harness can isolate a trap, invalid input. A normal Zig unit-test process cannot continue after an assertion trap, so it cannot prove post-trap behavior.
+State and error tests MUST check `error.OutOfBounds`, `error.Misaligned`, and aliasing of successful register pointers. Invalid `registerUnchecked` inputs require an isolated assertion process.

@@ -10,61 +10,6 @@ each acquired slot. It does not allocate, wait, or call destructors.
 caller-owned `[]Slot` storage. Both share every observable behavior except
 construction.
 
-## What this spec is
-
-This spec owns:
-
-- `mem.alloc.SlabAllocator.Static(T, N)`;
-- `mem.alloc.SlabAllocator.Bounded(T)`;
-- private intrusive free-list discipline using `Slot = union(enum)`;
-- `acquire`/`release` semantics with O(1) cost;
-- pointer-stability rules and uninitialized-payload rules;
-- the `error{ OutOfMemory }` error mode;
-- zero-capacity behavior;
-- `clearRetainingCapacity` rebuild semantics;
-- `assertValid` invariants;
-- required tests.
-
-## What this spec is not
-
-- destructors, release callbacks, or value finalizers;
-- generation counters or stale-handle detection;
-- multi-typed slab allocators;
-- thread-safe slab allocators;
-- iteration over live objects;
-- shrinking, defragmentation, or compaction;
-- automatic zeroing or poisoning;
-- runtime-changeable capacity;
-- alignment override beyond `@alignOf(T)`;
-- bulk acquire/release helpers;
-- `std.mem.Allocator` views.
-
-## Public namespace and source ownership
-
-`SlabAllocator` lives under `stdx.mem.alloc`:
-
-```zig
-stdx.mem.alloc.SlabAllocator
-stdx.mem.alloc.SlabAllocator.Static
-stdx.mem.alloc.SlabAllocator.Bounded
-```
-
-Source ownership:
-
-```text
-src/mem.zig
-src/mem/alloc/slab/allocator.zig
-test/mem/alloc/slab/allocator_test.zig
-```
-
-`src/mem/alloc/slab.zig` re-exports:
-
-```zig
-pub const allocator = @import("slab/allocator.zig");
-
-pub const SlabAllocator = allocator.SlabAllocator;
-```
-
 ## API
 
 ```zig
@@ -200,8 +145,6 @@ return its value safely.
 `live_count`. It invalidates every outstanding acquired pointer. It does
 not zero, poison, or destruct anything.
 
-There is no `deinit` or `clearAndFree`; the pool owns no heap allocation.
-
 ## Capacity operations
 
 `len()` returns `live_count`.
@@ -257,8 +200,6 @@ the prior `free_head`. `free_head` is set to the released slot.
 
 `release` is O(1) and never branches into a loop.
 
-There is no error return; pool misuse is a programmer error.
-
 ## Free-list reuse order
 
 The free list is LIFO: the most recently released slot is the next slot
@@ -281,17 +222,14 @@ pointers.
 
 | Operation | Allocation | Waiting | Bounds | Invalidation | Concurrency | Ordering |
 | --- | --- | --- | --- | --- | --- | --- |
-| `Static.init` | none | never | O(N) | none | caller-owned value | initializes free list |
-| `Bounded.wrap` | none | never | O(buffer.len) | none | caller-owned buffer | initializes free list |
+| `Static.init` | none | never | O(N) value initialization | none | caller-owned value | resets allocation metadata |
+| `Bounded.wrap` | none | never | O(1) | none | caller-owned buffer | initializes allocation metadata |
 | `len`, `capacity`, etc. | none | never | O(1) | none | caller-owned value | none |
 | `acquire` | inline / caller buffer | never | O(1) | none | caller-owned value | pops free-list head |
 | `release` | none | never | O(1) | released pointer | caller-owned value | pushes free-list head |
-| `clearRetainingCapacity` | none | never | O(N) | all live pointers | caller-owned value | rebuilds free list |
+| `clearRetainingCapacity` | none | never | O(1) | all live pointers | caller-owned value | resets allocation metadata |
 | `assertValid` | none | never | O(N) | none | caller-owned value | walks free list |
 | `isValid` | none | never | O(N) | none | caller-owned value | walks free list |
-
-These operations perform no heap allocation, waiting, hidden global access,
-atomics, barriers, volatile access, target probing, syscalls, locks, or I/O.
 
 Concurrent mutation is outside the contract. Callers must externally
 synchronize shared mutable access.
@@ -362,20 +300,17 @@ Implementation must:
 - not loop in `acquire` or `release`;
 - not walk the free list in capacity helpers;
 - not perform unconditional invariant scans on hot paths;
-- avoid hidden globals, atomics, fences, syscalls, target probes,
-  allocation, and unconditional payload writes on release builds;
+- avoid allocation, hidden globals, atomics, syscalls, and diagnostic payload writes when checks are disabled;
 - compile for freestanding targets.
 
 ## Testing
-Verification uses boundary-capacity cases, raw storage inspection under enabled and disabled checks, invariant corruption, and repeated reuse sequences. It observes LIFO reuse, pointer alignment and stability, exhaustion atomicity, clear invalidation, and debug-fill boundaries; these methods prove free-list and count invariants without relying on private helper names.
 
 ### Construction and capacity
 
 - `SlabAllocator.Static(T, N).init()` reports `len == 0`, `capacity == N`,
   `remaining == N`;
 - `SlabAllocator.Bounded(T).wrap(buffer)` reports `capacity == buffer.len`;
-- `SlabAllocator.Static(T, 0).init()` is both empty and full; `acquire` returns
-  `error.OutOfMemory`;
+- `SlabAllocator.Static(T, 0)` fails compilation;
 - `SlabAllocator.Bounded(T).wrap(&.{})` is both empty and full; `acquire` returns
   `error.OutOfMemory`.
 
@@ -436,8 +371,6 @@ Required with a payload type large enough that the last byte lies beyond
   pointer that outlives the release. Bytes at offsets
   `[0, @sizeOf(?*Slot))` are overwritten by the free-list link and MUST
   NOT be asserted;
-- under `checksEnabled() == false`, the fill patterns MUST
-  NOT appear. The test asserts that neither `0xCD` nor `0xFD` is
-  observed in the payload window after `acquire` or after `release`;
+- when `checksEnabled()` is false, releasing an initialized payload MUST preserve its bytes outside the free-list link window. Tests MUST NOT inspect uninitialized acquired payload bytes;
 - fills do not affect `len`, `remaining`, `bump_index`, `free_head`,
   LIFO reuse order, or `assertValid` results.

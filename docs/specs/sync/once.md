@@ -2,79 +2,7 @@
 
 Status: Approved.
 
-`stdx.sync.Once(Backend)` is a one-shot init primitive. It runs a caller-
-provided initializer exactly once against a shared `sync.once.State` word, safe
-from any number of concurrent callers, callable from interrupt-off and
-pre-runtime contexts.
-
-## Owned scope
-
-This spec owns:
-
-- `sync.once.State`, the atomic sticky init-state word;
-- `sync.once.Token`, an opaque observed-word identity snapshot;
-- `sync.Once(Backend)`, the wait-capable one-shot init family;
-- `call` and `callChecked` semantics;
-- ordering contract for publication of writes performed by the initializer;
-- panicking-callback contract;
-- caller-contract rule against recursive invocation, with debug detection on
-  targets that provide per-thread `threadlocal` storage;
-- backend requirements delegated to the shared wait/wake contract defined in
-  `docs/specs/sync/spin.md`;
-- lost-wakeup prevention via token comparison and backend recheck;
-- allocation, waiting, concurrency, and ordering contracts;
-- required tests.
-
-## Deferred scope and non-goals
-
-This spec does not own:
-
-- global default `Once` instances, module-init registries, or hidden
-  singletons;
-- lazy value cache with a return slot (`Once` returns `void`; a
-  `LazyValue(T)` primitive is a separate spec if a consumer needs it);
-- per-thread, per-fiber, or per-CPU keyed init variants;
-- timeout, deadline, or cancellation of an in-flight initializer;
-- reset-to-initial API on a completed `Once`;
-- poisoning on panicking initializers;
-- futex, kernel wait queue, scheduler, thread parking, preemption, or
-  priority-inheritance implementations;
-- heap allocation or dynamic waiter allocation;
-- data visibility for anything outside the initializer's own writes.
-
-A backend may provide scheduler-specific waiter behavior. That behavior is
-explicit in the `Once(Backend)` type and is not owned by this spec.
-
-## Public namespace
-
-`Once` lives under `stdx.sync`; its backend-independent state substrate lives
-under the `stdx.sync.once` submodule so the `Once(Backend)` factory can keep
-its call syntax while backends name stable state/token types:
-
-```zig
-stdx.sync.Once
-stdx.sync.once.State
-stdx.sync.once.Token
-```
-
-Source ownership:
-
-```text
-src/sync.zig
-src/sync/once.zig
-test/sync/once_test.zig
-```
-
-`src/sync.zig` re-exports:
-
-```zig
-pub const once = @import("sync/once.zig");
-
-pub const Once = once.Once;
-```
-
-`src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
-and aliasing.
+`stdx.sync.Once(Backend)` publishes one successful initialization. `callChecked` retries failed attempts. `stdx.sync.once.State` and `Token` provide the state and observation types used by backends.
 
 ## API
 
@@ -127,11 +55,6 @@ pub const Self = struct {
 
 `State` and `Token` support `Backend` implementations. Normal callers use
 only `Once.init`, `Once.isDone`, `Once.call`, and `Once.callChecked`.
-
-There is no `reset`, `retry`, `poison`, `waitOnly`, `waitFor`, or `Manual`
-alias in this spec. There is no operation that runs an initializer on `State`
-alone: every call goes through a `Once(Backend)` instance so that the wait path
-and the recursion-detection hook have a single home.
 
 `Ctx` is a comptime type parameter of `call`/`callChecked`, not stored on
 `Once`. The initializer signature is `fn (Ctx) void` (or `fn (Ctx) E!void`),
@@ -286,25 +209,27 @@ pub fn callChecked(
 
     checkNotRecursive(&self.state);
 
-    if (self.state.tryClaim()) |claim| {
-        enterClaim(&self.state);
-
-        work(ctx) catch |err| {
-            self.state.rollback(claim);  // running -> untouched, new generation, release CAS
-            self.backend.wakeAll(&self.state);
-            leaveClaim(&self.state);
-            return err;
-        };
-
-        self.state.publish(claim);       // running -> done, release CAS
-        self.backend.wakeAll(&self.state);
-        leaveClaim(&self.state);
-        return;
-    }
-
     while (true) {
+        if (self.state.isDone()) return;
+
+        if (self.state.tryClaim()) |claim| {
+            enterClaim(&self.state);
+            defer leaveClaim(&self.state);
+
+            work(ctx) catch |err| {
+                self.state.rollback(claim);
+                self.backend.wakeAll(&self.state);
+                return err;
+            };
+
+            self.state.publish(claim);
+            self.backend.wakeAll(&self.state);
+            return;
+        }
+
         const token = self.state.observe();
         if (token.isDone()) return;
+        if (wordFromToken(token).phase == .untouched) continue;
         try self.backend.wait(&self.state, token);
     }
 }
@@ -317,9 +242,7 @@ Required behavior:
   post-registration recheck;
 - after rollback, `wakeAll(&state)` is called so waiters can return from
   `Backend.wait`, re-observe `untouched`, and try to claim themselves;
-- rollback preserves the no-mutation-on-error convention: a caller observing
-  `!isDone()` after a failed `callChecked` cannot tell whether any attempt
-  ran, only that no successful publication has occurred;
+- rollback changes the observable generation and restores claimability. It does not undo callback writes or publish successful initialization;
 - once one `callChecked` invocation publishes `done`, subsequent callers
   short-circuit on the fast path;
 - error values from `work` return unchanged from the winning caller;
@@ -367,10 +290,7 @@ Publication ordering:
 
 Rollback ordering (checked variant only):
 
-- the strong CAS that transitions `running → untouched` is a release
-  operation; it does not synchronize-with `work` writes because `work`
-  returned an error and its partial writes are not observable through this
-  primitive.
+- rollback performs a release transition. An acquire observation of that transition can synchronize with preceding callback writes, but does not establish successful initialization.
 
 ## Panicking-callback contract
 
@@ -378,7 +298,6 @@ If `work` panics or otherwise fails to return normally, subsequent behavior
 of the `Once` is unspecified. This spec forbids the initializer from
 panicking. Callers whose initializer can fail must use `callChecked` and
 return an error from `work` instead of panicking.
-
 
 ## Recursion contract
 
@@ -418,8 +337,7 @@ The check has these limits:
 - it detects direct recursion from inside `work` on the same thread;
 - it does not detect mutual recursion through two different `Once` instances;
 - it does not run on targets where `builtin.single_threaded` is `true`;
-- release builds compile the check out entirely, matching the `SafetyMode`
-  convention in `docs/specs/core/debug.md`.
+- ReleaseFast and ReleaseSmall compile the check out entirely.
 
 Recursion that escapes detection deadlocks in the wait path when the
 backend blocks, or spins in `sync.spin.Backend` until an external observer
@@ -435,10 +353,7 @@ notices.
 - release semantics on the `running → done` publish CAS;
 - release semantics on the `running → untouched` rollback CAS.
 
-The primitive does not order accesses outside `work`'s own writes. Data
-visibility for buffers, rings, or other structures published as part of
-initialization must be established by `work` itself using appropriate
-atomics or barriers on those structures.
+An acquire observation of `done` MUST publish writes sequenced before the successful initializer's release transition. Concurrent accesses not covered by this publication require caller-owned synchronization.
 
 ## Behavior contract
 
@@ -453,18 +368,7 @@ atomics or barriers on those structures.
 | `Once.call` | never | may wait via backend | O(1) + work + wait | many callers | acquire on observation, release on transitions | propagates `WaitError` |
 | `Once.callChecked` | never | may wait via backend | O(1) + work + wait | many callers | as above; rollback is release | propagates `E` or `WaitError` |
 
-`Once` is safe from any execution context including NMI when paired with
-`sync.spin.Backend`. Other backends inherit the backend's own safety
-contract.
-
-## std.Io lane
-
-`sync.Once(Backend)` serves both spec-queue lanes:
-
-1. Composes inside a downstream `std.Io` backend that satisfies the shared
-   wait/wake contract.
-2. Serves freestanding consumers via `sync.Once(sync.spin.Backend)` where
-   `std.Io` is unavailable.
+The caller MUST use a backend and initializer safe for the calling context. An interrupt or NMI MUST NOT wait on an initializer whose progress it interrupts. `sync.spin.Backend` does not remove this progress requirement.
 
 ## Examples
 
@@ -531,12 +435,13 @@ fn ensureRegion(base: usize, len: usize) void {
 
 ## Testing
 
-Compile-time tests MUST instantiate `Once` with `sync.spin.Backend`, reject invalid backend declarations, and verify that the public API does not expose mutable state. These tests prove backend-shape and encapsulation constraints.
+Tests MUST:
 
-Deterministic backend tests MUST use a controllable backend that records waits and wakes and can return a selected `WaitError`. Tests MUST verify one successful initializer invocation, fast-path completion after publication, unchanged propagation of initializer and backend errors, rollback to a claimable state after `callChecked` fails, and wake after rollback. These tests prove the state transitions, error propagation, and retry contract.
-
-Lost-wakeup model tests MUST enumerate claimant publication or rollback before and after waiter registration. They MUST verify that `changedSince` detects every transition before registration and that `wakeAll` makes registered waiters return. A direct-recursion test MUST verify debug-mode detection where functional `threadlocal` storage is available.
-
-Memory-ordering tests MUST write an initializer payload before publication and read it after each returning caller acquire-observes `done`. Every returning caller MUST observe the payload. This test proves publication ordering.
-
-Stress tests MUST run concurrent `call` and `callChecked` callers with `sync.spin.Backend` and verify one successful publication, exactly one successful initializer invocation, and completion of all non-error callers. Cross-target compilation MUST include a non-x86 target. Stress tests exercise concurrent progress; the model tests prove the waiter-transition protocol.
+- Reject invalid backend declarations and instantiate the spin backend.
+- Check one successful initializer invocation and subsequent completion fast paths.
+- Check initializer/backend errors, rollback generation changes, wake after rollback, and retry by an existing waiter.
+- Model publication and rollback before/after waiter registration.
+- Check enabled recursion detection on targets with functional thread-local storage.
+- Publish an initializer payload and verify visibility to callers that observe `done`.
+- Run concurrent normal/checked callers and verify exactly one successful publication and completion of non-error callers.
+- Compile for a non-x86 target.

@@ -9,66 +9,6 @@ translation, and canonical frame-count statistics. It does not own the
 underlying free-list state. `mem.alloc.BuddyAllocator.Static` and
 `mem.alloc.BuddyAllocator.Bounded` are conforming backends.
 
-## What this spec is
-
-This spec owns:
-
-- `mem.alloc.FrameAllocator.Static(Backend, Page, base_frame)`;
-- `mem.alloc.FrameAllocator.Bounded(Backend, Page)`;
-- unit-index ↔ `Page.Frame` conversion around any conforming `Backend`;
-- `alloc(order)` returning a `Page.FrameRange`;
-- `free(range)` translated to `Backend.free(block)`;
-- `reserve(range)` translated to `Backend.reserve(unit_range)`;
-- `isFree(range)` query;
-- canonical stats: `freeFrames`, `allocatedFrames`, `largestFreeOrder`,
-  `remainingBytes`, `capacityFrames`;
-- nested `FrameSource(order)` region-source view satisfying
-  `docs/specs/mem/alloc/slab/cache.md`'s `RegionSource` interface;
-- structural invariants and `assertValid` contract;
-- required tests.
-
-## What this spec is not
-
-This spec does not own:
-
-- byte-granular allocation; `alloc` returns `Page.FrameRange`, never
-  `[]u8`;
-- physical-memory-map ownership (E820, EFI memory map, ACPI tables);
-- virtual-to-physical translation, MMU state, or paging structures;
-- NUMA locality or per-CPU caches;
-- dynamic backing growth or shrinkage;
-- concurrency, atomics, locking, or wait behavior;
-- iteration over live allocations, watermarks, tracing, or statistics
-  beyond the canonical frame counts named above;
-- automatic zeroing or poisoning of allocated frames;
-- `std.mem.Allocator` byte-view adapter;
-
-## Public namespace and source ownership
-
-`FrameAllocator` lives under `stdx.mem.alloc`:
-
-```zig
-stdx.mem.alloc.FrameAllocator
-stdx.mem.alloc.FrameAllocator.Static
-stdx.mem.alloc.FrameAllocator.Bounded
-```
-
-Source ownership:
-
-```text
-src/mem.zig
-src/mem/alloc/frame.zig
-test/mem/alloc/frame_test.zig
-```
-
-`src/mem/alloc.zig` re-exports:
-
-```zig
-pub const frame = @import("alloc/frame.zig");
-
-pub const FrameAllocator = frame.FrameAllocator;
-```
-
 ## Backend interface
 
 `Backend` is a comptime-duck-typed unit allocator. Every conforming type
@@ -273,11 +213,9 @@ constant-time stats maintain their own counters outside.
 checked multiplication. Returns `error.Overflow` when the product does
 not fit in `AddressInt`.
 
-## `FrameSource(order)` — RegionSource adapter
+## `FrameSource(order)`
 
-`FrameSource(order)` is a zero-state view type parameterized on a
-comptime order. It satisfies the `RegionSource` interface from
-`docs/specs/mem/alloc/slab/cache.md`:
+`FrameSource(order)` is a frame-backed region view containing a pointer to its parent allocator. It guarantees page alignment. It satisfies SlabCache's `RegionSource` alignment contract only for `order == 0`; larger regions require region-sized alignment that this view does not declare.
 
 ```zig
 pub fn FrameSource(comptime order: u8) type {
@@ -316,13 +254,7 @@ and no identity-map contract MUST NOT dereference the returned pointer.
 `FrameSource` is address-domain-agnostic; typing safety is the caller's
 responsibility.
 
-- `release(self, region)` translates the pointer back to a `FrameRange`
-  of the same order and calls `self.parent.free(range)`. Errors from
-  `free` are contract violations (the caller passed a foreign or
-  double-freed region) and are asserted under
-  `stdx.core.debug.checksEnabled()`; in release builds the
-  error is silently swallowed to match `RegionSource.release`'s
-  infallible signature.
+- `release(self, region)` translates the pointer back to a `FrameRange` of the same order and calls `self.parent.free(range)`. A backend-free error MUST panic in every build mode.
 
 `FrameSource(order)` is a plain struct with one field. It does not
 allocate, does not spin, and does not read backend state outside its
@@ -363,9 +295,7 @@ concurrent callers MUST synchronize externally.
 `isValid()` returns whether the same conditions hold, without
 asserting.
 
-Under `stdx.core.debug.checksEnabled()`, `alloc`, `free`, and
-`reserve` MAY assert `assertValid()` after mutation. On release builds
-the check is compiled out.
+When `stdx.core.debug.checksEnabled()` is true, `alloc`, `free`, and `reserve` MAY call `assertValid()` after mutation. Automatic validation is omitted in ReleaseFast and ReleaseSmall.
 
 ## Implementation constraints
 
@@ -391,7 +321,7 @@ Implementation MAY:
 - share helpers between `Static` and `Bounded` bodies.
 
 ## Testing
-Verification uses static and bounded buddy backends, page types with distinct address widths, boundary/error cases, and a bool-array unit model. It observes checked frame conversion, allocation and reservation exclusion, statistics, region-source balance, and invariant failures; the model proves that frame-visible state stays equivalent to backend unit state.
+Tests MUST compare frame-visible allocation and reservation state with a bool-array unit model.
 
 The verification matrix includes `BuddyAllocator.Static(16, 5)` with
 `Page(PhysAddr, _4kib)`, `BuddyAllocator.Bounded` with

@@ -7,72 +7,7 @@ a fixed number of parties per generation; when the last party arrives, the
 generation advances, all waiters are released, and the primitive is armed
 again for the next round.
 
-## Owned scope
-
-This spec owns:
-
-- `sync.rendezvous.State`, the atomic remaining-count + generation word;
-- `sync.rendezvous.Token`, an observed state/generation snapshot;
-- `sync.Rendezvous(Backend)`, the wait-capable cyclic-barrier family;
-- `sync.Rendezvous(Backend).Static(N)` and `sync.Rendezvous(Backend).Bounded`
-  storage variants;
-- `arrive`, `pending`, `capacity`, `generation`, and `stateRef` semantics;
-- backend requirements delegated to the shared wait/wake contract defined in
-  `docs/specs/sync/spin.md`;
-- lost-wakeup prevention via token comparison and backend recheck;
-- allocation, waiting, concurrency, and ordering contracts;
-- required tests.
-
-## Deferred scope and non-goals
-
-This spec does not own:
-
-- one-shot countdown latches (see `docs/specs/sync/latch.md`);
-- reset, resize, or reconfiguration of the party count after `init`;
-- `tryArrive`, `arriveAndDrop`, timed arrival, deadlines, cancellation, or
-  interrupt policy;
-- SMP bring-up, INIT/SIPI, per-AP stack allocation, scheduler parking, or
-  priority-inheritance implementations;
-- waiter lists, futex, kernel wait queue, or thread parking;
-- heap allocation or dynamic waiter allocation;
-- data visibility for buffers, rings, or other structures published across
-  the rendezvous point (parties own their own release/acquire on those
-  structures);
-
-A backend may provide scheduler-specific waiter behavior. That behavior is
-explicit in the `Rendezvous(Backend)` type and is not owned by this spec.
-
-## Public namespace
-
-`Rendezvous` lives under `stdx.sync`; its backend-independent state substrate
-lives under the `stdx.sync.rendezvous` submodule so the `Rendezvous(Backend)`
-factory can keep its call syntax while backends name stable state/token
-types:
-
-```zig
-stdx.sync.Rendezvous
-stdx.sync.rendezvous.State
-stdx.sync.rendezvous.Token
-```
-
-Source ownership:
-
-```text
-src/sync.zig
-src/sync/rendezvous.zig
-test/sync/rendezvous_test.zig
-```
-
-`src/sync.zig` re-exports:
-
-```zig
-pub const rendezvous = @import("sync/rendezvous.zig");
-
-pub const Rendezvous = rendezvous.Rendezvous;
-```
-
-`src/sync.zig` is a thin facade. It contains no logic beyond re-exporting
-and aliasing.
+`stdx.sync.rendezvous.State` and `Token` provide the backend-independent state and observation types. Backend waiting behavior follows [the shared wait/wake contract](spin.md).
 
 ## API
 
@@ -154,10 +89,7 @@ pub const Bounded = struct {
 `Bounded.init(0, backend)` is a caller-contract violation and traps under
 `stdx.core.debug.checksEnabled()`.
 
-There is no `reset`, `resize`, `dropParty`, `tryArrive`, `arriveTimeout`,
-`arriveUntil`, or `arriveAndWait` alias in this spec. `arrive` is the only
-spelling for the combined "decrement remaining, wait if not last" operation;
-the last arriver returns without entering the wait path.
+The last arriver MUST return without entering the wait path.
 
 ## Backend interface
 
@@ -363,10 +295,7 @@ generation counter, or `concurrent.mpsc.AtomicRing` when applicable).
 - acquire semantics on the wait-loop `State.observe` so that a returning
   waiter synchronizes-with the last arriver's generation advance.
 
-The primitive does not order accesses outside its own state word. Data
-visibility for buffers, rings, or other structures published across the
-rendezvous point must be established by the participating parties using
-appropriate atomics or barriers on those structures.
+Writes sequenced before each party's arrival MUST be visible to parties that acquire-observe that generation's completion. Accesses belonging to different generations require the caller to preserve the barrier protocol and avoid overlapping unsynchronized mutation.
 
 ## Behavior contract
 
@@ -427,15 +356,6 @@ Implementation must:
 - assert `capacity_parties > 0` in `Bounded.init` under
   `stdx.core.debug.checksEnabled()`.
 
-## std.Io lane
-
-`sync.Rendezvous(Backend)` serves both spec-queue lanes:
-
-1. Composes inside a downstream `std.Io` backend that satisfies the shared
-   wait/wake contract.
-2. Serves freestanding consumers via `Rendezvous(sync.spin.Backend)` where
-   `std.Io` is unavailable.
-
 ## Examples
 
 Backend shape:
@@ -490,12 +410,13 @@ try rv.arrive();
 
 ## Testing
 
-Compile-time tests MUST reject `Static(0)`, reject capacities greater than `std.math.maxInt(u32)`, reject invalid backend declarations, and instantiate both storage variants with `sync.spin.Backend`. These tests prove capacity and backend-shape constraints.
+Tests MUST:
 
-Deterministic backend tests MUST use a controllable backend that records waits and wakes and can return a selected `WaitError`. Tests MUST verify initial capacity and generation, non-final arrival waiting, final-arrival reset and generation advance, exactly one final wake per generation, cyclic reuse, `Bounded` equivalence with `Static`, and the committed-arrival behavior when a backend wait returns an error. These tests prove the generation state machine, wake rule, and no-rollback error contract.
-
-Lost-wakeup model tests MUST enumerate arrival, waiter observation, waiter registration, and state recheck interleavings. They MUST verify that an advance before registration is detected by `changedSince` and that an advance after registration wakes the waiter.
-
-Memory-ordering tests MUST publish a payload before the final generation-advance CAS and read it after a waiting party acquire-observes the new generation. The waiting party MUST observe the payload. This test proves the generation transition's release/acquire edge.
-
-Stress tests MUST run `M` parties for `K` generations against both storage variants with `sync.spin.Backend`. They MUST verify exactly `K` generation advances, one final wake per generation, no lost wake, and no double release. Cross-target compilation MUST include a non-x86 target. Stress tests exercise concurrent progress; the model tests prove the lost-wakeup protocol.
+- Reject zero/oversized capacities and invalid backends at compile time.
+- Exercise both storage variants with spin and controllable wait/wake backends.
+- Check initial state, non-final waiting, final reset/generation advance, one wake per generation, and cyclic reuse.
+- Verify that backend errors propagate without rolling back a committed arrival.
+- Model generation advance before/after waiter registration.
+- Publish payloads before arrivals and verify visibility after generation completion.
+- Run multiple parties across repeated generations and check exact advance/wake counts and completion.
+- Compile for a non-x86 target.

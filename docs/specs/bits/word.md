@@ -4,36 +4,13 @@ Status: Approved.
 
 `stdx.bits.word` provides unchecked word-of-bits arithmetic for bitmap consumers: capacity-to-word conversion, trailing-word masks, word and bit indexes, and single-bit slice operations.
 
-## What this spec is
-
-This spec defines `stdx.bits.word.count`, `lastMask`, `indexOf`, `maskOf`, `isSet`, `set`, and `clear`; the `Word` type restriction; unchecked bounds behavior; and required tests.
-
-## What this spec is not
-
-This spec does not define bounds-checked bitmap operations, scans or reductions, toggle or assign operations, iteration, range operations, atomic operations, fences, or allocator-backed storage. A bitmap consumer owns its capacity and bounds policy.
-
-## Public namespace and source ownership
-
-```zig
-stdx.bits.word
-stdx.bits.word.count
-stdx.bits.word.lastMask
-stdx.bits.word.indexOf
-stdx.bits.word.maskOf
-stdx.bits.word.isSet
-stdx.bits.word.set
-stdx.bits.word.clear
-```
-
-`src/bits.zig` exports `word`. The implementation is `src/bits/word.zig`. The tests are in `test/bits/word_test.zig`.
-
 ## Terminology
 
 A *word* is one `Word` value. A *padding bit* is a bit above a bitmap's `bit_capacity` in its final word.
 
 ## Global invariants
 
-`Word` MUST be an unsigned integer type. Signed integers, floats, bools, enums, pointers, and comptime integers without an explicit `Word` are compile errors.
+`Word` MUST be an unsigned integer type with nonzero bit width. Other types and `u0` are outside the supported type domain.
 
 `count`, `lastMask`, `indexOf`, and `maskOf` accept every `usize` input. `isSet`, `set`, and `clear` require `indexOf(Word, bit_index) < words.len`. The caller MUST enforce that precondition. When `debug.checksEnabled()` is true, the implementation asserts the precondition. When it is false, an invalid index has undefined behavior.
 
@@ -74,8 +51,8 @@ The slice operations return no error. `set` and `clear` modify only the selected
 
 ## Implementation constraints
 
-The implementation MUST validate `Word` at comptime, compute `indexOf` and `maskOf` with unchecked arithmetic, and use `std.math.Log2Int(Word)` as the shift type in `maskOf`. `lastMask(Word, 0)` MUST return zero. The implementation MUST add no runtime allocation, hidden globals, atomics, or barriers.
+The implementation MUST validate `Word` at comptime and use `std.math.Log2Int(Word)` as the shift type in `maskOf`.
 
 ## Testing
 
-Tests MUST evaluate `u8`, `u32`, and `u64` to verify the width matrix. Capacity tests MUST cover zero, a partial word, an exact word, and the first bit of the next word; these boundaries prove ceiling division. Trailing-mask tests MUST cover zero capacity, exact-word capacity, partial trailing words, and the all-ones result; these cases prove padding-bit masking without a full-width shift. Index and mask tests MUST compare representative indexes to division and modulo formulas, including a word boundary. Slice-operation tests MUST verify set, query, clear, neighbor preservation, and cross-word boundaries. Compile-time tests MUST verify representative constant evaluation and rejection of invalid `Word` types.
+Tests MUST cover `u8`, `u32`, and `u64`; zero, partial-word, exact-word, and next-word capacities; trailing masks; division/modulo index and mask formulas; and set/query/clear with neighbor preservation. Compile-time tests MUST check constant evaluation and unsupported types.
