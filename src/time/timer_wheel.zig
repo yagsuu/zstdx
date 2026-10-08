@@ -32,21 +32,6 @@ pub const TimerWheel = struct {
         }
 
         return struct {
-            pub const item_capacity = capacity_items;
-            pub const wheel_config = config;
-
-            pub const Handle = enum(u128) { _ };
-            pub const Entry = struct {
-                deadline: Deadline,
-                item: T,
-            };
-            pub const Error = error{ Full, OutOfRange };
-            pub const RangeError = error{OutOfRange};
-
-            const Self = @This();
-            const Slot = SlotFor(T);
-            const Bucket = BucketFor();
-
             slots: [capacity_items]Slot,
             buckets: [config.slot_count]Bucket,
             origin_instant: Instant,
@@ -55,6 +40,22 @@ pub const TimerWheel = struct {
             free_head: usize,
             expired_head: usize,
             expired_tail: usize,
+
+            pub const item_capacity = capacity_items;
+            pub const wheel_config = config;
+
+            pub const Handle = enum(u128) { _ };
+            pub const Entry = struct {
+                deadline: Deadline,
+                item: T,
+            };
+
+            pub const Error = error{ Full, OutOfRange };
+            pub const RangeError = error{OutOfRange};
+
+            const Self = @This();
+            const Slot = SlotFor(T);
+            const Bucket = BucketFor();
 
             fn slotSlice(self: *Self) []Slot {
                 return self.slots[0..capacity_items];
@@ -207,6 +208,7 @@ pub const TimerWheel = struct {
                 var slot = &self.slotSlice()[index];
                 slot.deadline = dl;
                 slot.due_tick = due_tick;
+
                 attachByDueTick(
                     self.slotSlice(),
                     self.bucketSlice(),
@@ -216,6 +218,7 @@ pub const TimerWheel = struct {
                     self.cursor_tick,
                     config.slot_count,
                 );
+
                 return true;
             }
 
@@ -278,12 +281,15 @@ pub const TimerWheel = struct {
             fn removeSlotIndex(self: *Self, index: usize) Entry {
                 const slots = self.slotSlice();
                 const slot = &slots[index];
+
                 const entry: Entry = .{
                     .deadline = slot.deadline,
                     .item = slot.item,
                 };
+
                 freeSlot(slots, &self.free_head, index);
                 self.live_len -= 1;
+
                 return entry;
             }
         };
@@ -296,6 +302,15 @@ pub const TimerWheel = struct {
         comptime validateConfig(config);
 
         return struct {
+            slots: []Slot,
+            buckets: []Bucket,
+            origin_instant: Instant,
+            cursor_tick: u64,
+            live_len: usize,
+            free_head: usize,
+            expired_head: usize,
+            expired_tail: usize,
+
             pub const wheel_config = config;
 
             pub const Slot = SlotFor(T);
@@ -311,15 +326,6 @@ pub const TimerWheel = struct {
             pub const RangeError = error{OutOfRange};
 
             const Self = @This();
-
-            slots: []Slot,
-            buckets: []Bucket,
-            origin_instant: Instant,
-            cursor_tick: u64,
-            live_len: usize,
-            free_head: usize,
-            expired_head: usize,
-            expired_tail: usize,
 
             pub fn wrap(
                 slots: []Slot,
@@ -340,6 +346,7 @@ pub const TimerWheel = struct {
                     .expired_head = none,
                     .expired_tail = none,
                 };
+
                 initStorage(self.slots, self.buckets, &self.free_head);
                 return self;
             }
@@ -463,6 +470,7 @@ pub const TimerWheel = struct {
                 var slot = &self.slots[index];
                 slot.deadline = dl;
                 slot.due_tick = due_tick;
+
                 attachByDueTick(
                     self.slots,
                     self.buckets,
@@ -472,6 +480,7 @@ pub const TimerWheel = struct {
                     self.cursor_tick,
                     config.slot_count,
                 );
+
                 return true;
             }
 
@@ -509,10 +518,12 @@ pub const TimerWheel = struct {
                 due_tick: u64,
             ) Handle {
                 const index = allocSlot(self.slots, &self.free_head);
+
                 var slot = &self.slots[index];
                 slot.item = item;
                 slot.deadline = dl;
                 slot.due_tick = due_tick;
+
                 attachByDueTick(
                     self.slots,
                     self.buckets,
@@ -522,6 +533,7 @@ pub const TimerWheel = struct {
                     self.cursor_tick,
                     config.slot_count,
                 );
+
                 self.live_len += 1;
                 return encodeHandle(Handle, index, slot.generation);
             }
@@ -536,8 +548,10 @@ pub const TimerWheel = struct {
                     .deadline = slot.deadline,
                     .item = slot.item,
                 };
+
                 freeSlot(self.slots, &self.free_head, index);
                 self.live_len -= 1;
+
                 return entry;
             }
         };
@@ -592,6 +606,7 @@ fn initStorage(slots: anytype, buckets: anytype, free_head: *usize) void {
     }
 
     free_head.* = if (slots.len == 0) none else 0;
+
     i = 0;
     while (i < slots.len) : (i += 1) {
         slots[i].generation = 1;
