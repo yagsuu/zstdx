@@ -397,6 +397,7 @@ pub const List = struct {
 
                 current = self.tail;
                 last = null;
+
                 while (current) |item| {
                     if (constPrevious(item)) |previous_item| {
                         std.debug.assert(constNext(previous_item) == item);

@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const core = @import("../core.zig");
+const core = @import("core");
 
 pub const RangeSet = struct {
     pub fn Static(comptime T: type, comptime capacity_ranges: usize) type {

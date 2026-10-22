@@ -2,8 +2,8 @@
 
 const std = @import("std");
 
-const addr = @import("../../../addr.zig");
-const bits = @import("../../../bits.zig");
+const addr = @import("addr");
+const bits = @import("bits");
 const table = @import("table.zig");
 
 pub const PhysAddr = addr.PhysAddr;

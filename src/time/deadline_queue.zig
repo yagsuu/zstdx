@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 const deadline = @import("deadline.zig");
 const monotonic = @import("monotonic.zig");
 

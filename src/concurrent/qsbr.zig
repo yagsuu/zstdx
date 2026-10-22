@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const cache = @import("../layout/cache.zig");
+const cache = @import("layout").cache;
 
 const CachePad = cache.CachePad;
 

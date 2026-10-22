@@ -4,9 +4,9 @@
 
 const std = @import("std");
 
-const word = @import("../../bits/word.zig");
+const word = @import("bits").word;
 
-const RangeUsize = @import("../../core/range.zig").Range(usize);
+const RangeUsize = @import("core").Range(usize);
 
 const BitmapWord = u64;
 const Shift = std.math.Log2Int(BitmapWord);

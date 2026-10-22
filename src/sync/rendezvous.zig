@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 
 // State word layout: `remaining` in the low 32 bits, `generation` in the
 // high 32 bits. The last arriver installs `remaining = capacity` and

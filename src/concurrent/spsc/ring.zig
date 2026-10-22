@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const cache = @import("../../layout/cache.zig");
+const cache = @import("layout").cache;
 
 const AtomicUsize = std.atomic.Value(usize);
 const CachePad = cache.CachePad;

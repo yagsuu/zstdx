@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const buddy = @import("../../algo/alloc/buddy.zig");
+const buddy = @import("algo").alloc.buddy;
 
 pub const FrameAllocator = struct {
     /// Owns an inline backend and a comptime base frame.

@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const address = @import("../addr/address.zig");
+const address = @import("addr").address;
 const buffer = @import("buffer.zig");
 
 const DMAAddr = address.DMAAddr;

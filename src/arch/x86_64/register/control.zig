@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const addr = @import("../../../addr.zig");
+const addr = @import("addr");
 const target = @import("../target.zig");
 
 /// `CR0` access (`mov rNN, cr0` / `mov cr0, rNN`).

@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 const monotonic = @import("monotonic.zig");
 
 const Instant = monotonic.Instant;

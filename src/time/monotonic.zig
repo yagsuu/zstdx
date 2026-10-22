@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 
 /// Monotonic point in time with a `u64` nanosecond range of approximately
 /// 584 years from the backend epoch.

@@ -4,7 +4,7 @@
 
 const std = @import("std");
 
-const word = @import("../bits/word.zig");
+const word = @import("bits").word;
 
 const TagFactory = @import("tag.zig").Tag;
 

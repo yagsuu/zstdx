@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const align_ops = @import("../../layout/alignment.zig");
+const align_ops = @import("layout").alignment;
 
 /// `OutOfMemory`: remaining capacity does not fit the request.
 /// `InvalidAlignment`: `byte_alignment` is zero or not a power of two.

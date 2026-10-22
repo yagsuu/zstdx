@@ -3,9 +3,9 @@
 
 const std = @import("std");
 
-const debug = @import("../../core/debug.zig");
-const buddy = @import("../../algo/alloc/buddy.zig");
-const word = @import("../../bits/word.zig");
+const debug = @import("core").debug;
+const buddy = @import("algo").alloc.buddy;
+const word = @import("bits").word;
 
 /// Uses lowest-index splitting and eager coalescing.
 pub const BuddyAllocator = struct {
@@ -208,7 +208,7 @@ pub const BuddyAllocator = struct {
 
 const BuddyBlock = buddy.Block;
 const BuddyWord = u64;
-const RangeUsize = @import("../../core/range.zig").Range(usize);
+const RangeUsize = @import("core").Range(usize);
 const Shift = std.math.Log2Int(BuddyWord);
 
 const buddy_word_bits = @bitSizeOf(BuddyWord);

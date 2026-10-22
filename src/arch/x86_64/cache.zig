@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const debug = @import("../../core/debug.zig");
+const debug = @import("core").debug;
 const cpuid = @import("cpuid.zig");
 const target = @import("target.zig");
 

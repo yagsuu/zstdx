@@ -3,7 +3,7 @@
 
 const builtin = @import("builtin");
 
-const x86_64 = @import("../arch/x86_64.zig");
+const x86_64 = @import("arch").x86_64;
 
 const wrong_target = "stdx.barrier.dma: unsupported target; requires an arch spec beyond arch/x86_64";
 

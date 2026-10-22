@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const mem = @import("../mem.zig");
+const mem = @import("mem");
 
 const Allocator = std.mem.Allocator;
 const FrameIndex = usize;

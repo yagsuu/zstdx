@@ -4,8 +4,8 @@
 
 const std = @import("std");
 
-const addr = @import("../../../addr.zig");
-const bits = @import("../../../bits.zig");
+const addr = @import("addr");
+const bits = @import("bits");
 
 const PhysAddr = addr.PhysAddr;
 const Phys4K = addr.Page(PhysAddr, addr.pages._4kib);

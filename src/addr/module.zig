@@ -1,8 +1,8 @@
 //! Address primitives. See `docs/specs/addr/address.md` and
 //! `docs/specs/addr/pages.md`.
 
-pub const address = @import("addr/address.zig");
-pub const pages = @import("addr/pages.zig");
+pub const address = @import("address.zig");
+pub const pages = @import("pages.zig");
 
 pub const Address = address.Address;
 pub const PhysAddr = address.PhysAddr;

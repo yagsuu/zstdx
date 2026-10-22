@@ -2,8 +2,8 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
-const cache = @import("../layout/cache.zig");
+const debug = @import("core").debug;
+const cache = @import("layout").cache;
 
 const CachePad = cache.CachePad;
 

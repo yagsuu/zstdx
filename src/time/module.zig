@@ -1,11 +1,11 @@
 //! Time primitives. Normative contracts are in `docs/specs/time/`.
 
-pub const monotonic = @import("time/monotonic.zig");
-pub const deadline = @import("time/deadline.zig");
-pub const backoff = @import("time/backoff.zig");
-pub const rate_counter = @import("time/rate_counter.zig");
-pub const deadline_queue = @import("time/deadline_queue.zig");
-pub const timer_wheel = @import("time/timer_wheel.zig");
+pub const monotonic = @import("monotonic.zig");
+pub const deadline = @import("deadline.zig");
+pub const backoff = @import("backoff.zig");
+pub const rate_counter = @import("rate_counter.zig");
+pub const deadline_queue = @import("deadline_queue.zig");
+pub const timer_wheel = @import("timer_wheel.zig");
 
 pub const Instant = monotonic.Instant;
 pub const Duration = monotonic.Duration;

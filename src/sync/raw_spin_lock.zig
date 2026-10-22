@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 const atomic_cell = @import("atomic_cell.zig");
 
 const AtomicCell = atomic_cell.AtomicCell;

@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 
 pub fn Heap(
     comptime T: type,

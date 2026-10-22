@@ -4,7 +4,7 @@
 
 const std = @import("std");
 
-pub const Range = @import("../../core/range.zig").Range(usize);
+pub const Range = @import("core").Range(usize);
 
 pub const Error = error{
     InvalidRequest,

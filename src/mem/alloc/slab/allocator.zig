@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const debug = @import("../../../core/debug.zig");
+const debug = @import("core").debug;
 
 /// Fixed-capacity typed allocator with LIFO reuse.
 pub const SlabAllocator = struct {

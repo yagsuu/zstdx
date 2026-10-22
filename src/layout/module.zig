@@ -1,8 +1,8 @@
 //! Data-layout primitives. See `docs/specs/layout/` and `docs/specs/mem/`.
 
-pub const alignment = @import("layout/alignment.zig");
-pub const cache = @import("layout/cache.zig");
-pub const endian = @import("layout/endian.zig");
+pub const alignment = @import("alignment.zig");
+pub const cache = @import("cache.zig");
+pub const endian = @import("endian.zig");
 
 pub const EndianInt = endian.EndianInt;
 pub const Le = endian.Le;

@@ -2,10 +2,10 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
-const monotonic = @import("../time/monotonic.zig");
-const deadline = @import("../time/deadline.zig");
-const backoff = @import("../time/backoff.zig");
+const debug = @import("core").debug;
+const monotonic = @import("time").monotonic;
+const deadline = @import("time").deadline;
+const backoff = @import("time").backoff;
 
 const Deadline = deadline.Deadline;
 const Backoff = backoff.Backoff;

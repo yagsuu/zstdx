@@ -3,9 +3,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const debug = @import("../core/debug.zig");
-const cache = @import("../layout/cache.zig");
-const endian = @import("../layout/endian.zig");
+const debug = @import("core").debug;
+const cache = @import("layout").cache;
+const endian = @import("layout").endian;
 
 const AtomicUsize = std.atomic.Value(usize);
 const AtomicU8 = std.atomic.Value(u8);

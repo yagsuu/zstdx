@@ -3,13 +3,13 @@
 
 const std = @import("std");
 
-const debug = @import("../../../core/debug.zig");
+const debug = @import("core").debug;
 const slab_allocator = @import("allocator.zig");
 
-const PerCPU = @import("../../../cpu/per_cpu.zig").PerCPU;
-const RawSpinLock = @import("../../../sync/raw_spin_lock.zig").RawSpinLock;
+const PerCPU = @import("cpu").per_cpu.PerCPU;
+const RawSpinLock = @import("sync").raw_spin_lock.RawSpinLock;
 
-const alignUp = @import("../../../layout/alignment.zig").alignUp;
+const alignUp = @import("layout").alignment.alignUp;
 
 pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
     comptime requireRuntimeValue(T);

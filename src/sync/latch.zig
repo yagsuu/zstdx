@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 
 /// Wait-capable countdown latch.
 /// Requirements: `Backend` provides `WaitError`, `wait`, and `wakeAll`.

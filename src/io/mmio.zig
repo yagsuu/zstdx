@@ -2,8 +2,8 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
-const endian = @import("../layout/endian.zig");
+const debug = @import("core").debug;
+const endian = @import("layout").endian;
 
 /// Ordering: Volatile accesses are compiler-ordered only. Use
 /// `stdx.barrier.mmio` or `stdx.barrier.dma` to order them with other MMIO

@@ -3,7 +3,7 @@
 
 const std = @import("std");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 
 pub fn count(comptime Word: type, bit_capacity: usize) usize {
     comptime requireUnsignedInt(Word);

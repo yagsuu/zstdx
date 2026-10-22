@@ -1,152 +1,20 @@
 const std = @import("std");
 
-const CompileFixture = struct {
-    name: []const u8,
-    path: []const u8,
-    target: []const u8,
-    expected: Expected,
+const testing = @import("build/testing.zig");
 
-    const Expected = union(enum) {
-        success,
-        failure: []const u8,
-    };
-};
+const Modules = @import("build/modules.zig").Modules;
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    const stdx = b.addModule("stdx", .{
-        .root_source_file = b.path("src/stdx.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    const modules = Modules.init(b, target, optimize, .public);
+
+    const check_step = b.step("check", "Compile all host test suites");
+    const host_step = testing.addHostTests(b, &modules, target, optimize, check_step);
+    const fixture_step = testing.addCompileFixtureTests(b, &modules, target, optimize);
 
     const test_step = b.step("test", "Run all tests");
-    addHostTests(b, test_step, stdx, target, optimize);
-    addCompileFixtureTests(b, test_step);
-
-    const collections = b.createModule(.{
-        .root_source_file = b.path("src/collections.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const collections_tests = b.addTest(.{ .root_module = collections });
-    const collections_run = b.addRunArtifact(collections_tests);
-
-    const collections_step = b.step("test-collections", "Run collections tests");
-    collections_step.dependOn(&collections_run.step);
-    test_step.dependOn(&collections_run.step);
-
-    const layout = b.createModule(.{
-        .root_source_file = b.path("src/layout.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const layout_tests = b.addTest(.{ .root_module = layout });
-    const layout_run = b.addRunArtifact(layout_tests);
-
-    const layout_step = b.step("test-layout", "Run layout tests");
-    layout_step.dependOn(&layout_run.step);
-    test_step.dependOn(&layout_run.step);
-}
-
-fn addHostTests(
-    b: *std.Build,
-    test_step: *std.Build.Step,
-    stdx: *std.Build.Module,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) void {
-    const root = b.createModule(.{
-        .root_source_file = b.path("test/all.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "stdx", .module = stdx }},
-    });
-
-    const tests = b.addTest(.{ .root_module = root });
-    const run_tests = b.addRunArtifact(tests);
-
-    const host_step = b.step("test-host", "Run host-side tests");
-    host_step.dependOn(&run_tests.step);
     test_step.dependOn(host_step);
-}
-
-fn addCompileFixtureTests(b: *std.Build, test_step: *std.Build.Step) void {
-    const fixtures = [_]CompileFixture{
-        .{
-            .name = "arch/x86_64/paging/explicit_target",
-            .path = "test/fixtures/arch/x86_64/paging/explicit_target.zig",
-            .target = "aarch64-freestanding-none",
-            .expected = .success,
-        },
-        .{
-            .name = "arch/x86_64/paging/current_cpu_target",
-            .path = "test/fixtures/arch/x86_64/paging/current_cpu_target.zig",
-            .target = "aarch64-freestanding-none",
-            .expected = .{ .failure = "this operation requires an x86_64 target" },
-        },
-        .{
-            .name = "arch/x86_64/registers/descriptor_wrappers",
-            .path = "test/fixtures/arch/x86_64/registers/descriptor_wrappers.zig",
-            .target = "x86_64-freestanding-none",
-            .expected = .success,
-        },
-        .{
-            .name = "core/range/inclusive_signed_type",
-            .path = "test/fixtures/core/range/inclusive_signed_type.zig",
-            .target = "native",
-            .expected = .{ .failure = "InclusiveRange requires a non-zero-width unsigned integer type" },
-        },
-        .{
-            .name = "core/range/inclusive_zero_width_type",
-            .path = "test/fixtures/core/range/inclusive_zero_width_type.zig",
-            .target = "native",
-            .expected = .{ .failure = "InclusiveRange requires a non-zero-width unsigned integer type" },
-        },
-        .{
-            .name = "core/range/inclusive_full_domain",
-            .path = "test/fixtures/core/range/inclusive_full_domain.zig",
-            .target = "native",
-            .expected = .{ .failure = "InclusiveRange.of excludes [0, maxInt(T)]" },
-        },
-    };
-
-    const fixture_step = b.step("test-compile", "Run compile fixtures");
     test_step.dependOn(fixture_step);
-
-    for (fixtures) |fixture| {
-        const compile = addCompileFixture(b, b.path(fixture.path), fixture.target);
-        compile.setName(b.fmt("compile fixture {s}", .{fixture.name}));
-
-        switch (fixture.expected) {
-            .success => compile.expectExitCode(0),
-            .failure => |stderr| {
-                compile.expectExitCode(1);
-                compile.expectStdErrMatch(stderr);
-            },
-        }
-
-        fixture_step.dependOn(&compile.step);
-    }
-}
-
-fn addCompileFixture(
-    b: *std.Build,
-    root: std.Build.LazyPath,
-    target: []const u8,
-) *std.Build.Step.Run {
-    const compile = b.addSystemCommand(&.{
-        b.graph.zig_exe,
-        "build-obj",
-        "-target",
-        target,
-        "--dep",
-        "stdx",
-        "-fno-emit-bin",
-    });
-    compile.addPrefixedFileArg("-Mroot=", root);
-    compile.addPrefixedFileArg("-Mstdx=", b.path("src/stdx.zig"));
-    return compile;
 }

@@ -3,7 +3,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const debug = @import("../core/debug.zig");
+const debug = @import("core").debug;
 
 /// Wait-capable one-shot initializer.
 /// Requirements: `Backend` provides `WaitError`, `wait`, and `wakeAll`.
