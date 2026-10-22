@@ -4,7 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const debug = @import("../core/debug.zig");
-const cache = @import("../mem/cache.zig");
+const cache = @import("../layout/cache.zig");
 const endian = @import("../layout/endian.zig");
 
 const AtomicUsize = std.atomic.Value(usize);

@@ -243,14 +243,10 @@ fn initialWords(
 
 const BuddyError = BuddyAllocator.Bounded.Error;
 
-fn ceilDivUsize(a: usize, b: usize) usize {
-    return @divFloor(a, b) + @intFromBool(a % b != 0);
-}
-
 /// Aligned start slots at `order`, rounded up.
 fn slotsForOrder(unit_capacity: usize, order: u8) usize {
     const size = @as(usize, 1) << @as(Shift, @intCast(order));
-    return ceilDivUsize(unit_capacity, size);
+    return @divFloor(unit_capacity, size) + @intFromBool(unit_capacity % size != 0);
 }
 
 /// Slots at `order` whose blocks fit within `[0, unit_capacity)`.

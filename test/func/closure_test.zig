@@ -38,13 +38,13 @@ fn zeroArgTick(self: *Retry) void {
 
 test "unit: Closure size equals aligned capacity plus invoke word" {
     const C = Closure(fn () void, 16);
-    const expected = (try stdx.mem.alignUp(usize, 16, @alignOf(usize))) + @sizeOf(usize);
+    const expected = (try stdx.layout.alignUp(usize, 16, @alignOf(usize))) + @sizeOf(usize);
     try testing.expectEqual(expected, @sizeOf(C));
 }
 
 test "unit: Closure aligns capacity that is not a multiple of usize" {
     const C = Closure(fn () void, 5);
-    const expected = (try stdx.mem.alignUp(usize, 5, @alignOf(usize))) + @sizeOf(usize);
+    const expected = (try stdx.layout.alignUp(usize, 5, @alignOf(usize))) + @sizeOf(usize);
     try testing.expectEqual(expected, @sizeOf(C));
 }
 

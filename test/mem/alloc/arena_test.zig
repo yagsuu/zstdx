@@ -6,6 +6,7 @@ const std = @import("std");
 const stdx = @import("stdx");
 
 const mem = stdx.mem;
+const layout = stdx.layout;
 
 const Arena = mem.alloc.Arena;
 
@@ -29,7 +30,7 @@ test "unit: Arena.Bounded allocation lifecycle with mark/restore/reset" {
     first[0] = 9;
     const checkpoint = arena.mark();
     const aligned = try arena.allocAlignedBytes(4, 8);
-    try testing.expect(mem.isAligned(usize, @intFromPtr(aligned.ptr), 8));
+    try testing.expect(layout.isAligned(usize, @intFromPtr(aligned.ptr), 8));
     arena.restore(checkpoint);
     try testing.expectEqual(checkpoint.index, arena.used());
     try testing.expectEqual(@as(u8, 9), first[0]);
@@ -54,9 +55,9 @@ test "unit: Arena.Bounded typed allocation respects @alignOf(T)" {
     var arena = Arena.Bounded.wrap(&storage);
     const p = try arena.alloc(u32);
     p.* = 42;
-    try testing.expect(mem.isAligned(usize, @intFromPtr(p), @alignOf(u32)));
+    try testing.expect(layout.isAligned(usize, @intFromPtr(p), @alignOf(u32)));
     const ex = try arena.alloc(Extern);
-    try testing.expect(mem.isAligned(usize, @intFromPtr(ex), @alignOf(Extern)));
+    try testing.expect(layout.isAligned(usize, @intFromPtr(ex), @alignOf(Extern)));
 }
 
 test "unit: Arena.Bounded allocSlice detects byte-count overflow" {
@@ -91,7 +92,7 @@ test "unit: Arena.Static bumps and rolls back through mark/restore/reset" {
     first[0] = 9;
     const checkpoint = arena.mark();
     const aligned = try arena.allocAlignedBytes(4, 8);
-    try testing.expect(mem.isAligned(usize, @intFromPtr(aligned.ptr), 8));
+    try testing.expect(layout.isAligned(usize, @intFromPtr(aligned.ptr), 8));
     arena.restore(checkpoint);
     try testing.expectEqual(checkpoint.index, arena.used());
     try testing.expectEqual(@as(u8, 9), first[0]);
@@ -114,9 +115,9 @@ test "unit: Arena.Static typed allocation respects @alignOf(T)" {
     var arena = Arena.Static(128).init();
     const p = try arena.alloc(u32);
     p.* = 42;
-    try testing.expect(mem.isAligned(usize, @intFromPtr(p), @alignOf(u32)));
+    try testing.expect(layout.isAligned(usize, @intFromPtr(p), @alignOf(u32)));
     const ex = try arena.alloc(Extern);
-    try testing.expect(mem.isAligned(usize, @intFromPtr(ex), @alignOf(Extern)));
+    try testing.expect(layout.isAligned(usize, @intFromPtr(ex), @alignOf(Extern)));
 }
 
 test "unit: Arena.Static allocator view drives std.ArrayListUnmanaged until OutOfMemory" {
@@ -163,7 +164,7 @@ test "unit: Arena.Bounded.alloc satisfies @alignOf(T) over an unaligned subslice
     // address relative to storage.ptr.
     var arena = Arena.Bounded.wrap(storage[1..]);
     const p = try arena.alloc(u64);
-    try testing.expect(mem.isAligned(usize, @intFromPtr(p), @alignOf(u64)));
+    try testing.expect(layout.isAligned(usize, @intFromPtr(p), @alignOf(u64)));
 }
 
 test "unit: Arena.Bounded.allocAlignedBytes(_, 1) is a byte-aligned no-op" {

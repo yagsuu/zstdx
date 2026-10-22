@@ -9,7 +9,7 @@ const slab_allocator = @import("allocator.zig");
 const PerCPU = @import("../../../cpu/per_cpu.zig").PerCPU;
 const RawSpinLock = @import("../../../sync/raw_spin_lock.zig").RawSpinLock;
 
-const alignUp = @import("../../align.zig").alignUp;
+const alignUp = @import("../../../layout/alignment.zig").alignUp;
 
 pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
     comptime requireRuntimeValue(T);

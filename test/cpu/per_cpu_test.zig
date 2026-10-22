@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const stdx = @import("stdx");
 
 const PerCPU = stdx.cpu.PerCPU;
-const CachePad = stdx.mem.CachePad;
+const CachePad = stdx.layout.CachePad;
 const AtomicCell = stdx.sync.AtomicCell;
 
 const cache_line = std.atomic.cache_line;

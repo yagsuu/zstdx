@@ -37,6 +37,18 @@ pub fn build(b: *std.Build) void {
     const collections_step = b.step("test-collections", "Run collections tests");
     collections_step.dependOn(&collections_run.step);
     test_step.dependOn(&collections_run.step);
+
+    const layout = b.createModule(.{
+        .root_source_file = b.path("src/layout.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const layout_tests = b.addTest(.{ .root_module = layout });
+    const layout_run = b.addRunArtifact(layout_tests);
+
+    const layout_step = b.step("test-layout", "Run layout tests");
+    layout_step.dependOn(&layout_run.step);
+    test_step.dependOn(&layout_run.step);
 }
 
 fn addHostTests(

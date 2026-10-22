@@ -108,7 +108,7 @@ test "unit: SlabAllocator.Static clearRetainingCapacity rebuilds the free list" 
 test "unit: SlabAllocator.Static returns pointers that satisfy @alignOf(T)" {
     var pool = SlabAllocator.Static(u64, 4).init();
     const p = try pool.acquire();
-    try testing.expect(stdx.mem.isAligned(usize, @intFromPtr(p), @alignOf(u64)));
+    try testing.expect(stdx.layout.isAligned(usize, @intFromPtr(p), @alignOf(u64)));
     pool.release(p);
 }
 

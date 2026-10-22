@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const stdx = @import("stdx");
 
 const PanicLog = stdx.diag.PanicLog;
-const CachePad = stdx.mem.CachePad;
+const CachePad = stdx.layout.CachePad;
 const testing = std.testing;
 
 // Compile-time pins from the spec's Required tests: `Static(64)` factory

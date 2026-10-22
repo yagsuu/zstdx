@@ -2,8 +2,6 @@
 
 const std = @import("std");
 
-/// `InvalidAlignment`: `alignment` is zero or not a power of two.
-/// `Overflow`: rounding up exceeds `T`.
 pub const AlignError = error{InvalidAlignment};
 pub const OverflowError = error{Overflow};
 pub const Error = AlignError || OverflowError;
@@ -47,5 +45,36 @@ fn requireUnsignedInt(comptime T: type) void {
 
 fn validate(comptime T: type, alignment: T) AlignError!void {
     comptime requireUnsignedInt(T);
-    if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return error.InvalidAlignment;
+    if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) {
+        return error.InvalidAlignment;
+    }
 }
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "unit: alignment rounding and deltas" {
+        try testing.expectEqual(@as(usize, 16), try alignUp(usize, 9, 8));
+        try testing.expectEqual(@as(usize, 8), try alignDown(usize, 15, 8));
+        try testing.expectEqual(@as(usize, 16), try alignDown(usize, 16, 8));
+        try testing.expect(isAligned(usize, 16, 8));
+        try testing.expect(!isAligned(usize, 18, 8));
+
+        try testing.expectEqual(@as(usize, 7), try alignUpDelta(usize, 9, 8));
+        try testing.expectEqual(@as(usize, 0), try alignUpDelta(usize, 16, 8));
+        try testing.expectEqual(@as(usize, 7), try alignDownDelta(usize, 15, 8));
+        try testing.expectEqual(@as(usize, 0), try alignDownDelta(usize, 16, 8));
+    }
+
+    test "unit: alignment rejection and overflow" {
+        try testing.expectError(error.InvalidAlignment, alignUp(usize, 1, 0));
+        try testing.expectError(error.InvalidAlignment, alignDown(usize, 1, 3));
+        try testing.expectError(error.InvalidAlignment, alignDownDelta(usize, 1, 3));
+        try testing.expectError(error.Overflow, alignUp(u8, 250, 16));
+        try testing.expectError(error.Overflow, alignUpDelta(u8, 250, 16));
+    }
+
+    test "unit: alignment supports non-native unsigned widths" {
+        try testing.expectEqual(@as(u17, 24), try alignUp(u17, 17, 8));
+    }
+};

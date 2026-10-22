@@ -420,7 +420,7 @@ test "model: quiescent before begin does not complete the next generation" {
 test "contract: Slot types are cache-padded atomic u64 words" {
     const Static = qsbr.Domain.Static(2);
     const Bounded = qsbr.Domain.Bounded;
-    const ExpectedSlot = stdx.mem.CachePad(std.atomic.Value(u64));
+    const ExpectedSlot = stdx.layout.CachePad(std.atomic.Value(u64));
 
     try testing.expect(Static.Slot == ExpectedSlot);
     try testing.expect(Bounded.Slot == ExpectedSlot);
