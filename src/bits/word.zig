@@ -1,87 +1,91 @@
-//! Unchecked word-of-bits arithmetic used by every bitmap consumer.
-//! See `docs/specs/bits/word.md`.
+//! Single-integer bit operations. See `docs/specs/bits/word.md`.
 
 const std = @import("std");
-
 const debug = @import("core").debug;
 
-pub fn count(comptime Word: type, bit_capacity: usize) usize {
-    comptime requireUnsignedInt(Word);
-    const bits: usize = @bitSizeOf(Word);
-    return @divFloor(bit_capacity, bits) + @intFromBool(bit_capacity % bits != 0);
-}
+pub fn Word(comptime T: type) type {
+    comptime {
+        const info = @typeInfo(T);
+        if (info != .int or info.int.signedness != .unsigned) {
+            @compileError("Word requires an unsigned integer type");
+        }
 
-/// Returns a mask for the used low bits of a bitmap's trailing word. Returns
-/// `0` when `bit_capacity == 0` and all ones when `bit_capacity` is a whole
-/// multiple of `@bitSizeOf(Word)`.
-pub fn lastMask(comptime Word: type, bit_capacity: usize) Word {
-    comptime requireUnsignedInt(Word);
-
-    if (bit_capacity == 0) return 0;
-
-    const bits: usize = @bitSizeOf(Word);
-    const rem: usize = bit_capacity % bits;
-
-    if (rem == 0) return ~@as(Word, 0);
-
-    const shift: std.math.Log2Int(Word) = @intCast(rem);
-    return (@as(Word, 1) << shift) - 1;
-}
-
-pub fn indexOf(comptime Word: type, bit_index: usize) usize {
-    comptime requireUnsignedInt(Word);
-    return @divFloor(bit_index, @bitSizeOf(Word));
-}
-
-pub fn maskOf(comptime Word: type, bit_index: usize) Word {
-    comptime requireUnsignedInt(Word);
-    const shift: std.math.Log2Int(Word) = @intCast(bit_index % @bitSizeOf(Word));
-    return @as(Word, 1) << shift;
-}
-
-/// Returns whether the bit at `bit_index` is set. Precondition:
-/// `indexOf(Word, bit_index) < words.len`. Under safety checks this
-/// precondition is asserted; under release it is undefined behavior.
-pub fn isSet(comptime Word: type, words: []const Word, bit_index: usize) bool {
-    comptime requireUnsignedInt(Word);
-
-    const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled()) {
-        std.debug.assert(word_index < words.len);
+        if (info.int.bits == 0) {
+            @compileError("Word requires a positive-width integer");
+        }
     }
 
-    return (words[word_index] & maskOf(Word, bit_index)) != 0;
+    return struct {
+        pub const Int = T;
+        pub const Shift = std.math.Log2Int(T);
+
+        pub const width: usize = @bitSizeOf(T);
+        pub const size: usize = @sizeOf(T);
+        pub const full: T = std.math.maxInt(T);
+
+        pub fn maskOf(index: usize) T {
+            if (debug.checksEnabled()) {
+                std.debug.assert(index < width);
+            }
+            const shift: Shift = @intCast(index);
+            return @as(T, 1) << shift;
+        }
+
+        pub fn isSet(value: T, index: usize) bool {
+            return (value & maskOf(index)) != 0;
+        }
+
+        pub fn set(value: *T, index: usize) void {
+            value.* |= maskOf(index);
+        }
+
+        pub fn clear(value: *T, index: usize) void {
+            value.* &= ~maskOf(index);
+        }
+    };
 }
 
-/// Sets the bit at `bit_index`. The precondition and safety contract match
-/// `isSet`.
-pub fn set(comptime Word: type, words: []Word, bit_index: usize) void {
-    comptime requireUnsignedInt(Word);
+pub const unit = struct {
+    const testing = std.testing;
 
-    const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled()) {
-        std.debug.assert(word_index < words.len);
+    test "word mutations preserve neighboring bits" {
+        inline for (.{ u8, u32, u64 }) |T| {
+            const W = Word(T);
+            var value: T = 0;
+
+            for (0..W.width) |index| {
+                W.set(&value, index);
+                try testing.expectEqual(W.maskOf(index), value);
+
+                for (0..W.width) |other| {
+                    try testing.expectEqual(index == other, W.isSet(value, other));
+                }
+
+                W.clear(&value, index);
+                try testing.expectEqual(@as(T, 0), value);
+            }
+        }
     }
 
-    words[word_index] |= maskOf(Word, bit_index);
-}
+    test "word operations support narrow widths at comptime" {
+        comptime {
+            const Narrow = Word(u1);
+            var narrow: u1 = 0;
 
-/// Clears the bit at `bit_index`. The precondition and safety contract match
-/// `isSet`.
-pub fn clear(comptime Word: type, words: []Word, bit_index: usize) void {
-    comptime requireUnsignedInt(Word);
+            Narrow.set(&narrow, 0);
+            std.debug.assert(narrow == Narrow.full);
 
-    const word_index = indexOf(Word, bit_index);
-    if (debug.checksEnabled()) {
-        std.debug.assert(word_index < words.len);
+            Narrow.clear(&narrow, 0);
+            std.debug.assert(narrow == 0);
+
+            const Odd = Word(u17);
+            var odd: u17 = 1;
+
+            Odd.set(&odd, 16);
+            std.debug.assert(odd == 0x10001);
+
+            Odd.clear(&odd, 0);
+            std.debug.assert(odd == 0x10000);
+        }
     }
-
-    words[word_index] &= ~maskOf(Word, bit_index);
-}
-
-fn requireUnsignedInt(comptime Word: type) void {
-    const info = @typeInfo(Word);
-    if (info != .int or info.int.signedness != .unsigned) {
-        @compileError("bits.word requires an unsigned integer type");
-    }
-}
+};

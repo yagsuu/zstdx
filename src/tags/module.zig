@@ -5,3 +5,8 @@ pub const allocator = @import("allocator.zig");
 
 pub const Tag = tag.Tag;
 pub const TagAllocator = allocator.TagAllocator;
+
+test {
+    _ = tag.unit;
+    _ = allocator.unit;
+}

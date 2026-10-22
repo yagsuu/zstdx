@@ -2,6 +2,14 @@
 //! and `docs/specs/bits/word.md`.
 
 pub const mask = @import("mask.zig");
-pub const word = @import("word.zig");
+pub const set = @import("set.zig");
+const word = @import("word.zig");
 
-pub const BitSet = @import("set.zig").BitSet;
+pub const Set = set.Set;
+pub const Word = word.Word;
+
+test {
+    _ = word.unit;
+    _ = mask.unit;
+    _ = set.unit;
+}

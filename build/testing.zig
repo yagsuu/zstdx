@@ -46,6 +46,16 @@ pub fn addHostTests(
             continue;
         }
 
+        if (std.mem.eql(u8, category, "bits")) {
+            addSuite(b, category_step, check_step, modules.bits);
+            continue;
+        }
+
+        if (std.mem.eql(u8, category, "tags")) {
+            addSuite(b, category_step, check_step, modules.tags);
+            continue;
+        }
+
         if (std.mem.eql(u8, category, "layout")) {
             addSuite(b, category_step, check_step, modules.layout);
         }

@@ -1,5 +1,0 @@
-comptime {
-    _ = @import("mask_test.zig");
-    _ = @import("set_test.zig");
-    _ = @import("word_test.zig");
-}

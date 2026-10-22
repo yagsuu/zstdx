@@ -5,7 +5,7 @@ const std = @import("std");
 
 const debug = @import("core").debug;
 const buddy = @import("algo").alloc.buddy;
-const word = @import("bits").word;
+const Bitmap = @import("bits").Set(u64);
 
 /// Uses lowest-index splitting and eager coalescing.
 pub const BuddyAllocator = struct {
@@ -14,10 +14,10 @@ pub const BuddyAllocator = struct {
         comptime requireStaticShape(unit_capacity, order_count);
 
         const wc = requiredWordCount(unit_capacity, order_count);
-        const initial = initialWords(wc, unit_capacity, order_count);
+        const initial = initialBitmap(wc, unit_capacity, order_count);
 
         return struct {
-            words: [word_count]Word = initial,
+            bitmap: Bitmap.Static(wc * Bitmap.Word.width) = initial,
 
             const Self = @This();
 
@@ -30,7 +30,7 @@ pub const BuddyAllocator = struct {
             pub const order_count_const: u8 = order_count;
             pub const max_order_const: u8 = order_count - 1;
             pub const word_count: usize = wc;
-            pub const word_bits = @bitSizeOf(Word);
+            pub const word_bits = Bitmap.Word.width;
 
             pub fn init() Self {
                 return .{};
@@ -52,42 +52,42 @@ pub const BuddyAllocator = struct {
             }
 
             pub fn allocatedUnits(self: *const Self) usize {
-                return unit_capacity - freeUnitsImpl(self.words[0..], unit_capacity, order_count);
+                return unit_capacity - freeUnitsImpl(&self.bitmap, unit_capacity, order_count);
             }
 
             pub fn remainingUnits(self: *const Self) usize {
-                return freeUnitsImpl(self.words[0..], unit_capacity, order_count);
+                return freeUnitsImpl(&self.bitmap, unit_capacity, order_count);
             }
 
             pub fn isFreeBlock(self: *const Self, block: Block) bool {
-                return isFreeBlockImpl(self.words[0..], unit_capacity, order_count, block);
+                return isFreeBlockImpl(&self.bitmap, unit_capacity, order_count, block);
             }
 
             /// Splits higher-order blocks when necessary.
             /// Errors leave allocator state unchanged.
             pub fn alloc(self: *Self, order: u8) Error!Block {
-                return allocImpl(self.words[0..], unit_capacity, order_count, order);
+                return allocImpl(&self.bitmap, unit_capacity, order_count, order);
             }
 
             /// Requires an allocated, aligned block.
             /// Coalesces free buddies; errors leave allocator state unchanged.
             pub fn free(self: *Self, block: Block) Error!void {
-                return freeImpl(self.words[0..], unit_capacity, order_count, block);
+                return freeImpl(&self.bitmap, unit_capacity, order_count, block);
             }
 
             /// Requires a valid `range`.
             /// An empty in-bounds range is a no-op; errors do not mutate.
             /// Splits containing blocks to order 0.
             pub fn reserve(self: *Self, range: Range) Error!void {
-                return reserveImpl(self.words[0..], unit_capacity, order_count, range);
+                return reserveImpl(&self.bitmap, unit_capacity, order_count, range);
             }
 
             pub fn clearRetainingCapacity(self: *Self) void {
-                self.words = initial;
+                self.bitmap = initial;
             }
 
             pub fn isValid(self: *const Self) bool {
-                return checkValid(self.words[0..], unit_capacity, order_count);
+                return checkValid(&self.bitmap, unit_capacity, order_count);
             }
 
             pub fn assertValid(self: *const Self) void {
@@ -98,12 +98,12 @@ pub const BuddyAllocator = struct {
 
     /// Borrows `words`; they must outlive the allocator.
     pub const Bounded = struct {
-        words: []Word,
+        bitmap: Bitmap.Bounded,
         unit_capacity: usize,
         order_count: u8,
 
         pub const Word = u64;
-        pub const word_bits = @bitSizeOf(Word);
+        pub const word_bits = Bitmap.Word.width;
         pub const Block = buddy.Block;
         pub const Range = RangeUsize;
 
@@ -136,8 +136,14 @@ pub const BuddyAllocator = struct {
                 return error.InvalidRequest;
             }
 
-            installInitialDecomposition(words, unit_capacity, order_count);
-            return .{ .words = words, .unit_capacity = unit_capacity, .order_count = order_count };
+            const bit_capacity = std.math.mul(
+                usize,
+                requiredWordCount(unit_capacity, order_count),
+                Bitmap.Word.width,
+            ) catch return error.InvalidRequest;
+            var bitmap = Bitmap.Bounded.wrap(words, bit_capacity) catch return error.InvalidRequest;
+            installInitialDecomposition(&bitmap, unit_capacity, order_count);
+            return .{ .bitmap = bitmap, .unit_capacity = unit_capacity, .order_count = order_count };
         }
 
         pub fn capacity(self: *const Bounded) usize {
@@ -153,38 +159,39 @@ pub const BuddyAllocator = struct {
         }
 
         pub fn allocatedUnits(self: *const Bounded) usize {
-            return self.unit_capacity - freeUnitsImpl(self.words, self.unit_capacity, self.order_count);
+            return self.unit_capacity - freeUnitsImpl(&self.bitmap, self.unit_capacity, self.order_count);
         }
 
         pub fn remainingUnits(self: *const Bounded) usize {
-            return freeUnitsImpl(self.words, self.unit_capacity, self.order_count);
+            return freeUnitsImpl(&self.bitmap, self.unit_capacity, self.order_count);
         }
 
         pub fn isFreeBlock(self: *const Bounded, block: Block) bool {
-            return isFreeBlockImpl(self.words, self.unit_capacity, self.order_count, block);
+            return isFreeBlockImpl(&self.bitmap, self.unit_capacity, self.order_count, block);
         }
 
         /// Splits higher-order blocks when necessary.
         /// Errors leave allocator state unchanged.
         pub fn alloc(self: *Bounded, order: u8) Error!Block {
-            return allocImpl(self.words, self.unit_capacity, self.order_count, order);
+            return allocImpl(&self.bitmap, self.unit_capacity, self.order_count, order);
         }
 
         /// Requires an allocated, aligned block.
         /// Coalesces free buddies; errors leave allocator state unchanged.
         pub fn free(self: *Bounded, block: Block) Error!void {
-            return freeImpl(self.words, self.unit_capacity, self.order_count, block);
+            return freeImpl(&self.bitmap, self.unit_capacity, self.order_count, block);
         }
 
         /// Requires a valid `range`.
         /// An empty in-bounds range is a no-op; errors do not mutate.
         /// Splits containing blocks to order 0.
         pub fn reserve(self: *Bounded, range: Range) Error!void {
-            return reserveImpl(self.words, self.unit_capacity, self.order_count, range);
+            return reserveImpl(&self.bitmap, self.unit_capacity, self.order_count, range);
         }
 
         pub fn clearRetainingCapacity(self: *Bounded) void {
-            installInitialDecomposition(self.words, self.unit_capacity, self.order_count);
+            self.bitmap.clearRetainingCapacity();
+            installInitialDecomposition(&self.bitmap, self.unit_capacity, self.order_count);
         }
 
         pub fn isValid(self: *const Bounded) bool {
@@ -194,10 +201,18 @@ pub const BuddyAllocator = struct {
             if (self.unit_capacity > std.math.shr(usize, std.math.maxInt(usize), self.order_count - 1)) {
                 return false;
             }
-            if (self.words.len < requiredWordCount(self.unit_capacity, self.order_count)) {
+            if (self.bitmap.items.len < requiredWordCount(self.unit_capacity, self.order_count)) {
                 return false;
             }
-            return checkValid(self.words, self.unit_capacity, self.order_count);
+            const bit_capacity = std.math.mul(
+                usize,
+                requiredWordCount(self.unit_capacity, self.order_count),
+                Bitmap.Word.width,
+            ) catch return false;
+            if (self.bitmap.limit != bit_capacity) {
+                return false;
+            }
+            return checkValid(&self.bitmap, self.unit_capacity, self.order_count);
         }
 
         pub fn assertValid(self: *const Bounded) void {
@@ -209,9 +224,7 @@ pub const BuddyAllocator = struct {
 const BuddyBlock = buddy.Block;
 const BuddyWord = u64;
 const RangeUsize = @import("core").Range(usize);
-const Shift = std.math.Log2Int(BuddyWord);
-
-const buddy_word_bits = @bitSizeOf(BuddyWord);
+const Shift = std.math.Log2Int(usize);
 
 fn requireStaticShape(comptime unit_capacity: usize, comptime order_count: u8) void {
     if (order_count == 0) {
@@ -230,15 +243,15 @@ fn requireStaticShape(comptime unit_capacity: usize, comptime order_count: u8) v
     }
 }
 
-fn initialWords(
+fn initialBitmap(
     comptime word_count: usize,
     comptime unit_capacity: usize,
     comptime order_count: u8,
-) [word_count]BuddyWord {
+) Bitmap.Static(word_count * Bitmap.Word.width) {
     @setEvalBranchQuota(100_000);
-    var words = [_]BuddyWord{0} ** word_count;
-    installInitialDecomposition(words[0..], unit_capacity, order_count);
-    return words;
+    var bitmap = Bitmap.Static(word_count * Bitmap.Word.width).init();
+    installInitialDecomposition(&bitmap, unit_capacity, order_count);
+    return bitmap;
 }
 
 const BuddyError = BuddyAllocator.Bounded.Error;
@@ -256,7 +269,8 @@ fn validSlotsFor(unit_capacity: usize, order: u8) usize {
 }
 
 fn wordsForOrder(unit_capacity: usize, order: u8) usize {
-    return word.count(BuddyWord, slotsForOrder(unit_capacity, order));
+    const slots = slotsForOrder(unit_capacity, order);
+    return slots / Bitmap.Word.width + @intFromBool(slots % Bitmap.Word.width != 0);
 }
 
 fn orderWordOffset(unit_capacity: usize, order: u8) usize {
@@ -272,22 +286,35 @@ fn requiredWordCount(unit_capacity: usize, order_count: u8) usize {
     return orderWordOffset(unit_capacity, order_count);
 }
 
-fn bitIsSet(words: []const BuddyWord, unit_capacity: usize, order: u8, slot: usize) bool {
-    const off = orderWordOffset(unit_capacity, order);
-    return word.isSet(BuddyWord, words[off..], slot);
+fn assertStorageShape(bitmap: anytype, unit_capacity: usize, order_count: u8) void {
+    if (debug.checksEnabled()) {
+        std.debug.assert(order_count > 0 and order_count <= 32);
+        std.debug.assert(unit_capacity > 0);
+        std.debug.assert(unit_capacity <= std.math.shr(usize, std.math.maxInt(usize), order_count - 1));
+        const required = requiredWordCount(unit_capacity, order_count);
+        std.debug.assert(bitmap.items.len >= required);
+        std.debug.assert(bitmap.capacity() == required * Bitmap.Word.width);
+        bitmap.assertValid();
+    }
 }
 
-fn setBit(words: []BuddyWord, unit_capacity: usize, order: u8, slot: usize) void {
-    const off = orderWordOffset(unit_capacity, order);
-    word.set(BuddyWord, words[off..], slot);
+fn bitIsSet(bitmap: anytype, unit_capacity: usize, order: u8, slot: usize) bool {
+    const word_index = orderWordOffset(unit_capacity, order) + slot / Bitmap.Word.width;
+    return Bitmap.Word.isSet(bitmap.items[word_index], slot % Bitmap.Word.width);
 }
 
-fn clearBit(words: []BuddyWord, unit_capacity: usize, order: u8, slot: usize) void {
-    const off = orderWordOffset(unit_capacity, order);
-    word.clear(BuddyWord, words[off..], slot);
+fn setBit(bitmap: anytype, unit_capacity: usize, order: u8, slot: usize) void {
+    const word_index = orderWordOffset(unit_capacity, order) + slot / Bitmap.Word.width;
+    Bitmap.Word.set(&bitmap.items[word_index], slot % Bitmap.Word.width);
 }
 
-fn findFirstFreeAtOrder(words: []const BuddyWord, unit_capacity: usize, order: u8) ?usize {
+fn clearBit(bitmap: anytype, unit_capacity: usize, order: u8, slot: usize) void {
+    const word_index = orderWordOffset(unit_capacity, order) + slot / Bitmap.Word.width;
+    Bitmap.Word.clear(&bitmap.items[word_index], slot % Bitmap.Word.width);
+}
+
+fn findFirstFreeAtOrder(bitmap: anytype, unit_capacity: usize, order: u8) ?usize {
+    const words = bitmap.words();
     const off = orderWordOffset(unit_capacity, order);
     const wc = wordsForOrder(unit_capacity, order);
     var wi: usize = 0;
@@ -295,7 +322,7 @@ fn findFirstFreeAtOrder(words: []const BuddyWord, unit_capacity: usize, order: u
         const w = words[off + wi];
         if (w != 0) {
             const bit = @ctz(w);
-            const slot = wi * buddy_word_bits + bit;
+            const slot = wi * Bitmap.Word.width + bit;
             std.debug.assert(slot < validSlotsFor(unit_capacity, order));
             return slot;
         }
@@ -303,9 +330,10 @@ fn findFirstFreeAtOrder(words: []const BuddyWord, unit_capacity: usize, order: u
     return null;
 }
 
-fn installInitialDecomposition(words: []BuddyWord, unit_capacity: usize, order_count: u8) void {
-    for (words) |*w| w.* = 0;
+fn installInitialDecomposition(bitmap: anytype, unit_capacity: usize, order_count: u8) void {
     if (unit_capacity == 0) return;
+
+    assertStorageShape(bitmap, unit_capacity, order_count);
 
     var cursor: usize = 0;
     var k: u8 = order_count - 1;
@@ -319,12 +347,13 @@ fn installInitialDecomposition(words: []BuddyWord, unit_capacity: usize, order_c
         std.debug.assert(cursor + size <= unit_capacity);
         std.debug.assert(cursor % size == 0);
 
-        setBit(words, unit_capacity, k, cursor >> @as(Shift, @intCast(k)));
+        setBit(bitmap, unit_capacity, k, cursor >> @as(Shift, @intCast(k)));
         cursor += size;
     }
 }
 
-fn freeUnitsImpl(words: []const BuddyWord, unit_capacity: usize, order_count: u8) usize {
+fn freeUnitsImpl(bitmap: anytype, unit_capacity: usize, order_count: u8) usize {
+    const words = bitmap.words();
     var total: usize = 0;
     var k: u8 = 0;
     while (k < order_count) : (k += 1) {
@@ -341,7 +370,7 @@ fn freeUnitsImpl(words: []const BuddyWord, unit_capacity: usize, order_count: u8
 }
 
 fn isFreeBlockImpl(
-    words: []const BuddyWord,
+    bitmap: anytype,
     unit_capacity: usize,
     order_count: u8,
     block: BuddyBlock,
@@ -352,17 +381,23 @@ fn isFreeBlockImpl(
     if (block.start % size != 0) return false;
     const end = std.math.add(usize, block.start, size) catch return false;
 
-    if (end > unit_capacity) return false;
-    return bitIsSet(words, unit_capacity, block.order, block.start >> @as(Shift, @intCast(block.order)));
+    if (end > unit_capacity) {
+        return false;
+    }
+    assertStorageShape(bitmap, unit_capacity, order_count);
+    return bitIsSet(bitmap, unit_capacity, block.order, block.start >> @as(Shift, @intCast(block.order)));
 }
 
 fn allocImpl(
-    words: []BuddyWord,
+    bitmap: anytype,
     unit_capacity: usize,
     order_count: u8,
     order: u8,
 ) BuddyError!BuddyBlock {
-    if (order >= order_count) return error.InvalidOrder;
+    if (order >= order_count) {
+        return error.InvalidOrder;
+    }
+    assertStorageShape(bitmap, unit_capacity, order_count);
 
     // Select the lowest-start free block. Break same-start ties by order.
     var best_start: usize = std.math.maxInt(usize);
@@ -371,7 +406,7 @@ fn allocImpl(
 
     var k: u8 = order;
     while (k < order_count) : (k += 1) {
-        const slot = findFirstFreeAtOrder(words, unit_capacity, k) orelse continue;
+        const slot = findFirstFreeAtOrder(bitmap, unit_capacity, k) orelse continue;
         const start = slot << @as(Shift, @intCast(k));
         const beats_start = start < best_start;
         const beats_order = start == best_start and k < best_order;
@@ -387,7 +422,7 @@ fn allocImpl(
     if (!found) return error.OutOfMemory;
 
     const source_slot = best_start >> @as(Shift, @intCast(best_order));
-    clearBit(words, unit_capacity, best_order, source_slot);
+    clearBit(bitmap, unit_capacity, best_order, source_slot);
 
     var current: BuddyBlock = .{ .start = best_start, .order = best_order };
     while (current.order > order) {
@@ -396,7 +431,7 @@ fn allocImpl(
 
         const right = pair[1];
         setBit(
-            words,
+            bitmap,
             unit_capacity,
             right.order,
             right.start >> @as(Shift, @intCast(right.order)),
@@ -407,14 +442,14 @@ fn allocImpl(
 
     if (debug.checksEnabled()) {
         const slot = current.start >> @as(Shift, @intCast(current.order));
-        std.debug.assert(!bitIsSet(words, unit_capacity, current.order, slot));
+        std.debug.assert(!bitIsSet(bitmap, unit_capacity, current.order, slot));
     }
 
     return current;
 }
 
 fn freeImpl(
-    words: []BuddyWord,
+    bitmap: anytype,
     unit_capacity: usize,
     order_count: u8,
     block: BuddyBlock,
@@ -427,10 +462,13 @@ fn freeImpl(
     if (!aligned) return error.InvalidRequest;
 
     const end = std.math.add(usize, block.start, size) catch return error.InvalidRequest;
-    if (end > unit_capacity) return error.InvalidRequest;
+    if (end > unit_capacity) {
+        return error.InvalidRequest;
+    }
+    assertStorageShape(bitmap, unit_capacity, order_count);
 
     const slot = block.start >> @as(Shift, @intCast(block.order));
-    if (bitIsSet(words, unit_capacity, block.order, slot)) {
+    if (bitIsSet(bitmap, unit_capacity, block.order, slot)) {
         if (debug.checksEnabled()) std.debug.assert(false);
         return error.NotAllocated;
     }
@@ -443,26 +481,26 @@ fn freeImpl(
         if (sibling_end > unit_capacity) break;
 
         const sibling_slot = sibling.start >> @as(Shift, @intCast(sibling.order));
-        if (!bitIsSet(words, unit_capacity, sibling.order, sibling_slot)) break;
+        if (!bitIsSet(bitmap, unit_capacity, sibling.order, sibling_slot)) break;
 
-        clearBit(words, unit_capacity, sibling.order, sibling_slot);
+        clearBit(bitmap, unit_capacity, sibling.order, sibling_slot);
         current = buddy.parentOf(current) catch break;
     }
 
     setBit(
-        words,
+        bitmap,
         unit_capacity,
         current.order,
         current.start >> @as(Shift, @intCast(current.order)),
     );
 
     if (debug.checksEnabled()) {
-        std.debug.assert(!hasBothBuddiesFree(words, unit_capacity, order_count));
+        std.debug.assert(!hasBothBuddiesFree(bitmap, unit_capacity, order_count));
     }
 }
 
 fn reserveImpl(
-    words: []BuddyWord,
+    bitmap: anytype,
     unit_capacity: usize,
     order_count: u8,
     range: RangeUsize,
@@ -473,22 +511,25 @@ fn reserveImpl(
         return;
     }
 
-    if (range.end > unit_capacity) return error.OutOfBounds;
+    if (range.end > unit_capacity) {
+        return error.OutOfBounds;
+    }
+    assertStorageShape(bitmap, unit_capacity, order_count);
 
     var probe: usize = range.start;
     while (probe < range.end) : (probe += 1) {
-        if (containingFreeOrder(words, unit_capacity, order_count, probe) == null) {
+        if (containingFreeOrder(bitmap, unit_capacity, order_count, probe) == null) {
             return error.AlreadyAllocated;
         }
     }
 
     var u: usize = range.start;
     while (u < range.end) : (u += 1) {
-        const k = containingFreeOrder(words, unit_capacity, order_count, u).?;
+        const k = containingFreeOrder(bitmap, unit_capacity, order_count, u).?;
         const size_k = @as(usize, 1) << @as(Shift, @intCast(k));
         const block_start = @divFloor(u, size_k) * size_k;
 
-        clearBit(words, unit_capacity, k, block_start >> @as(Shift, @intCast(k)));
+        clearBit(bitmap, unit_capacity, k, block_start >> @as(Shift, @intCast(k)));
 
         var current: BuddyBlock = .{ .start = block_start, .order = k };
         while (current.order > 0) {
@@ -500,7 +541,7 @@ fn reserveImpl(
             const left_end = left.start + (@as(usize, 1) << @as(Shift, @intCast(left.order)));
             if (u < left_end) {
                 setBit(
-                    words,
+                    bitmap,
                     unit_capacity,
                     right.order,
                     right.start >> @as(Shift, @intCast(right.order)),
@@ -508,7 +549,7 @@ fn reserveImpl(
                 current = left;
             } else {
                 setBit(
-                    words,
+                    bitmap,
                     unit_capacity,
                     left.order,
                     left.start >> @as(Shift, @intCast(left.order)),
@@ -523,7 +564,7 @@ fn reserveImpl(
 }
 
 fn containingFreeOrder(
-    words: []const BuddyWord,
+    bitmap: anytype,
     unit_capacity: usize,
     order_count: u8,
     unit: usize,
@@ -533,12 +574,12 @@ fn containingFreeOrder(
         const size_k = @as(usize, 1) << @as(Shift, @intCast(k));
         const slot = @divFloor(unit, size_k);
         if (slot >= validSlotsFor(unit_capacity, k)) return null;
-        if (bitIsSet(words, unit_capacity, k, slot)) return k;
+        if (bitIsSet(bitmap, unit_capacity, k, slot)) return k;
     }
     return null;
 }
 
-fn hasBothBuddiesFree(words: []const BuddyWord, unit_capacity: usize, order_count: u8) bool {
+fn hasBothBuddiesFree(bitmap: anytype, unit_capacity: usize, order_count: u8) bool {
     if (order_count == 0) return false;
 
     var k: u8 = 0;
@@ -550,8 +591,8 @@ fn hasBothBuddiesFree(words: []const BuddyWord, unit_capacity: usize, order_coun
             const left = pair * 2;
             const right = left + 1;
 
-            if (bitIsSet(words, unit_capacity, k, left) and
-                bitIsSet(words, unit_capacity, k, right))
+            if (bitIsSet(bitmap, unit_capacity, k, left) and
+                bitIsSet(bitmap, unit_capacity, k, right))
             {
                 return true;
             }
@@ -570,7 +611,7 @@ fn hasUnusedHighBits(words: []const BuddyWord, unit_capacity: usize, order_count
 
         var wi: usize = 0;
         while (wi < wc) : (wi += 1) {
-            const base = wi * buddy_word_bits;
+            const base = wi * Bitmap.Word.width;
             const w = words[off + wi];
 
             if (base >= valid) {
@@ -579,20 +620,27 @@ fn hasUnusedHighBits(words: []const BuddyWord, unit_capacity: usize, order_count
             }
 
             const in_word = valid - base;
-            if (in_word >= buddy_word_bits) continue;
+            if (in_word >= Bitmap.Word.width) {
+                continue;
+            }
 
-            const high_mask = ~((@as(BuddyWord, 1) << @as(Shift, @intCast(in_word))) - 1);
+            const high_mask = ~((@as(BuddyWord, 1) << @as(Bitmap.Word.Shift, @intCast(in_word))) - 1);
             if ((w & high_mask) != 0) return true;
         }
     }
     return false;
 }
 
-fn checkValid(words: []const BuddyWord, unit_capacity: usize, order_count: u8) bool {
+fn checkValid(bitmap: anytype, unit_capacity: usize, order_count: u8) bool {
+    const words = bitmap.items[0..];
+    const required = requiredWordCount(unit_capacity, order_count);
     if (hasUnusedHighBits(words, unit_capacity, order_count)) return false;
-    if (hasBothBuddiesFree(words, unit_capacity, order_count)) return false;
+    for (words[required..]) |word| {
+        if (word != 0) return false;
+    }
+    if (hasBothBuddiesFree(bitmap, unit_capacity, order_count)) return false;
 
-    const free_units = freeUnitsImpl(words, unit_capacity, order_count);
+    const free_units = freeUnitsImpl(bitmap, unit_capacity, order_count);
     if (free_units > unit_capacity) return false;
     return true;
 }

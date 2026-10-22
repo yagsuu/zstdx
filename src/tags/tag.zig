@@ -1,18 +1,7 @@
 //! Strongly typed tag values for tag allocator domains. See `docs/specs/tags/allocator.md`.
 
-fn requireUnsignedInt(comptime Int: type) void {
-    const info = @typeInfo(Int);
-    if (info != .int or info.int.signedness != .unsigned) {
-        @compileError("Tag Int parameter must be an unsigned integer (u1..u64)");
-    }
-    if (info.int.bits == 0 or info.int.bits > 64) {
-        @compileError("Tag Int parameter must have width u1 through u64");
-    }
-}
+const std = @import("std");
 
-/// Strongly typed tag value for the `(Domain, Int)` pair. `Domain` is a
-/// phantom-type identity; `Int` must be unsigned (u1..u64). Distinct
-/// `Domain` types yield distinct `Tag` types even when `Int` matches.
 pub fn Tag(comptime DomainT: type, comptime IntT: type) type {
     comptime requireUnsignedInt(IntT);
     return enum(IntT) {
@@ -23,8 +12,6 @@ pub fn Tag(comptime DomainT: type, comptime IntT: type) type {
         pub const Domain = DomainT;
         pub const Int = IntT;
 
-        /// Build a tag from its raw integer value. Every `IntT` value is a
-        /// representable tag; allocator membership is a separate concern.
         pub fn fromInt(value: IntT) Self {
             return @enumFromInt(value);
         }
@@ -34,3 +21,39 @@ pub fn Tag(comptime DomainT: type, comptime IntT: type) type {
         }
     };
 }
+
+fn requireUnsignedInt(comptime Int: type) void {
+    const info = @typeInfo(Int);
+
+    if (info != .int or info.int.signedness != .unsigned) {
+        @compileError("Tag Int parameter must be an unsigned integer (u1..u64)");
+    }
+
+    if (info.int.bits == 0 or info.int.bits > 64) {
+        @compileError("Tag Int parameter must have width u1 through u64");
+    }
+}
+
+pub const unit = struct {
+    const DomainA = struct {};
+    const DomainB = struct {};
+
+    test "raw values round-trip" {
+        const T = Tag(DomainA, u16);
+
+        try std.testing.expectEqual(@as(u16, 0), T.fromInt(0).raw());
+        try std.testing.expectEqual(@as(u16, 0x4321), T.fromInt(0x4321).raw());
+        try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), T.fromInt(std.math.maxInt(u16)).raw());
+        try std.testing.expectEqual(@as(u1, 0), Tag(DomainA, u1).fromInt(0).raw());
+        try std.testing.expectEqual(@as(u1, 1), Tag(DomainA, u1).fromInt(1).raw());
+        try std.testing.expectEqual(@as(u64, std.math.maxInt(u64)), Tag(DomainA, u64).fromInt(std.math.maxInt(u64)).raw());
+    }
+
+    test "type identity" {
+        comptime {
+            std.debug.assert(Tag(DomainA, u16) != Tag(DomainB, u16));
+            std.debug.assert(Tag(DomainA, u16) != Tag(DomainA, u32));
+            std.debug.assert(Tag(DomainA, u16) == Tag(DomainA, u16));
+        }
+    }
+};

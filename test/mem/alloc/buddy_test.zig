@@ -412,7 +412,7 @@ test "unit: Bounded with insufficient words fails isValid" {
     // Test-only backdoor: construct a Bounded whose words.len is smaller
     // than requiredWordCount, bypassing wrap's guard.
     var a: BuddyAllocator.Bounded = .{
-        .words = words[0..],
+        .bitmap = .{ .items = words[0..], .limit = 64 },
         .unit_capacity = 4096,
         .order_count = 8,
     };
@@ -486,15 +486,15 @@ test "stress: 10K random ops on Static(256, 6) return to fully-free state" {
 
     // Should equal a freshly-initialised allocator bit-for-bit.
     const fresh: T = .init();
-    try testing.expectEqualSlices(u64, fresh.words[0..], a.words[0..]);
+    try testing.expectEqualSlices(u64, fresh.bitmap.words(), a.bitmap.words());
 }
 
 fn snapshotStatic(a: anytype) [@TypeOf(a.*).word_count]u64 {
-    return a.words;
+    return a.bitmap.items;
 }
 
 fn expectSnapshotStatic(a: anytype, snapshot: [@TypeOf(a.*).word_count]u64) !void {
-    try testing.expectEqualSlices(u64, snapshot[0..], a.words[0..]);
+    try testing.expectEqualSlices(u64, snapshot[0..], a.bitmap.words());
 }
 
 fn isUnitFree(a: anytype, unit: usize) bool {
@@ -624,9 +624,9 @@ fn runModel(comptime T: type, comptime capacity: usize, comptime order_count: u8
                 }
             }
             if (any_used) {
-                const snapshot = a.words;
+                const snapshot = a.bitmap.items;
                 try testing.expectError(error.AlreadyAllocated, a.reserve(try Range.fromBounds(start, end)));
-                try testing.expectEqualSlices(u64, snapshot[0..], a.words[0..]);
+                try testing.expectEqualSlices(u64, snapshot[0..], a.bitmap.words());
             } else {
                 try a.reserve(try Range.fromBounds(start, end));
                 ref.reserve(start, end);
