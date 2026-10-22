@@ -906,7 +906,7 @@ pub const unit = struct {
         try map.ensureTotalCapacity(allocator, 8);
         for (0..8) |index| {
             const start: u8 = @intCast(index * 10);
-            try map.insert(allocator, try Range.fromBounds(start, start + 5), .a);
+            try map.insert(allocator, try Range.init(start, start + 5), .a);
         }
 
         var before: [8]Map.Entry = undefined;
@@ -929,7 +929,7 @@ pub const unit = struct {
         try map.ensureTotalCapacity(allocator, 8);
         for (0..8) |index| {
             const start: u8 = @intCast(index * 10);
-            try map.insert(allocator, try Range.fromBounds(start, start + 5), .a);
+            try map.insert(allocator, try Range.init(start, start + 5), .a);
         }
 
         var before: [8]Map.Entry = undefined;
@@ -952,7 +952,7 @@ pub const unit = struct {
         try map.ensureTotalCapacity(allocator, 8);
         for (0..8) |index| {
             const start: u8 = @intCast(index * 10);
-            try map.insert(allocator, try Range.fromBounds(start, start + 5), .a);
+            try map.insert(allocator, try Range.init(start, start + 5), .a);
         }
 
         var before: [8]Map.Entry = undefined;
@@ -1195,7 +1195,7 @@ pub const unit = struct {
             const start = @min(a, b);
             const end = @max(a, b);
 
-            const range = try Range.fromBounds(start, end);
+            const range = try Range.init(start, end);
             const value: Kind = switch (random.uintLessThan(u8, 3)) {
                 0 => .a,
                 1 => .b,

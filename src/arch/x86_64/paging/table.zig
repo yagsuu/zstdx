@@ -202,13 +202,13 @@ pub const PML5 = enum(u64) {
     pub const Entry = EntryType(@This());
     pub const Memory = MemoryType(Entry);
 
-    pub fn init(base_frame: Phys4K.Frame) InitError!PML5 {
-        try validateAddressWidth(base_frame.addressInt());
-        return @enumFromInt(base_frame.addressInt());
+    pub fn init(base_frame: Phys4K.Base) InitError!PML5 {
+        try validateAddressWidth(base_frame.raw());
+        return @enumFromInt(base_frame.raw());
     }
 
-    pub fn base(self: PML5) Phys4K.Frame {
-        return Phys4K.Frame.fromAddressInt(@intFromEnum(self)) catch unreachable;
+    pub fn base(self: PML5) Phys4K.Base {
+        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PML5, index: Index) PhysAddr {
@@ -231,13 +231,13 @@ pub const PML4 = enum(u64) {
     pub const Entry = EntryType(@This());
     pub const Memory = MemoryType(Entry);
 
-    pub fn init(base_frame: Phys4K.Frame) InitError!PML4 {
-        try validateAddressWidth(base_frame.addressInt());
-        return @enumFromInt(base_frame.addressInt());
+    pub fn init(base_frame: Phys4K.Base) InitError!PML4 {
+        try validateAddressWidth(base_frame.raw());
+        return @enumFromInt(base_frame.raw());
     }
 
-    pub fn base(self: PML4) Phys4K.Frame {
-        return Phys4K.Frame.fromAddressInt(@intFromEnum(self)) catch unreachable;
+    pub fn base(self: PML4) Phys4K.Base {
+        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PML4, index: Index) PhysAddr {
@@ -261,13 +261,13 @@ pub const PDPT = enum(u64) {
     pub const Entry = EntryType(@This());
     pub const Memory = MemoryType(Entry);
 
-    pub fn init(base_frame: Phys4K.Frame) InitError!PDPT {
-        try validateAddressWidth(base_frame.addressInt());
-        return @enumFromInt(base_frame.addressInt());
+    pub fn init(base_frame: Phys4K.Base) InitError!PDPT {
+        try validateAddressWidth(base_frame.raw());
+        return @enumFromInt(base_frame.raw());
     }
 
-    pub fn base(self: PDPT) Phys4K.Frame {
-        return Phys4K.Frame.fromAddressInt(@intFromEnum(self)) catch unreachable;
+    pub fn base(self: PDPT) Phys4K.Base {
+        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PDPT, index: Index) PhysAddr {
@@ -283,10 +283,10 @@ pub const PDPT = enum(u64) {
     }
 
     pub fn pageEntry(
-        frame: Phys1G.Frame,
+        frame: Phys1G.Base,
         flags: PageFlags,
     ) PageEntryError!Entry {
-        try validateAddressWidth(frame.addressInt());
+        try validateAddressWidth(frame.raw());
         const raw: u64 = @bitCast(PageEntry1G.init(frame, flags));
         return @enumFromInt(raw);
     }
@@ -300,13 +300,13 @@ pub const PD = enum(u64) {
     pub const Entry = EntryType(@This());
     pub const Memory = MemoryType(Entry);
 
-    pub fn init(base_frame: Phys4K.Frame) InitError!PD {
-        try validateAddressWidth(base_frame.addressInt());
-        return @enumFromInt(base_frame.addressInt());
+    pub fn init(base_frame: Phys4K.Base) InitError!PD {
+        try validateAddressWidth(base_frame.raw());
+        return @enumFromInt(base_frame.raw());
     }
 
-    pub fn base(self: PD) Phys4K.Frame {
-        return Phys4K.Frame.fromAddressInt(@intFromEnum(self)) catch unreachable;
+    pub fn base(self: PD) Phys4K.Base {
+        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PD, index: Index) PhysAddr {
@@ -322,10 +322,10 @@ pub const PD = enum(u64) {
     }
 
     pub fn pageEntry(
-        frame: Phys2M.Frame,
+        frame: Phys2M.Base,
         flags: PageFlags,
     ) PageEntryError!Entry {
-        try validateAddressWidth(frame.addressInt());
+        try validateAddressWidth(frame.raw());
         const raw: u64 = @bitCast(PageEntry2M.init(frame, flags));
         return @enumFromInt(raw);
     }
@@ -339,13 +339,13 @@ pub const PT = enum(u64) {
     pub const Entry = EntryType(@This());
     pub const Memory = MemoryType(Entry);
 
-    pub fn init(base_frame: Phys4K.Frame) InitError!PT {
-        try validateAddressWidth(base_frame.addressInt());
-        return @enumFromInt(base_frame.addressInt());
+    pub fn init(base_frame: Phys4K.Base) InitError!PT {
+        try validateAddressWidth(base_frame.raw());
+        return @enumFromInt(base_frame.raw());
     }
 
-    pub fn base(self: PT) Phys4K.Frame {
-        return Phys4K.Frame.fromAddressInt(@intFromEnum(self)) catch unreachable;
+    pub fn base(self: PT) Phys4K.Base {
+        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PT, index: Index) PhysAddr {
@@ -353,19 +353,19 @@ pub const PT = enum(u64) {
     }
 
     pub fn pageEntry(
-        frame: Phys4K.Frame,
+        frame: Phys4K.Base,
         flags: PageFlags,
     ) PageEntryError!Entry {
-        try validateAddressWidth(frame.addressInt());
+        try validateAddressWidth(frame.raw());
         const raw: u64 = @bitCast(PageEntry4K.init(frame, flags));
         return @enumFromInt(raw);
     }
 };
 
 pub const PageFrame = union(enum) {
-    page4kib: Phys4K.Frame,
-    page2mib: Phys2M.Frame,
-    page1gib: Phys1G.Frame,
+    page4kib: Phys4K.Base,
+    page2mib: Phys2M.Base,
+    page1gib: Phys1G.Base,
 
     pub fn level(self: PageFrame) Level {
         return switch (self) {
@@ -377,7 +377,7 @@ pub const PageFrame = union(enum) {
 
     pub fn address(self: PageFrame) PhysAddr {
         return switch (self) {
-            inline else => |frame| frame.address(),
+            inline else => |frame| frame.addr(),
         };
     }
 
@@ -472,12 +472,12 @@ fn validateAddressWidth(address_value: u64) error{PhysicalAddressTooWide}!void {
     }
 }
 
-fn producerEntryAddress(base: Phys4K.Frame, index: Index) PhysAddr {
+fn producerEntryAddress(base: Phys4K.Base, index: Index) PhysAddr {
     std.debug.assert(base.isValid());
-    std.debug.assert(base.addressInt() >> architectural_address_bits == 0);
+    std.debug.assert(base.raw() >> architectural_address_bits == 0);
     const offset_bytes = @as(u64, index.raw()) * entry_size_bytes;
     std.debug.assert(offset_bytes < table_alignment_bytes);
-    return PhysAddr.fromInt(base.addressInt() + offset_bytes);
+    return PhysAddr.from(base.raw() + offset_bytes);
 }
 
 const TableEntry = packed struct(u64) {
@@ -495,9 +495,9 @@ const TableEntry = packed struct(u64) {
 
     const Self = @This();
 
-    fn init(child: Phys4K.Frame, flags: TableEntryFlags) TableEntry {
+    fn init(child: Phys4K.Base, flags: TableEntryFlags) TableEntry {
         std.debug.assert(child.isValid());
-        std.debug.assert(child.addressInt() >> architectural_address_bits == 0);
+        std.debug.assert(child.raw() >> architectural_address_bits == 0);
         return .{
             .writable = flags.writable,
             .user = flags.user,
@@ -505,7 +505,7 @@ const TableEntry = packed struct(u64) {
             .cache_disable = flags.cache_disable,
             .accessed = flags.accessed,
             .available_low = flags.available_low,
-            .child_frame_index = @intCast(child.frameIndex()),
+            .child_frame_index = @intCast(child.index()),
             .available_high = flags.available_high,
             .no_execute = flags.no_execute,
         };
@@ -536,9 +536,9 @@ const PageEntry4K = packed struct(u64) {
 
     const Self = @This();
 
-    fn init(frame: Phys4K.Frame, flags: PageFlags) PageEntry4K {
+    fn init(frame: Phys4K.Base, flags: PageFlags) PageEntry4K {
         std.debug.assert(frame.isValid());
-        std.debug.assert(frame.addressInt() >> architectural_address_bits == 0);
+        std.debug.assert(frame.raw() >> architectural_address_bits == 0);
         return .{
             .writable = flags.writable,
             .user = flags.user,
@@ -549,7 +549,7 @@ const PageEntry4K = packed struct(u64) {
             .pat = flags.pat,
             .global = flags.global,
             .available_low = flags.available_low,
-            .frame_index = @intCast(frame.frameIndex()),
+            .frame_index = @intCast(frame.index()),
             .available_high = flags.available_high,
             .no_execute = flags.no_execute,
         };
@@ -583,9 +583,9 @@ const PageEntry2M = packed struct(u64) {
 
     const Self = @This();
 
-    fn init(frame: Phys2M.Frame, flags: PageFlags) PageEntry2M {
+    fn init(frame: Phys2M.Base, flags: PageFlags) PageEntry2M {
         std.debug.assert(frame.isValid());
-        std.debug.assert(frame.addressInt() >> architectural_address_bits == 0);
+        std.debug.assert(frame.raw() >> architectural_address_bits == 0);
         return .{
             .writable = flags.writable,
             .user = flags.user,
@@ -596,7 +596,7 @@ const PageEntry2M = packed struct(u64) {
             .global = flags.global,
             .available_low = flags.available_low,
             .pat = flags.pat,
-            .frame_index = @intCast(frame.frameIndex()),
+            .frame_index = @intCast(frame.index()),
             .available_high = flags.available_high,
             .no_execute = flags.no_execute,
         };
@@ -631,9 +631,9 @@ const PageEntry1G = packed struct(u64) {
 
     const Self = @This();
 
-    fn init(frame: Phys1G.Frame, flags: PageFlags) PageEntry1G {
+    fn init(frame: Phys1G.Base, flags: PageFlags) PageEntry1G {
         std.debug.assert(frame.isValid());
-        std.debug.assert(frame.addressInt() >> architectural_address_bits == 0);
+        std.debug.assert(frame.raw() >> architectural_address_bits == 0);
         return .{
             .writable = flags.writable,
             .user = flags.user,
@@ -644,7 +644,7 @@ const PageEntry1G = packed struct(u64) {
             .global = flags.global,
             .available_low = flags.available_low,
             .pat = flags.pat,
-            .frame_index = @intCast(frame.frameIndex()),
+            .frame_index = @intCast(frame.index()),
             .available_high = flags.available_high,
             .no_execute = flags.no_execute,
         };

@@ -81,7 +81,7 @@ test "unit: Register.load and store round-trip through a volatile scratch buffer
 test "unit: Register composes with layout.Le for endian-stable byte layout" {
     @memset(&scratch, 0);
     const ptr: *volatile MMIO.Register(layout.Le(u32)) = @ptrCast(@alignCast(&scratch[0]));
-    ptr.store(layout.Le(u32).fromNative(0x12345678));
+    ptr.store(layout.Le(u32).from(0x12345678));
     try testing.expectEqualSlices(u8, &.{ 0x78, 0x56, 0x34, 0x12 }, scratch[0..4]);
     try testing.expectEqual(@as(u32, 0x12345678), ptr.load().native());
 }
@@ -89,7 +89,7 @@ test "unit: Register composes with layout.Le for endian-stable byte layout" {
 test "unit: Register composes with layout.Be for endian-stable byte layout" {
     @memset(&scratch, 0);
     const ptr: *volatile MMIO.Register(layout.Be(u32)) = @ptrCast(@alignCast(&scratch[0]));
-    ptr.store(layout.Be(u32).fromNative(0x12345678));
+    ptr.store(layout.Be(u32).from(0x12345678));
     try testing.expectEqualSlices(u8, &.{ 0x12, 0x34, 0x56, 0x78 }, scratch[0..4]);
     try testing.expectEqual(@as(u32, 0x12345678), ptr.load().native());
 }

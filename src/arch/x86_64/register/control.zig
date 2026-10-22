@@ -174,7 +174,7 @@ pub const cr3 = struct {
                 return error.PhysicalAddressTooWide;
             }
 
-            return addr.PhysAddr.fromInt(base);
+            return addr.PhysAddr.from(base);
         }
 
         pub fn low(self: Self, pcid_enabled: bool) LowError!Low {

@@ -12,7 +12,7 @@ export fn instantiatePagingWalker() void {
     var reader = Reader{};
     const Walker = paging.Walker(Reader);
     const walker = Walker.init(.{
-        .root_table_base = paging.PhysAddr.fromInt(0),
+        .root_table_base = paging.PhysAddr.from(0),
         .mode = .level4,
         .physical_address_width = .bits_48,
     }, &reader) catch unreachable;

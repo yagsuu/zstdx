@@ -20,4 +20,5 @@ pub const CachePad = cache.CachePad;
 test {
     _ = alignment.unit;
     _ = cache.unit;
+    _ = endian.unit;
 }

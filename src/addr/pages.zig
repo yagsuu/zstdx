@@ -8,281 +8,260 @@ pub const _64kib = 64 * 1024;
 pub const _2mib = 2 * 1024 * 1024;
 pub const _1gib = 1024 * 1024 * 1024;
 
-pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
+pub fn Page(comptime Addr: type, comptime page_size: Addr.Int) type {
     comptime {
         requireAddress(Addr);
-        if (page_size == 0) @compileError("Page size must be non-zero");
-        if (!std.math.isPowerOfTwo(page_size)) @compileError("Page size must be a power of two");
+
+        if (page_size == 0) {
+            @compileError("Page size must be non-zero");
+        }
+
+        if (!std.math.isPowerOfTwo(page_size)) {
+            @compileError("Page size must be a power of two");
+        }
     }
 
     return struct {
         pub const Address = Addr;
-        pub const AddressInt = Addr.Raw;
+        pub const Int = Addr.Int;
 
         pub const Error = error{ Misaligned, Overflow, OutOfBounds };
 
-        pub const Size = struct {
-            pub const bytes: AddressInt = page_size;
-            /// This mask selects the sub-page offset (`bytes - 1`).
-            pub const mask: AddressInt = page_size - 1;
-            /// The base-2 page shift is valid because `bytes` is a power of two.
-            pub const shift: comptime_int = @ctz(page_size);
-        };
+        pub const size: Int = page_size;
+        pub const mask: Int = size - 1;
+        pub const shift: comptime_int = @ctz(size);
 
-        pub const Count = enum(AddressInt) {
+        pub const Count = enum(Int) {
             _,
 
-            const This = @This();
+            const Self = @This();
 
-            pub fn fromPages(value: AddressInt) This {
+            pub fn from(value: Int) Self {
                 return @enumFromInt(value);
             }
 
-            pub fn pages(self: This) AddressInt {
+            pub fn raw(self: Self) Int {
                 return @intFromEnum(self);
             }
 
-            pub fn zero() This {
-                return fromPages(0);
+            pub fn zero() Self {
+                return from(0);
             }
 
-            pub fn max() This {
-                return fromPages(std.math.maxInt(AddressInt));
+            pub fn max() Self {
+                return from(std.math.maxInt(Int));
             }
 
-            /// Requires `bytes` to be an exact multiple of `Size.bytes`; otherwise returns `error.Misaligned`.
-            pub fn fromBytesExact(bytes: AddressInt) Error!This {
-                if ((bytes & Size.mask) != 0) return error.Misaligned;
-                return fromPages(bytes >> Size.shift);
+            /// Rejects byte counts that are not page multiples.
+            pub fn fromBytes(value: Int) Error!Self {
+                if ((value & mask) != 0) {
+                    return error.Misaligned;
+                }
+                return from(value >> shift);
             }
 
-            /// Rounds toward the larger page count; returns `error.Overflow` when padding overflows.
-            pub fn fromBytesRoundUp(bytes: AddressInt) Error!This {
-                if (bytes == 0) return zero();
-                const rounded = std.math.add(AddressInt, bytes, Size.mask) catch return error.Overflow;
-                return fromPages(rounded >> Size.shift);
+            pub fn fromBytesCeil(value: Int) Error!Self {
+                const rounded = std.math.add(Int, value, mask) catch return error.Overflow;
+                return from(rounded >> shift);
             }
 
-            /// Converts the page count to bytes; returns `error.Overflow` when multiplication overflows.
-            pub fn toBytes(self: This) Error!AddressInt {
-                return std.math.mul(AddressInt, self.pages(), Size.bytes) catch return error.Overflow;
+            pub fn bytes(self: Self) Error!Int {
+                return std.math.mul(Int, self.raw(), size) catch return error.Overflow;
             }
         };
 
-        pub const Frame = enum(AddressInt) {
+        pub const Base = enum(Int) {
             _,
 
-            const This = @This();
+            const Self = @This();
 
-            /// Requires `addr_value` to be page-aligned; otherwise returns `error.Misaligned`.
-            pub fn fromAddress(addr: Addr) Error!This {
-                if (!isAlignedAddress(addr)) return error.Misaligned;
-                return @enumFromInt(addr.raw());
+            pub fn from(address: Addr) Error!Self {
+                if (!isAligned(address)) {
+                    return error.Misaligned;
+                }
+                return @enumFromInt(address.raw());
             }
 
-            /// Has the same contract as `fromAddress` for an integer address.
-            /// Returns `error.Misaligned` for an unaligned `value`.
-            pub fn fromAddressInt(value: AddressInt) Error!This {
-                return fromAddress(Addr.fromInt(value));
+            pub fn fromInt(value: Int) Error!Self {
+                return from(Addr.from(value));
             }
 
-            pub fn address(self: This) Addr {
-                return Addr.fromInt(self.addressInt());
+            pub fn addr(self: Self) Addr {
+                return Addr.from(self.raw());
             }
 
-            pub fn addressInt(self: This) AddressInt {
+            pub fn raw(self: Self) Int {
                 return @intFromEnum(self);
             }
 
-            pub fn frameIndex(self: This) AddressInt {
-                return self.addressInt() >> Size.shift;
+            pub fn index(self: Self) Int {
+                return self.raw() >> shift;
             }
 
-            pub fn isValid(self: This) bool {
-                return (self.addressInt() & Size.mask) == 0;
+            pub fn isValid(self: Self) bool {
+                return (self.raw() & mask) == 0;
             }
 
-            pub fn assertValid(self: This) void {
+            pub fn assertValid(self: Self) void {
                 std.debug.assert(self.isValid());
             }
 
-            pub fn isAlignedAddress(addr: Addr) bool {
-                return (addr.raw() & Size.mask) == 0;
+            pub fn isAligned(address: Addr) bool {
+                return (address.raw() & mask) == 0;
             }
 
-            pub fn containingAddress(addr: Addr) Error!This {
-                return fromAddressInt(addr.raw() & ~Size.mask);
+            pub fn alignDown(address: Addr) Error!Self {
+                return @enumFromInt(address.raw() & ~mask);
             }
 
-            /// Rounds up to the next page boundary; returns `error.Overflow` when padding overflows.
-            pub fn nextAlignedAddress(addr: Addr) Error!This {
-                if (isAlignedAddress(addr)) return fromAddress(addr);
-                const added = std.math.add(AddressInt, addr.raw(), Size.mask) catch return error.Overflow;
-                return fromAddressInt(added & ~Size.mask);
+            pub fn alignUp(address: Addr) Error!Self {
+                const added = std.math.add(Int, address.raw(), mask) catch return error.Overflow;
+                return @enumFromInt(added & ~mask);
             }
 
-            /// Adds a forward offset in page units; returns `error.Overflow` on address addition overflow.
-            pub fn add(self: This, count: Count) Error!This {
-                const bytes = try count.toBytes();
-                const value = std.math.add(AddressInt, self.addressInt(), bytes) catch return error.Overflow;
-                return fromAddressInt(value);
+            pub fn add(self: Self, count: Count) Error!Self {
+                const bytes = try count.bytes();
+                const value = std.math.add(Int, self.raw(), bytes) catch return error.Overflow;
+                return fromInt(value);
             }
 
-            /// Subtracts a backward offset in page units; returns `error.Overflow` on address subtraction overflow.
-            pub fn sub(self: This, count: Count) Error!This {
-                const bytes = try count.toBytes();
-                const value = std.math.sub(AddressInt, self.addressInt(), bytes) catch return error.Overflow;
-                return fromAddressInt(value);
+            pub fn sub(self: Self, count: Count) Error!Self {
+                const bytes = try count.bytes();
+                const value = std.math.sub(Int, self.raw(), bytes) catch return error.Overflow;
+                return fromInt(value);
             }
         };
 
-        pub const FrameRange = struct {
-            base: Frame,
+        pub const Range = struct {
+            base: Base,
             count: Count,
 
-            const This = @This();
+            const Self = @This();
 
-            /// Creates the half-open range `[base, base + count)`; returns `error.Overflow` if the end is not representable.
-            pub fn fromBaseCount(base: Frame, count: Count) Error!This {
+            pub fn init(base: Base, count: Count) Error!Self {
                 _ = try base.add(count);
                 return .{ .base = base, .count = count };
             }
 
-            /// Requires `base` and `bytes` to be page-aligned; returns `error.Overflow` if the end is not representable.
-            pub fn fromAddressBytes(base: Addr, bytes: AddressInt) Error!This {
-                const frame = try Frame.fromAddress(base);
-                const count = try Count.fromBytesExact(bytes);
-                return fromBaseCount(frame, count);
+            /// Requires a page-aligned base and byte length.
+            pub fn fromBytes(base: Addr, len: Int) Error!Self {
+                const aligned = try Base.from(base);
+                const count = try Count.fromBytes(len);
+                return init(aligned, count);
             }
 
-            /// Covers a byte span by rounding the start down and the end up; returns `error.Overflow` on end rounding.
-            pub fn fromAddressByteSpan(start: Addr, byte_len: AddressInt) Error!This {
-                const base = try Frame.containingAddress(start);
-                const raw_end = std.math.add(AddressInt, start.raw(), byte_len) catch return error.Overflow;
-                const end_frame = try Frame.nextAlignedAddress(Addr.fromInt(raw_end));
-                const bytes = std.math.sub(AddressInt, end_frame.addressInt(), base.addressInt()) catch unreachable;
+            pub fn covering(start: Addr, len: Int) Error!Self {
+                const base = try Base.alignDown(start);
+                const raw_end = std.math.add(Int, start.raw(), len) catch return error.Overflow;
+                const finish = try Base.alignUp(Addr.from(raw_end));
+                const extent = finish.raw() - base.raw();
 
-                return fromBaseCount(base, try Count.fromBytesExact(bytes));
+                return .{ .base = base, .count = Count.from(extent >> shift) };
             }
 
-            pub fn empty(at: Frame) This {
+            pub fn empty(at: Base) Self {
                 return .{ .base = at, .count = Count.zero() };
             }
 
-            pub fn isValid(self: This) bool {
-                if (!self.base.isValid()) return false;
+            pub fn isValid(self: Self) bool {
                 _ = self.base.add(self.count) catch return false;
                 return true;
             }
 
-            pub fn assertValid(self: This) void {
+            pub fn assertValid(self: Self) void {
                 std.debug.assert(self.isValid());
             }
 
-            pub fn isEmpty(self: This) bool {
-                return self.count.pages() == 0;
+            pub fn isEmpty(self: Self) bool {
+                return self.count.raw() == 0;
             }
 
-            /// Returns the byte extent of a valid range.
-            /// Valid ranges guarantee that the extent fits in `AddressInt`.
-            pub fn byteLen(self: This) AddressInt {
-                self.assertValid();
-                return self.count.toBytes() catch unreachable;
+            pub fn bytes(self: Self) Int {
+                return self.end().raw() - self.base.raw();
             }
 
-            pub fn end(self: This) Frame {
-                self.assertValid();
+            pub fn end(self: Self) Base {
                 return self.base.add(self.count) catch unreachable;
             }
 
-            /// Tests membership in the half-open frame range `[base, end)`.
-            pub fn containsFrame(self: This, frame: Frame) bool {
-                self.assertValid();
-                return self.base.addressInt() <= frame.addressInt() and frame.addressInt() < self.end().addressInt();
+            pub fn contains(self: Self, frame: Base) bool {
+                const finish = self.end().raw();
+                return self.base.raw() <= frame.raw() and frame.raw() < finish;
             }
 
-            /// Tests membership in `[base.addressInt(), end.addressInt())`; `address` need not be page-aligned.
-            pub fn containsAddress(self: This, addr: Addr) bool {
-                self.assertValid();
-                return self.base.addressInt() <= addr.raw() and addr.raw() < self.end().addressInt();
+            pub fn containsAddr(self: Self, addr: Addr) bool {
+                const finish = self.end().raw();
+                return self.base.raw() <= addr.raw() and addr.raw() < finish;
             }
 
-            /// Tests full containment. Empty ranges may anchor at `[base, end]` boundaries.
-            pub fn containsFrameRange(self: This, other: This) bool {
-                self.assertValid();
-                other.assertValid();
-
-                const self_start = self.base.addressInt();
-                const self_end = self.end().addressInt();
-                const other_start = other.base.addressInt();
-                const other_end = other.end().addressInt();
+            pub fn containsRange(self: Self, other: Self) bool {
+                const self_start = self.base.raw();
+                const self_end = self.end().raw();
+                const other_start = other.base.raw();
+                const other_end = other.end().raw();
                 return self_start <= other_start and other_end <= self_end;
             }
 
-            /// Tests for a non-empty intersection; adjacent and empty ranges do not overlap.
-            pub fn overlaps(self: This, other: This) bool {
-                self.assertValid();
-                other.assertValid();
+            pub fn overlaps(self: Self, other: Self) bool {
+                const self_start = self.base.raw();
+                const self_end = self.end().raw();
+                const other_start = other.base.raw();
+                const other_end = other.end().raw();
 
-                if (self.isEmpty() or other.isEmpty()) return false;
+                if (self.isEmpty() or other.isEmpty()) {
+                    return false;
+                }
 
-                const self_start = self.base.addressInt();
-                const self_end = self.end().addressInt();
-                const other_start = other.base.addressInt();
-                const other_end = other.end().addressInt();
                 return self_start < other_end and other_start < self_end;
             }
 
-            /// Tests boundary equality. Empty ranges follow the same boundary rule.
-            pub fn isAdjacent(self: This, other: This) bool {
-                self.assertValid();
-                other.assertValid();
-
-                const self_start = self.base.addressInt();
-                const self_end = self.end().addressInt();
-                const other_start = other.base.addressInt();
-                const other_end = other.end().addressInt();
+            pub fn isAdjacent(self: Self, other: Self) bool {
+                const self_start = self.base.raw();
+                const self_end = self.end().raw();
+                const other_start = other.base.raw();
+                const other_end = other.end().raw();
                 return self_end == other_start or other_end == self_start;
             }
 
-            /// Returns a non-empty intersection, or `null` for disjoint, adjacent, or empty inputs.
-            pub fn intersection(self: This, other: This) ?This {
-                if (!self.overlaps(other)) return null;
+            pub fn intersection(self: Self, other: Self) ?Self {
+                const self_end = self.end().raw();
+                const other_end = other.end().raw();
+                const start = @max(self.base.raw(), other.base.raw());
+                const finish = @min(self_end, other_end);
 
-                const start = @max(self.base.addressInt(), other.base.addressInt());
-                const finish = @min(self.end().addressInt(), other.end().addressInt());
-                const base = Frame.fromAddressInt(start) catch unreachable;
-                const count = Count.fromBytesExact(finish - start) catch unreachable;
-                return fromBaseCount(base, count) catch unreachable;
+                if (start >= finish) {
+                    return null;
+                }
+
+                return .{
+                    .base = @enumFromInt(start),
+                    .count = Count.from((finish - start) >> shift),
+                };
             }
 
-            pub fn span(self: This, other: This) This {
-                self.assertValid();
-                other.assertValid();
-
-                const start = @min(self.base.addressInt(), other.base.addressInt());
-                const finish = @max(self.end().addressInt(), other.end().addressInt());
-                const base = Frame.fromAddressInt(start) catch unreachable;
-                const count = Count.fromBytesExact(finish - start) catch unreachable;
-                return fromBaseCount(base, count) catch unreachable;
+            pub fn span(self: Self, other: Self) Self {
+                const start = @min(self.base.raw(), other.base.raw());
+                const finish = @max(self.end().raw(), other.end().raw());
+                return .{
+                    .base = @enumFromInt(start),
+                    .count = Count.from((finish - start) >> shift),
+                };
             }
 
-            /// Requires the split boundary to lie in `[base, end]`; otherwise returns `error.OutOfBounds`.
-            pub fn splitAt(self: This, at: Frame) Error!struct { left: This, right: This } {
-                self.assertValid();
+            pub fn splitAt(self: Self, at: Base) Error!struct { left: Self, right: Self } {
                 at.assertValid();
 
-                const start = self.base.addressInt();
-                const finish = self.end().addressInt();
-                const point = at.addressInt();
+                const start = self.base.raw();
+                const finish = self.end().raw();
+                const point = at.raw();
 
-                if (point < start or point > finish) return error.OutOfBounds;
+                if (point < start or point > finish) {
+                    return error.OutOfBounds;
+                }
 
-                const left_count = try Count.fromBytesExact(point - start);
-                const right_count = try Count.fromBytesExact(finish - point);
                 return .{
-                    .left = try fromBaseCount(self.base, left_count),
-                    .right = try fromBaseCount(at, right_count),
+                    .left = .{ .base = self.base, .count = Count.from((point - start) >> shift) },
+                    .right = .{ .base = at, .count = Count.from((finish - point) >> shift) },
                 };
             }
         };
@@ -290,16 +269,159 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Raw) type {
 }
 
 fn requireAddress(comptime Addr: type) void {
-    if (!@hasDecl(Addr, "Raw")) @compileError("Page requires an Address-compatible type with Raw");
-    if (!@hasDecl(Addr, "fromInt")) @compileError("Page requires an Address-compatible type with fromInt");
-    if (!@hasDecl(Addr, "raw")) @compileError("Page requires an Address-compatible type with raw");
-
-    const info = @typeInfo(Addr.Raw);
-    if (info != .int or info.int.signedness != .unsigned) {
-        @compileError("Page requires Address.Raw to be an unsigned integer type");
+    if (!@hasDecl(Addr, "Int")) {
+        @compileError("Page requires an Address-compatible type with Int");
     }
 
-    const zero: Addr = Addr.fromInt(0);
-    const raw_value: Addr.Raw = zero.raw();
+    if (!@hasDecl(Addr, "from")) {
+        @compileError("Page requires an Address-compatible type with from");
+    }
+
+    if (!@hasDecl(Addr, "raw")) {
+        @compileError("Page requires an Address-compatible type with raw");
+    }
+
+    const info = @typeInfo(Addr.Int);
+    if (info != .int or info.int.signedness != .unsigned) {
+        @compileError("Page requires Address.Int to be an unsigned integer type");
+    }
+
+    const zero: Addr = Addr.from(0);
+    const raw_value: Addr.Int = zero.raw();
     _ = raw_value;
 }
+
+pub const unit = struct {
+    const testing = std.testing;
+    const address = @import("address.zig");
+
+    const A = address.Address(opaque {}, u8);
+    const P = Page(A, 4);
+
+    test "unit: page families distinguish address domains and page sizes" {
+        const Phys4K = Page(address.PhysAddr, _4kib);
+        const Virt4K = Page(address.VirtAddr, _4kib);
+        const Phys2M = Page(address.PhysAddr, _2mib);
+
+        try testing.expect(Phys4K.Base != Virt4K.Base);
+        try testing.expect(Phys4K.Base != Phys2M.Base);
+    }
+
+    test "unit: page counts preserve checked byte rounding" {
+        try testing.expectEqual(@as(u8, 2), (try P.Count.fromBytes(8)).raw());
+        try testing.expectError(error.Misaligned, P.Count.fromBytes(5));
+        try testing.expectEqual(@as(u8, 0), (try P.Count.fromBytesCeil(0)).raw());
+        try testing.expectEqual(@as(u8, 1), (try P.Count.fromBytesCeil(1)).raw());
+        try testing.expectEqual(@as(u8, 1), (try P.Count.fromBytesCeil(4)).raw());
+        try testing.expectEqual(@as(u8, 2), (try P.Count.fromBytesCeil(5)).raw());
+        try testing.expectError(error.Overflow, P.Count.fromBytesCeil(254));
+        try testing.expectEqual(@as(u8, 12), try P.Count.from(3).bytes());
+        try testing.expectError(error.Overflow, P.Count.max().bytes());
+    }
+
+    test "unit: page bases validate alignment and checked page arithmetic" {
+        const frame = try P.Base.fromInt(8);
+        const next = try frame.add(P.Count.from(2));
+        const previous = try frame.sub(P.Count.from(1));
+
+        frame.assertValid();
+        try testing.expectEqual(@as(u8, 2), frame.index());
+        try testing.expectEqual(@as(u8, 16), next.raw());
+        try testing.expectEqual(@as(u8, 4), previous.raw());
+        try testing.expectError(error.Misaligned, P.Base.fromInt(1));
+        try testing.expectEqual(@as(u8, 8), (try P.Base.alignDown(A.from(11))).raw());
+        try testing.expectEqual(@as(u8, 12), (try P.Base.alignUp(A.from(9))).raw());
+        try testing.expectEqual(@as(u8, 252), (try P.Base.alignUp(A.from(252))).raw());
+        try testing.expectError(error.Overflow, P.Base.alignUp(A.from(254)));
+        try testing.expectError(error.Overflow, (try P.Base.fromInt(252)).add(P.Count.from(1)));
+        try testing.expectError(error.Overflow, frame.sub(P.Count.from(3)));
+        try testing.expectError(error.Misaligned, @as(P.Base, @enumFromInt(1)).add(P.Count.zero()));
+    }
+
+    test "unit: page range construction checks alignment and endpoints" {
+        const base = try P.Base.fromInt(8);
+        const range = try P.Range.init(base, P.Count.from(3));
+        const from_bytes = try P.Range.fromBytes(A.from(8), 8);
+        const span = try P.Range.covering(A.from(9), 4);
+        const aligned_empty = try P.Range.covering(A.from(8), 0);
+        const unaligned_empty = try P.Range.covering(A.from(9), 0);
+        const invalid = P.Range.empty(@enumFromInt(1));
+
+        range.assertValid();
+        try testing.expectEqual(@as(u8, 12), range.bytes());
+        try testing.expectEqual(@as(u8, 20), range.end().raw());
+        try testing.expectEqual(@as(u8, 2), from_bytes.count.raw());
+        try testing.expectEqual(@as(u8, 8), span.base.raw());
+        try testing.expectEqual(@as(u8, 2), span.count.raw());
+        try testing.expect(aligned_empty.isEmpty());
+        try testing.expectEqual(@as(u8, 1), unaligned_empty.count.raw());
+        try testing.expectError(error.Misaligned, P.Range.fromBytes(A.from(9), 4));
+        try testing.expectError(error.Misaligned, P.Range.fromBytes(A.from(8), 5));
+        try testing.expectError(error.Overflow, P.Range.init(
+            try P.Base.fromInt(252),
+            P.Count.from(1),
+        ));
+        try testing.expectError(error.Overflow, P.Range.covering(A.from(254), 2));
+        try testing.expectError(error.Overflow, P.Range.covering(A.from(254), 0));
+        try testing.expect(!invalid.isValid());
+    }
+
+    test "unit: half-open range operations preserve empty boundaries" {
+        const left = try P.Range.fromBytes(A.from(8), 12);
+        const right = try P.Range.fromBytes(A.from(20), 8);
+        const middle = try P.Range.fromBytes(A.from(12), 8);
+        const empty = P.Range.empty(try P.Base.fromInt(20));
+        const joined = left.span(right);
+
+        try testing.expect(left.contains(left.base));
+        try testing.expect(!left.contains(left.end()));
+        try testing.expect(left.containsAddr(A.from(19)));
+        try testing.expect(!left.containsAddr(A.from(20)));
+        try testing.expect(left.containsRange(middle));
+        try testing.expect(left.containsRange(empty));
+        try testing.expect(!left.overlaps(right));
+        try testing.expect(left.isAdjacent(right));
+        try testing.expect(!left.overlaps(empty));
+        try testing.expect(empty.isAdjacent(right));
+        try testing.expectEqual(@as(?P.Range, null), left.intersection(right));
+        try testing.expectEqual(@as(?P.Range, null), left.intersection(empty));
+        try testing.expectEqual(middle, left.intersection(middle).?);
+        try testing.expectEqual(@as(u8, 8), joined.base.raw());
+        try testing.expectEqual(@as(u8, 5), joined.count.raw());
+        try testing.expectEqual(empty, empty.span(empty));
+    }
+
+    test "unit: range splitting accepts endpoints and rejects outside boundaries" {
+        const range = try P.Range.fromBytes(A.from(8), 12);
+        const split = try range.splitAt(try P.Base.fromInt(12));
+        const at_start = try range.splitAt(range.base);
+        const at_end = try range.splitAt(range.end());
+        const empty = P.Range.empty(range.base);
+        const split_empty = try empty.splitAt(range.base);
+
+        try testing.expectEqual(@as(u8, 1), split.left.count.raw());
+        try testing.expectEqual(@as(u8, 2), split.right.count.raw());
+        try testing.expectEqual(split.left.end(), split.right.base);
+        try testing.expect(at_start.left.isEmpty());
+        try testing.expectEqual(range, at_start.right);
+        try testing.expect(at_end.right.isEmpty());
+        try testing.expectEqual(range, at_end.left);
+        try testing.expectEqual(empty, split_empty.left);
+        try testing.expectEqual(empty, split_empty.right);
+        try testing.expectError(error.OutOfBounds, range.splitAt(try P.Base.fromInt(4)));
+        try testing.expectError(error.OutOfBounds, range.splitAt(try P.Base.fromInt(24)));
+    }
+
+    test "unit: page arithmetic and range endpoints work at comptime" {
+        comptime {
+            const count = try P.Count.fromBytesCeil(7);
+            const frame = try P.Base.fromInt(8);
+            const range = try P.Range.init(frame, count);
+            const split = try range.splitAt(try frame.add(P.Count.from(1)));
+
+            try testing.expectEqual(@as(u8, 2), count.raw());
+            try testing.expectEqual(@as(u8, 16), range.end().raw());
+            try testing.expectEqual(@as(u8, 1), split.right.count.raw());
+        }
+    }
+};

@@ -10,7 +10,7 @@ pub const FrameAllocator = struct {
     pub fn Static(
         comptime Backend: type,
         comptime Page: type,
-        comptime base_frame: Page.Frame,
+        comptime base_frame: Page.Base,
     ) type {
         comptime requireBackend(Backend);
 
@@ -19,9 +19,9 @@ pub const FrameAllocator = struct {
 
             const Self = @This();
 
-            pub const Frame = Page.Frame;
-            pub const FrameRange = Page.FrameRange;
-            pub const AddressInt = Page.AddressInt;
+            pub const Base = Page.Base;
+            pub const Range = Page.Range;
+            pub const Int = Page.Int;
 
             pub const Error = FrameError;
 
@@ -29,20 +29,20 @@ pub const FrameAllocator = struct {
                 return .{};
             }
 
-            pub fn baseFrame(self: *const Self) Frame {
+            pub fn baseFrame(self: *const Self) Base {
                 _ = self;
                 return base_frame;
             }
 
-            pub fn capacityFrames(self: *const Self) AddressInt {
+            pub fn capacityFrames(self: *const Self) Int {
                 return @intCast(self.backend.capacity());
             }
 
-            pub fn freeFrames(self: *const Self) AddressInt {
+            pub fn freeFrames(self: *const Self) Int {
                 return @intCast(self.backend.remainingUnits());
             }
 
-            pub fn allocatedFrames(self: *const Self) AddressInt {
+            pub fn allocatedFrames(self: *const Self) Int {
                 return @intCast(self.backend.allocatedUnits());
             }
 
@@ -50,29 +50,29 @@ pub const FrameAllocator = struct {
                 return largestFreeOrderImpl(Backend, &self.backend);
             }
 
-            pub fn remainingBytes(self: *const Self) Error!AddressInt {
-                return remainingBytesImpl(AddressInt, Page.Size.bytes, self.freeFrames());
+            pub fn remainingBytes(self: *const Self) Error!Int {
+                return remainingBytesImpl(Int, Page.size, self.freeFrames());
             }
 
-            pub fn isFree(self: *const Self, range: FrameRange) bool {
+            pub fn isFree(self: *const Self, range: Range) bool {
                 return isFreeImpl(Backend, Page, &self.backend, base_frame, range);
             }
 
             /// Allocates `1 << order` frames.
             /// Errors leave allocator state unchanged.
-            pub fn alloc(self: *Self, order: u8) Error!FrameRange {
+            pub fn alloc(self: *Self, order: u8) Error!Range {
                 return allocImpl(Backend, Page, &self.backend, base_frame, order);
             }
 
             /// Requires one allocated block.
             /// Errors leave allocator state unchanged.
-            pub fn free(self: *Self, range: FrameRange) Error!void {
+            pub fn free(self: *Self, range: Range) Error!void {
                 return freeImpl(Backend, Page, &self.backend, base_frame, range);
             }
 
             /// Requires a valid `range`.
             /// An empty in-bounds range is a no-op; errors do not mutate.
-            pub fn reserve(self: *Self, range: FrameRange) Error!void {
+            pub fn reserve(self: *Self, range: Range) Error!void {
                 return reserveImpl(Backend, Page, &self.backend, base_frame, range);
             }
 
@@ -102,34 +102,34 @@ pub const FrameAllocator = struct {
 
         return struct {
             backend: Backend,
-            base: Page.Frame,
+            base: Page.Base,
 
             const Self = @This();
 
-            pub const Frame = Page.Frame;
-            pub const FrameRange = Page.FrameRange;
-            pub const AddressInt = Page.AddressInt;
+            pub const Base = Page.Base;
+            pub const Range = Page.Range;
+            pub const Int = Page.Int;
 
             pub const Error = FrameError;
 
-            pub fn wrap(backend: Backend, base: Frame) Error!Self {
-                _ = base.add(Page.Count.fromPages(@intCast(backend.capacity()))) catch return error.Overflow;
+            pub fn wrap(backend: Backend, base: Base) Error!Self {
+                _ = base.add(Page.Count.from(@intCast(backend.capacity()))) catch return error.Overflow;
                 return .{ .backend = backend, .base = base };
             }
 
-            pub fn baseFrame(self: *const Self) Frame {
+            pub fn baseFrame(self: *const Self) Base {
                 return self.base;
             }
 
-            pub fn capacityFrames(self: *const Self) AddressInt {
+            pub fn capacityFrames(self: *const Self) Int {
                 return @intCast(self.backend.capacity());
             }
 
-            pub fn freeFrames(self: *const Self) AddressInt {
+            pub fn freeFrames(self: *const Self) Int {
                 return @intCast(self.backend.remainingUnits());
             }
 
-            pub fn allocatedFrames(self: *const Self) AddressInt {
+            pub fn allocatedFrames(self: *const Self) Int {
                 return @intCast(self.backend.allocatedUnits());
             }
 
@@ -137,29 +137,29 @@ pub const FrameAllocator = struct {
                 return largestFreeOrderImpl(Backend, &self.backend);
             }
 
-            pub fn remainingBytes(self: *const Self) Error!AddressInt {
-                return remainingBytesImpl(AddressInt, Page.Size.bytes, self.freeFrames());
+            pub fn remainingBytes(self: *const Self) Error!Int {
+                return remainingBytesImpl(Int, Page.size, self.freeFrames());
             }
 
-            pub fn isFree(self: *const Self, range: FrameRange) bool {
+            pub fn isFree(self: *const Self, range: Range) bool {
                 return isFreeImpl(Backend, Page, &self.backend, self.base, range);
             }
 
             /// Allocates `1 << order` frames.
             /// Errors leave allocator state unchanged.
-            pub fn alloc(self: *Self, order: u8) Error!FrameRange {
+            pub fn alloc(self: *Self, order: u8) Error!Range {
                 return allocImpl(Backend, Page, &self.backend, self.base, order);
             }
 
             /// Requires one allocated block.
             /// Errors leave allocator state unchanged.
-            pub fn free(self: *Self, range: FrameRange) Error!void {
+            pub fn free(self: *Self, range: Range) Error!void {
                 return freeImpl(Backend, Page, &self.backend, self.base, range);
             }
 
             /// Requires a valid `range`.
             /// An empty in-bounds range is a no-op; errors do not mutate.
-            pub fn reserve(self: *Self, range: FrameRange) Error!void {
+            pub fn reserve(self: *Self, range: Range) Error!void {
                 return reserveImpl(Backend, Page, &self.backend, self.base, range);
             }
 
@@ -249,9 +249,9 @@ fn allocImpl(
     comptime Backend: type,
     comptime Page: type,
     backend: *Backend,
-    base: Page.Frame,
+    base: Page.Base,
     order: u8,
-) FrameError!Page.FrameRange {
+) FrameError!Page.Range {
     if (order >= backend.orderCount()) return error.InvalidOrder;
     const block = try backend.alloc(order);
     return frameRangeFromBlock(Backend, Page, base, block);
@@ -261,8 +261,8 @@ fn freeImpl(
     comptime Backend: type,
     comptime Page: type,
     backend: *Backend,
-    base: Page.Frame,
-    range: Page.FrameRange,
+    base: Page.Base,
+    range: Page.Range,
 ) FrameError!void {
     const block = try blockFromFrameRange(Page, backend, base, range);
     try backend.free(block);
@@ -272,24 +272,24 @@ fn reserveImpl(
     comptime Backend: type,
     comptime Page: type,
     backend: *Backend,
-    base: Page.Frame,
-    range: Page.FrameRange,
+    base: Page.Base,
+    range: Page.Range,
 ) FrameError!void {
     if (!range.isValid()) return error.InvalidRequest;
 
-    const base_unit = base.addressInt() >> Page.Size.shift;
-    const range_start_unit = range.base.addressInt() >> Page.Size.shift;
+    const base_unit = base.raw() >> Page.shift;
+    const range_start_unit = range.base.raw() >> Page.shift;
 
     if (range_start_unit < base_unit) return error.OutOfBounds;
     const relative_start = range_start_unit - base_unit;
 
-    const page_count = range.count.pages();
+    const page_count = range.count.raw();
     if (page_count == 0) {
         if (relative_start > backend.capacity()) return error.OutOfBounds;
         return;
     }
 
-    const relative_end = std.math.add(Page.AddressInt, relative_start, page_count) catch return error.Overflow;
+    const relative_end = std.math.add(Page.Int, relative_start, page_count) catch return error.Overflow;
     if (relative_end > backend.capacity()) return error.OutOfBounds;
 
     const unit_range = Backend.Range{
@@ -303,19 +303,19 @@ fn isFreeImpl(
     comptime Backend: type,
     comptime Page: type,
     backend: *const Backend,
-    base: Page.Frame,
-    range: Page.FrameRange,
+    base: Page.Base,
+    range: Page.Range,
 ) bool {
     if (!range.isValid()) return false;
     if (range.isEmpty()) return false;
 
-    const page_count = range.count.pages();
+    const page_count = range.count.raw();
     const order = buddy.orderForLen(@intCast(page_count)) catch return false;
     const block_size = buddy.blockSize(order) catch return false;
     if (block_size != page_count) return false;
 
-    const base_unit = base.addressInt() >> Page.Size.shift;
-    const range_start_unit = range.base.addressInt() >> Page.Size.shift;
+    const base_unit = base.raw() >> Page.shift;
+    const range_start_unit = range.base.raw() >> Page.shift;
     if (range_start_unit < base_unit) return false;
 
     const relative_start_wide = range_start_unit - base_unit;
@@ -348,23 +348,23 @@ fn largestFreeOrderImpl(comptime Backend: type, backend: *const Backend) ?u8 {
 }
 
 fn remainingBytesImpl(
-    comptime AddressInt: type,
-    page_bytes: AddressInt,
-    free_frames: AddressInt,
-) FrameError!AddressInt {
-    return std.math.mul(AddressInt, free_frames, page_bytes) catch error.Overflow;
+    comptime Int: type,
+    page_bytes: Int,
+    free_frames: Int,
+) FrameError!Int {
+    return std.math.mul(Int, free_frames, page_bytes) catch error.Overflow;
 }
 
 fn isValidImpl(
     comptime Backend: type,
     comptime Page: type,
     backend: *const Backend,
-    base: Page.Frame,
+    base: Page.Base,
 ) bool {
     if (!base.isValid()) return false;
     const capacity_frames_wide = backend.capacity();
-    const capacity_frames = std.math.cast(Page.AddressInt, capacity_frames_wide) orelse return false;
-    _ = base.add(Page.Count.fromPages(capacity_frames)) catch return false;
+    const capacity_frames = std.math.cast(Page.Int, capacity_frames_wide) orelse return false;
+    _ = base.add(Page.Count.from(capacity_frames)) catch return false;
 
     const allocated = backend.allocatedUnits();
     const remaining = backend.remainingUnits();
@@ -377,35 +377,35 @@ fn isValidImpl(
 fn frameRangeFromBlock(
     comptime Backend: type,
     comptime Page: type,
-    base: Page.Frame,
+    base: Page.Base,
     block: Backend.Block,
-) FrameError!Page.FrameRange {
-    const start_offset: Page.AddressInt =
-        std.math.cast(Page.AddressInt, block.start) orelse return error.Overflow;
+) FrameError!Page.Range {
+    const start_offset: Page.Int =
+        std.math.cast(Page.Int, block.start) orelse return error.Overflow;
     const count_pages_native: usize = buddy.blockSize(block.order) catch return error.Overflow;
-    const count_pages: Page.AddressInt =
-        std.math.cast(Page.AddressInt, count_pages_native) orelse return error.Overflow;
+    const count_pages: Page.Int =
+        std.math.cast(Page.Int, count_pages_native) orelse return error.Overflow;
 
-    const base_frame = base.add(Page.Count.fromPages(start_offset)) catch return error.Overflow;
-    return Page.FrameRange.fromBaseCount(base_frame, Page.Count.fromPages(count_pages)) catch return error.Overflow;
+    const base_frame = base.add(Page.Count.from(start_offset)) catch return error.Overflow;
+    return Page.Range.init(base_frame, Page.Count.from(count_pages)) catch return error.Overflow;
 }
 
 fn blockFromFrameRange(
     comptime Page: type,
     backend: anytype,
-    base: Page.Frame,
-    range: Page.FrameRange,
+    base: Page.Base,
+    range: Page.Range,
 ) FrameError!@TypeOf(backend.*).Block {
     if (!range.isValid()) return error.InvalidRequest;
     if (range.isEmpty()) return error.InvalidRequest;
 
-    const page_count = range.count.pages();
+    const page_count = range.count.raw();
     const order = buddy.orderForLen(@intCast(page_count)) catch return error.InvalidRequest;
     const block_size = buddy.blockSize(order) catch return error.InvalidRequest;
     if (block_size != page_count) return error.InvalidRequest;
 
-    const base_unit = base.addressInt() >> Page.Size.shift;
-    const range_start_unit = range.base.addressInt() >> Page.Size.shift;
+    const base_unit = base.raw() >> Page.shift;
+    const range_start_unit = range.base.raw() >> Page.shift;
     if (range_start_unit < base_unit) return error.OutOfBounds;
 
     const relative_start_wide = range_start_unit - base_unit;
@@ -420,7 +420,7 @@ fn blockFromFrameRange(
 }
 
 fn FrameSourceImpl(comptime Parent: type, comptime Page: type, comptime order: u8) type {
-    const size_native = @as(u128, Page.Size.bytes) << order;
+    const size_native = @as(u128, Page.size) << order;
     if (size_native > std.math.maxInt(usize)) {
         @compileError("FrameSource region_bytes overflows usize");
     }
@@ -429,25 +429,25 @@ fn FrameSourceImpl(comptime Parent: type, comptime Page: type, comptime order: u
         parent: *Parent,
 
         pub const region_bytes: usize = @intCast(size_native);
-        pub const region_align: usize = @intCast(Page.Size.bytes);
+        pub const region_align: usize = @intCast(Page.size);
         pub const Error = Parent.Error;
 
         const RegionPtr = *align(region_align) [region_bytes]u8;
 
         pub fn acquire(self: *@This()) Error!RegionPtr {
             const range = try self.parent.alloc(order);
-            const address_int = range.base.addressInt();
+            const address_int = range.base.raw();
             const raw: usize = std.math.cast(usize, address_int) orelse return error.Overflow;
             return @ptrFromInt(raw);
         }
 
         pub fn release(self: *@This(), region: RegionPtr) void {
             const raw: usize = @intFromPtr(region);
-            const address_int: Page.AddressInt = @intCast(raw);
-            const frame = Page.Frame.fromAddressInt(address_int) catch unreachable;
+            const address_int: Page.Int = @intCast(raw);
+            const frame = Page.Base.fromInt(address_int) catch unreachable;
             const count_pages = buddy.blockSize(order) catch unreachable;
-            const count = Page.Count.fromPages(@intCast(count_pages));
-            const range = Page.FrameRange.fromBaseCount(frame, count) catch unreachable;
+            const count = Page.Count.from(@intCast(count_pages));
+            const range = Page.Range.init(frame, count) catch unreachable;
             self.parent.free(range) catch |err| std.debug.panic(
                 "FrameSource.release: parent.free failed ({s}); " ++
                     "foreign region or double-release violates RegionSource contract",

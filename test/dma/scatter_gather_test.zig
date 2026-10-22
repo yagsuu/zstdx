@@ -11,37 +11,37 @@ const Sg = stdx.dma.ScatterGather;
 
 const testing = std.testing;
 
-fn seg(base: u64, len_bytes: DMAAddr.Raw) Sg.Segment {
-    return .{ .addr = DMAAddr.fromInt(base), .len_bytes = len_bytes };
+fn seg(base: u64, len_bytes: DMAAddr.Int) Sg.Segment {
+    return .{ .addr = DMAAddr.from(base), .len_bytes = len_bytes };
 }
 
 test "unit: Segment.init succeeds for a zero-length segment" {
-    const s = try Sg.Segment.init(DMAAddr.fromInt(0xDEAD), 0);
+    const s = try Sg.Segment.init(DMAAddr.from(0xDEAD), 0);
     try testing.expect(s.isEmpty());
     try testing.expectEqual(@as(u64, 0), s.byteLen());
 }
 
 test "unit: Segment.init succeeds for a non-empty segment" {
-    const s = try Sg.Segment.init(DMAAddr.fromInt(0x1000), 128);
+    const s = try Sg.Segment.init(DMAAddr.from(0x1000), 128);
     try testing.expectEqual(@as(u64, 128), s.byteLen());
     try testing.expect(!s.isEmpty());
 }
 
-test "unit: Segment.init returns Overflow when addr + len_bytes exceeds Address.Raw" {
-    const near_max = DMAAddr.fromInt(std.math.maxInt(u64) - 10);
+test "unit: Segment.init returns Overflow when addr + len_bytes exceeds Address.Int" {
+    const near_max = DMAAddr.from(std.math.maxInt(u64) - 10);
     try testing.expectError(error.Overflow, Sg.Segment.init(near_max, 20));
 }
 
 test "unit: Segment.fromBuffer matches buffer.dmaAddr and buffer.byteLen" {
     var backing: [4]u32 = undefined;
-    const buf = try Buffer(u32).init(&backing, DMAAddr.fromInt(0x1000));
+    const buf = try Buffer(u32).init(&backing, DMAAddr.from(0x1000));
     const s = Sg.Segment.fromBuffer(u32, buf);
     try testing.expectEqual(buf.dmaAddr().raw(), s.addr.raw());
     try testing.expectEqual(buf.byteLen(), s.byteLen());
 }
 
 test "unit: Segment.endAddr returns addr + len_bytes for valid segments" {
-    const s = try Sg.Segment.init(DMAAddr.fromInt(0x1000), 0x100);
+    const s = try Sg.Segment.init(DMAAddr.from(0x1000), 0x100);
     try testing.expectEqual(@as(u64, 0x1100), (try s.endAddr()).raw());
 }
 
@@ -126,7 +126,7 @@ test "unit: List.Static.appendAssumeCapacity mutates without checking" {
 
 test "unit: List.Static.appendBuffer combines fromBuffer and append" {
     var backing: [4]u32 = undefined;
-    const buf = try Buffer(u32).init(&backing, DMAAddr.fromInt(0x1000));
+    const buf = try Buffer(u32).init(&backing, DMAAddr.from(0x1000));
     var list = Sg.List.Static(2).init();
     try list.appendBuffer(u32, buf);
     try testing.expectEqual(@as(usize, 1), list.len());
@@ -175,13 +175,13 @@ test "unit: Builder.Static.append leaves the list unchanged on Misaligned" {
 
 test "unit: Builder.Static.appendBuffer inherits Misaligned and Full" {
     var page_backing: [4096]u8 align(4096) = undefined;
-    const buf = try Buffer(u8).initAligned(&page_backing, DMAAddr.fromInt(0x1000), 4096);
+    const buf = try Buffer(u8).initAligned(&page_backing, DMAAddr.from(0x1000), 4096);
     var b = Sg.Builder.Static(1, 4096).init();
     try b.appendBuffer(u8, buf);
     try testing.expectError(error.Full, b.appendBuffer(u8, buf));
 
     var small_backing: [8]u8 = undefined;
-    const small = try Buffer(u8).init(&small_backing, DMAAddr.fromInt(0x2000));
+    const small = try Buffer(u8).init(&small_backing, DMAAddr.from(0x2000));
     var b2 = Sg.Builder.Static(1, 4096).init();
     try testing.expectError(error.Misaligned, b2.appendBuffer(u8, small));
 }

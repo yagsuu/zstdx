@@ -36,6 +36,21 @@ pub fn addHostTests(
 
         host_step.dependOn(category_step);
 
+        if (std.mem.eql(u8, category, "core")) {
+            addSuite(b, category_step, check_step, modules.core);
+            continue;
+        }
+
+        if (std.mem.eql(u8, category, "addr")) {
+            addSuite(b, category_step, check_step, modules.addr);
+            continue;
+        }
+
+        if (std.mem.eql(u8, category, "bytes")) {
+            addSuite(b, category_step, check_step, modules.bytes);
+            continue;
+        }
+
         if (std.mem.eql(u8, category, "collections")) {
             addSuite(b, category_step, check_step, modules.collections);
             continue;
@@ -63,6 +78,7 @@ pub fn addHostTests(
 
         if (std.mem.eql(u8, category, "layout")) {
             addSuite(b, category_step, check_step, modules.layout);
+            continue;
         }
 
         const root = b.createModule(.{

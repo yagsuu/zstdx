@@ -215,23 +215,23 @@ pub const unit = struct {
         const full = bitmap.items;
 
         try testing.expectError(error.OutOfTags, Impl.allocOne(Tag, &bitmap, &count));
-        try testing.expectError(error.AlreadyAllocated, Impl.reserveOne(Tag, &bitmap, &count, Tag.fromInt(3)));
-        try testing.expectError(error.OutOfBounds, Impl.reserveOne(Tag, &bitmap, &count, Tag.fromInt(130)));
-        try testing.expectError(error.OutOfBounds, Impl.freeOne(Tag, &bitmap, &count, Tag.fromInt(40000)));
+        try testing.expectError(error.AlreadyAllocated, Impl.reserveOne(Tag, &bitmap, &count, Tag.from(3)));
+        try testing.expectError(error.OutOfBounds, Impl.reserveOne(Tag, &bitmap, &count, Tag.from(130)));
+        try testing.expectError(error.OutOfBounds, Impl.freeOne(Tag, &bitmap, &count, Tag.from(40000)));
         try testing.expectEqualSlices(u64, &full, &bitmap.items);
         try testing.expectEqual(@as(usize, 130), count);
 
         for ([_]u16{ 64, 1, 129 }) |index| {
-            try Impl.freeOne(Tag, &bitmap, &count, Tag.fromInt(index));
+            try Impl.freeOne(Tag, &bitmap, &count, Tag.from(index));
         }
 
         const holes = bitmap.items;
 
-        try testing.expectError(error.NotAllocated, Impl.freeOne(Tag, &bitmap, &count, Tag.fromInt(64)));
+        try testing.expectError(error.NotAllocated, Impl.freeOne(Tag, &bitmap, &count, Tag.from(64)));
         try testing.expectEqualSlices(u64, &holes, &bitmap.items);
         try testing.expectEqual(@as(usize, 127), count);
 
-        try Impl.reserveOne(Tag, &bitmap, &count, Tag.fromInt(64));
+        try Impl.reserveOne(Tag, &bitmap, &count, Tag.from(64));
 
         try testing.expectEqual(@as(u16, 1), (try Impl.allocOne(Tag, &bitmap, &count)).raw());
         try testing.expectEqual(@as(u16, 129), (try Impl.allocOne(Tag, &bitmap, &count)).raw());
@@ -267,16 +267,16 @@ pub const unit = struct {
         try testing.expectEqual(@as(usize, 1), a.capacity());
         try testing.expectEqual(@as(usize, 1), a.remaining());
 
-        try a.reserveOne(S.Tag.fromInt(0));
+        try a.reserveOne(S.Tag.from(0));
 
         try testing.expect(a.isFull());
-        try testing.expect(a.isAllocated(S.Tag.fromInt(0)));
-        try testing.expect(!a.isFree(S.Tag.fromInt(0)));
-        try testing.expect(!a.isAllocated(S.Tag.fromInt(1)));
-        try testing.expect(!a.isFree(S.Tag.fromInt(1)));
+        try testing.expect(a.isAllocated(S.Tag.from(0)));
+        try testing.expect(!a.isFree(S.Tag.from(0)));
+        try testing.expect(!a.isAllocated(S.Tag.from(1)));
+        try testing.expect(!a.isFree(S.Tag.from(1)));
 
-        try a.freeOne(S.Tag.fromInt(0));
-        try testing.expect(a.isFree(S.Tag.fromInt(0)));
+        try a.freeOne(S.Tag.from(0));
+        try testing.expect(a.isFree(S.Tag.from(0)));
 
         _ = try a.allocOne();
         a.clearRetainingCapacity();
@@ -300,12 +300,12 @@ pub const unit = struct {
         try testing.expectEqual(@as(usize, 256), a.capacity());
         try testing.expectEqualSlices(u64, &@as([8]u64, @splat(0)), &words);
 
-        try a.reserveOne(B.Tag.fromInt(255));
-        try testing.expect(a.isAllocated(B.Tag.fromInt(255)));
+        try a.reserveOne(B.Tag.from(255));
+        try testing.expect(a.isAllocated(B.Tag.from(255)));
         try testing.expectEqual(@as(usize, 255), a.remaining());
 
-        try a.freeOne(B.Tag.fromInt(255));
-        try testing.expect(a.isFree(B.Tag.fromInt(255)));
+        try a.freeOne(B.Tag.from(255));
+        try testing.expect(a.isFree(B.Tag.from(255)));
         try testing.expectEqual(@as(u8, 0), (try a.allocOne()).raw());
 
         words[7] = 1;
@@ -322,8 +322,8 @@ pub const unit = struct {
         try testing.expect(zero.isEmpty());
         try testing.expect(zero.isFull());
         try testing.expectError(error.OutOfTags, zero.allocOne());
-        try testing.expect(!zero.isAllocated(B.Tag.fromInt(0)));
-        try testing.expect(!zero.isFree(B.Tag.fromInt(0)));
+        try testing.expect(!zero.isAllocated(B.Tag.from(0)));
+        try testing.expect(!zero.isFree(B.Tag.from(0)));
 
         zero.assertValid();
 
@@ -396,7 +396,7 @@ pub const unit = struct {
                     if (index > std.math.maxInt(Int)) {
                         continue;
                     }
-                    const tag = Tag.fromInt(@intCast(index));
+                    const tag = Tag.from(@intCast(index));
                     if (op <= 5) {
                         const result = Impl.reserveOne(Tag, &bitmap, &count, tag);
                         if (index >= capacity) {
@@ -453,7 +453,7 @@ const Impl = struct {
         _ = bitmap.set(index) catch unreachable;
         count.* += 1;
 
-        return Tag.fromInt(@intCast(index));
+        return Tag.from(@intCast(index));
     }
 
     fn reserveOne(

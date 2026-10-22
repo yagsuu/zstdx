@@ -490,7 +490,7 @@ pub const unit = struct {
             const b = random.uintLessThan(u8, 32);
             const start = @min(a, b);
             const end = @max(a, b);
-            const range = try Range.fromBounds(start, end);
+            const range = try Range.init(start, end);
 
             if (random.boolean()) {
                 try Impl.insertRange(Range, &buffer, &count, range);

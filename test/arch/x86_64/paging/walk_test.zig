@@ -76,7 +76,7 @@ const Observed = struct {
 };
 
 fn phys(raw: u64) paging.PhysAddr {
-    return paging.PhysAddr.fromInt(raw);
+    return paging.PhysAddr.from(raw);
 }
 
 fn levelIndex(level: paging.Level) usize {
@@ -221,7 +221,7 @@ test "unit: initialization validates and transactionally replaces the root" {
         .mode = .level5,
         .physical_address_width = .bits_48,
     }, &reader);
-    try testing.expectEqual(@as(u64, 0x1000), walker.root_table_base.addressInt());
+    try testing.expectEqual(@as(u64, 0x1000), walker.root_table_base.raw());
     try testing.expectEqual(PageWalker.Flags{}, walker.flags);
 
     try testing.expectError(
@@ -242,9 +242,9 @@ test "unit: initialization validates and transactionally replaces the root" {
     );
 
     try testing.expectError(error.Misaligned, walker.updateRootTable(phys(3)));
-    try testing.expectEqual(@as(u64, 0x1000), walker.root_table_base.addressInt());
+    try testing.expectEqual(@as(u64, 0x1000), walker.root_table_base.raw());
     try walker.updateRootTable(phys(0x9000));
-    try testing.expectEqual(@as(u64, 0x9000), walker.root_table_base.addressInt());
+    try testing.expectEqual(@as(u64, 0x9000), walker.root_table_base.raw());
 }
 
 test "model: every page size and root depth preserves offsets within reader bounds" {

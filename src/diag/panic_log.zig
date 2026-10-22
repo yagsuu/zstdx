@@ -336,8 +336,8 @@ fn writeHeader(
     seq_low: u32,
     comptime capacity_bytes: usize,
 ) void {
-    const len_bytes = Le(u32).fromNative(len_u32).bytes;
-    const seq_bytes = Le(u32).fromNative(seq_low).bytes;
+    const len_bytes = Le(u32).from(len_u32).bytes;
+    const seq_bytes = Le(u32).from(seq_low).bytes;
     if (head_off + 8 <= capacity_bytes) {
         @memcpy(bytes_ptr[head_off..][0..4], &len_bytes);
         @memcpy(bytes_ptr[head_off + 4 ..][0..4], &seq_bytes);

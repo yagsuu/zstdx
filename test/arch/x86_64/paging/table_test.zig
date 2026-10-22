@@ -6,16 +6,16 @@ const paging = @import("stdx").arch.x86_64.paging;
 
 const testing = std.testing;
 
-fn frame4k(raw: u64) !paging.Phys4K.Frame {
-    return paging.Phys4K.Frame.fromAddressInt(raw);
+fn frame4k(raw: u64) !paging.Phys4K.Base {
+    return paging.Phys4K.Base.fromInt(raw);
 }
 
-fn frame2m(raw: u64) !paging.Phys2M.Frame {
-    return paging.Phys2M.Frame.fromAddressInt(raw);
+fn frame2m(raw: u64) !paging.Phys2M.Base {
+    return paging.Phys2M.Base.fromInt(raw);
 }
 
-fn frame1g(raw: u64) !paging.Phys1G.Frame {
-    return paging.Phys1G.Frame.fromAddressInt(raw);
+fn frame1g(raw: u64) !paging.Phys1G.Base {
+    return paging.Phys1G.Base.fromInt(raw);
 }
 
 fn exerciseMemory(comptime Producer: type) !void {
@@ -135,15 +135,15 @@ test "model: table transitions and entry addresses preserve exact levels" {
         (@as(u64, 0x155) << 52) |
         (@as(u64, 1) << 63);
 
-    try testing.expectEqual(pml4.base().addressInt() | flag_bits, paging.PML5.tableEntry(pml4, flags).raw());
-    try testing.expectEqual(pdpt.base().addressInt() | flag_bits, paging.PML4.tableEntry(pdpt, flags).raw());
-    try testing.expectEqual(pd.base().addressInt() | flag_bits, paging.PDPT.tableEntry(pd, flags).raw());
-    try testing.expectEqual(pt.base().addressInt() | flag_bits, paging.PD.tableEntry(pt, flags).raw());
+    try testing.expectEqual(pml4.base().raw() | flag_bits, paging.PML5.tableEntry(pml4, flags).raw());
+    try testing.expectEqual(pdpt.base().raw() | flag_bits, paging.PML4.tableEntry(pdpt, flags).raw());
+    try testing.expectEqual(pd.base().raw() | flag_bits, paging.PDPT.tableEntry(pd, flags).raw());
+    try testing.expectEqual(pt.base().raw() | flag_bits, paging.PD.tableEntry(pt, flags).raw());
 
     inline for (.{ pml5, pml4, pdpt, pd, pt }) |producer| {
-        try testing.expectEqual(producer.base().address(), producer.entryAddress(.fromInt(0)));
+        try testing.expectEqual(producer.base().addr(), producer.entryAddress(.fromInt(0)));
         try testing.expectEqual(
-            producer.base().addressInt() + 511 * @sizeOf(u64),
+            producer.base().raw() + 511 * @sizeOf(u64),
             producer.entryAddress(.fromInt(511)).raw(),
         );
     }

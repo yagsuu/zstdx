@@ -11,14 +11,14 @@ const PhysAddr = stdx.addr.PhysAddr;
 const PhysFrames = stdx.mem.alloc.FrameAllocator.Static(
     Buddy4Phys,
     Phys4K,
-    Phys4K.Frame.fromAddressInt(0x0010_0000) catch unreachable,
+    Phys4K.Base.fromInt(0x0010_0000) catch unreachable,
 );
 const Virt4K = stdx.addr.Page(VirtAddr, stdx.addr.pages._4kib);
 const VirtAddr = stdx.addr.VirtAddr;
 const VirtFrames = stdx.mem.alloc.FrameAllocator.Static(
     Buddy4Virt,
     Virt4K,
-    Virt4K.Frame.fromAddressInt(0xffff_0000_0000_0000) catch unreachable,
+    Virt4K.Base.fromInt(0xffff_0000_0000_0000) catch unreachable,
 );
 
 const testing = std.testing;
@@ -31,13 +31,13 @@ test "unit: FrameAllocator.Static reports empty capacity" {
     frames.assertValid();
 }
 
-test "unit: alloc(order) returns a page-aligned FrameRange inside the domain" {
+test "unit: alloc(order) returns a page-aligned Range inside the domain" {
     var frames = PhysFrames.init();
     const base = frames.baseFrame();
 
     const range = try frames.alloc(2);
-    try testing.expectEqual(@as(u64, 4), range.count.pages());
-    try testing.expectEqual(base.addressInt(), range.base.addressInt());
+    try testing.expectEqual(@as(u64, 4), range.count.raw());
+    try testing.expectEqual(base.raw(), range.base.raw());
     try testing.expect(range.base.isValid());
 
     try frames.free(range);
@@ -66,10 +66,10 @@ test "unit: reserve marks frames unavailable to subsequent alloc" {
     const base = frames.baseFrame();
 
     // Reserve frames 3..5 relative to base.
-    const reserved_base = try base.add(Phys4K.Count.fromPages(3));
-    const reserved = try Phys4K.FrameRange.fromBaseCount(
+    const reserved_base = try base.add(Phys4K.Count.from(3));
+    const reserved = try Phys4K.Range.init(
         reserved_base,
-        Phys4K.Count.fromPages(2),
+        Phys4K.Count.from(2),
     );
     try frames.reserve(reserved);
     try testing.expectEqual(@as(u64, 14), frames.freeFrames());
@@ -79,7 +79,7 @@ test "unit: reserve marks frames unavailable to subsequent alloc" {
     var i: usize = 0;
     while (i < 14) : (i += 1) {
         const range = try frames.alloc(0);
-        const offset: usize = @intCast((range.base.addressInt() - base.addressInt()) >> Phys4K.Size.shift);
+        const offset: usize = @intCast((range.base.raw() - base.raw()) >> Phys4K.shift);
         try testing.expect(!seen[offset]);
         try testing.expect(offset != 3 and offset != 4);
         seen[offset] = true;
@@ -90,10 +90,10 @@ test "unit: reserve marks frames unavailable to subsequent alloc" {
 test "unit: reserve rejects out-of-bounds range without mutation" {
     var frames = PhysFrames.init();
     const base = frames.baseFrame();
-    const past_end_base = try base.add(Phys4K.Count.fromPages(15));
-    const past_end = try Phys4K.FrameRange.fromBaseCount(
+    const past_end_base = try base.add(Phys4K.Count.from(15));
+    const past_end = try Phys4K.Range.init(
         past_end_base,
-        Phys4K.Count.fromPages(4),
+        Phys4K.Count.from(4),
     );
     try testing.expectError(error.OutOfBounds, frames.reserve(past_end));
     try testing.expectEqual(@as(u64, 16), frames.freeFrames());
@@ -102,9 +102,9 @@ test "unit: reserve rejects out-of-bounds range without mutation" {
 test "unit: reserve rejects overlap with allocated range" {
     var frames = PhysFrames.init();
     const region = try frames.alloc(1);
-    const overlap = try Phys4K.FrameRange.fromBaseCount(
+    const overlap = try Phys4K.Range.init(
         region.base,
-        Phys4K.Count.fromPages(1),
+        Phys4K.Count.from(1),
     );
     try testing.expectError(error.AlreadyAllocated, frames.reserve(overlap));
     try frames.free(region);
@@ -118,7 +118,7 @@ test "unit: isFree distinguishes allocated and free power-of-two ranges" {
     // The initial buddy decomposition holds a single order-4 block at
     // base; smaller-order queries against a fresh allocator therefore
     // report `false` (the range is not tracked at that order).
-    const top = try Phys4K.FrameRange.fromBaseCount(base, Phys4K.Count.fromPages(16));
+    const top = try Phys4K.Range.init(base, Phys4K.Count.from(16));
     try testing.expect(frames.isFree(top));
 
     const allocated = try frames.alloc(2);
@@ -129,7 +129,7 @@ test "unit: isFree distinguishes allocated and free power-of-two ranges" {
 test "unit: isFree rejects non-power-of-two count" {
     var frames = PhysFrames.init();
     const base = frames.baseFrame();
-    const non_pow2 = try Phys4K.FrameRange.fromBaseCount(base, Phys4K.Count.fromPages(3));
+    const non_pow2 = try Phys4K.Range.init(base, Phys4K.Count.from(3));
     try testing.expect(!frames.isFree(non_pow2));
 }
 
@@ -158,7 +158,7 @@ test "unit: Bounded wrap validates base + capacity does not overflow" {
         Phys4K,
     );
 
-    const base = try Phys4K.Frame.fromAddressInt(0x0020_0000);
+    const base = try Phys4K.Base.fromInt(0x0020_0000);
     var frames = try Frames.wrap(backend, base);
     try testing.expectEqual(@as(u64, 16), frames.capacityFrames());
     frames.assertValid();
@@ -166,7 +166,7 @@ test "unit: Bounded wrap validates base + capacity does not overflow" {
 
 test "unit: Virt4K and Phys4K produce distinct FrameAllocator types" {
     try testing.expect(PhysFrames != VirtFrames);
-    try testing.expect(PhysFrames.FrameRange != VirtFrames.FrameRange);
+    try testing.expect(PhysFrames.Range != VirtFrames.Range);
 }
 
 test "unit: FrameSource acquire and release round-trip through parent" {
@@ -215,7 +215,7 @@ test "unit: FrameSource composes with SlabCache over identity-mapped host memory
     const HostFrames = stdx.mem.alloc.FrameAllocator.Bounded(HostBuddy, HostVirt4K);
 
     const backend = HostBuddy.init();
-    const base = try HostVirt4K.Frame.fromAddressInt(@intCast(@intFromPtr(backing.ptr)));
+    const base = try HostVirt4K.Base.fromInt(@intCast(@intFromPtr(backing.ptr)));
     var frames = try HostFrames.wrap(backend, base);
     var source = frames.frameSource(0);
 
@@ -244,7 +244,7 @@ test "model: FrameAllocator matches allocation oracle" {
     var rng = std.Random.DefaultPrng.init(0xF00D);
     const random = rng.random();
 
-    var live: [16]?Phys4K.FrameRange = [_]?Phys4K.FrameRange{null} ** 16;
+    var live: [16]?Phys4K.Range = [_]?Phys4K.Range{null} ** 16;
     var live_count: usize = 0;
 
     var ops: usize = 0;
@@ -253,8 +253,8 @@ test "model: FrameAllocator matches allocation oracle" {
         if (alloc_choice) {
             const order: u8 = random.uintAtMost(u8, 3);
             const range = frames.alloc(order) catch continue;
-            const offset: usize = @intCast((range.base.addressInt() - base.addressInt()) >> Phys4K.Size.shift);
-            const size: usize = @intCast(range.count.pages());
+            const offset: usize = @intCast((range.base.raw() - base.raw()) >> Phys4K.shift);
+            const size: usize = @intCast(range.count.raw());
             var i: usize = 0;
             while (i < size) : (i += 1) {
                 try testing.expect(!allocated[offset + i]);
@@ -281,8 +281,8 @@ test "model: FrameAllocator matches allocation oracle" {
             const range = live[idx].?;
             live[idx] = null;
             live_count -= 1;
-            const offset: usize = @intCast((range.base.addressInt() - base.addressInt()) >> Phys4K.Size.shift);
-            const size: usize = @intCast(range.count.pages());
+            const offset: usize = @intCast((range.base.raw() - base.raw()) >> Phys4K.shift);
+            const size: usize = @intCast(range.count.raw());
             var i: usize = 0;
             while (i < size) : (i += 1) {
                 try testing.expect(allocated[offset + i]);

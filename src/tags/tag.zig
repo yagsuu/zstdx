@@ -12,7 +12,7 @@ pub fn Tag(comptime DomainT: type, comptime IntT: type) type {
         pub const Domain = DomainT;
         pub const Int = IntT;
 
-        pub fn fromInt(value: IntT) Self {
+        pub fn from(value: IntT) Self {
             return @enumFromInt(value);
         }
 
@@ -41,12 +41,12 @@ pub const unit = struct {
     test "raw values round-trip" {
         const T = Tag(DomainA, u16);
 
-        try std.testing.expectEqual(@as(u16, 0), T.fromInt(0).raw());
-        try std.testing.expectEqual(@as(u16, 0x4321), T.fromInt(0x4321).raw());
-        try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), T.fromInt(std.math.maxInt(u16)).raw());
-        try std.testing.expectEqual(@as(u1, 0), Tag(DomainA, u1).fromInt(0).raw());
-        try std.testing.expectEqual(@as(u1, 1), Tag(DomainA, u1).fromInt(1).raw());
-        try std.testing.expectEqual(@as(u64, std.math.maxInt(u64)), Tag(DomainA, u64).fromInt(std.math.maxInt(u64)).raw());
+        try std.testing.expectEqual(@as(u16, 0), T.from(0).raw());
+        try std.testing.expectEqual(@as(u16, 0x4321), T.from(0x4321).raw());
+        try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), T.from(std.math.maxInt(u16)).raw());
+        try std.testing.expectEqual(@as(u1, 0), Tag(DomainA, u1).from(0).raw());
+        try std.testing.expectEqual(@as(u1, 1), Tag(DomainA, u1).from(1).raw());
+        try std.testing.expectEqual(@as(u64, std.math.maxInt(u64)), Tag(DomainA, u64).from(std.math.maxInt(u64)).raw());
     }
 
     test "type identity" {

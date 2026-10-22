@@ -93,7 +93,7 @@ pub const MappedPage = struct {
 
         return .{
             .linear = linear,
-            .physical = PhysAddr.fromInt(
+            .physical = PhysAddr.from(
                 page.frame.addressInt() |
                     (linear.raw() & page.frame.offsetMask()),
             ),
@@ -159,7 +159,7 @@ pub const Result = union(enum) {
 
 pub fn Walker(comptime Reader: type) type {
     return struct {
-        root_table_base: Phys4K.Frame,
+        root_table_base: Phys4K.Base,
         mode: Mode,
         physical_address_width: PhysicalAddressWidth,
         flags: Flags,
@@ -339,8 +339,8 @@ pub fn Walker(comptime Reader: type) type {
 
             for (0..@intFromEnum(root_level)) |_| {
                 const index = indices.at(current_table.level);
-                const entry_address = PhysAddr.fromInt(
-                    current_table.base.addressInt() +
+                const entry_address = PhysAddr.from(
+                    current_table.base.raw() +
                         @as(u64, index.raw()) * @sizeOf(u64),
                 );
 
@@ -381,8 +381,8 @@ pub fn Walker(comptime Reader: type) type {
         fn rootTableFrame(
             root_table_base: PhysAddr,
             physical_address_width: PhysicalAddressWidth,
-        ) InitError!Phys4K.Frame {
-            const frame = Phys4K.Frame.fromAddress(root_table_base) catch |err| {
+        ) InitError!Phys4K.Base {
+            const frame = Phys4K.Base.from(root_table_base) catch |err| {
                 return switch (err) {
                     error.Misaligned => error.Misaligned,
                     error.OutOfBounds, error.Overflow => unreachable,
@@ -430,7 +430,7 @@ pub fn Walker(comptime Reader: type) type {
 }
 
 const WalkTable = struct {
-    base: Phys4K.Frame,
+    base: Phys4K.Base,
     level: Level,
 
     fn nextTable(
@@ -450,7 +450,7 @@ const WalkTable = struct {
 
         const base_address = @as(u64, entry.physical_address_bits) << 12;
         return .{
-            .base = Phys4K.Frame.fromAddressInt(base_address) catch unreachable,
+            .base = Phys4K.Base.fromInt(base_address) catch unreachable,
             .level = self.level.next() orelse unreachable,
         };
     }
@@ -476,13 +476,13 @@ const ResolvedPage = struct {
         return .{
             .frame = switch (level) {
                 .pt => .{
-                    .page4kib = Phys4K.Frame.fromAddressInt(base) catch unreachable,
+                    .page4kib = Phys4K.Base.fromInt(base) catch unreachable,
                 },
                 .pd => .{
-                    .page2mib = Phys2M.Frame.fromAddressInt(base) catch unreachable,
+                    .page2mib = Phys2M.Base.fromInt(base) catch unreachable,
                 },
                 .pdpt => .{
-                    .page1gib = Phys1G.Frame.fromAddressInt(base) catch unreachable,
+                    .page1gib = Phys1G.Base.fromInt(base) catch unreachable,
                 },
                 .pml4, .pml5 => unreachable,
             },

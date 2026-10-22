@@ -278,7 +278,7 @@ const Range = BitmapAllocator.Bounded.Range;
 
 test "unit: reserveRange succeeds on free non-empty range" {
     var bm = BitmapAllocator.Static(64).init();
-    try bm.reserveRange(try Range.fromBounds(10, 20));
+    try bm.reserveRange(try Range.init(10, 20));
     try testing.expectEqual(@as(usize, 10), bm.allocated());
     var k: usize = 10;
     while (k < 20) : (k += 1) try testing.expect(bm.isAllocated(k));
@@ -287,8 +287,8 @@ test "unit: reserveRange succeeds on free non-empty range" {
 
 test "unit: reserveRange accepts in-bounds empty range as no-op" {
     var bm = BitmapAllocator.Static(64).init();
-    try bm.reserveRange(try Range.fromBounds(0, 0));
-    try bm.reserveRange(try Range.fromBounds(64, 64));
+    try bm.reserveRange(try Range.init(0, 0));
+    try bm.reserveRange(try Range.init(64, 64));
     try testing.expectEqual(@as(usize, 0), bm.allocated());
     bm.assertValid();
 }
@@ -296,8 +296,8 @@ test "unit: reserveRange accepts in-bounds empty range as no-op" {
 test "unit: reserveRange rejects out-of-bounds ranges without mutation" {
     var bm = BitmapAllocator.Static(64).init();
     const snapshot = bm.bitmap.items;
-    try testing.expectError(error.OutOfBounds, bm.reserveRange(try Range.fromBounds(60, 65)));
-    try testing.expectError(error.OutOfBounds, bm.reserveRange(try Range.fromBounds(65, 65)));
+    try testing.expectError(error.OutOfBounds, bm.reserveRange(try Range.init(60, 65)));
+    try testing.expectError(error.OutOfBounds, bm.reserveRange(try Range.init(65, 65)));
     try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
 }
 
@@ -305,14 +305,14 @@ test "unit: reserveRange rejects overlap with allocated without mutation" {
     var bm = BitmapAllocator.Static(64).init();
     try bm.reserveOne(15);
     const snapshot = bm.bitmap.items;
-    try testing.expectError(error.AlreadyAllocated, bm.reserveRange(try Range.fromBounds(10, 20)));
+    try testing.expectError(error.AlreadyAllocated, bm.reserveRange(try Range.init(10, 20)));
     try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: freeRange succeeds on allocated non-empty range" {
     var bm = BitmapAllocator.Static(64).init();
-    try bm.reserveRange(try Range.fromBounds(0, 30));
-    try bm.freeRange(try Range.fromBounds(5, 25));
+    try bm.reserveRange(try Range.init(0, 30));
+    try bm.freeRange(try Range.init(5, 25));
     try testing.expectEqual(@as(usize, 10), bm.allocated());
     var k: usize = 5;
     while (k < 25) : (k += 1) try testing.expect(bm.isFree(k));
@@ -323,27 +323,27 @@ test "unit: freeRange accepts in-bounds empty range as no-op" {
     var bm = BitmapAllocator.Static(64).init();
     try bm.reserveOne(3);
     const snapshot = bm.bitmap.items;
-    try bm.freeRange(try Range.fromBounds(0, 0));
-    try bm.freeRange(try Range.fromBounds(64, 64));
+    try bm.freeRange(try Range.init(0, 0));
+    try bm.freeRange(try Range.init(64, 64));
     try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: freeRange rejects out-of-bounds ranges without mutation" {
     var bm = BitmapAllocator.Static(64).init();
-    try bm.reserveRange(try Range.fromBounds(0, 64));
+    try bm.reserveRange(try Range.init(0, 64));
     const snapshot = bm.bitmap.items;
-    try testing.expectError(error.OutOfBounds, bm.freeRange(try Range.fromBounds(60, 65)));
-    try testing.expectError(error.OutOfBounds, bm.freeRange(try Range.fromBounds(65, 65)));
+    try testing.expectError(error.OutOfBounds, bm.freeRange(try Range.init(60, 65)));
+    try testing.expectError(error.OutOfBounds, bm.freeRange(try Range.init(65, 65)));
     try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: freeRange rejects overlap with free units without mutation" {
     var bm = BitmapAllocator.Static(64).init();
-    try bm.reserveRange(try Range.fromBounds(0, 10));
-    try bm.reserveRange(try Range.fromBounds(15, 25));
+    try bm.reserveRange(try Range.init(0, 10));
+    try bm.reserveRange(try Range.init(15, 25));
     // gap (10..15) is free — freeRange(0..25) must fail.
     const snapshot = bm.bitmap.items;
-    try testing.expectError(error.NotAllocated, bm.freeRange(try Range.fromBounds(0, 25)));
+    try testing.expectError(error.NotAllocated, bm.freeRange(try Range.init(0, 25)));
     try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
 }
 
@@ -355,19 +355,19 @@ test "unit: allocated/remaining/isEmpty/isFull cover state spectrum" {
     var bm = BitmapAllocator.Static(129).init();
     try testing.expect(bm.isEmpty());
     try testing.expect(!bm.isFull());
-    try bm.reserveRange(try Range.fromBounds(0, 64));
+    try bm.reserveRange(try Range.init(0, 64));
     try testing.expectEqual(@as(usize, 64), bm.allocated());
     try testing.expectEqual(@as(usize, 65), bm.remaining());
     try testing.expect(!bm.isEmpty());
     try testing.expect(!bm.isFull());
-    try bm.reserveRange(try Range.fromBounds(64, 129));
+    try bm.reserveRange(try Range.init(64, 129));
     try testing.expect(bm.isFull());
     try testing.expect(!bm.isEmpty());
 }
 
 test "unit: clearRetainingCapacity clears all units" {
     var bm = BitmapAllocator.Static(129).init();
-    try bm.reserveRange(try Range.fromBounds(0, 129));
+    try bm.reserveRange(try Range.init(0, 129));
     bm.clearRetainingCapacity();
     try testing.expect(bm.isEmpty());
     try testing.expectEqual(@as(usize, 129), bm.capacity());
@@ -377,7 +377,7 @@ test "unit: clearRetainingCapacity clears all units" {
 test "unit: clearRetainingCapacity on Bounded clears every borrowed word" {
     var storage: [3]u64 = .{ 0, 0, 0 };
     var b = try BitmapAllocator.Bounded.wrap(&storage, 130);
-    try b.reserveRange(try Range.fromBounds(0, 130));
+    try b.reserveRange(try Range.init(0, 130));
     b.clearRetainingCapacity();
     try testing.expect(b.isEmpty());
     for (storage) |w| try testing.expectEqual(@as(u64, 0), w);
@@ -392,11 +392,11 @@ test "unit: assertValid succeeds after every public mutation" {
     bm.assertValid();
     try bm.reserveOne(120);
     bm.assertValid();
-    try bm.reserveRange(try Range.fromBounds(64, 80));
+    try bm.reserveRange(try Range.init(64, 80));
     bm.assertValid();
     try bm.freeOne(120);
     bm.assertValid();
-    try bm.freeRange(try Range.fromBounds(64, 80));
+    try bm.freeRange(try Range.init(64, 80));
     bm.assertValid();
     bm.clearRetainingCapacity();
     bm.assertValid();
@@ -407,7 +407,7 @@ test "unit: unused high bits remain clear after operations" {
     _ = try bm.allocRange(65);
     try testing.expectEqual(@as(u64, 1), bm.bitmap.items[1]);
     bm.assertValid();
-    try bm.freeRange(try Range.fromBounds(0, 65));
+    try bm.freeRange(try Range.init(0, 65));
     try testing.expectEqual(@as(u64, 0), bm.bitmap.items[1]);
     bm.assertValid();
 }
@@ -469,7 +469,7 @@ const Model = struct {
             if (ok) {
                 var k: usize = 0;
                 while (k < count) : (k += 1) self.bits[i + k] = true;
-                return try Range.fromBounds(i, i + count);
+                return try Range.init(i, i + count);
             }
         }
         return error.OutOfMemory;
@@ -579,7 +579,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
             3 => {
                 const a = random.intRangeAtMost(usize, 0, model_capacity + 4);
                 const b = random.intRangeAtMost(usize, a, model_capacity + 4);
-                const r = try Range.fromBounds(a, b);
+                const r = try Range.init(a, b);
                 const snapshot = snapshotStatic(&bm);
                 const got = bm.reserveRange(r);
                 const expected = model.reserveRange(r);
@@ -605,7 +605,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
             5 => {
                 const a = random.intRangeAtMost(usize, 0, model_capacity + 4);
                 const b = random.intRangeAtMost(usize, a, model_capacity + 4);
-                const r = try Range.fromBounds(a, b);
+                const r = try Range.init(a, b);
                 const snapshot = snapshotStatic(&bm);
                 const got = bm.freeRange(r);
                 const expected = model.freeRange(r);
@@ -677,7 +677,7 @@ test "model: Bounded vs bool-array allocator over randomized sequences" {
             3 => {
                 const a = random.intRangeAtMost(usize, 0, model_capacity + 4);
                 const b = random.intRangeAtMost(usize, a, model_capacity + 4);
-                const r = try Range.fromBounds(a, b);
+                const r = try Range.init(a, b);
                 const got = bm.reserveRange(r);
                 const expected = model.reserveRange(r);
                 if (got) |_| {
@@ -701,7 +701,7 @@ test "model: Bounded vs bool-array allocator over randomized sequences" {
             5 => {
                 const a = random.intRangeAtMost(usize, 0, model_capacity + 4);
                 const b = random.intRangeAtMost(usize, a, model_capacity + 4);
-                const r = try Range.fromBounds(a, b);
+                const r = try Range.init(a, b);
                 const got = bm.freeRange(r);
                 const expected = model.freeRange(r);
                 if (got) |_| {

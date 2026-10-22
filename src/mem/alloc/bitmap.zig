@@ -258,7 +258,7 @@ fn allocRangeImpl(bitmap: anytype, count: usize) BitmapAllocError!RangeUsize {
     for (start..start + count) |index| {
         Bitmap.Word.set(&bitmap.items[index / Bitmap.Word.width], index % Bitmap.Word.width);
     }
-    return RangeUsize.fromBounds(start, start + count) catch unreachable;
+    return RangeUsize.init(start, start + count) catch unreachable;
 }
 
 fn reserveOneImpl(bitmap: anytype, index: usize) BitmapReserveError!void {

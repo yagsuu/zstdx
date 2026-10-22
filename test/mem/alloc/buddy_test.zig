@@ -285,7 +285,7 @@ test "unit: free with out-of-bounds block returns InvalidRequest" {
 test "unit: reserve(3..5) on Static(8, 4) leaves {0..3} and {5..8} allocable" {
     var a = BuddyAllocator.Static(8, 4).init();
     const Range = @TypeOf(a).Range;
-    try a.reserve(try Range.fromBounds(3, 5));
+    try a.reserve(try Range.init(3, 5));
 
     const first = try a.alloc(0);
     try testing.expectEqual(@as(usize, 0), first.start);
@@ -301,7 +301,7 @@ test "unit: reserve out-of-bounds range returns OutOfBounds without mutation" {
     var a = BuddyAllocator.Static(8, 4).init();
     const Range = @TypeOf(a).Range;
     const snapshot = snapshotStatic(&a);
-    try testing.expectError(error.OutOfBounds, a.reserve(try Range.fromBounds(0, 9)));
+    try testing.expectError(error.OutOfBounds, a.reserve(try Range.init(0, 9)));
     try expectSnapshotStatic(&a, snapshot);
 }
 
@@ -312,10 +312,10 @@ test "unit: reserve on already-allocated span returns AlreadyAllocated" {
     try testing.expectEqual(@as(usize, 0), b0.start);
 
     const snapshot = snapshotStatic(&a);
-    try testing.expectError(error.AlreadyAllocated, a.reserve(try Range.fromBounds(0, 2)));
+    try testing.expectError(error.AlreadyAllocated, a.reserve(try Range.init(0, 2)));
     try expectSnapshotStatic(&a, snapshot);
 
-    try a.reserve(try Range.fromBounds(1, 2));
+    try a.reserve(try Range.init(1, 2));
 }
 
 test "unit: reserve empty range is a no-op inside capacity" {
@@ -335,7 +335,7 @@ test "unit: reserve after alloc/free round trips succeeds on free span" {
     const b1 = try a.alloc(2);
     try a.free(b1);
 
-    try a.reserve(try Range.fromBounds(4, 6));
+    try a.reserve(try Range.init(4, 6));
     try testing.expect(!isUnitFree(&a, 4));
     try testing.expect(!isUnitFree(&a, 5));
     try testing.expect(isUnitFree(&a, 3));
@@ -394,7 +394,7 @@ test "unit: assertValid holds after mutation sequences" {
     try a.free(b1);
     a.assertValid();
     const Range = @TypeOf(a).Range;
-    try a.reserve(try Range.fromBounds(4, 6));
+    try a.reserve(try Range.init(4, 6));
     a.assertValid();
 }
 
@@ -625,10 +625,10 @@ fn runModel(comptime T: type, comptime capacity: usize, comptime order_count: u8
             }
             if (any_used) {
                 const snapshot = a.bitmap.items;
-                try testing.expectError(error.AlreadyAllocated, a.reserve(try Range.fromBounds(start, end)));
+                try testing.expectError(error.AlreadyAllocated, a.reserve(try Range.init(start, end)));
                 try testing.expectEqualSlices(u64, snapshot[0..], a.bitmap.words());
             } else {
-                try a.reserve(try Range.fromBounds(start, end));
+                try a.reserve(try Range.init(start, end));
                 ref.reserve(start, end);
             }
         }

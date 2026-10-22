@@ -165,11 +165,11 @@ fn isAllowedNativeInt(comptime T: type) bool {
 fn isAllowedEndianInt(comptime T: type) bool {
     const info = @typeInfo(T);
     if (info != .@"struct") return false;
-    if (!@hasDecl(T, "Native")) return false;
+    if (!@hasDecl(T, "Int")) return false;
 
-    const Native = T.Native;
-    if (!isAllowedNativeInt(Native)) return false;
-    return T == endian.Le(Native) or T == endian.Be(Native);
+    const Int = T.Int;
+    if (!isAllowedNativeInt(Int)) return false;
+    return T == endian.Le(Int) or T == endian.Be(Int);
 }
 
 fn isAllowedPackedStruct(comptime T: type) bool {

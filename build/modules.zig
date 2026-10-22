@@ -94,6 +94,7 @@ pub const Modules = struct {
         modules.stdx.addImport("tags", modules.tags);
         modules.stdx.addImport("time", modules.time);
 
+        modules.addr.addImport("layout", modules.layout);
         modules.algo.addImport("core", modules.core);
         modules.arch.addImport("addr", modules.addr);
         modules.arch.addImport("bits", modules.bits);

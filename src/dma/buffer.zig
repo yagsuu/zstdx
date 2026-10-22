@@ -10,9 +10,9 @@ fn requireRuntimeValue(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("Buffer element type must have nonzero size");
 }
 
-/// A buffer pairs a borrowed host slice with its device-visible base address.
 pub fn Buffer(comptime T: type) type {
     comptime requireRuntimeValue(T);
+
     return struct {
         virt: []T,
         dma: DMAAddr,
@@ -22,13 +22,8 @@ pub fn Buffer(comptime T: type) type {
         pub const Item = T;
         pub const Address = DMAAddr;
 
-        /// `Misaligned`: The address or requested alignment is invalid.
-        /// `Overflow`: The byte length or end address overflows.
         pub const InitError = error{ Misaligned, Overflow };
-        /// `OutOfBounds`: The item offset or window escapes `virt`.
         pub const OffsetError = error{OutOfBounds};
-        /// `Overflow`: The item offset plus count overflows.
-        /// `OutOfBounds`: The item window escapes `virt`.
         pub const SubError = error{ Overflow, OutOfBounds };
         pub const Error = InitError || OffsetError || SubError;
 
@@ -45,20 +40,20 @@ pub fn Buffer(comptime T: type) type {
 
         /// Validates `dma` against `max(alignment, @alignOf(T))` and the buffer address range.
         /// A zero or non-power-of-two alignment returns `error.Misaligned`.
-        pub fn initAligned(virt: []T, dma: Address, alignment: Address.Raw) InitError!Self {
+        pub fn initAligned(virt: []T, dma: Address, alignment: Address.Int) InitError!Self {
             if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return error.Misaligned;
             return initAlignedWith(virt, dma, alignment);
         }
 
-        fn initAlignedWith(virt: []T, dma: Address, alignment: Address.Raw) InitError!Self {
-            const type_alignment: Address.Raw = @alignOf(T);
+        fn initAlignedWith(virt: []T, dma: Address, alignment: Address.Int) InitError!Self {
+            const type_alignment: Address.Int = @alignOf(T);
             const required = @max(alignment, type_alignment);
             if ((dma.raw() & (required - 1)) != 0) return error.Misaligned;
 
-            const elem_size: Address.Raw = @sizeOf(T);
-            const virt_len: Address.Raw = std.math.cast(Address.Raw, virt.len) orelse return error.Overflow;
-            const byte_len = std.math.mul(Address.Raw, virt_len, elem_size) catch return error.Overflow;
-            _ = std.math.add(Address.Raw, dma.raw(), byte_len) catch return error.Overflow;
+            const elem_size: Address.Int = @sizeOf(T);
+            const virt_len: Address.Int = std.math.cast(Address.Int, virt.len) orelse return error.Overflow;
+            const byte_len = std.math.mul(Address.Int, virt_len, elem_size) catch return error.Overflow;
+            _ = std.math.add(Address.Int, dma.raw(), byte_len) catch return error.Overflow;
 
             return .{ .virt = virt, .dma = dma };
         }
@@ -88,10 +83,10 @@ pub fn Buffer(comptime T: type) type {
             return self.virt.len;
         }
 
-        /// Construction proves that the byte length does not overflow `Address.Raw`.
-        pub fn byteLen(self: Self) Address.Raw {
+        /// Construction proves that the byte length does not overflow `Address.Int`.
+        pub fn byteLen(self: Self) Address.Int {
             self.assertValid();
-            const virt_len: Address.Raw = @intCast(self.virt.len);
+            const virt_len: Address.Int = @intCast(self.virt.len);
             return virt_len * @sizeOf(T);
         }
 
@@ -109,9 +104,9 @@ pub fn Buffer(comptime T: type) type {
         pub fn dmaAddrAt(self: Self, offset_items: usize) OffsetError!Address {
             self.assertValid();
             if (offset_items > self.virt.len) return error.OutOfBounds;
-            const offset_raw: Address.Raw = @intCast(offset_items);
+            const offset_raw: Address.Int = @intCast(offset_items);
             const byte_offset = offset_raw * @sizeOf(T);
-            return Address.fromInt(self.dma.raw() + byte_offset);
+            return Address.from(self.dma.raw() + byte_offset);
         }
 
         /// Returns a validated subrange that preserves the caller's contiguity claim.
@@ -124,19 +119,19 @@ pub fn Buffer(comptime T: type) type {
             ) catch return error.Overflow;
             if (end > self.virt.len) return error.OutOfBounds;
 
-            const offset_raw: Address.Raw = @intCast(range.offset_items);
+            const offset_raw: Address.Int = @intCast(range.offset_items);
             const byte_offset = offset_raw * @sizeOf(T);
             return .{
                 .virt = self.virt[range.offset_items..end],
-                .dma = Address.fromInt(self.dma.raw() + byte_offset),
+                .dma = Address.from(self.dma.raw() + byte_offset),
             };
         }
 
         pub fn assertValid(self: Self) void {
-            std.debug.assert((self.dma.raw() & (@as(Address.Raw, @alignOf(T)) - 1)) == 0);
-            const virt_len: Address.Raw = std.math.cast(Address.Raw, self.virt.len) orelse unreachable;
-            const byte_len = std.math.mul(Address.Raw, virt_len, @sizeOf(T)) catch unreachable;
-            _ = std.math.add(Address.Raw, self.dma.raw(), byte_len) catch unreachable;
+            std.debug.assert((self.dma.raw() & (@as(Address.Int, @alignOf(T)) - 1)) == 0);
+            const virt_len: Address.Int = std.math.cast(Address.Int, self.virt.len) orelse unreachable;
+            const byte_len = std.math.mul(Address.Int, virt_len, @sizeOf(T)) catch unreachable;
+            _ = std.math.add(Address.Int, self.dma.raw(), byte_len) catch unreachable;
         }
     };
 }
