@@ -7,3 +7,8 @@ pub const ring = @import("collections/ring.zig");
 
 pub const List = list.List;
 pub const Ring = ring.Ring;
+
+test {
+    _ = list.unit;
+    _ = ring.unit;
+}

@@ -9,7 +9,6 @@ comptime {
     _ = @import("layout/all.zig");
     _ = @import("bytes/all.zig");
     _ = @import("mem/all.zig");
-    _ = @import("collections/all.zig");
     _ = @import("intrusive/all.zig");
     _ = @import("algo/all.zig");
     _ = @import("tags/all.zig");

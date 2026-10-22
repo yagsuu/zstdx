@@ -25,6 +25,18 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     addHostTests(b, test_step, stdx, target, optimize);
     addCompileFixtureTests(b, test_step);
+
+    const collections = b.createModule(.{
+        .root_source_file = b.path("src/collections.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const collections_tests = b.addTest(.{ .root_module = collections });
+    const collections_run = b.addRunArtifact(collections_tests);
+
+    const collections_step = b.step("test-collections", "Run collections tests");
+    collections_step.dependOn(&collections_run.step);
+    test_step.dependOn(&collections_run.step);
 }
 
 fn addHostTests(

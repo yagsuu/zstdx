@@ -4,25 +4,24 @@
 
 const std = @import("std");
 
-/// Fixed-capacity list family. Both variants preserve insertion order, do not
-/// allocate, and leave the list unchanged on error.
 pub const List = struct {
     pub fn Static(comptime T: type, comptime capacity_items: usize) type {
-        comptime requireRuntimeValue(T);
-        comptime if (capacity_items == 0) @compileError("List.Static capacity_items must be non-zero");
+        comptime {
+            Impl.requireRuntimeValue(T);
+            if (capacity_items == 0) {
+                @compileError("List.Static capacity_items must be non-zero");
+            }
+        }
 
         return struct {
             buffer: [capacity_items]T = undefined,
             count: usize = 0,
 
+            pub const item_capacity = capacity_items;
+
             const Self = @This();
 
-            /// `Full`: append or insert at capacity.
-            /// `OutOfBounds`: access at or past `count`, or insert with
-            /// `index > count`.
             pub const Error = error{ Full, OutOfBounds };
-
-            pub const item_capacity = capacity_items;
 
             pub fn init() Self {
                 return .{};
@@ -50,97 +49,56 @@ pub const List = struct {
                 return self.len() == item_capacity;
             }
 
-            /// Mutable slice over the initialized prefix.
-            pub fn asSlice(self: *Self) []T {
+            pub fn asSlice(self: *const Self) []const T {
                 self.assertValid();
                 return self.buffer[0..self.count];
             }
 
-            /// Read-only slice over the initialized prefix.
-            pub fn asConstSlice(self: *const Self) []const T {
+            pub fn asSliceMut(self: *Self) []T {
                 self.assertValid();
                 return self.buffer[0..self.count];
             }
 
-            /// Discard initialized items but retain storage.
             pub fn clearRetainingCapacity(self: *Self) void {
                 self.count = 0;
             }
 
             pub fn append(self: *Self, item: T) error{Full}!void {
-                if (self.isFull()) return error.Full;
-                self.appendAssumeCapacity(item);
+                return Impl.append(T, self.buffer[0..], &self.count, item);
             }
 
-            /// Requires spare capacity.
             pub fn appendAssumeCapacity(self: *Self, item: T) void {
-                std.debug.assert(!self.isFull());
-                if (capacity_items == 0) unreachable;
-
-                self.buffer[self.count] = item;
-                self.count += 1;
+                Impl.appendAssumeCapacity(T, self.buffer[0..], &self.count, item);
             }
 
-            /// Appends `items` in order. Returns `error.Full` and leaves the
-            /// list unchanged if the items do not fit.
             pub fn appendSlice(self: *Self, items: []const T) error{Full}!void {
-                if (items.len > self.remaining()) return error.Full;
-                @memcpy(self.buffer[self.count..][0..items.len], items);
-                self.count += items.len;
+                return Impl.appendSlice(T, self.buffer[0..], &self.count, items);
             }
 
-            /// Inserts `item` at `index` and shifts later items right.
-            /// Checks `index` before capacity.
             pub fn insert(self: *Self, index: usize, item: T) Error!void {
-                if (index > self.count) return error.OutOfBounds;
-                if (self.isFull()) return error.Full;
-
-                std.mem.copyBackwards(T, self.buffer[index + 1 .. self.count + 1], self.buffer[index..self.count]);
-                self.buffer[index] = item;
-                self.count += 1;
+                return Impl.insert(T, self.buffer[0..], &self.count, index, item);
             }
 
-            /// Removes and returns `buffer[index]` while preserving order.
             pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T {
-                if (index >= self.count) return error.OutOfBounds;
-
-                const out = self.buffer[index];
-                std.mem.copyForwards(T, self.buffer[index .. self.count - 1], self.buffer[index + 1 .. self.count]);
-                self.count -= 1;
-                return out;
+                return Impl.orderedRemove(T, self.buffer[0..], &self.count, index);
             }
 
-            /// Removes and returns `buffer[index]` by moving the last item
-            /// into the vacated slot.
+            /// Replaces the removed item with the last live item.
             pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T {
-                if (index >= self.count) return error.OutOfBounds;
-
-                const out = self.buffer[index];
-                self.count -= 1;
-
-                if (index != self.count) {
-                    self.buffer[index] = self.buffer[self.count];
-                }
-
-                return out;
+                return Impl.swapRemove(T, self.buffer[0..], &self.count, index);
             }
 
             pub fn pop(self: *Self) ?T {
-                if (self.count == 0) return null;
-                self.count -= 1;
-                return self.buffer[self.count];
+                return Impl.pop(T, self.buffer[0..], &self.count);
             }
 
-            /// Returns a mutable pointer into `buffer[index]`. Mutations that
-            /// shift elements invalidate the pointer.
-            pub fn at(self: *Self, index: usize) error{OutOfBounds}!*T {
-                if (index >= self.count) return error.OutOfBounds;
-                return &self.buffer[index];
+            /// Insertion and removal can invalidate returned pointers.
+            pub fn at(self: *const Self, index: usize) error{OutOfBounds}!*const T {
+                return Impl.at(T, self.buffer[0..], self.count, index);
             }
 
-            pub fn constAt(self: *const Self, index: usize) error{OutOfBounds}!*const T {
-                if (index >= self.count) return error.OutOfBounds;
-                return &self.buffer[index];
+            pub fn atMut(self: *Self, index: usize) error{OutOfBounds}!*T {
+                return Impl.atMut(T, self.buffer[0..], self.count, index);
             }
 
             pub fn assertValid(self: *const Self) void {
@@ -149,9 +107,8 @@ pub const List = struct {
         };
     }
 
-    /// Borrows caller-provided storage. Capacity is the slice length.
     pub fn Bounded(comptime T: type) type {
-        comptime requireRuntimeValue(T);
+        comptime Impl.requireRuntimeValue(T);
 
         return struct {
             buffer: []T,
@@ -159,12 +116,8 @@ pub const List = struct {
 
             const Self = @This();
 
-            /// `Full`: append or insert at capacity.
-            /// `OutOfBounds`: access at or past `count`, or insert with
-            /// `index > count`.
             pub const Error = error{ Full, OutOfBounds };
 
-            /// Wraps `buffer` as backing storage; capacity is `buffer.len`.
             pub fn wrap(buffer: []T) Self {
                 return .{ .buffer = buffer };
             }
@@ -191,93 +144,56 @@ pub const List = struct {
                 return self.len() == self.capacity();
             }
 
-            /// Mutable slice over the initialized prefix.
-            pub fn asSlice(self: *Self) []T {
+            pub fn asSlice(self: *const Self) []const T {
                 self.assertValid();
                 return self.buffer[0..self.count];
             }
 
-            /// Read-only slice over the initialized prefix.
-            pub fn asConstSlice(self: *const Self) []const T {
+            pub fn asSliceMut(self: *Self) []T {
                 self.assertValid();
                 return self.buffer[0..self.count];
             }
 
-            /// Discard initialized items but retain storage.
             pub fn clearRetainingCapacity(self: *Self) void {
                 self.count = 0;
             }
 
             pub fn append(self: *Self, item: T) error{Full}!void {
-                if (self.isFull()) return error.Full;
-                self.appendAssumeCapacity(item);
+                return Impl.append(T, self.buffer[0..], &self.count, item);
             }
 
-            /// Requires spare capacity.
             pub fn appendAssumeCapacity(self: *Self, item: T) void {
-                std.debug.assert(!self.isFull());
-                if (self.buffer.len == 0) unreachable;
-
-                self.buffer[self.count] = item;
-                self.count += 1;
+                Impl.appendAssumeCapacity(T, self.buffer[0..], &self.count, item);
             }
 
-            /// Appends `items` in order. Returns `error.Full` and leaves the
-            /// list unchanged if the items do not fit.
             pub fn appendSlice(self: *Self, items: []const T) error{Full}!void {
-                if (items.len > self.remaining()) return error.Full;
-                @memcpy(self.buffer[self.count..][0..items.len], items);
-                self.count += items.len;
+                return Impl.appendSlice(T, self.buffer[0..], &self.count, items);
             }
 
-            /// Inserts `item` at `index` and shifts later items right.
-            /// Checks `index` before capacity.
             pub fn insert(self: *Self, index: usize, item: T) Error!void {
-                if (index > self.count) return error.OutOfBounds;
-                if (self.isFull()) return error.Full;
-
-                std.mem.copyBackwards(T, self.buffer[index + 1 .. self.count + 1], self.buffer[index..self.count]);
-                self.buffer[index] = item;
-                self.count += 1;
+                return Impl.insert(T, self.buffer[0..], &self.count, index, item);
             }
 
-            /// Removes and returns `buffer[index]` while preserving order.
             pub fn orderedRemove(self: *Self, index: usize) error{OutOfBounds}!T {
-                if (index >= self.count) return error.OutOfBounds;
-
-                const out = self.buffer[index];
-                std.mem.copyForwards(T, self.buffer[index .. self.count - 1], self.buffer[index + 1 .. self.count]);
-                self.count -= 1;
-                return out;
+                return Impl.orderedRemove(T, self.buffer[0..], &self.count, index);
             }
 
-            /// Removes and returns `buffer[index]` by moving the last item
-            /// into the vacated slot.
+            /// Replaces the removed item with the last live item.
             pub fn swapRemove(self: *Self, index: usize) error{OutOfBounds}!T {
-                if (index >= self.count) return error.OutOfBounds;
-
-                const out = self.buffer[index];
-                self.count -= 1;
-                if (index != self.count) self.buffer[index] = self.buffer[self.count];
-                return out;
+                return Impl.swapRemove(T, self.buffer[0..], &self.count, index);
             }
 
             pub fn pop(self: *Self) ?T {
-                if (self.count == 0) return null;
-                self.count -= 1;
-                return self.buffer[self.count];
+                return Impl.pop(T, self.buffer[0..], &self.count);
             }
 
-            /// Returns a mutable pointer into `buffer[index]`. Mutations that
-            /// shift elements invalidate the pointer.
-            pub fn at(self: *Self, index: usize) error{OutOfBounds}!*T {
-                if (index >= self.count) return error.OutOfBounds;
-                return &self.buffer[index];
+            /// Insertion and removal can invalidate returned pointers.
+            pub fn at(self: *const Self, index: usize) error{OutOfBounds}!*const T {
+                return Impl.at(T, self.buffer[0..], self.count, index);
             }
 
-            pub fn constAt(self: *const Self, index: usize) error{OutOfBounds}!*const T {
-                if (index >= self.count) return error.OutOfBounds;
-                return &self.buffer[index];
+            pub fn atMut(self: *Self, index: usize) error{OutOfBounds}!*T {
+                return Impl.atMut(T, self.buffer[0..], self.count, index);
             }
 
             pub fn assertValid(self: *const Self) void {
@@ -287,6 +203,192 @@ pub const List = struct {
     }
 };
 
-fn requireRuntimeValue(comptime T: type) void {
-    if (@sizeOf(T) == 0) @compileError("list element type must have nonzero size");
-}
+const Impl = struct {
+    fn append(comptime T: type, buffer: []T, count: *usize, item: T) error{Full}!void {
+        std.debug.assert(count.* <= buffer.len);
+
+        if (count.* == buffer.len) {
+            return error.Full;
+        }
+
+        appendAssumeCapacity(T, buffer, count, item);
+    }
+
+    fn appendAssumeCapacity(comptime T: type, buffer: []T, count: *usize, item: T) void {
+        std.debug.assert(count.* <= buffer.len);
+        std.debug.assert(count.* < buffer.len);
+
+        if (buffer.len == 0) {
+            unreachable;
+        }
+
+        buffer[count.*] = item;
+        count.* += 1;
+        std.debug.assert(count.* <= buffer.len);
+    }
+
+    fn appendSlice(comptime T: type, buffer: []T, count: *usize, items: []const T) error{Full}!void {
+        std.debug.assert(count.* <= buffer.len);
+
+        if (items.len > buffer.len - count.*) {
+            return error.Full;
+        }
+
+        @memcpy(buffer[count.*..][0..items.len], items);
+        count.* += items.len;
+        std.debug.assert(count.* <= buffer.len);
+    }
+
+    fn insert(comptime T: type, buffer: []T, count: *usize, index: usize, item: T) error{ Full, OutOfBounds }!void {
+        std.debug.assert(count.* <= buffer.len);
+
+        if (index > count.*) {
+            return error.OutOfBounds;
+        }
+
+        if (count.* == buffer.len) {
+            return error.Full;
+        }
+
+        std.mem.copyBackwards(T, buffer[index + 1 .. count.* + 1], buffer[index..count.*]);
+        buffer[index] = item;
+        count.* += 1;
+
+        std.debug.assert(count.* <= buffer.len);
+    }
+
+    fn orderedRemove(comptime T: type, buffer: []T, count: *usize, index: usize) error{OutOfBounds}!T {
+        std.debug.assert(count.* <= buffer.len);
+
+        if (index >= count.*) {
+            return error.OutOfBounds;
+        }
+
+        const out = buffer[index];
+        std.mem.copyForwards(T, buffer[index .. count.* - 1], buffer[index + 1 .. count.*]);
+        count.* -= 1;
+
+        std.debug.assert(count.* <= buffer.len);
+        return out;
+    }
+
+    fn swapRemove(comptime T: type, buffer: []T, count: *usize, index: usize) error{OutOfBounds}!T {
+        std.debug.assert(count.* <= buffer.len);
+
+        if (index >= count.*) {
+            return error.OutOfBounds;
+        }
+
+        const out = buffer[index];
+        count.* -= 1;
+
+        if (index != count.*) {
+            buffer[index] = buffer[count.*];
+        }
+
+        std.debug.assert(count.* <= buffer.len);
+        return out;
+    }
+
+    fn pop(comptime T: type, buffer: []T, count: *usize) ?T {
+        std.debug.assert(count.* <= buffer.len);
+
+        if (count.* == 0) {
+            return null;
+        }
+
+        count.* -= 1;
+        std.debug.assert(count.* <= buffer.len);
+        return buffer[count.*];
+    }
+
+    fn at(comptime T: type, buffer: []const T, count: usize, index: usize) error{OutOfBounds}!*const T {
+        std.debug.assert(count <= buffer.len);
+
+        if (index >= count) {
+            return error.OutOfBounds;
+        }
+
+        return &buffer[index];
+    }
+
+    fn atMut(comptime T: type, buffer: []T, count: usize, index: usize) error{OutOfBounds}!*T {
+        std.debug.assert(count <= buffer.len);
+
+        if (index >= count) {
+            return error.OutOfBounds;
+        }
+
+        return &buffer[index];
+    }
+
+    fn requireRuntimeValue(comptime T: type) void {
+        if (@sizeOf(T) == 0) {
+            @compileError("list element type must have nonzero size");
+        }
+    }
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "unit: List core sequence" {
+        var buffer: [3]u8 = undefined;
+        var count: usize = 0;
+
+        try Impl.append(u8, &buffer, &count, 1);
+        try Impl.appendSlice(u8, &buffer, &count, &.{ 2, 3 });
+
+        try testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, buffer[0..count]);
+        try testing.expectError(error.Full, Impl.append(u8, &buffer, &count, 4));
+        try testing.expectError(error.OutOfBounds, Impl.insert(u8, &buffer, &count, 4, 9));
+        try testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, buffer[0..count]);
+        try testing.expectEqual(@as(u8, 2), (try Impl.at(u8, &buffer, count, 1)).*);
+        try testing.expectEqual(@as(u8, 3), (try Impl.at(u8, &buffer, count, 2)).*);
+        try testing.expectEqual(@as(u8, 2), try Impl.orderedRemove(u8, &buffer, &count, 1));
+        try testing.expectEqualSlices(u8, &.{ 1, 3 }, buffer[0..count]);
+
+        try Impl.insert(u8, &buffer, &count, 1, 2);
+
+        try testing.expectEqual(@as(u8, 1), try Impl.swapRemove(u8, &buffer, &count, 0));
+        try testing.expectEqualSlices(u8, &.{ 3, 2 }, buffer[0..count]);
+        try testing.expectEqual(@as(?u8, 2), Impl.pop(u8, &buffer, &count));
+        try testing.expectEqual(@as(?u8, 3), Impl.pop(u8, &buffer, &count));
+        try testing.expectEqual(@as(?u8, null), Impl.pop(u8, &buffer, &count));
+    }
+
+    test "unit: List.Static inline storage" {
+        var list = List.Static(u8, 3).init();
+        try list.append(1);
+        try list.appendSlice(&.{ 2, 3 });
+        (try list.atMut(1)).* = 4;
+
+        try testing.expectEqual(@as(usize, 3), list.capacity());
+        try testing.expect(list.isFull());
+        try testing.expectEqualSlices(u8, &.{ 1, 4, 3 }, list.asSlice());
+        try testing.expect(&list.asSliceMut()[0] == &list.buffer[0]);
+        list.assertValid();
+
+        list.clearRetainingCapacity();
+
+        try testing.expect(list.isEmpty());
+        list.assertValid();
+    }
+
+    test "unit: List.Bounded borrowed storage" {
+        var buffer = [_]u32{ 10, 20, 30, 40 };
+        var list = List.Bounded(u32).wrap(&buffer);
+
+        try testing.expect(list.isEmpty());
+        try testing.expectEqual(@as(usize, 4), list.capacity());
+        try testing.expectEqualSlices(u32, &.{ 10, 20, 30, 40 }, &buffer);
+
+        try list.appendSlice(&.{ 1, 2 });
+        (try list.atMut(1)).* = 3;
+
+        try testing.expectEqualSlices(u32, &.{ 1, 3 }, list.asSlice());
+        try testing.expectEqualSlices(u32, &.{ 1, 3, 30, 40 }, &buffer);
+        try testing.expect((try list.at(0)) == &buffer[0]);
+        list.assertValid();
+    }
+};
