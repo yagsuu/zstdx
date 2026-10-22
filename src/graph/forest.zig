@@ -1,25 +1,21 @@
-//! Forest topology families for dense node IDs and embedded linked nodes.
+//! Forest topology for dense node IDs and embedded linked nodes.
 //! See `docs/specs/graph/forest.md`.
 
 const std = @import("std");
 
-/// Forest topology families. Dense variants store topology by `NodeID`; the
-/// linked variant stores topology in caller-owned embedded nodes.
 pub const Forest = struct {
     pub fn Static(comptime capacity_nodes: usize) type {
-        comptime if (capacity_nodes == 0) @compileError("Forest.Static capacity_nodes must be non-zero");
+        comptime {
+            if (capacity_nodes == 0) {
+                @compileError("Forest.Static capacity_nodes must be non-zero");
+            }
+        }
 
         return struct {
             roots: SiblingList = .{},
-            links: [capacity_nodes]Links = [_]Links{.{}} ** capacity_nodes,
+            links: [capacity_nodes]Links = @splat(.{}),
 
-            const Self = @This();
-
-            pub const node_capacity = capacity_nodes;
-
-            pub const NodeID = enum(usize) {
-                _,
-            };
+            pub const NodeID = enum(usize) { _ };
 
             pub const SiblingList = struct {
                 head: ?NodeID = null,
@@ -29,7 +25,7 @@ pub const Forest = struct {
             pub const Links = struct {
                 parent: ?NodeID = null,
                 children: SiblingList = .{},
-                next_sibling: ?NodeID = null,
+                sibling: ?NodeID = null,
             };
 
             pub const BoundsError = error{OutOfBounds};
@@ -37,13 +33,15 @@ pub const Forest = struct {
             pub const RemoveError = error{ OutOfBounds, NotLinked };
             pub const Error = BoundsError || AppendError || RemoveError;
 
+            const Self = @This();
+
             pub fn init() Self {
                 return .{};
             }
 
             pub fn capacity(self: *const Self) usize {
                 _ = self;
-                return node_capacity;
+                return capacity_nodes;
             }
 
             pub fn isEmpty(self: *const Self) bool {
@@ -51,7 +49,9 @@ pub const Forest = struct {
             }
 
             pub fn nodeId(self: *const Self, index: usize) BoundsError!NodeID {
-                if (index >= self.capacity()) return error.OutOfBounds;
+                if (index >= self.links.len) {
+                    return error.OutOfBounds;
+                }
                 return @enumFromInt(index);
             }
 
@@ -67,185 +67,41 @@ pub const Forest = struct {
                 return self.roots.tail;
             }
 
-            /// Faults: `error.OutOfBounds` if `item` is outside capacity; `error.AlreadyLinked` if `item` is already a root or child.
-            /// Effects: On error, this function does not change the forest.
             pub fn appendRoot(self: *Self, item: NodeID) AppendError!void {
-                const item_links = try self.link(item);
-                if (try self.isLinked(item, item_links)) return error.AlreadyLinked;
-
-                if (self.roots.tail) |tail| {
-                    (try self.link(tail)).next_sibling = item;
-                } else {
-                    self.roots.head = item;
-                }
-
-                self.roots.tail = item;
+                return Impl.appendRoot(Self, self, item);
             }
 
-            /// Faults: `error.OutOfBounds` if `parent_item` or `child_item` is outside capacity; `error.AlreadyLinked` if the items are equal or `child_item` is linked.
-            /// Effects: On error, this function does not change the forest.
             pub fn appendChild(self: *Self, parent_item: NodeID, child_item: NodeID) AppendError!void {
-                const parent_links = try self.link(parent_item);
-                const child_links = try self.link(child_item);
-
-                if (parent_item == child_item) return error.AlreadyLinked;
-                if (try self.isLinked(child_item, child_links)) return error.AlreadyLinked;
-
-                if (parent_links.children.tail) |tail| {
-                    (try self.link(tail)).next_sibling = child_item;
-                } else {
-                    parent_links.children.head = child_item;
-                }
-
-                parent_links.children.tail = child_item;
-                child_links.parent = parent_item;
+                return Impl.appendChild(Self, self, parent_item, child_item);
             }
 
-            /// Faults: `error.OutOfBounds` if `item` is outside capacity; `error.NotLinked` if `item` is not in its expected list.
-            /// Effects: On success, this function clears `item`'s parent and next-sibling links. Its descendants remain attached to `item`.
-            /// Cost: O(source-list length).
             pub fn remove(self: *Self, item: NodeID) RemoveError!void {
-                const item_links = try self.link(item);
-
-                if (item_links.parent) |parent_item| {
-                    const parent_links = try self.link(parent_item);
-                    try self.removeFromList(&parent_links.children, item, item_links);
-                } else {
-                    try self.removeFromList(&self.roots, item, item_links);
-                }
-
-                item_links.parent = null;
-                item_links.next_sibling = null;
+                return Impl.remove(Self, self, item);
             }
 
-            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn parent(self: *const Self, item: NodeID) BoundsError!?NodeID {
-                return (try self.constLink(item)).parent;
+                return (try Impl.link(Self, self, item)).parent;
             }
 
-            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn firstChild(self: *const Self, item: NodeID) BoundsError!?NodeID {
-                return (try self.constLink(item)).children.head;
+                return (try Impl.link(Self, self, item)).children.head;
             }
 
             pub fn lastChild(self: *const Self, item: NodeID) BoundsError!?NodeID {
-                return (try self.constLink(item)).children.tail;
+                return (try Impl.link(Self, self, item)).children.tail;
             }
 
-            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn nextSibling(self: *const Self, item: NodeID) BoundsError!?NodeID {
-                return (try self.constLink(item)).next_sibling;
+                return (try Impl.link(Self, self, item)).sibling;
             }
 
             pub fn clearRetainingCapacity(self: *Self) void {
                 self.roots = .{};
-                for (&self.links) |*item_links| item_links.* = .{};
+                @memset(&self.links, .{});
             }
 
             pub fn assertValid(self: *const Self) void {
-                self.assertSiblingList(self.roots, null);
-
-                for (self.links, 0..) |item_links, index| {
-                    const item: NodeID = @enumFromInt(index);
-                    if (item_links.parent) |parent_item| self.assertInBounds(parent_item);
-                    if (item_links.children.head) |child_item| self.assertInBounds(child_item);
-                    if (item_links.children.tail) |child_item| self.assertInBounds(child_item);
-                    if (item_links.next_sibling) |sibling_item| self.assertInBounds(sibling_item);
-                    self.assertSiblingList(item_links.children, item);
-                }
-            }
-
-            fn link(self: *Self, item: NodeID) BoundsError!*Links {
-                const index = indexOf(item);
-                if (index >= self.capacity()) return error.OutOfBounds;
-                if (capacity_nodes == 0) return error.OutOfBounds;
-                return &self.links[index];
-            }
-
-            fn constLink(self: *const Self, item: NodeID) BoundsError!*const Links {
-                const index = indexOf(item);
-                if (index >= self.capacity()) return error.OutOfBounds;
-                if (capacity_nodes == 0) return error.OutOfBounds;
-                return &self.links[index];
-            }
-
-            fn isLinked(self: *const Self, item: NodeID, item_links: *const Links) BoundsError!bool {
-                if (item_links.parent != null) return true;
-                if (item_links.next_sibling != null) return true;
-                return self.contains(self.roots.head, item);
-            }
-
-            fn contains(self: *const Self, head: ?NodeID, item: NodeID) BoundsError!bool {
-                var current = head;
-                var steps: usize = 0;
-                while (current) |current_item| : (steps += 1) {
-                    std.debug.assert(steps < self.capacity());
-                    if (current_item == item) return true;
-                    current = (try self.constLink(current_item)).next_sibling;
-                }
-                return false;
-            }
-
-            fn removeFromList(
-                self: *Self,
-                list: *SiblingList,
-                item: NodeID,
-                item_links: *Links,
-            ) RemoveError!void {
-                var previous: ?NodeID = null;
-                var current = list.head;
-                var steps: usize = 0;
-                while (current) |current_item| : (steps += 1) {
-                    std.debug.assert(steps < self.capacity());
-                    if (current_item == item) {
-                        const next = item_links.next_sibling;
-                        if (previous) |previous_item| {
-                            (try self.link(previous_item)).next_sibling = next;
-                        } else {
-                            list.head = next;
-                        }
-                        if (list.tail == item) list.tail = previous;
-                        return;
-                    }
-                    previous = current_item;
-                    current = (try self.link(current_item)).next_sibling;
-                }
-                return error.NotLinked;
-            }
-
-            fn assertInBounds(self: *const Self, item: NodeID) void {
-                std.debug.assert(indexOf(item) < self.capacity());
-            }
-
-            fn assertSiblingList(self: *const Self, list: SiblingList, expected_parent: ?NodeID) void {
-                if (list.head == null) {
-                    std.debug.assert(list.tail == null);
-                    return;
-                }
-
-                std.debug.assert(list.tail != null);
-
-                var current = list.head;
-                var last: ?NodeID = null;
-                var steps: usize = 0;
-                while (current) |item| : (steps += 1) {
-                    std.debug.assert(steps < self.capacity());
-
-                    self.assertInBounds(item);
-                    const item_links = self.constLink(item) catch unreachable;
-
-                    std.debug.assert(item_links.parent == expected_parent);
-
-                    last = item;
-                    current = item_links.next_sibling;
-                }
-
-                std.debug.assert(last == list.tail);
-
-                const tail_item = list.tail.?;
-                self.assertInBounds(tail_item);
-
-                std.debug.assert((self.constLink(tail_item) catch unreachable).next_sibling == null);
+                Impl.assertValid(Self, self);
             }
         };
     }
@@ -255,12 +111,7 @@ pub const Forest = struct {
             roots: SiblingList = .{},
             links: []Links,
 
-            const Self = @This();
-
-            pub const NodeID = enum(usize) {
-                _,
-            };
-
+            pub const NodeID = enum(usize) { _ };
             pub const SiblingList = struct {
                 head: ?NodeID = null,
                 tail: ?NodeID = null,
@@ -269,7 +120,7 @@ pub const Forest = struct {
             pub const Links = struct {
                 parent: ?NodeID = null,
                 children: SiblingList = .{},
-                next_sibling: ?NodeID = null,
+                sibling: ?NodeID = null,
             };
 
             pub const BoundsError = error{OutOfBounds};
@@ -277,8 +128,10 @@ pub const Forest = struct {
             pub const RemoveError = error{ OutOfBounds, NotLinked };
             pub const Error = BoundsError || AppendError || RemoveError;
 
+            const Self = @This();
+
             pub fn wrap(links: []Links) Self {
-                for (links) |*item_links| item_links.* = .{};
+                @memset(links, .{});
                 return .{ .links = links };
             }
 
@@ -291,7 +144,9 @@ pub const Forest = struct {
             }
 
             pub fn nodeId(self: *const Self, index: usize) BoundsError!NodeID {
-                if (index >= self.capacity()) return error.OutOfBounds;
+                if (index >= self.links.len) {
+                    return error.OutOfBounds;
+                }
                 return @enumFromInt(index);
             }
 
@@ -307,186 +162,41 @@ pub const Forest = struct {
                 return self.roots.tail;
             }
 
-            /// Faults: `error.OutOfBounds` if `item` is outside capacity; `error.AlreadyLinked` if `item` is already a root or child.
-            /// Effects: On error, this function does not change the forest.
             pub fn appendRoot(self: *Self, item: NodeID) AppendError!void {
-                const item_links = try self.link(item);
-                if (try self.isLinked(item, item_links)) return error.AlreadyLinked;
-
-                if (self.roots.tail) |tail| {
-                    (try self.link(tail)).next_sibling = item;
-                } else {
-                    self.roots.head = item;
-                }
-
-                self.roots.tail = item;
+                return Impl.appendRoot(Self, self, item);
             }
 
-            /// Faults: `error.OutOfBounds` if `parent_item` or `child_item` is outside capacity; `error.AlreadyLinked` if the items are equal or `child_item` is linked.
-            /// Effects: On error, this function does not change the forest.
             pub fn appendChild(self: *Self, parent_item: NodeID, child_item: NodeID) AppendError!void {
-                const parent_links = try self.link(parent_item);
-                const child_links = try self.link(child_item);
-
-                if (parent_item == child_item) return error.AlreadyLinked;
-                if (try self.isLinked(child_item, child_links)) return error.AlreadyLinked;
-
-                if (parent_links.children.tail) |tail| {
-                    (try self.link(tail)).next_sibling = child_item;
-                } else {
-                    parent_links.children.head = child_item;
-                }
-
-                parent_links.children.tail = child_item;
-                child_links.parent = parent_item;
+                return Impl.appendChild(Self, self, parent_item, child_item);
             }
 
-            /// Faults: `error.OutOfBounds` if `item` is outside capacity; `error.NotLinked` if `item` is not in its expected list.
-            /// Effects: On success, this function clears `item`'s parent and next-sibling links. Its descendants remain attached to `item`.
-            /// Cost: O(source-list length).
             pub fn remove(self: *Self, item: NodeID) RemoveError!void {
-                const item_links = try self.link(item);
-                if (item_links.parent) |parent_item| {
-                    const parent_links = try self.link(parent_item);
-                    try self.removeFromList(&parent_links.children, item, item_links);
-                } else {
-                    try self.removeFromList(&self.roots, item, item_links);
-                }
-
-                item_links.parent = null;
-                item_links.next_sibling = null;
+                return Impl.remove(Self, self, item);
             }
 
-            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn parent(self: *const Self, item: NodeID) BoundsError!?NodeID {
-                return (try self.constLink(item)).parent;
+                return (try Impl.link(Self, self, item)).parent;
             }
 
-            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn firstChild(self: *const Self, item: NodeID) BoundsError!?NodeID {
-                return (try self.constLink(item)).children.head;
+                return (try Impl.link(Self, self, item)).children.head;
             }
 
             pub fn lastChild(self: *const Self, item: NodeID) BoundsError!?NodeID {
-                return (try self.constLink(item)).children.tail;
+                return (try Impl.link(Self, self, item)).children.tail;
             }
 
-            /// Faults: `error.OutOfBounds` if `indexOf(item) >= capacity()`.
             pub fn nextSibling(self: *const Self, item: NodeID) BoundsError!?NodeID {
-                return (try self.constLink(item)).next_sibling;
+                return (try Impl.link(Self, self, item)).sibling;
             }
 
             pub fn clearRetainingCapacity(self: *Self) void {
                 self.roots = .{};
-                for (self.links) |*item_links| item_links.* = .{};
+                @memset(self.links, .{});
             }
 
             pub fn assertValid(self: *const Self) void {
-                self.assertSiblingList(self.roots, null);
-
-                for (self.links, 0..) |item_links, index| {
-                    const item: NodeID = @enumFromInt(index);
-                    if (item_links.parent) |parent_item| self.assertInBounds(parent_item);
-                    if (item_links.children.head) |child_item| self.assertInBounds(child_item);
-                    if (item_links.children.tail) |child_item| self.assertInBounds(child_item);
-                    if (item_links.next_sibling) |sibling_item| self.assertInBounds(sibling_item);
-                    self.assertSiblingList(item_links.children, item);
-                }
-            }
-
-            fn link(self: *Self, item: NodeID) BoundsError!*Links {
-                const index = indexOf(item);
-                if (index >= self.capacity()) return error.OutOfBounds;
-                return &self.links[index];
-            }
-
-            fn constLink(self: *const Self, item: NodeID) BoundsError!*const Links {
-                const index = indexOf(item);
-                if (index >= self.capacity()) return error.OutOfBounds;
-                return &self.links[index];
-            }
-
-            fn isLinked(self: *const Self, item: NodeID, item_links: *const Links) BoundsError!bool {
-                if (item_links.parent != null) return true;
-                if (item_links.next_sibling != null) return true;
-                return self.contains(self.roots.head, item);
-            }
-
-            fn contains(self: *const Self, head: ?NodeID, item: NodeID) BoundsError!bool {
-                var current = head;
-                var steps: usize = 0;
-                while (current) |current_item| : (steps += 1) {
-                    std.debug.assert(steps < self.capacity());
-                    if (current_item == item) return true;
-                    current = (try self.constLink(current_item)).next_sibling;
-                }
-                return false;
-            }
-
-            fn removeFromList(
-                self: *Self,
-                list: *SiblingList,
-                item: NodeID,
-                item_links: *Links,
-            ) RemoveError!void {
-                var previous: ?NodeID = null;
-                var current = list.head;
-                var steps: usize = 0;
-
-                while (current) |current_item| : (steps += 1) {
-                    std.debug.assert(steps < self.capacity());
-
-                    if (current_item == item) {
-                        const next = item_links.next_sibling;
-
-                        if (previous) |previous_item| {
-                            (try self.link(previous_item)).next_sibling = next;
-                        } else {
-                            list.head = next;
-                        }
-
-                        if (list.tail == item) list.tail = previous;
-                        return;
-                    }
-
-                    previous = current_item;
-                    current = (try self.link(current_item)).next_sibling;
-                }
-
-                return error.NotLinked;
-            }
-
-            fn assertInBounds(self: *const Self, item: NodeID) void {
-                std.debug.assert(indexOf(item) < self.capacity());
-            }
-
-            fn assertSiblingList(self: *const Self, list: SiblingList, expected_parent: ?NodeID) void {
-                if (list.head == null) {
-                    std.debug.assert(list.tail == null);
-                    return;
-                }
-
-                std.debug.assert(list.tail != null);
-
-                var current = list.head;
-                var last: ?NodeID = null;
-                var steps: usize = 0;
-
-                while (current) |item| : (steps += 1) {
-                    std.debug.assert(steps < self.capacity());
-                    self.assertInBounds(item);
-                    const item_links = self.constLink(item) catch unreachable;
-                    std.debug.assert(item_links.parent == expected_parent);
-                    last = item;
-                    current = item_links.next_sibling;
-                }
-
-                std.debug.assert(last == list.tail);
-
-                const tail_item = list.tail.?;
-                self.assertInBounds(tail_item);
-
-                std.debug.assert((self.constLink(tail_item) catch unreachable).next_sibling == null);
+                Impl.assertValid(Self, self);
             }
         };
     }
@@ -502,18 +212,17 @@ pub const Forest = struct {
         };
     };
 
-    pub fn Linked(comptime T: type, comptime node_field: []const u8) type {
+    pub fn Linked(comptime T: type, comptime field: []const u8) type {
         return struct {
             roots: RootList = .{},
 
-            const Self = @This();
-
             pub const Node = LinkedNode;
-
             pub const RootList = struct {
                 head: ?*T = null,
                 tail: ?*T = null,
             };
+
+            const Self = @This();
 
             pub fn init() Self {
                 return .{};
@@ -523,175 +232,535 @@ pub const Forest = struct {
                 return self.roots.head == null;
             }
 
-            pub fn firstRoot(self: *Self) ?*T {
+            pub fn firstRoot(self: *const Self) ?*const T {
                 return self.roots.head;
             }
 
-            pub fn constFirstRoot(self: *const Self) ?*const T {
+            pub fn firstRootMut(self: *Self) ?*T {
                 return self.roots.head;
             }
 
-            pub fn lastRoot(self: *Self) ?*T {
+            pub fn lastRoot(self: *const Self) ?*const T {
                 return self.roots.tail;
             }
 
-            pub fn constLastRoot(self: *const Self) ?*const T {
+            pub fn lastRootMut(self: *Self) ?*T {
                 return self.roots.tail;
             }
 
+            /// Item must be detached from any root or child list.
             pub fn appendRoot(self: *Self, item: *T) void {
                 assertDetached(item);
 
                 if (self.roots.tail) |tail| {
                     std.debug.assert(tail != item);
-                    node(tail).next_sibling = node(item);
+                    @field(tail.*, field).next_sibling = &@field(item.*, field);
                 } else {
                     self.roots.head = item;
                 }
-
                 self.roots.tail = item;
             }
 
+            /// Child must be detached and distinct from parent.
             pub fn appendChild(parent_item: *T, child_item: *T) void {
                 std.debug.assert(parent_item != child_item);
                 assertDetached(child_item);
 
-                const parent_node = node(parent_item);
-                const child_node = node(child_item);
+                const parent_node = &@field(parent_item.*, field);
+                const child_node = &@field(child_item.*, field);
                 if (parent_node.children.tail) |tail| {
                     std.debug.assert(tail != child_node);
                     tail.next_sibling = child_node;
                 } else {
                     parent_node.children.head = child_node;
                 }
-
                 parent_node.children.tail = child_node;
                 child_node.parent = parent_node;
             }
 
+            /// Item must be linked here. Descendants stay attached; removal scans siblings.
             pub fn remove(self: *Self, item: *T) void {
-                const item_node = node(item);
-                if (item_node.parent) |parent_node| {
-                    removeFromNodeList(&parent_node.children, item_node);
+                const node = &@field(item.*, field);
+                if (node.parent) |parent_node| {
+                    removeFromNodeList(&parent_node.children, node);
                 } else {
-                    removeFromRootList(&self.roots, item, item_node);
+                    removeFromRootList(&self.roots, item, node);
                 }
-
-                item_node.parent = null;
-                item_node.next_sibling = null;
+                node.parent = null;
+                node.next_sibling = null;
             }
 
-            pub fn parent(item: *T) ?*T {
-                const parent_node = node(item).parent orelse return null;
-                return itemFromNode(parent_node);
+            pub fn parent(item: *const T) ?*const T {
+                const node = @field(item.*, field).parent orelse return null;
+                return @as(*const T, @fieldParentPtr(field, node));
             }
 
-            pub fn constParent(item: *const T) ?*const T {
-                const parent_node = constNode(item).parent orelse return null;
-                return constItemFromNode(parent_node);
+            pub fn parentMut(item: *T) ?*T {
+                const node = @field(item.*, field).parent orelse return null;
+                return @as(*T, @fieldParentPtr(field, node));
             }
 
-            pub fn firstChild(item: *T) ?*T {
-                const child_node = node(item).children.head orelse return null;
-                return itemFromNode(child_node);
+            pub fn firstChild(item: *const T) ?*const T {
+                const node = @field(item.*, field).children.head orelse return null;
+                return @as(*const T, @fieldParentPtr(field, node));
             }
 
-            pub fn constFirstChild(item: *const T) ?*const T {
-                const child_node = constNode(item).children.head orelse return null;
-                return constItemFromNode(child_node);
+            pub fn firstChildMut(item: *T) ?*T {
+                const node = @field(item.*, field).children.head orelse return null;
+                return @as(*T, @fieldParentPtr(field, node));
             }
 
-            pub fn lastChild(item: *T) ?*T {
-                const child_node = node(item).children.tail orelse return null;
-                return itemFromNode(child_node);
+            pub fn lastChild(item: *const T) ?*const T {
+                const node = @field(item.*, field).children.tail orelse return null;
+                return @as(*const T, @fieldParentPtr(field, node));
             }
 
-            pub fn constLastChild(item: *const T) ?*const T {
-                const child_node = constNode(item).children.tail orelse return null;
-                return constItemFromNode(child_node);
+            pub fn lastChildMut(item: *T) ?*T {
+                const node = @field(item.*, field).children.tail orelse return null;
+                return @as(*T, @fieldParentPtr(field, node));
             }
 
-            pub fn nextSibling(item: *T) ?*T {
-                const sibling_node = node(item).next_sibling orelse return null;
-                return itemFromNode(sibling_node);
+            pub fn nextSibling(item: *const T) ?*const T {
+                const node = @field(item.*, field).next_sibling orelse return null;
+                return @as(*const T, @fieldParentPtr(field, node));
             }
 
-            pub fn constNextSibling(item: *const T) ?*const T {
-                const sibling_node = constNode(item).next_sibling orelse return null;
-                return constItemFromNode(sibling_node);
+            pub fn nextSiblingMut(item: *T) ?*T {
+                const node = @field(item.*, field).next_sibling orelse return null;
+                return @as(*T, @fieldParentPtr(field, node));
             }
 
-            fn removeFromNodeList(list: *LinkedNode.ChildList, item_node: *LinkedNode) void {
+            fn removeFromNodeList(list: *LinkedNode.ChildList, item: *LinkedNode) void {
                 var previous: ?*LinkedNode = null;
                 var current = list.head;
-
-                while (current) |candidate_node| {
-                    if (candidate_node == item_node) {
-                        const next = item_node.next_sibling;
-
-                        if (previous) |previous_node| {
-                            previous_node.next_sibling = next;
-                        } else {
-                            list.head = next;
-                        }
-
-                        if (list.tail == item_node) list.tail = previous;
-                        return;
-                    }
-
-                    previous = candidate_node;
-                    current = candidate_node.next_sibling;
-                }
-
-                unreachable;
-            }
-
-            fn removeFromRootList(list: *RootList, item: *T, item_node: *LinkedNode) void {
-                var previous: ?*T = null;
-                var current = list.head;
-
                 while (current) |candidate| {
                     if (candidate == item) {
-                        const next = if (item_node.next_sibling) |next_node| itemFromNode(next_node) else null;
-
-                        if (previous) |previous_item| {
-                            node(previous_item).next_sibling = item_node.next_sibling;
+                        if (previous) |prev| {
+                            prev.next_sibling = item.next_sibling;
                         } else {
-                            list.head = next;
+                            list.head = item.next_sibling;
                         }
-
-                        if (list.tail == item) list.tail = previous;
+                        if (list.tail == item) {
+                            list.tail = previous;
+                        }
                         return;
                     }
-
                     previous = candidate;
-                    current = nextSibling(candidate);
+                    current = candidate.next_sibling;
                 }
-
                 unreachable;
             }
 
-            fn node(item: *T) *LinkedNode {
-                return &@field(item.*, node_field);
-            }
-
-            fn constNode(item: *const T) *const LinkedNode {
-                return &@field(item.*, node_field);
-            }
-
-            fn itemFromNode(item_node: *LinkedNode) *T {
-                return @fieldParentPtr(node_field, item_node);
-            }
-
-            fn constItemFromNode(item_node: *const LinkedNode) *const T {
-                return @fieldParentPtr(node_field, item_node);
+            fn removeFromRootList(list: *RootList, item: *T, node: *LinkedNode) void {
+                var previous: ?*T = null;
+                var current = list.head;
+                while (current) |candidate| {
+                    if (candidate == item) {
+                        if (previous) |prev| {
+                            @field(prev.*, field).next_sibling = node.next_sibling;
+                        } else {
+                            list.head = if (node.next_sibling) |next|
+                                @as(*T, @fieldParentPtr(field, next))
+                            else
+                                null;
+                        }
+                        if (list.tail == item) {
+                            list.tail = previous;
+                        }
+                        return;
+                    }
+                    previous = candidate;
+                    const next = @field(candidate.*, field).next_sibling orelse break;
+                    current = @as(*T, @fieldParentPtr(field, next));
+                }
+                unreachable;
             }
 
             fn assertDetached(item: *T) void {
-                const item_node = node(item);
-                std.debug.assert(item_node.parent == null);
-                std.debug.assert(item_node.next_sibling == null);
+                const node = &@field(item.*, field);
+                std.debug.assert(node.parent == null);
+                std.debug.assert(node.next_sibling == null);
             }
         };
+    }
+};
+
+const Impl = struct {
+    fn appendRoot(comptime F: type, self: *F, item: F.NodeID) F.AppendError!void {
+        const links = try linkMut(F, self, item);
+        if (try isLinked(F, self, item, links)) {
+            return error.AlreadyLinked;
+        }
+
+        if (self.roots.tail) |tail| {
+            (try linkMut(F, self, tail)).sibling = item;
+        } else {
+            self.roots.head = item;
+        }
+        self.roots.tail = item;
+    }
+
+    fn appendChild(comptime F: type, self: *F, parent: F.NodeID, child: F.NodeID) F.AppendError!void {
+        const parent_links = try linkMut(F, self, parent);
+        const child_links = try linkMut(F, self, child);
+        if (parent == child or try isLinked(F, self, child, child_links)) {
+            return error.AlreadyLinked;
+        }
+
+        if (parent_links.children.tail) |tail| {
+            (try linkMut(F, self, tail)).sibling = child;
+        } else {
+            parent_links.children.head = child;
+        }
+        parent_links.children.tail = child;
+        child_links.parent = parent;
+    }
+
+    fn remove(comptime F: type, self: *F, item: F.NodeID) F.RemoveError!void {
+        const links = try linkMut(F, self, item);
+        if (links.parent) |parent| {
+            const parent_links = try linkMut(F, self, parent);
+            try removeFromList(F, self, &parent_links.children, item, links);
+        } else {
+            try removeFromList(F, self, &self.roots, item, links);
+        }
+        links.parent = null;
+        links.sibling = null;
+    }
+
+    fn assertValid(comptime F: type, self: *const F) void {
+        assertSiblingList(F, self, self.roots, null);
+        for (self.links, 0..) |links, index| {
+            if (links.parent) |parent| {
+                std.debug.assert(@intFromEnum(parent) < self.links.len);
+            }
+            if (links.sibling) |next| {
+                std.debug.assert(@intFromEnum(next) < self.links.len);
+            }
+            assertSiblingList(F, self, links.children, @enumFromInt(index));
+        }
+    }
+
+    fn link(comptime F: type, self: *const F, item: F.NodeID) F.BoundsError!*const F.Links {
+        const index = @intFromEnum(item);
+        if (index >= self.links.len) {
+            return error.OutOfBounds;
+        }
+        return &self.links[index];
+    }
+
+    fn linkMut(comptime F: type, self: *F, item: F.NodeID) F.BoundsError!*F.Links {
+        const index = @intFromEnum(item);
+        if (index >= self.links.len) {
+            return error.OutOfBounds;
+        }
+        return &self.links[index];
+    }
+
+    fn isLinked(comptime F: type, self: *const F, item: F.NodeID, links: *const F.Links) F.BoundsError!bool {
+        if (links.parent != null or links.sibling != null) {
+            return true;
+        }
+        return contains(F, self, self.roots.head, item);
+    }
+
+    fn contains(comptime F: type, self: *const F, head: ?F.NodeID, item: F.NodeID) F.BoundsError!bool {
+        var current = head;
+        var steps: usize = 0;
+        while (current) |candidate| : (steps += 1) {
+            std.debug.assert(steps < self.links.len);
+            if (candidate == item) {
+                return true;
+            }
+            current = (try link(F, self, candidate)).sibling;
+        }
+        return false;
+    }
+
+    fn removeFromList(
+        comptime F: type,
+        self: *F,
+        list: *F.SiblingList,
+        item: F.NodeID,
+        links: *F.Links,
+    ) F.RemoveError!void {
+        var previous: ?F.NodeID = null;
+        var current = list.head;
+        var steps: usize = 0;
+
+        while (current) |candidate| : (steps += 1) {
+            std.debug.assert(steps < self.links.len);
+
+            if (candidate == item) {
+                if (previous) |prev| {
+                    self.links[@intFromEnum(prev)].sibling = links.sibling;
+                } else {
+                    list.head = links.sibling;
+                }
+
+                if (list.tail == item) {
+                    list.tail = previous;
+                }
+
+                return;
+            }
+
+            const candidate_links = try linkMut(F, self, candidate);
+            previous = candidate;
+            current = candidate_links.sibling;
+        }
+
+        return error.NotLinked;
+    }
+
+    fn assertSiblingList(comptime F: type, self: *const F, list: F.SiblingList, parent: ?F.NodeID) void {
+        if (list.head == null) {
+            std.debug.assert(list.tail == null);
+            return;
+        }
+
+        std.debug.assert(list.tail != null);
+
+        var current = list.head;
+        var last: ?F.NodeID = null;
+        var steps: usize = 0;
+
+        while (current) |item| : (steps += 1) {
+            std.debug.assert(steps < self.links.len);
+            const links = link(F, self, item) catch unreachable;
+            std.debug.assert(links.parent == parent);
+
+            last = item;
+            current = links.sibling;
+        }
+
+        std.debug.assert(last == list.tail);
+    }
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "unit: dense forest orders siblings and detaches leaves" {
+        const F = Forest.Static(4);
+        var forest = F.init();
+
+        const root = try forest.nodeId(0);
+        const other = try forest.nodeId(1);
+        const a = try forest.nodeId(2);
+        const b = try forest.nodeId(3);
+
+        try Impl.appendRoot(F, &forest, root);
+        try Impl.appendRoot(F, &forest, other);
+        try Impl.appendChild(F, &forest, root, a);
+        try Impl.appendChild(F, &forest, root, b);
+
+        try testing.expectEqual(F.SiblingList{ .head = root, .tail = other }, forest.roots);
+        try testing.expectEqual(@as(?F.NodeID, other), forest.links[0].sibling);
+        try testing.expectEqual(F.SiblingList{ .head = a, .tail = b }, forest.links[0].children);
+        try testing.expectEqual(@as(?F.NodeID, b), forest.links[2].sibling);
+        try testing.expectEqual(@as(?F.NodeID, root), forest.links[3].parent);
+        Impl.assertValid(F, &forest);
+
+        try Impl.remove(F, &forest, other);
+
+        try testing.expectEqual(F.SiblingList{ .head = root, .tail = root }, forest.roots);
+        try testing.expectEqual(@as(?F.NodeID, null), forest.links[0].sibling);
+        try testing.expectEqual(F.Links{}, forest.links[1]);
+        Impl.assertValid(F, &forest);
+
+        try Impl.remove(F, &forest, a);
+
+        try testing.expectEqual(F.SiblingList{ .head = b, .tail = b }, forest.links[0].children);
+        try testing.expectEqual(F.Links{}, forest.links[2]);
+        Impl.assertValid(F, &forest);
+    }
+
+    test "unit: dense forest detaches a subtree without clearing descendants" {
+        const F = Forest.Static(3);
+        var forest = F.init();
+
+        const root = try forest.nodeId(0);
+        const child = try forest.nodeId(1);
+        const grandchild = try forest.nodeId(2);
+
+        try Impl.appendRoot(F, &forest, root);
+        try Impl.appendChild(F, &forest, root, child);
+        try Impl.appendChild(F, &forest, child, grandchild);
+
+        try Impl.remove(F, &forest, child);
+
+        try testing.expectEqual(F.SiblingList{}, forest.links[0].children);
+        try testing.expectEqual(@as(?F.NodeID, null), forest.links[1].parent);
+        try testing.expectEqual(@as(?F.NodeID, null), forest.links[1].sibling);
+        try testing.expectEqual(F.SiblingList{ .head = grandchild, .tail = grandchild }, forest.links[1].children);
+        try testing.expectEqual(@as(?F.NodeID, child), forest.links[2].parent);
+
+        Impl.assertValid(F, &forest);
+    }
+
+    test "unit: dense forest rejects invalid operations without mutation" {
+        const F = Forest.Static(2);
+        var forest = F.init();
+
+        const root = try forest.nodeId(0);
+        const detached = try forest.nodeId(1);
+        const bad: F.NodeID = @enumFromInt(2);
+
+        try Impl.appendRoot(F, &forest, root);
+
+        const roots = forest.roots;
+        const links = forest.links;
+
+        try testing.expectError(error.AlreadyLinked, Impl.appendRoot(F, &forest, root));
+        try testing.expectError(error.AlreadyLinked, Impl.appendChild(F, &forest, root, root));
+        try testing.expectError(error.OutOfBounds, Impl.appendRoot(F, &forest, bad));
+        try testing.expectError(error.NotLinked, Impl.remove(F, &forest, detached));
+
+        try testing.expectEqual(roots, forest.roots);
+        try testing.expectEqualSlices(F.Links, &links, &forest.links);
+
+        Impl.assertValid(F, &forest);
+    }
+
+    test "unit: Forest.Static clears inline topology" {
+        const F = Forest.Static(2);
+        var forest = F.init();
+
+        const root = try forest.nodeId(0);
+        const child = try forest.nodeId(1);
+
+        try forest.appendRoot(root);
+        try forest.appendChild(root, child);
+
+        forest.clearRetainingCapacity();
+
+        try testing.expect(forest.isEmpty());
+        try testing.expectEqual(@as(?F.NodeID, null), forest.lastRoot());
+        try testing.expectEqual(@as(?F.NodeID, null), try forest.parent(child));
+        try testing.expectEqual(@as(?F.NodeID, null), try forest.firstChild(root));
+        try testing.expectEqual(@as(?F.NodeID, null), try forest.lastChild(root));
+
+        forest.assertValid();
+    }
+
+    test "unit: Forest.Bounded resets and updates borrowed links" {
+        const F = Forest.Bounded();
+        var links = [_]F.Links{
+            .{
+                .parent = @enumFromInt(0),
+                .children = .{ .head = @enumFromInt(1), .tail = @enumFromInt(1) },
+                .sibling = @enumFromInt(1),
+            },
+            .{ .parent = @enumFromInt(0) },
+        };
+
+        var forest = F.wrap(&links);
+
+        try testing.expect(forest.isEmpty());
+        try testing.expectEqual(F.Links{}, links[0]);
+        try testing.expectEqual(F.Links{}, links[1]);
+
+        const root = try forest.nodeId(0);
+        const child = try forest.nodeId(1);
+        try forest.appendRoot(root);
+        try forest.appendChild(root, child);
+
+        try testing.expectEqual(@as(?F.NodeID, root), links[1].parent);
+        try testing.expectEqual(F.SiblingList{ .head = child, .tail = child }, links[0].children);
+        forest.assertValid();
+    }
+
+    test "unit: Forest.Bounded accepts empty backing" {
+        const F = Forest.Bounded();
+        var forest = F.wrap(&.{});
+        const bad: F.NodeID = @enumFromInt(0);
+
+        try testing.expect(forest.isEmpty());
+        try testing.expectError(error.OutOfBounds, forest.nodeId(0));
+        try testing.expectError(error.OutOfBounds, forest.appendRoot(bad));
+        forest.assertValid();
+    }
+
+    const Item = struct {
+        value: u8,
+        node: Forest.LinkedNode = .{},
+        other_node: Forest.LinkedNode = .{},
+    };
+
+    test "unit: Forest.Linked orders and detaches children and subtrees" {
+        const F = Forest.Linked(Item, "node");
+        var forest = F.init();
+        var a = Item{ .value = 1 };
+        var b = Item{ .value = 2 };
+        var c = Item{ .value = 3 };
+        var d = Item{ .value = 4 };
+        forest.appendRoot(&a);
+        forest.appendRoot(&b);
+        F.appendChild(&a, &c);
+        F.appendChild(&a, &d);
+
+        try testing.expect(forest.firstRoot() == &a);
+        try testing.expect(forest.lastRoot() == &b);
+        try testing.expect(F.nextSibling(&a) == &b);
+        try testing.expect(F.firstChild(&a) == &c);
+        try testing.expect(F.lastChild(&a) == &d);
+        try testing.expect(F.nextSibling(&c) == &d);
+        try testing.expect(F.parent(&d) == &a);
+
+        forest.remove(&c);
+
+        try testing.expect(F.firstChild(&a) == &d);
+        try testing.expect(F.lastChild(&a) == &d);
+        try testing.expect(F.parent(&c) == null);
+        try testing.expect(F.nextSibling(&c) == null);
+
+        F.appendChild(&d, &c);
+        forest.remove(&d);
+
+        try testing.expect(F.firstChild(&a) == null);
+        try testing.expect(F.lastChild(&a) == null);
+        try testing.expect(F.parent(&d) == null);
+        try testing.expect(F.firstChild(&d) == &c);
+        try testing.expect(F.lastChild(&d) == &c);
+        try testing.expect(F.parent(&c) == &d);
+    }
+
+    test "unit: Forest.Linked custom field and mutable accessors" {
+        const F = Forest.Linked(Item, "other_node");
+
+        var forest = F.init();
+        var a = Item{ .value = 1 };
+        var b = Item{ .value = 2 };
+        var c = Item{ .value = 3 };
+        var d = Item{ .value = 4 };
+
+        forest.appendRoot(&a);
+        forest.appendRoot(&b);
+        F.appendChild(&a, &c);
+        F.appendChild(&a, &d);
+
+        const view: *const F = &forest;
+        const const_a: *const Item = &a;
+        const const_c: *const Item = &c;
+
+        forest.firstRootMut().?.value += 10;
+        forest.lastRootMut().?.value += 20;
+        F.parentMut(&d).?.value += 100;
+        F.firstChildMut(&a).?.value += 30;
+        F.lastChildMut(&a).?.value += 40;
+        F.nextSiblingMut(&c).?.value += 100;
+
+        try testing.expectEqual(@as(u8, 111), a.value);
+        try testing.expectEqual(@as(u8, 22), b.value);
+        try testing.expectEqual(@as(u8, 33), c.value);
+        try testing.expectEqual(@as(u8, 144), d.value);
+        try testing.expect(view.firstRoot() == const_a);
+        try testing.expect(view.lastRoot() == &b);
+        try testing.expect(F.firstChild(const_a) == const_c);
+        try testing.expect(F.lastChild(const_a) == &d);
+        try testing.expect(F.nextSibling(const_c) == &d);
+        try testing.expect(F.parent(&d) == const_a);
+        try testing.expectEqual(Forest.LinkedNode{}, c.node);
     }
 };
