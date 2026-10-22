@@ -45,7 +45,7 @@ pub fn until(
                     std.debug.assert(bo.policy.yield != null);
                 }
 
-                bo.policy.yield.?();
+                bo.policy.yield.?.hook();
             },
             .sleep => |d| clock.sleep(d),
             .timeout => return error.Timeout,

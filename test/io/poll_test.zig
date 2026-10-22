@@ -1,7 +1,6 @@
 //! Poll-until composition tests. See `docs/specs/io/poll.md`.
 
 const std = @import("std");
-const builtin = @import("builtin");
 
 const stdx = @import("stdx");
 
@@ -16,7 +15,7 @@ const PollReturnType = poll.PollReturnType;
 
 /// Deterministic clock that records sleeps and advances by their durations.
 const FakeClock = struct {
-    current: Instant = Instant.zero(),
+    current: Instant = Instant.zero,
     sleeps_buf: [64]Duration = undefined,
     sleeps_len: usize = 0,
 
@@ -48,21 +47,22 @@ const FakeClock = struct {
     }
 };
 
-/// Yield-hook call count; `Backoff.Policy.yield` cannot capture state.
+/// Yield-hook call count; `Backoff.Yield.hook` cannot capture state.
 var yield_calls: usize = 0;
 
 fn testYieldHook() void {
     yield_calls += 1;
 }
 
-fn samplePolicy(spin: u32, yield_iters: u32, yield_fn: ?*const fn () void) Backoff.Policy {
+fn samplePolicy(spin: u32) Backoff.Policy {
     return .{
-        .spin_iterations = spin,
-        .yield_iterations = yield_iters,
-        .yield = yield_fn,
-        .initial_wait = Duration.fromNanos(1),
-        .max_wait = Duration.fromNanos(1_000_000),
-        .growth_shift = 0,
+        .spin = .{ .iterations = spin },
+        .yield = null,
+        .wait = .{
+            .initial = Duration.fromNanos(1),
+            .max = Duration.fromNanos(1_000_000),
+            .growth_shift = 0,
+        },
     };
 }
 
@@ -135,7 +135,7 @@ fn bareNever() error{}!?u32 {
 
 test "unit: immediate success returns payload without touching backoff or clock" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(4, 0, null));
+    var backoff = Backoff.init(samplePolicy(4));
     var pred: PayloadOn = .{ .target = 1, .value = 42 };
 
     const result = try poll.until(&clock, Deadline.never, &backoff, &pred);
@@ -147,7 +147,7 @@ test "unit: immediate success returns payload without touching backoff or clock"
 
 test "unit: late success after N nulls returns payload; attempts equals N" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(8, 0, null));
+    var backoff = Backoff.init(samplePolicy(8));
     var pred: PayloadOn = .{ .target = 5, .value = 99 };
 
     const result = try poll.until(&clock, Deadline.never, &backoff, &pred);
@@ -158,10 +158,10 @@ test "unit: late success after N nulls returns payload; attempts equals N" {
 
 test "unit: timeout when predicate never returns payload before deadline" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(0, 0, null));
+    var backoff = Backoff.init(samplePolicy(0));
     var pred: NeverFires = .{};
     // A 5 ns deadline yields four 1 ns sleeps before timeout.
-    const dl = Deadline.at(Instant.fromNanos(5));
+    const dl = Deadline.from(Instant.fromNanos(5));
 
     const result = poll.until(&clock, dl, &backoff, &pred);
     try testing.expectError(error.Timeout, result);
@@ -170,10 +170,10 @@ test "unit: timeout when predicate never returns payload before deadline" {
 
 test "unit: progress rule: expired deadline still runs predicate once" {
     var clock = FakeClock.init(1_000);
-    var backoff = Backoff.init(samplePolicy(0, 0, null));
+    var backoff = Backoff.init(samplePolicy(0));
     var pred: PayloadOn = .{ .target = 1, .value = 5 };
 
-    const dl = Deadline.at(clock.now());
+    const dl = Deadline.from(clock.now());
     const result = try poll.until(&clock, dl, &backoff, &pred);
     try testing.expectEqual(@as(u32, 5), result);
     try testing.expectEqual(@as(usize, 1), pred.calls);
@@ -182,10 +182,10 @@ test "unit: progress rule: expired deadline still runs predicate once" {
 
 test "unit: progress rule: expired deadline, predicate returns null → Timeout" {
     var clock = FakeClock.init(1_000);
-    var backoff = Backoff.init(samplePolicy(0, 0, null));
+    var backoff = Backoff.init(samplePolicy(0));
     var pred: NeverFires = .{};
 
-    const dl = Deadline.at(clock.now());
+    const dl = Deadline.from(clock.now());
     const result = poll.until(&clock, dl, &backoff, &pred);
     try testing.expectError(error.Timeout, result);
     try testing.expectEqual(@as(usize, 1), pred.calls);
@@ -194,7 +194,7 @@ test "unit: progress rule: expired deadline, predicate returns null → Timeout"
 
 test "unit: predicate error propagates unwrapped" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(4, 0, null));
+    var backoff = Backoff.init(samplePolicy(4));
     var pred: FailsOn = .{ .fire_on = 3 };
 
     const result = poll.until(&clock, Deadline.never, &backoff, &pred);
@@ -206,7 +206,7 @@ test "unit: predicate error propagates unwrapped" {
 
 test "unit: caller cancellation via predicate error propagates unchanged" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(0, 0, null));
+    var backoff = Backoff.init(samplePolicy(0));
     var pred: CancelsOn = .{ .fire_on = 2 };
 
     const result = poll.until(&clock, Deadline.never, &backoff, &pred);
@@ -219,18 +219,19 @@ test "ordering: recorded step sequence follows predicate, spin, spin, yield, sle
 
     var clock = FakeClock.init(0);
     const p: Backoff.Policy = .{
-        .spin_iterations = 2,
-        .yield_iterations = 1,
-        .yield = &testYieldHook,
-        .initial_wait = Duration.fromNanos(3),
-        .max_wait = Duration.fromNanos(3),
-        .growth_shift = 0,
+        .spin = .{ .iterations = 2 },
+        .yield = .{ .iterations = 1, .hook = &testYieldHook },
+        .wait = .{
+            .initial = Duration.fromNanos(3),
+            .max = Duration.fromNanos(3),
+            .growth_shift = 0,
+        },
     };
     var backoff = Backoff.init(p);
     var pred: NeverFires = .{};
 
     // Avoid timeout before multiple sleep steps.
-    const dl = Deadline.at(Instant.fromNanos(1_000));
+    const dl = Deadline.from(Instant.fromNanos(1_000));
     _ = poll.until(&clock, dl, &backoff, &pred) catch {};
 
     // `growth_shift = 0` keeps every recorded sleep at 3 ns.
@@ -244,17 +245,18 @@ test "ordering: recorded step sequence follows predicate, spin, spin, yield, sle
     try testing.expect(pred.calls >= 1 + backoff.attempts());
 }
 
-test "unit: yield dispatch count matches yield_iterations before first sleep" {
+test "unit: yield hook runs for the configured phase before sleeping" {
     yield_calls = 0;
 
     var clock = FakeClock.init(0);
     const p: Backoff.Policy = .{
-        .spin_iterations = 0,
-        .yield_iterations = 4,
-        .yield = &testYieldHook,
-        .initial_wait = Duration.fromNanos(1_000_000_000),
-        .max_wait = Duration.fromNanos(1_000_000_000),
-        .growth_shift = 0,
+        .spin = .{ .iterations = 0 },
+        .yield = .{ .iterations = 4, .hook = &testYieldHook },
+        .wait = .{
+            .initial = Duration.fromNanos(1_000_000_000),
+            .max = Duration.fromNanos(1_000_000_000),
+            .growth_shift = 0,
+        },
     };
     var backoff = Backoff.init(p);
 
@@ -274,7 +276,7 @@ test "unit: yield dispatch count matches yield_iterations before first sleep" {
     };
 
     var probe: Probe = .{ .clock_ptr = &clock };
-    const dl = Deadline.at(Instant.fromNanos(1_500_000_000));
+    const dl = Deadline.from(Instant.fromNanos(1_500_000_000));
     _ = poll.until(&clock, dl, &backoff, &probe) catch {};
 
     try testing.expectEqual(@as(?usize, 4), probe.seen_first_sleep_yields);
@@ -284,17 +286,18 @@ test "unit: sleep dispatch fidelity records exact Backoff.next durations" {
     var clock = FakeClock.init(0);
     // `growth_shift = 1` doubles sleeps until they reach 32 ns.
     const p: Backoff.Policy = .{
-        .spin_iterations = 0,
-        .yield_iterations = 0,
+        .spin = .{ .iterations = 0 },
         .yield = null,
-        .initial_wait = Duration.fromNanos(4),
-        .max_wait = Duration.fromNanos(32),
-        .growth_shift = 1,
+        .wait = .{
+            .initial = Duration.fromNanos(4),
+            .max = Duration.fromNanos(32),
+            .growth_shift = 1,
+        },
     };
     var backoff = Backoff.init(p);
     var pred: NeverFires = .{};
 
-    const dl = Deadline.at(Instant.fromNanos(1_000_000));
+    const dl = Deadline.from(Instant.fromNanos(1_000_000));
     _ = poll.until(&clock, dl, &backoff, &pred) catch {};
 
     // The first five sleeps are 4, 8, 16, 32, and 32 ns.
@@ -308,7 +311,7 @@ test "unit: sleep dispatch fidelity records exact Backoff.next durations" {
 
 test "unit: method-object predicate (*Self receiver) composes" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(1, 0, null));
+    var backoff = Backoff.init(samplePolicy(1));
     var pred: PayloadOn = .{ .target = 1, .value = 11 };
 
     const got = try poll.until(&clock, Deadline.never, &backoff, &pred);
@@ -317,7 +320,7 @@ test "unit: method-object predicate (*Self receiver) composes" {
 
 test "unit: struct predicate with `self: @This()` receiver composes" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(1, 0, null));
+    var backoff = Backoff.init(samplePolicy(1));
     const pred: ByValuePayload = .{ .value = 21 };
 
     const got = try poll.until(&clock, Deadline.never, &backoff, pred);
@@ -326,7 +329,7 @@ test "unit: struct predicate with `self: @This()` receiver composes" {
 
 test "unit: struct predicate with `*const @This()` receiver composes" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(1, 0, null));
+    var backoff = Backoff.init(samplePolicy(1));
     const pred: ByConstPtrPayload = .{ .value = 31 };
 
     const got = try poll.until(&clock, Deadline.never, &backoff, &pred);
@@ -335,7 +338,7 @@ test "unit: struct predicate with `*const @This()` receiver composes" {
 
 test "unit: bare-function predicate value composes" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(1, 0, null));
+    var backoff = Backoff.init(samplePolicy(1));
 
     const got = try poll.until(&clock, Deadline.never, &backoff, bareOk);
     try testing.expectEqual(@as(u32, 7), got);
@@ -343,7 +346,7 @@ test "unit: bare-function predicate value composes" {
 
 test "unit: bare-function pointer predicate composes" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(1, 0, null));
+    var backoff = Backoff.init(samplePolicy(1));
     const pred_ptr: *const fn () error{}!?u32 = &bareOk;
 
     const got = try poll.until(&clock, Deadline.never, &backoff, pred_ptr);
@@ -352,9 +355,9 @@ test "unit: bare-function pointer predicate composes" {
 
 test "unit: bare-function predicate returns Timeout when it never fires" {
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(0, 0, null));
+    var backoff = Backoff.init(samplePolicy(0));
 
-    const dl = Deadline.at(Instant.fromNanos(2));
+    const dl = Deadline.from(Instant.fromNanos(2));
     const result = poll.until(&clock, dl, &backoff, bareNever);
     try testing.expectError(error.Timeout, result);
 }
@@ -393,7 +396,7 @@ test "unit: PollReturnType usable as an intermediate signature" {
         }
     };
     var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(1, 0, null));
+    var backoff = Backoff.init(samplePolicy(1));
     var pred: PayloadOn = .{ .target = 1, .value = 55 };
 
     const got = try Wrap.run(&clock, &backoff, &pred);
@@ -410,34 +413,4 @@ test "contract: PollReturnType compiles for every approved predicate shape" {
         _ = PollReturnType(*FailsOn); // non-empty predicate error set
         _ = PollReturnType(*CancelsOn); // caller cancellation error set
     }
-}
-
-test "contract: yield-null debug assertion compiles under Debug and never trips on a legal step" {
-    // A legal yield executes the debug assertion before invoking the hook.
-    if (builtin.mode != .Debug) return;
-
-    yield_calls = 0;
-    var clock = FakeClock.init(0);
-    const p: Backoff.Policy = .{
-        .spin_iterations = 0,
-        .yield_iterations = 3,
-        .yield = &testYieldHook,
-        .initial_wait = Duration.fromNanos(1),
-        .max_wait = Duration.fromNanos(1),
-        .growth_shift = 0,
-    };
-    var backoff = Backoff.init(p);
-    var pred: NeverFires = .{};
-
-    const dl = Deadline.at(Instant.fromNanos(1_000));
-    _ = poll.until(&clock, dl, &backoff, &pred) catch {};
-
-    try testing.expectEqual(@as(usize, 3), yield_calls);
-}
-
-test "contract: module compiles on the host architecture" {
-    var clock = FakeClock.init(0);
-    var backoff = Backoff.init(samplePolicy(1, 0, null));
-    var pred: PayloadOn = .{ .target = 1, .value = 1 };
-    _ = try poll.until(&clock, Deadline.never, &backoff, &pred);
 }

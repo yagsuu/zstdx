@@ -10,29 +10,36 @@ const Deadline = deadline.Deadline;
 const Duration = monotonic.Duration;
 const Instant = monotonic.Instant;
 
-/// Retry-delay state machine. The caller performs each returned action. This
-/// single-owner value type neither allocates nor sleeps; it reads time only
-/// through the supplied `Deadline`.
 pub const Backoff = struct {
     policy: Policy,
     attempt: u32,
     next_wait: Duration,
 
-    pub const Policy = struct {
-        spin_iterations: u32,
-        yield_iterations: u32,
-        yield: ?*const fn () void,
-        initial_wait: Duration,
-        max_wait: Duration,
+    pub const Spin = struct {
+        iterations: u32,
+    };
+
+    pub const Yield = struct {
+        iterations: u32,
+        hook: *const fn () void,
+    };
+
+    pub const Wait = struct {
+        initial: Duration,
+        max: Duration,
         growth_shift: u3,
 
-        /// Asserts `initial_wait >= 0`, `max_wait >= 0`, and
-        /// `initial_wait <= max_wait`. Runs unconditionally.
-        pub fn assertValid(self: Policy) void {
-            std.debug.assert(self.initial_wait.nanos() >= 0);
-            std.debug.assert(self.max_wait.nanos() >= 0);
-            std.debug.assert(self.initial_wait.nanos() <= self.max_wait.nanos());
+        pub fn assertValid(self: Wait) void {
+            std.debug.assert(self.initial.nanos() >= 0);
+            std.debug.assert(self.max.nanos() >= 0);
+            std.debug.assert(self.initial.nanos() <= self.max.nanos());
         }
+    };
+
+    pub const Policy = struct {
+        spin: Spin,
+        yield: ?Yield,
+        wait: Wait,
     };
 
     pub const Step = union(enum) {
@@ -42,125 +49,203 @@ pub const Backoff = struct {
         timeout,
     };
 
-    pub fn init(policy: Policy) Backoff {
-        if (debug.checksEnabled()) policy.assertValid();
+    const Self = @This();
+
+    pub fn init(policy: Policy) Self {
+        if (debug.checksEnabled()) {
+            policy.wait.assertValid();
+        }
 
         return .{
             .policy = policy,
             .attempt = 0,
-            .next_wait = policy.initial_wait,
+            .next_wait = policy.wait.initial,
         };
     }
 
-    pub fn reset(self: *Backoff) void {
+    pub fn reset(self: *Self) void {
         self.attempt = 0;
-        self.next_wait = self.policy.initial_wait;
+        self.next_wait = self.policy.wait.initial;
     }
 
-    /// `clock` must provide `pub fn now(*Self) Instant`; error unions are
-    /// rejected at compile time. An expired `dl` returns `.timeout` before
-    /// spin or yield. Sleep duration is limited to the remaining time.
-    /// `attempt` increments only for `.spin`, `.yield`, and `.sleep`.
-    pub fn next(self: *Backoff, dl: Deadline, clock: anytype) Step {
-        comptime requireClock(@TypeOf(clock));
+    /// An expired deadline returns `.timeout` without changing attempts or wait state.
+    /// Sleep duration is limited to the remaining time.
+    pub fn next(self: *Self, dl: Deadline, clock: anytype) Step {
+        if (dl.isExpired(clock)) {
+            return .timeout;
+        }
 
-        if (dl.expired(clock)) return .timeout;
-
-        if (self.attempt < self.policy.spin_iterations) {
+        if (self.attempt < self.policy.spin.iterations) {
             self.attempt += 1;
             return .spin;
         }
 
-        const yield_end = self.policy.spin_iterations + self.policy.yield_iterations;
-        if (self.policy.yield != null and self.attempt < yield_end) {
-            self.attempt += 1;
-            return .yield;
+        if (self.policy.yield) |*yield| {
+            const yield_end = self.policy.spin.iterations + yield.iterations;
+            if (self.attempt < yield_end) {
+                self.attempt += 1;
+                return .yield;
+            }
         }
 
-        return self.sleepStep(dl, clock);
-    }
-
-    fn sleepStep(self: *Backoff, dl: Deadline, clock: anytype) Step {
         const remaining_ns = dl.remaining(clock).nanos();
-        if (remaining_ns <= 0) return .timeout;
+        if (remaining_ns <= 0) {
+            return .timeout;
+        }
 
-        const wait_ns_i64 = @min(self.next_wait.nanos(), remaining_ns);
-        std.debug.assert(wait_ns_i64 >= 0);
+        const wait_ns = @min(self.next_wait.nanos(), remaining_ns);
+        std.debug.assert(wait_ns >= 0);
 
-        self.next_wait = growWait(self.next_wait, self.policy);
+        const grown = self.next_wait.nanos() <<| self.policy.wait.growth_shift;
+        self.next_wait = Duration.fromNanos(@min(grown, self.policy.wait.max.nanos()));
         self.attempt += 1;
-        return .{ .sleep = Duration.fromNanos(wait_ns_i64) };
+
+        return .{ .sleep = Duration.fromNanos(wait_ns) };
     }
 
-    pub fn attempts(self: *const Backoff) u32 {
+    pub fn attempts(self: *const Self) u32 {
         return self.attempt;
     }
 
-    pub fn assertValid(self: *const Backoff) void {
-        self.policy.assertValid();
+    pub fn assertValid(self: *const Self) void {
+        self.policy.wait.assertValid();
         std.debug.assert(self.next_wait.nanos() >= 0);
-        std.debug.assert(self.next_wait.nanos() <= self.policy.max_wait.nanos());
+        std.debug.assert(self.next_wait.nanos() <= self.policy.wait.max.nanos());
     }
 };
 
-/// Uses `i128` so shifting an `i64` by `growth_shift` cannot overflow before
-/// the result is clamped to `max_wait`.
-fn growWait(wait: Duration, policy: Backoff.Policy) Duration {
-    const shifted: i128 = @as(i128, wait.nanos()) << policy.growth_shift;
-    const ceiling: i128 = @as(i128, policy.max_wait.nanos());
-    const clamped: i64 = if (shifted > ceiling) @intCast(ceiling) else @intCast(shifted);
-    return Duration.fromNanos(clamped);
-}
+pub const unit = struct {
+    const testing = std.testing;
 
-fn requireClock(comptime C: type) void {
-    const T = switch (@typeInfo(C)) {
-        .pointer => |p| p.child,
-        else => C,
+    const FakeClock = struct {
+        current: Instant = Instant.fromNanos(0),
+
+        pub fn now(self: *@This()) Instant {
+            return self.current;
+        }
     };
 
-    if (!@hasDecl(T, "now")) {
-        @compileError(
-            "Backoff: clock type " ++ @typeName(C) ++
-                " is missing pub fn now(*Self) Instant",
-        );
+    var yield_calls: usize = 0;
+
+    fn yieldHook() void {
+        yield_calls += 1;
     }
 
-    const NowFn = @TypeOf(@field(T, "now"));
-    const info = switch (@typeInfo(NowFn)) {
-        .@"fn" => |f| f,
-        else => @compileError(
-            "Backoff: " ++ @typeName(T) ++ ".now must be a function",
-        ),
-    };
+    test "spin and yield phases lead to sleep and reset restarts them" {
+        yield_calls = 0;
 
-    if (info.params.len != 1) {
-        @compileError(
-            "Backoff: " ++ @typeName(T) ++
-                ".now must take exactly one argument (*Self)",
-        );
+        var bo = Backoff.init(.{
+            .spin = .{ .iterations = 2 },
+            .yield = .{ .iterations = 1, .hook = &yieldHook },
+            .wait = .{
+                .initial = Duration.fromNanos(100),
+                .max = Duration.fromNanos(400),
+                .growth_shift = 1,
+            },
+        });
+        var clock: FakeClock = .{};
+
+        try testing.expectEqual(Backoff.Step.spin, bo.next(Deadline.never, &clock));
+        try testing.expectEqual(Backoff.Step.spin, bo.next(Deadline.never, &clock));
+        try testing.expectEqual(Backoff.Step.yield, bo.next(Deadline.never, &clock));
+        try testing.expectEqual(Backoff.Step{ .sleep = Duration.fromNanos(100) }, bo.next(Deadline.never, &clock));
+        try testing.expectEqual(@as(u32, 4), bo.attempts());
+        try testing.expectEqual(@as(usize, 0), yield_calls);
+        bo.assertValid();
+
+        bo.reset();
+
+        try testing.expectEqual(@as(u32, 0), bo.attempts());
+        try testing.expectEqual(Duration.fromNanos(100), bo.next_wait);
+        try testing.expectEqual(Backoff.Step.spin, bo.next(Deadline.never, &clock));
+        bo.assertValid();
     }
 
-    const P0 = info.params[0].type orelse @compileError(
-        "Backoff: " ++ @typeName(T) ++ ".now must take (*Self), not anytype",
-    );
+    test "absent yield skips its phase and sleep growth stops at the bound" {
+        var bo = Backoff.init(.{
+            .spin = .{ .iterations = 1 },
+            .yield = null,
+            .wait = .{
+                .initial = Duration.fromNanos(100),
+                .max = Duration.fromNanos(400),
+                .growth_shift = 1,
+            },
+        });
+        var clock: FakeClock = .{};
 
-    if (P0 != *T) {
-        @compileError(
-            "Backoff: " ++ @typeName(T) ++
-                ".now must take *" ++ @typeName(T) ++
-                ", got " ++ @typeName(P0),
-        );
+        try testing.expectEqual(Backoff.Step.spin, bo.next(Deadline.never, &clock));
+        for ([_]i64{ 100, 200, 400, 400 }) |wait| {
+            try testing.expectEqual(
+                Backoff.Step{ .sleep = Duration.fromNanos(wait) },
+                bo.next(Deadline.never, &clock),
+            );
+            bo.assertValid();
+        }
+        try testing.expectEqual(@as(u32, 5), bo.attempts());
     }
 
-    const Ret = info.return_type orelse @compileError(
-        "Backoff: " ++ @typeName(T) ++ ".now must return Instant",
-    );
+    test "zero shift keeps waits constant and large growth saturates at the limit" {
+        var bo = Backoff.init(.{
+            .spin = .{ .iterations = 0 },
+            .yield = null,
+            .wait = .{
+                .initial = Duration.fromNanos(500),
+                .max = Duration.fromNanos(std.math.maxInt(i64)),
+                .growth_shift = 0,
+            },
+        });
+        var clock: FakeClock = .{};
 
-    if (Ret != Instant) {
-        @compileError(
-            "Backoff: " ++ @typeName(T) ++
-                ".now must return Instant, not an error union or anyerror; got " ++
-                @typeName(Ret),
-        );
+        for (0..3) |_| {
+            try testing.expectEqual(
+                Backoff.Step{ .sleep = Duration.fromNanos(500) },
+                bo.next(Deadline.never, &clock),
+            );
+            bo.assertValid();
+        }
+
+        bo.policy.wait.initial = Duration.fromNanos(std.math.maxInt(i64) / 4);
+        bo.policy.wait.growth_shift = 7;
+        bo.reset();
+        const first = bo.next(Deadline.never, &clock);
+        const second = bo.next(Deadline.never, &clock);
+
+        try testing.expectEqual(Backoff.Step{ .sleep = bo.policy.wait.initial }, first);
+        try testing.expectEqual(Backoff.Step{ .sleep = bo.policy.wait.max }, second);
+        bo.assertValid();
     }
-}
+
+    test "deadline clips sleep and timeout preserves attempts and wait state" {
+        var bo = Backoff.init(.{
+            .spin = .{ .iterations = 1 },
+            .yield = null,
+            .wait = .{
+                .initial = Duration.fromNanos(100),
+                .max = Duration.fromNanos(400),
+                .growth_shift = 1,
+            },
+        });
+        var clock: FakeClock = .{ .current = Instant.fromNanos(30) };
+        const dl = Deadline.from(Instant.fromNanos(30));
+
+        try testing.expectEqual(Backoff.Step.timeout, bo.next(dl, &clock));
+        try testing.expectEqual(@as(u32, 0), bo.attempts());
+        try testing.expectEqual(Duration.fromNanos(100), bo.next_wait);
+
+        clock.current = Instant.fromNanos(0);
+
+        try testing.expectEqual(Backoff.Step.spin, bo.next(dl, &clock));
+        try testing.expectEqual(Backoff.Step{ .sleep = Duration.fromNanos(30) }, bo.next(dl, &clock));
+        try testing.expectEqual(@as(u32, 2), bo.attempts());
+        try testing.expectEqual(Duration.fromNanos(200), bo.next_wait);
+        bo.assertValid();
+
+        clock.current = Instant.fromNanos(30);
+
+        try testing.expectEqual(Backoff.Step.timeout, bo.next(dl, &clock));
+        try testing.expectEqual(Backoff.Step.timeout, bo.next(dl, &clock));
+        try testing.expectEqual(@as(u32, 2), bo.attempts());
+        try testing.expectEqual(Duration.fromNanos(200), bo.next_wait);
+        bo.assertValid();
+    }
+};

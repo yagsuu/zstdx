@@ -81,6 +81,10 @@ pub fn addHostTests(
             continue;
         }
 
+        if (std.mem.eql(u8, category, "time")) {
+            addSuite(b, category_step, check_step, modules.time);
+        }
+
         const root = b.createModule(.{
             .root_source_file = b.path(b.fmt("test/{s}/all.zig", .{category})),
             .target = target,

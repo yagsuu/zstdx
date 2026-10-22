@@ -356,7 +356,7 @@ fn Common(comptime T: type, comptime Self: type) type {
             const index = heap[0];
             const dl = slots[index].deadline;
 
-            if (!now.afterOrEq(dl.instant())) return null;
+            if (!now.isAtOrAfter(dl.instant())) return null;
 
             return removeHeapPosition(self, 0);
         }

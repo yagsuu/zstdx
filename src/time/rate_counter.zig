@@ -7,38 +7,28 @@ const debug = @import("core").debug;
 const monotonic = @import("monotonic.zig");
 
 const Instant = monotonic.Instant;
+const ClockImpl = monotonic.Clock.Impl;
 
 const nanos_per_second: u128 = 1_000_000_000;
 
-/// Projects monotonic-clock readings into a fixed-rate, configurable-width
-/// integer counter. For widths below 64, it tracks wrap events. This
-/// single-owner value type neither allocates nor reads time except through the
-/// supplied clock's `now` method; concurrent callers serialize externally.
+/// Single-owner counter; callers serialize access.
 pub const RateCounter = struct {
     base: Instant,
     rate_hz: u64,
-    width_bits: u7,
-    last_wrap_count: u64,
+    width: u7,
+    wraps: u64,
 
-    /// Defines a `RateCounter`'s base, rate, and width. To change any of
-    /// these fields, construct a new `RateCounter`.
+    /// Changing base, rate, or width requires constructing a new counter.
     pub const Config = struct {
         base: Instant,
         rate_hz: u64,
-        width_bits: u7,
+        width: u7,
 
-        /// Asserts `rate_hz > 0` and `width_bits` in `1..=64`. Runs
-        /// unconditionally.
         pub fn assertValid(self: Config) void {
-            std.debug.assert(self.rate_hz > 0);
-            std.debug.assert(self.width_bits >= 1);
-            std.debug.assert(self.width_bits <= 64);
+            Impl.assertConfig(self.rate_hz, self.width);
         }
     };
 
-    /// For widths below 64, `sample` returns the projected counter value and
-    /// whether the unbounded tick count crossed a `1 << width_bits` boundary
-    /// since the previous sample.
     pub const Sample = struct {
         value: u64,
         wrapped: bool,
@@ -51,134 +41,195 @@ pub const RateCounter = struct {
     }
 
     pub fn init(config: Config) Self {
-        if (debug.checksEnabled()) config.assertValid();
+        if (debug.checksEnabled()) {
+            config.assertValid();
+        }
         return .{
             .base = config.base,
             .rate_hz = config.rate_hz,
-            .width_bits = config.width_bits,
-            .last_wrap_count = 0,
+            .width = config.width,
+            .wraps = 0,
         };
     }
 
     /// Re-anchors `base` to `clock.now()` and clears wrap state. The next
     /// `sample` reports `wrapped = false`; rate and width are preserved.
     pub fn reset(self: *Self, clock: anytype) void {
-        comptime requireClock(@TypeOf(clock));
+        comptime ClockImpl.requireClock(@TypeOf(clock), "RateCounter");
         self.base = clock.now();
-        self.last_wrap_count = 0;
+        self.wraps = 0;
     }
 
     pub fn peek(self: *const Self, clock: anytype) u64 {
-        comptime requireClock(@TypeOf(clock));
-        const p = project(self, clock.now());
-        return p.value;
+        comptime ClockImpl.requireClock(@TypeOf(clock), "RateCounter");
+        return Impl.project(self, clock.now()).value;
     }
 
     /// Advances wrap state. For widths below 64, `wrapped` is true exactly
-    /// when the unbounded tick count crossed a `1 << width_bits` boundary
+    /// when the unbounded tick count crossed a `1 << width` boundary
     /// since `init`, `reset`, or the previous `sample`.
     pub fn sample(self: *Self, clock: anytype) Sample {
-        comptime requireClock(@TypeOf(clock));
-        const p = project(self, clock.now());
-        const wrapped = p.wrap_count > self.last_wrap_count;
-        self.last_wrap_count = p.wrap_count;
+        comptime ClockImpl.requireClock(@TypeOf(clock), "RateCounter");
+        const p = Impl.project(self, clock.now());
+        const wrapped = p.wraps > self.wraps;
+        self.wraps = p.wraps;
         return .{ .value = p.value, .wrapped = wrapped };
     }
 
-    /// Asserts the embedded configuration invariants. Runs unconditionally.
     pub fn assertValid(self: *const Self) void {
-        const c: Config = .{
-            .base = self.base,
-            .rate_hz = self.rate_hz,
-            .width_bits = self.width_bits,
-        };
-        c.assertValid();
+        Impl.assertConfig(self.rate_hz, self.width);
     }
 };
 
 const Projection = struct {
     value: u64,
-    wrap_count: u64,
+    wraps: u64,
 };
 
-/// Keeps the `u128` intermediate isolated from the hot `RateCounter` type
-/// body.
-fn project(self: *const RateCounter, now: Instant) Projection {
-    if (debug.checksEnabled()) {
-        std.debug.assert(now.afterOrEq(self.base));
-    }
+const Impl = struct {
+    fn project(self: *const RateCounter, now: Instant) Projection {
+        if (debug.checksEnabled()) {
+            std.debug.assert(now.isAtOrAfter(self.base));
+        }
 
-    // Build-mode checks trap when `now < base`. Release builds clamp elapsed
-    // time to zero so the `u128` cast remains total outside that contract.
-    const elapsed_i64: i64 = now.since(self.base).nanos();
-    const elapsed_ns: u128 = if (elapsed_i64 < 0) 0 else @intCast(elapsed_i64);
-    const unbounded: u128 = @divFloor(elapsed_ns * @as(u128, self.rate_hz), nanos_per_second);
+        // Unchecked builds clamp readings before base to keep the cast total.
+        const elapsed = now.since(self.base).nanos();
+        const elapsed_ns: u128 = if (elapsed < 0) 0 else @intCast(elapsed);
+        const unbounded = @divFloor(elapsed_ns * @as(u128, self.rate_hz), nanos_per_second);
 
-    if (self.width_bits == 64) {
+        if (self.width == 64) {
+            return .{ .value = @truncate(unbounded), .wraps = 0 };
+        }
+
+        const mask = (@as(u128, 1) << self.width) - 1;
         return .{
-            .value = @truncate(unbounded),
-            .wrap_count = 0,
+            .value = @intCast(unbounded & mask),
+            .wraps = @intCast(unbounded >> self.width),
         };
     }
 
-    const width_shift: u7 = self.width_bits;
-    const mask: u128 = (@as(u128, 1) << width_shift) - 1;
-    const value_u128: u128 = unbounded & mask;
-    const wrap_u128: u128 = unbounded >> width_shift;
-
-    return .{
-        .value = @intCast(value_u128),
-        .wrap_count = @intCast(wrap_u128),
-    };
-}
-
-fn requireClock(comptime C: type) void {
-    const T = switch (@typeInfo(C)) {
-        .pointer => |p| p.child,
-        else => C,
-    };
-
-    if (!@hasDecl(T, "now")) {
-        @compileError(
-            "RateCounter: clock type " ++ @typeName(C) ++
-                " is missing pub fn now(*Self) Instant",
-        );
+    fn assertConfig(rate_hz: u64, width: u7) void {
+        std.debug.assert(rate_hz > 0);
+        std.debug.assert(width >= 1);
+        std.debug.assert(width <= 64);
     }
+};
 
-    const NowFn = @TypeOf(@field(T, "now"));
-    const info = switch (@typeInfo(NowFn)) {
-        .@"fn" => |f| f,
-        else => @compileError(
-            "RateCounter: " ++ @typeName(T) ++ ".now must be a function",
-        ),
+pub const unit = struct {
+    const testing = std.testing;
+
+    const FakeClock = struct {
+        current: Instant,
+
+        pub fn now(self: *@This()) Instant {
+            return self.current;
+        }
     };
 
-    if (info.params.len != 1) {
-        @compileError(
-            "RateCounter: " ++ @typeName(T) ++
-                ".now must take exactly one argument (*Self)",
-        );
+    test "projection floors ticks and crosses the width boundary" {
+        const counter = RateCounter.init(.{
+            .base = Instant.fromNanos(1_000),
+            .rate_hz = 100,
+            .width = 8,
+        });
+
+        const base = Impl.project(&counter, counter.base);
+        const fractional = Impl.project(&counter, Instant.fromNanos(10_000_999));
+        const before = Impl.project(&counter, Instant.fromNanos(2_550_001_000));
+        const boundary = Impl.project(&counter, Instant.fromNanos(2_560_001_000));
+        const after = Impl.project(&counter, Instant.fromNanos(2_570_001_000));
+
+        try testing.expectEqual(Projection{ .value = 0, .wraps = 0 }, base);
+        try testing.expectEqual(Projection{ .value = 0, .wraps = 0 }, fractional);
+        try testing.expectEqual(Projection{ .value = 255, .wraps = 0 }, before);
+        try testing.expectEqual(Projection{ .value = 0, .wraps = 1 }, boundary);
+        try testing.expectEqual(Projection{ .value = 1, .wraps = 1 }, after);
     }
 
-    const P0 = info.params[0].type orelse @compileError(
-        "RateCounter: " ++ @typeName(T) ++ ".now must take (*Self), not anytype",
-    );
-    if (P0 != *T) {
-        @compileError(
-            "RateCounter: " ++ @typeName(T) ++
-                ".now must take *" ++ @typeName(T) ++
-                ", got " ++ @typeName(P0),
-        );
+    test "projection masks PM ticks and preserves wide intermediates" {
+        const pm = RateCounter.init(.{
+            .base = Instant.zero,
+            .rate_hz = 3_579_545,
+            .width = 24,
+        });
+        const wide = RateCounter.init(.{
+            .base = Instant.zero,
+            .rate_hz = std.math.maxInt(u64),
+            .width = 64,
+        });
+
+        const masked = Impl.project(&pm, Instant.fromNanos(10_000_000_000));
+        const overflow = Impl.project(&wide, Instant.fromNanos(2_000_000_000));
+        const maximum = Impl.project(&wide, Instant.fromNanos(std.math.maxInt(i64)));
+
+        try testing.expectEqual(Projection{ .value = 2_241_018, .wraps = 2 }, masked);
+        try testing.expectEqual(Projection{ .value = std.math.maxInt(u64) - 1, .wraps = 0 }, overflow);
+        try testing.expectEqual(Projection{ .value = 15_767_830_542_904_177_429, .wraps = 0 }, maximum);
     }
 
-    const Ret = info.return_type orelse @compileError(
-        "RateCounter: " ++ @typeName(T) ++ ".now must return Instant",
-    );
-    if (Ret != Instant) {
-        @compileError(
-            "RateCounter: " ++ @typeName(T) ++
-                ".now must return Instant, not an error union or anyerror; got " ++
-                @typeName(Ret),
-        );
+    test "peek preserves pending wraps and sample consumes them" {
+        var counter = RateCounter.init(.{
+            .base = Instant.zero,
+            .rate_hz = 100,
+            .width = 8,
+        });
+        var clock: FakeClock = .{ .current = Instant.zero };
+
+        const initial = counter.sample(&clock);
+        clock.current = Instant.fromNanos(3_000_000_000);
+        const peeked = counter.peek(&clock);
+        const pending = counter.wraps;
+        const crossed = counter.sample(&clock);
+        clock.current = Instant.fromNanos(3_500_000_000);
+        const same_window = counter.sample(&clock);
+        clock.current = Instant.fromNanos(10_000_000_000);
+        const multiple = counter.sample(&clock);
+        const consumed = counter.sample(&clock);
+
+        try testing.expectEqual(RateCounter.Sample{ .value = 0, .wrapped = false }, initial);
+        try testing.expectEqual(@as(u64, 44), peeked);
+        try testing.expectEqual(@as(u64, 0), pending);
+        try testing.expectEqual(RateCounter.Sample{ .value = 44, .wrapped = true }, crossed);
+        try testing.expectEqual(RateCounter.Sample{ .value = 94, .wrapped = false }, same_window);
+        try testing.expectEqual(RateCounter.Sample{ .value = 232, .wrapped = true }, multiple);
+        try testing.expectEqual(RateCounter.Sample{ .value = 232, .wrapped = false }, consumed);
+        try testing.expectEqual(@as(u64, 3), counter.wraps);
     }
-}
+
+    test "reset clears consumed wraps and preserves projection geometry" {
+        var counter = RateCounter.init(.{
+            .base = Instant.zero,
+            .rate_hz = 100,
+            .width = 8,
+        });
+        var clock: FakeClock = .{ .current = Instant.fromNanos(3_000_000_000) };
+
+        const before = counter.sample(&clock);
+        counter.reset(&clock);
+        const reset_wraps = counter.wraps;
+        const reset_base = counter.base;
+        const initial = counter.sample(&clock);
+        clock.current = Instant.fromNanos(5_560_000_000);
+        const boundary = counter.sample(&clock);
+
+        try testing.expect(before.wrapped);
+        try testing.expectEqual(@as(u64, 0), reset_wraps);
+        try testing.expectEqual(Instant.fromNanos(3_000_000_000), reset_base);
+        try testing.expectEqual(RateCounter.Sample{ .value = 0, .wrapped = false }, initial);
+        try testing.expectEqual(RateCounter.Sample{ .value = 0, .wrapped = true }, boundary);
+    }
+
+    test "64-bit samples never report wraps" {
+        var counter = RateCounter.init(.{
+            .base = Instant.zero,
+            .rate_hz = std.math.maxInt(u64),
+            .width = 64,
+        });
+        var clock: FakeClock = .{ .current = Instant.fromNanos(std.math.maxInt(i64)) };
+
+        const sample = counter.sample(&clock);
+
+        try testing.expect(!sample.wrapped);
+        try testing.expectEqual(@as(u64, 0), counter.wraps);
+    }
+};

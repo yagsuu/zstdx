@@ -13,7 +13,7 @@ fn instant(ns_value: u64) Instant {
 }
 
 fn deadline(ns_value: u64) Deadline {
-    return Deadline.at(instant(ns_value));
+    return Deadline.from(instant(ns_value));
 }
 
 fn deadlineKey(deadline_value: Deadline) u64 {

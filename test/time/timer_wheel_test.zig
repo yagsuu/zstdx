@@ -19,7 +19,7 @@ fn instant(ns: u64) Instant {
 }
 
 fn deadline(ns: u64) Deadline {
-    return Deadline.at(instant(ns));
+    return Deadline.from(instant(ns));
 }
 
 fn TestWheel(comptime T: type, comptime capacity: usize) type {

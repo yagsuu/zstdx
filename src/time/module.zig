@@ -15,3 +15,10 @@ pub const Backoff = backoff.Backoff;
 pub const RateCounter = rate_counter.RateCounter;
 pub const DeadlineQueue = deadline_queue.DeadlineQueue;
 pub const TimerWheel = timer_wheel.TimerWheel;
+
+test {
+    _ = monotonic.unit;
+    _ = deadline.unit;
+    _ = backoff.unit;
+    _ = rate_counter.unit;
+}
