@@ -1,28 +1,21 @@
-//! Inline-state constructor for `Callback`. See `docs/specs/func/callback.md`.
+//! callbacks with inline state
 
 const std = @import("std");
 
 const callback = @import("callback.zig");
-const validate = @import("validate.zig");
 
+const Impl = @import("impl.zig");
 const Callback = callback.Callback;
 
 const alignUp = @import("layout").alignment.alignUp;
 
-/// A small-buffer closure with signature `Fn`. It holds `capacity_bytes` of
-/// inline caller state aligned to `@alignOf(usize)` and one thunk pointer.
-/// `init` bit-copies the state into storage. The resulting closure is trivially
-/// copyable only when the state is trivially copyable.
-///
-/// A callback from `callback()` borrows the closure storage. Moving or copying
-/// the `Closure` invalidates previously returned callbacks. A callback that
-/// outlives its owning `Closure` violates the caller contract. The primitive
-/// does not detect this violation.
+/// referenced resources remain caller-managed
+/// keep the closure alive and at a fixed address while callbacks borrow its state
 pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
     const CB = Callback(Fn);
 
     return struct {
-        storage: [capacity_bytes]u8 align(alignment),
+        bytes: [capacity_bytes]u8 align(alignment),
         invoke: *const CB.Invoke,
 
         pub const Signature: type = Fn;
@@ -32,13 +25,10 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
 
         const Self = @This();
 
-        /// Bit-copy `state` into inline storage and store a thunk that casts the
-        /// storage to `*State` before it calls `fn_ptr`. This compile-errors when
-        /// `@sizeOf(State) > capacity` or `@alignOf(State) > alignment`.
         pub fn init(
             comptime State: type,
             state: State,
-            comptime fn_ptr: anytype,
+            comptime function: anytype,
         ) Self {
             if (@sizeOf(State) > capacity_bytes) {
                 @compileError(std.fmt.comptimePrint(
@@ -54,33 +44,20 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
                 ));
             }
 
-            comptime validate.bound(Fn, State, @TypeOf(fn_ptr), "Closure.init");
-
-            const Args = CB.Args;
-            const Return = CB.Return;
-
-            const Thunk = struct {
-                fn invoke(erased: ?*anyopaque, args: Args) Return {
-                    const typed: *State = @ptrCast(@alignCast(erased.?));
-                    return @call(.auto, fn_ptr, .{typed} ++ args);
-                }
-            };
-
+            const Thunk = Impl.Thunk(CB, State, function, "Closure.init");
             var self: Self = .{
-                .storage = undefined,
+                .bytes = undefined,
                 .invoke = &Thunk.invoke,
             };
 
-            const dst: *State = @ptrCast(@alignCast(&self.storage));
+            const dst: *State = @ptrCast(@alignCast(&self.bytes));
             dst.* = state;
             return self;
         }
 
-        /// Returns a `Callback(Fn)` that borrows this closure's storage. Keep the
-        /// closure at a stable address until the returned callback is no longer used.
-        pub fn callback(self: *Self) CB {
+        pub fn callbackMut(self: *Self) CB {
             return .{
-                .context = @ptrCast(&self.storage),
+                .context = @ptrCast(&self.bytes),
                 .invoke = self.invoke,
             };
         }
@@ -91,3 +68,36 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
         }
     };
 }
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "borrowed callbacks share owned state without aliasing the seed" {
+        const State = struct {
+            value: usize,
+
+            pub fn add(self: *@This(), amount: usize) usize {
+                self.value += amount;
+                return self.value;
+            }
+        };
+
+        const C = Closure(fn (usize) usize, @sizeOf(State));
+
+        var seed: State = .{ .value = 4 };
+        var owner = C.init(State, seed, &State.add);
+
+        const borrowed = owner.callbackMut();
+        const other_view = owner.callbackMut();
+
+        seed.value = 100;
+
+        const first = borrowed.call(3);
+        const second = other_view.call(2);
+        const resumed = borrowed.call(1);
+
+        try testing.expectEqual(@as(usize, 7), first);
+        try testing.expectEqual(@as(usize, 9), second);
+        try testing.expectEqual(@as(usize, 10), resumed);
+    }
+};

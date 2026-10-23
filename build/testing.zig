@@ -81,6 +81,11 @@ pub fn addHostTests(
             continue;
         }
 
+        if (std.mem.eql(u8, category, "func")) {
+            addSuite(b, category_step, check_step, modules.func);
+            continue;
+        }
+
         if (std.mem.eql(u8, category, "time")) {
             addSuite(b, category_step, check_step, modules.time);
         }
