@@ -7,7 +7,6 @@ const stdx = @import("stdx");
 
 const PerCPU = stdx.cpu.PerCPU;
 const CachePad = stdx.layout.CachePad;
-const AtomicCell = stdx.sync.AtomicCell;
 
 const cache_line = std.atomic.cache_line;
 const testing = std.testing;
@@ -414,8 +413,8 @@ test "model: N threads incrementing distinct slots sum to N * iterations" {
     try testing.expectEqual(@as(u64, thread_count) * iterations, sum);
 }
 
-const AtomicU64 = AtomicCell(u64);
-const AtomicBool = AtomicCell(bool);
+const AtomicU64 = std.atomic.Value(u64);
+const AtomicBool = std.atomic.Value(bool);
 
 const AtomicProducerCtx = struct {
     perc: *PerCPU.Static(AtomicU64, thread_count),
@@ -427,7 +426,7 @@ const AtomicProducerCtx = struct {
     fn run(self: AtomicProducerCtx) void {
         var i: u64 = 0;
         while (i < self.iterations) : (i += 1) {
-            _ = self.perc.getPtr(self.id).fetchAddMonotonic(1);
+            _ = self.perc.getPtr(self.id).fetchAdd(1, .monotonic);
         }
     }
 };
@@ -436,7 +435,7 @@ fn initAtomicCounter(_: usize) AtomicU64 {
     return AtomicU64.init(0);
 }
 
-test "model: N producers on per-CPU AtomicCell slots, reader sees final total" {
+test "model: N producers on per-CPU atomic slots, reader sees final total" {
     const thread_count = AtomicProducerCtx.thread_count;
     const iterations: u64 = 5000;
 
@@ -456,14 +455,14 @@ test "model: N producers on per-CPU AtomicCell slots, reader sees final total" {
     while (idx < thread_count) : (idx += 1) {
         threads[idx].join();
     }
-    done.storeRelease(true);
+    done.store(true, .release);
 
     // Reader observes completion via the release/acquire flag before summing.
-    try testing.expect(done.loadAcquire());
+    try testing.expect(done.load(.acquire));
     var sum: u64 = 0;
     idx = 0;
     while (idx < thread_count) : (idx += 1) {
-        sum += perc.getPtr(idx).loadAcquire();
+        sum += perc.getPtr(idx).load(.acquire);
     }
     try testing.expectEqual(@as(u64, thread_count) * iterations, sum);
 }

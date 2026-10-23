@@ -7,7 +7,7 @@ const stdx = @import("stdx");
 
 const testing = std.testing;
 const sync = stdx.sync;
-const AtomicCell = sync.AtomicCell;
+const Atomic = std.atomic.Value;
 const State = sync.once.State;
 const Token = sync.once.Token;
 const SpinOnce = sync.Once(sync.spin.Backend);
@@ -92,21 +92,21 @@ test "unit: single-thread call invokes work exactly once across sequential calle
 
 test "unit: call publishes work writes observable after return" {
     const Payload = struct {
-        value: AtomicCell(u64),
+        value: Atomic(u64),
     };
     const Ctx = struct { payload: *Payload };
 
-    var payload = Payload{ .value = AtomicCell(u64).init(0) };
+    var payload = Payload{ .value = Atomic(u64).init(0) };
     var once = SpinOnce.init(.{});
 
     const work = struct {
         fn run(ctx: Ctx) void {
-            ctx.payload.value.storeRelease(0xdead_beef);
+            ctx.payload.value.store(0xdead_beef, .release);
         }
     }.run;
 
     try once.call(Ctx, work, .{ .payload = &payload });
-    try testing.expectEqual(@as(u64, 0xdead_beef), payload.value.loadAcquire());
+    try testing.expectEqual(@as(u64, 0xdead_beef), payload.value.load(.acquire));
 }
 
 test "unit: Once.isDone reflects state transitions" {
@@ -126,13 +126,13 @@ test "unit: WaitError propagates unchanged to losing callers" {
 
     const Once = sync.Once(FailingBackend);
     const Gate = struct {
-        started: AtomicCell(bool),
-        release: AtomicCell(bool),
+        started: Atomic(bool),
+        release: Atomic(bool),
     };
     const Winner = struct {
         fn run(gate: *Gate) void {
-            gate.started.storeRelease(true);
-            while (!gate.release.loadAcquire()) {
+            gate.started.store(true, .release);
+            while (!gate.release.load(.acquire)) {
                 std.atomic.spinLoopHint();
             }
         }
@@ -149,17 +149,17 @@ test "unit: WaitError propagates unchanged to losing callers" {
     }.run;
 
     var gate = Gate{
-        .started = AtomicCell(bool).init(false),
-        .release = AtomicCell(bool).init(false),
+        .started = Atomic(bool).init(false),
+        .release = Atomic(bool).init(false),
     };
     var once = Once.init(.{ .fail_remaining = std.math.maxInt(usize) });
     var winner = try std.Thread.spawn(.{}, Runner.run, .{ &once, &gate });
     defer {
-        gate.release.storeRelease(true);
+        gate.release.store(true, .release);
         winner.join();
     }
 
-    while (!gate.started.loadAcquire()) {
+    while (!gate.started.load(.acquire)) {
         std.atomic.spinLoopHint();
     }
 
@@ -256,8 +256,8 @@ test "stress: N threads race on the same Once observe exactly one work invocatio
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Payload = struct {
-        counter: AtomicCell(u32),
-        flag: AtomicCell(u32),
+        counter: Atomic(u32),
+        flag: Atomic(u32),
     };
     const Ctx = struct {
         once: *SpinOnce,
@@ -267,24 +267,24 @@ test "stress: N threads race on the same Once observe exactly one work invocatio
             const work = struct {
                 fn go(p: *Payload) void {
                     // Publish `counter` before `flag` to test release/acquire visibility.
-                    _ = p.counter.fetchAddMonotonic(1);
-                    p.flag.storeRelease(1);
+                    _ = p.counter.fetchAdd(1, .monotonic);
+                    p.flag.store(1, .release);
                 }
             }.go;
 
             ctx.once.call(*Payload, work, ctx.payload) catch unreachable;
 
             // Every returned caller observes the published pair.
-            std.debug.assert(ctx.payload.flag.loadAcquire() == 1);
-            std.debug.assert(ctx.payload.counter.loadAcquire() == 1);
+            std.debug.assert(ctx.payload.flag.load(.acquire) == 1);
+            std.debug.assert(ctx.payload.counter.load(.acquire) == 1);
         }
     };
 
     const thread_count: usize = 8;
 
     var payload = Payload{
-        .counter = AtomicCell(u32).init(0),
-        .flag = AtomicCell(u32).init(0),
+        .counter = Atomic(u32).init(0),
+        .flag = Atomic(u32).init(0),
     };
     var once = SpinOnce.init(.{});
 
@@ -300,7 +300,7 @@ test "stress: N threads race on the same Once observe exactly one work invocatio
         threads[idx].join();
     }
 
-    try testing.expectEqual(@as(u32, 1), payload.counter.loadAcquire());
+    try testing.expectEqual(@as(u32, 1), payload.counter.load(.acquire));
     try testing.expect(once.isDone());
 }
 
@@ -309,8 +309,8 @@ test "stress: callChecked rollback releases waiters that re-race the claim" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Payload = struct {
-        succeed: AtomicCell(u32),
-        successes: AtomicCell(u32),
+        succeed: Atomic(u32),
+        successes: Atomic(u32),
     };
     const Ctx = struct {
         once: *SpinOnce,
@@ -319,11 +319,11 @@ test "stress: callChecked rollback releases waiters that re-race the claim" {
         fn run(ctx: @This()) void {
             const work = struct {
                 fn go(p: *Payload) error{TransientFailure}!void {
-                    if (p.succeed.loadAcquire() == 0) {
-                        p.succeed.storeRelease(1);
+                    if (p.succeed.load(.acquire) == 0) {
+                        p.succeed.store(1, .release);
                         return error.TransientFailure;
                     }
-                    _ = p.successes.fetchAddMonotonic(1);
+                    _ = p.successes.fetchAdd(1, .monotonic);
                 }
             }.go;
 
@@ -334,8 +334,8 @@ test "stress: callChecked rollback releases waiters that re-race the claim" {
     const thread_count: usize = 8;
 
     var payload = Payload{
-        .succeed = AtomicCell(u32).init(0),
-        .successes = AtomicCell(u32).init(0),
+        .succeed = Atomic(u32).init(0),
+        .successes = Atomic(u32).init(0),
     };
     var once = SpinOnce.init(.{});
 
@@ -352,7 +352,7 @@ test "stress: callChecked rollback releases waiters that re-race the claim" {
     }
 
     try testing.expect(once.isDone());
-    try testing.expectEqual(@as(u32, 1), payload.successes.loadAcquire());
+    try testing.expectEqual(@as(u32, 1), payload.successes.load(.acquire));
 }
 
 // Recursion traps and backend compile failures require test-harness support

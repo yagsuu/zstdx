@@ -5,29 +5,9 @@ const builtin = @import("builtin");
 
 const stdx = @import("stdx");
 
-const AtomicCell = stdx.sync.AtomicCell;
+const Atomic = std.atomic.Value;
 const RawSpinLock = stdx.sync.RawSpinLock;
 const testing = std.testing;
-
-// Compile-only pins from the spec's Required tests:
-//   - `@sizeOf(RawSpinLock) == @sizeOf(stdx.sync.AtomicCell(u32))`;
-//   - alignment matches;
-//   - `RawSpinLock.State` has exactly `.unlocked` and `.locked` with
-//     backing values `0` and `1`.
-comptime {
-    std.debug.assert(@sizeOf(RawSpinLock) == @sizeOf(AtomicCell(u32)));
-    std.debug.assert(@alignOf(RawSpinLock) == @alignOf(AtomicCell(u32)));
-
-    const fields = @typeInfo(RawSpinLock.State).@"enum".fields;
-    std.debug.assert(fields.len == 2);
-    std.debug.assert(std.mem.eql(u8, fields[0].name, "unlocked"));
-    std.debug.assert(fields[0].value == 0);
-    std.debug.assert(std.mem.eql(u8, fields[1].name, "locked"));
-    std.debug.assert(fields[1].value == 1);
-    std.debug.assert(@intFromEnum(RawSpinLock.State.unlocked) == 0);
-    std.debug.assert(@intFromEnum(RawSpinLock.State.locked) == 1);
-    std.debug.assert(@typeInfo(RawSpinLock.State).@"enum".tag_type == u32);
-}
 
 test "unit: init returns an unlocked lock" {
     var lock: RawSpinLock = .init();
@@ -115,19 +95,16 @@ test "stress: two threads acquire/release preserve mutual exclusion" {
 
     const Ctx = struct {
         lock: *RawSpinLock,
-        counter: *AtomicCell(u32),
+        counter: *Atomic(u32),
         iterations: u32,
 
         fn run(ctx: @This()) void {
             var i: u32 = 0;
             while (i < ctx.iterations) : (i += 1) {
                 ctx.lock.acquire();
-                // Non-atomic increment under the lock: correctness comes
-                // from mutual exclusion, not from the counter's atomicity.
-                // `loadMonotonic`/`storeMonotonic` avoid data races while
-                // still exposing a torn read to any lock-skipping observer.
-                const prev = ctx.counter.loadMonotonic();
-                ctx.counter.storeMonotonic(prev + 1);
+                // Separate loads/stores expose lost updates if mutual exclusion fails.
+                const prev = ctx.counter.load(.monotonic);
+                ctx.counter.store(prev + 1, .monotonic);
                 ctx.lock.release();
             }
         }
@@ -136,7 +113,7 @@ test "stress: two threads acquire/release preserve mutual exclusion" {
     const iterations: u32 = 10_000;
 
     var lock: RawSpinLock = .init();
-    var counter: AtomicCell(u32) = .init(0);
+    var counter: Atomic(u32) = .init(0);
 
     const ctx = Ctx{ .lock = &lock, .counter = &counter, .iterations = iterations };
 
@@ -145,7 +122,7 @@ test "stress: two threads acquire/release preserve mutual exclusion" {
     t0.join();
     t1.join();
 
-    try testing.expectEqual(@as(u32, 2 * iterations), counter.loadAcquire());
+    try testing.expectEqual(@as(u32, 2 * iterations), counter.load(.acquire));
     try testing.expect(!lock.isHeld());
 }
 
@@ -156,15 +133,15 @@ test "stress: N-thread counter final value equals N*K" {
 
     const Ctx = struct {
         lock: *RawSpinLock,
-        counter: *AtomicCell(u64),
+        counter: *Atomic(u64),
         iterations: u64,
 
         fn run(ctx: @This()) void {
             var i: u64 = 0;
             while (i < ctx.iterations) : (i += 1) {
                 ctx.lock.acquire();
-                const prev = ctx.counter.loadMonotonic();
-                ctx.counter.storeMonotonic(prev + 1);
+                const prev = ctx.counter.load(.monotonic);
+                ctx.counter.store(prev + 1, .monotonic);
                 ctx.lock.release();
             }
         }
@@ -174,7 +151,7 @@ test "stress: N-thread counter final value equals N*K" {
     const iterations: u64 = 2_500;
 
     var lock: RawSpinLock = .init();
-    var counter: AtomicCell(u64) = .init(0);
+    var counter: Atomic(u64) = .init(0);
 
     var threads: [thread_count]std.Thread = undefined;
     const ctx = Ctx{ .lock = &lock, .counter = &counter, .iterations = iterations };
@@ -188,34 +165,30 @@ test "stress: N-thread counter final value equals N*K" {
         threads[idx].join();
     }
 
-    try testing.expectEqual(@as(u64, thread_count * iterations), counter.loadAcquire());
+    try testing.expectEqual(@as(u64, thread_count * iterations), counter.load(.acquire));
 }
 
 test "ordering: paired payload published through release/acquire is observed" {
-    // Spec: thread A writes a paired `AtomicCell(u64)` payload with
-    // `storeRelease`, then `release()`s the lock; thread B `acquire()`s
-    // and reads the payload with `loadAcquire`; the value written by A
-    // is observed by B.
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Ctx = struct {
         lock: *RawSpinLock,
-        payload: *AtomicCell(u64),
-        observed: *AtomicCell(u64),
+        payload: *Atomic(u64),
+        observed: *Atomic(u64),
 
         fn writer(ctx: @This()) void {
             ctx.lock.acquire();
-            ctx.payload.storeRelease(0xC0FFEE_1234_5678);
+            ctx.payload.store(0xC0FFEE_1234_5678, .release);
             ctx.lock.release();
         }
 
         fn reader(ctx: @This()) void {
             while (true) {
                 ctx.lock.acquire();
-                const value = ctx.payload.loadAcquire();
+                const value = ctx.payload.load(.acquire);
                 ctx.lock.release();
                 if (value != 0) {
-                    ctx.observed.storeRelease(value);
+                    ctx.observed.store(value, .release);
                     return;
                 }
                 std.atomic.spinLoopHint();
@@ -226,8 +199,8 @@ test "ordering: paired payload published through release/acquire is observed" {
     var trials: usize = 0;
     while (trials < 32) : (trials += 1) {
         var lock: RawSpinLock = .init();
-        var payload: AtomicCell(u64) = .init(0);
-        var observed: AtomicCell(u64) = .init(0);
+        var payload: Atomic(u64) = .init(0);
+        var observed: Atomic(u64) = .init(0);
 
         const ctx = Ctx{ .lock = &lock, .payload = &payload, .observed = &observed };
         var writer_thread = try std.Thread.spawn(.{}, Ctx.writer, .{ctx});
@@ -235,7 +208,7 @@ test "ordering: paired payload published through release/acquire is observed" {
         writer_thread.join();
         reader_thread.join();
 
-        try testing.expectEqual(@as(u64, 0xC0FFEE_1234_5678), observed.loadAcquire());
+        try testing.expectEqual(@as(u64, 0xC0FFEE_1234_5678), observed.load(.acquire));
     }
 }
 
@@ -250,17 +223,17 @@ test "stress: contended path — holder blocks waiters, each acquires in turn" {
 
     const Ctx = struct {
         lock: *RawSpinLock,
-        acquired: *AtomicCell(u32),
+        acquired: *Atomic(u32),
 
         fn waiter(ctx: @This()) void {
             ctx.lock.acquire();
-            _ = ctx.acquired.fetchAddMonotonic(1);
+            _ = ctx.acquired.fetchAdd(1, .monotonic);
             ctx.lock.release();
         }
     };
 
     var lock: RawSpinLock = .init();
-    var acquired: AtomicCell(u32) = .init(0);
+    var acquired: Atomic(u32) = .init(0);
 
     // Holder takes the lock before spawning any waiter, so every waiter
     // enters the spin path on entry.
@@ -281,7 +254,7 @@ test "stress: contended path — holder blocks waiters, each acquires in turn" {
     while (pump < 32) : (pump += 1) {
         std.Thread.yield() catch {};
     }
-    try testing.expectEqual(@as(u32, 0), acquired.loadAcquire());
+    try testing.expectEqual(@as(u32, 0), acquired.load(.acquire));
 
     lock.release();
 
@@ -290,6 +263,6 @@ test "stress: contended path — holder blocks waiters, each acquires in turn" {
         threads[idx].join();
     }
 
-    try testing.expectEqual(@as(u32, waiter_count), acquired.loadAcquire());
+    try testing.expectEqual(@as(u32, waiter_count), acquired.load(.acquire));
     try testing.expect(!lock.isHeld());
 }

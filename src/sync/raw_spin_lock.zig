@@ -1,21 +1,12 @@
-//! Raw atomic-word spinlock. See `docs/specs/sync/raw_spin_lock.md`.
+//! raw spinlock
 
 const std = @import("std");
 
 const debug = @import("core").debug;
-const atomic_cell = @import("atomic_cell.zig");
 
-const AtomicCell = atomic_cell.AtomicCell;
-
-/// Non-fair atomic-word spinlock.
-///
-/// Representation: one atomic word. `unlocked` is zero, so bulk `@memset`
-/// initialization is valid.
-///
-/// `acquire()` spins until it succeeds. The lock does not queue waiters,
-/// manage interrupt policy or scheduling, or apply backoff.
+/// non-fair spinlock; callers manage interrupt and scheduling policy
 pub const RawSpinLock = struct {
-    state: AtomicCell(u32),
+    state: std.atomic.Value(u32),
 
     pub const State = enum(u32) {
         unlocked = 0,
@@ -25,58 +16,47 @@ pub const RawSpinLock = struct {
     const Self = @This();
 
     pub fn init() Self {
-        return .{ .state = AtomicCell(u32).init(@intFromEnum(State.unlocked)) };
+        return .{ .state = std.atomic.Value(u32).init(@intFromEnum(State.unlocked)) };
     }
 
-    /// Acquires the lock through test-and-test-and-set.
-    ///
-    /// Contended callers spin on monotonic loads and retry the acquire CAS.
-    /// The lock does not allocate, yield, or change interrupt state. The winning
-    /// CAS establishes an acquire edge with the previous holder's `release()`.
+    /// spins without yielding; successful acquisition has acquire ordering
     pub fn acquire(self: *Self) void {
         while (true) {
-            if (self.state.cmpxchgWeakAcquire(
+            if (self.state.cmpxchgWeak(
                 @intFromEnum(State.unlocked),
                 @intFromEnum(State.locked),
+                .acquire,
+                .acquire,
             ) == null) return;
 
-            while (self.state.loadMonotonic() != @intFromEnum(State.unlocked)) {
+            while (self.state.load(.monotonic) != @intFromEnum(State.unlocked)) {
                 std.atomic.spinLoopHint();
             }
         }
     }
 
-    /// Attempts to acquire once. Returns `true` only when the caller holds
-    /// the lock. Strong CAS means that `false` unambiguously signals
-    /// contention rather than spurious failure. Never spins.
+    /// tries once without spurious failure; never spins
     pub fn tryAcquire(self: *Self) bool {
-        return self.state.cmpxchgStrongAcquire(
+        return self.state.cmpxchgStrong(
             @intFromEnum(State.unlocked),
             @intFromEnum(State.locked),
+            .acquire,
+            .acquire,
         ) == null;
     }
 
-    /// Release-publishes the unlocked state.
-    ///
-    /// Under `core.debug.checksEnabled()`, `assertHeld` runs first;
-    /// a stray release traps in Debug/ReleaseSafe. In ReleaseFast/ReleaseSmall,
-    /// the store is unconditional.
+    /// only the acquiring thread may release the lock
     pub fn release(self: *Self) void {
         if (debug.checksEnabled()) self.assertHeld();
-        self.state.storeRelease(@intFromEnum(State.unlocked));
+        self.state.store(@intFromEnum(State.unlocked), .release);
     }
 
-    /// Snapshot: monotonic load reports whether the state word equals
-    /// `locked`. Not a synchronize-with edge; use for diagnostics and
-    /// invariant checks only.
+    /// relaxed diagnostic snapshot; does not establish ownership or synchronization
     pub fn isHeld(self: *const Self) bool {
-        return self.state.loadMonotonic() == @intFromEnum(State.locked);
+        return self.state.load(.monotonic) == @intFromEnum(State.locked);
     }
 
-    /// Trap if the state word is not `locked`. Runs unconditionally when
-    /// called; consumers gate at the call site under
-    /// `core.debug.checksEnabled()`. `release()` invokes this
-    /// internally under the same gate.
+    /// checks locked state in checked builds; does not verify ownership
     pub fn assertHeld(self: *const Self) void {
         if (debug.checksEnabled()) std.debug.assert(self.isHeld());
     }
