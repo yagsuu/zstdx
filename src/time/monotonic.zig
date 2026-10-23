@@ -1,11 +1,10 @@
-//! Monotonic clock, `Instant`, and `Duration` value types.
-//! See `docs/specs/time/monotonic.md`.
+//! monotonic clocks and time values
 
 const std = @import("std");
 
 const debug = @import("core").debug;
 
-/// Nanoseconds since the backend epoch.
+/// nanoseconds since the backend epoch
 pub const Instant = enum(u64) {
     _,
 
@@ -41,7 +40,7 @@ pub const Instant = enum(u64) {
     }
 };
 
-/// Signed nanoseconds.
+/// signed nanoseconds
 pub const Duration = enum(i64) {
     _,
 

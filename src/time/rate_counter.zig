@@ -1,5 +1,4 @@
-//! Fixed-rate projection of `Instant`; detects wrap edges below 64 bits.
-//! See `docs/specs/time/rate_counter.md`.
+//! fixed-rate time projection with wrap detection below 64 bits
 
 const std = @import("std");
 
@@ -11,14 +10,14 @@ const ClockImpl = monotonic.Clock.Impl;
 
 const nanos_per_second: u128 = 1_000_000_000;
 
-/// Single-owner counter; callers serialize access.
+/// callers serialize access
 pub const RateCounter = struct {
     base: Instant,
     rate_hz: u64,
     width: u7,
     wraps: u64,
 
-    /// Changing base, rate, or width requires constructing a new counter.
+    /// changing base, rate, or width requires a new counter
     pub const Config = struct {
         base: Instant,
         rate_hz: u64,
@@ -52,8 +51,7 @@ pub const RateCounter = struct {
         };
     }
 
-    /// Re-anchors `base` to `clock.now()` and clears wrap state. The next
-    /// `sample` reports `wrapped = false`; rate and width are preserved.
+    /// reanchors at clock.now(); the next sample reports no wrap
     pub fn reset(self: *Self, clock: anytype) void {
         comptime ClockImpl.requireClock(@TypeOf(clock), "RateCounter");
         self.base = clock.now();
@@ -65,9 +63,7 @@ pub const RateCounter = struct {
         return Impl.project(self, clock.now()).value;
     }
 
-    /// Advances wrap state. For widths below 64, `wrapped` is true exactly
-    /// when the unbounded tick count crossed a `1 << width` boundary
-    /// since `init`, `reset`, or the previous `sample`.
+    /// below 64 bits, reports a wrap boundary crossed since init, reset, or the previous sample
     pub fn sample(self: *Self, clock: anytype) Sample {
         comptime ClockImpl.requireClock(@TypeOf(clock), "RateCounter");
         const p = Impl.project(self, clock.now());
@@ -92,7 +88,7 @@ const Impl = struct {
             std.debug.assert(now.isAtOrAfter(self.base));
         }
 
-        // Unchecked builds clamp readings before base to keep the cast total.
+        // unchecked builds clamp readings before base to keep the cast valid
         const elapsed = now.since(self.base).nanos();
         const elapsed_ns: u128 = if (elapsed < 0) 0 else @intCast(elapsed);
         const unbounded = @divFloor(elapsed_ns * @as(u128, self.rate_hz), nanos_per_second);

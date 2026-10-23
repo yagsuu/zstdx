@@ -1,4 +1,4 @@
-//! Deadline anchor for poll loops. See `docs/specs/time/deadline.md`.
+//! deadlines for poll loops
 
 const std = @import("std");
 
@@ -11,7 +11,7 @@ const ClockImpl = monotonic.Clock.Impl;
 pub const Deadline = enum(u64) {
     _,
 
-    /// Expires only when the clock reaches `maxInt(u64)`.
+    /// expires only when the clock reaches maxInt(u64)
     pub const never: Self = @enumFromInt(std.math.maxInt(Int));
 
     pub const Int = u64;

@@ -1,4 +1,4 @@
-//! Retry-delay generator. See `docs/specs/time/backoff.md`.
+//! retry-delay generator
 
 const std = @import("std");
 
@@ -68,8 +68,8 @@ pub const Backoff = struct {
         self.next_wait = self.policy.wait.initial;
     }
 
-    /// An expired deadline returns `.timeout` without changing attempts or wait state.
-    /// Sleep duration is limited to the remaining time.
+    /// timeout leaves attempts and wait state unchanged
+    /// sleep is limited to the remaining time
     pub fn next(self: *Self, dl: Deadline, clock: anytype) Step {
         if (dl.isExpired(clock)) {
             return .timeout;
