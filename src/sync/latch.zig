@@ -1,24 +1,26 @@
-//! One-shot countdown latch. See `docs/specs/sync/latch.md`.
+//! one-shot countdown latches
 
 const std = @import("std");
 
 const debug = @import("core").debug;
 
-/// Wait-capable countdown latch.
-/// Requirements: `Backend` provides `WaitError`, `wait`, and `wakeAll`.
+const BackendImpl = @import("backend/impl.zig");
+
+/// blocking backends must enroll and recheck before parking
+/// state reads acquire; only the final arrival wakes waiters
 pub fn Latch(comptime Backend: type) type {
-    comptime requireBackend(Backend);
+    comptime BackendImpl.requireBackend(Backend, "Latch(Backend)");
 
     return struct {
         pub const WaitError = Backend.WaitError;
 
-        pub fn Static(comptime capacity_arrivals: usize) type {
+        pub fn Static(comptime count: usize) type {
             comptime {
-                if (capacity_arrivals == 0) {
-                    @compileError("Latch.Static requires capacity_arrivals >= 1");
+                if (count == 0) {
+                    @compileError("Latch.Static requires count >= 1");
                 }
-                if (capacity_arrivals > std.math.maxInt(u32)) {
-                    @compileError("Latch.Static requires capacity_arrivals <= maxInt(u32)");
+                if (count > std.math.maxInt(u32)) {
+                    @compileError("Latch.Static requires count <= maxInt(u32)");
                 }
             }
 
@@ -30,36 +32,29 @@ pub fn Latch(comptime Backend: type) type {
 
                 pub const WaitError = Backend.WaitError;
 
-                pub const arrival_capacity: usize = capacity_arrivals;
+                pub const bound: usize = count;
 
-                const capacity_u32: u32 = @intCast(capacity_arrivals);
-
-                /// Requirements: Initialize before sharing. Do not copy or move after sharing.
                 pub fn init(backend: Backend) Self {
-                    return .{ .state = State.init(capacity_u32), .backend = backend };
+                    return .{ .state = State.init(@intCast(bound)), .backend = backend };
                 }
 
-                /// Decrements remaining. The last arrival wakes waiters.
                 pub fn arrive(self: *Self) void {
-                    arriveShared(&self.state, &self.backend);
+                    Impl.arrive(&self.state, &self.backend);
                 }
 
-                /// Waits until released. Never allocates.
                 pub fn wait(self: *Self) Backend.WaitError!void {
-                    return waitShared(&self.state, &self.backend);
+                    return Impl.wait(&self.state, &self.backend);
                 }
 
-                /// Ordering: Acquire.
                 pub fn pending(self: *const Self) u32 {
-                    return self.state.remaining();
+                    return self.state.pending();
                 }
 
                 pub fn capacity(self: *const Self) u32 {
                     _ = self;
-                    return capacity_u32;
+                    return @intCast(bound);
                 }
 
-                /// Ordering: Acquire.
                 pub fn isReleased(self: *const Self) bool {
                     return self.state.isReleased();
                 }
@@ -67,154 +62,229 @@ pub fn Latch(comptime Backend: type) type {
         }
 
         pub const Bounded = struct {
-            total_capacity: u32,
+            bound: u32,
             state: State,
             backend: Backend,
 
+            const Self = @This();
+
             pub const WaitError = Backend.WaitError;
 
-            /// Requirements: `capacity_arrivals > 0`. Initialize before sharing.
-            pub fn init(capacity_arrivals: u32, backend: Backend) Bounded {
-                if (debug.checksEnabled()) {
-                    std.debug.assert(capacity_arrivals > 0);
-                }
-
+            pub fn init(count: u32, backend: Backend) Self {
                 return .{
-                    .total_capacity = capacity_arrivals,
-                    .state = State.init(capacity_arrivals),
+                    .bound = count,
+                    .state = State.init(count),
                     .backend = backend,
                 };
             }
 
-            /// Decrements remaining. The last arrival wakes waiters.
-            pub fn arrive(self: *Bounded) void {
-                arriveShared(&self.state, &self.backend);
+            pub fn arrive(self: *Self) void {
+                Impl.arrive(&self.state, &self.backend);
             }
 
-            /// Waits until released. Never allocates.
-            pub fn wait(self: *Bounded) Backend.WaitError!void {
-                return waitShared(&self.state, &self.backend);
+            pub fn wait(self: *Self) Backend.WaitError!void {
+                return Impl.wait(&self.state, &self.backend);
             }
 
-            /// Ordering: Acquire.
-            pub fn pending(self: *const Bounded) u32 {
-                return self.state.remaining();
+            pub fn pending(self: *const Self) u32 {
+                return self.state.pending();
             }
 
-            pub fn capacity(self: *const Bounded) u32 {
-                return self.total_capacity;
+            pub fn capacity(self: *const Self) u32 {
+                return self.bound;
             }
 
-            /// Ordering: Acquire.
-            pub fn isReleased(self: *const Bounded) bool {
+            pub fn isReleased(self: *const Self) bool {
                 return self.state.isReleased();
+            }
+        };
+
+        const Impl = struct {
+            fn arrive(state: *State, backend: *Backend) void {
+                while (true) {
+                    const token = state.observe();
+                    const pending = token.pending();
+
+                    if (pending == 0) {
+                        if (debug.checksEnabled()) {
+                            unreachable;
+                        }
+                        return;
+                    }
+
+                    if (state.word.cmpxchgWeak(@intFromEnum(token), pending - 1, .acq_rel, .acquire)) |_| {
+                        continue;
+                    }
+                    if (pending == 1) {
+                        backend.wakeAll(state);
+                    }
+                    return;
+                }
+            }
+
+            fn wait(state: *State, backend: *Backend) WaitError!void {
+                while (true) {
+                    const token = state.observe();
+                    if (token.isReleased()) {
+                        return;
+                    }
+                    try backend.wait(state, token);
+                }
             }
         };
     };
 }
 
-/// Atomic countdown state. Zero is sticky released.
 pub const State = struct {
     word: std.atomic.Value(u32),
 
-    /// Requirements: `capacity > 0`.
-    pub fn init(capacity: u32) State {
+    const Self = @This();
+
+    pub fn init(count: u32) Self {
         if (debug.checksEnabled()) {
-            std.debug.assert(capacity > 0);
+            std.debug.assert(count > 0);
         }
-        return .{ .word = std.atomic.Value(u32).init(capacity) };
+        return .{ .word = std.atomic.Value(u32).init(count) };
     }
 
-    /// Returns an acquire snapshot for backend rechecks.
-    pub fn observe(self: *const State) Token {
+    pub fn observe(self: *const Self) Token {
         return @enumFromInt(self.word.load(.acquire));
     }
 
-    /// Returns whether state changed after `token`. Uses acquire.
-    pub fn changedSince(self: *const State, token: Token) bool {
+    pub fn changedSince(self: *const Self, token: Token) bool {
         const current = self.word.load(.acquire);
         return current != @intFromEnum(token);
     }
 
-    /// Ordering: Acquire.
-    pub fn remaining(self: *const State) u32 {
+    pub fn pending(self: *const Self) u32 {
         return self.word.load(.acquire);
     }
 
-    /// Ordering: Acquire.
-    pub fn isReleased(self: *const State) bool {
+    pub fn isReleased(self: *const Self) bool {
         return self.word.load(.acquire) == 0;
     }
 };
 
-/// Observed state snapshot.
 pub const Token = enum(u32) {
     _,
 
-    pub fn remaining(self: Token) u32 {
+    const Self = @This();
+
+    pub fn pending(self: Self) u32 {
         return @intFromEnum(self);
     }
 
-    pub fn isReleased(self: Token) bool {
+    pub fn isReleased(self: Self) bool {
         return @intFromEnum(self) == 0;
     }
 };
 
-fn arriveShared(state: *State, backend: anytype) void {
-    while (true) {
-        const observed = state.observe();
-        const rem = observed.remaining();
+pub const unit = struct {
+    const testing = std.testing;
+    const Family = Latch(Backend);
 
-        if (rem == 0) {
-            // Saturate over-arrival at zero; debug builds trap.
-            if (debug.checksEnabled()) unreachable;
-            return;
+    const Backend = struct {
+        waits: usize = 0,
+        wakes: usize = 0,
+        spurious: usize = 0,
+        release: ?*State = null,
+
+        pub const WaitError = error{Canceled};
+
+        pub fn wait(self: *@This(), state: *const State, token: Token) WaitError!void {
+            self.waits += 1;
+            if (self.release) |target| {
+                self.release = null;
+                Family.Impl.arrive(target, self);
+            }
+            if (state.changedSince(token)) {
+                return;
+            }
+            if (self.spurious != 0) {
+                self.spurious -= 1;
+                return;
+            }
+            return error.Canceled;
         }
 
-        if (state.word.cmpxchgWeak(@intFromEnum(observed), rem - 1, .acq_rel, .acquire)) |_| continue;
-        if (rem == 1) backend.wakeAll(state);
+        pub fn wakeAll(self: *@This(), _: *const State) void {
+            self.wakes += 1;
+        }
+    };
 
-        return;
-    }
-}
+    test "countdown changes tokens and wakes only on final arrival" {
+        var state = State.init(2);
+        var backend: Backend = .{};
+        const initial = state.observe();
 
-fn waitShared(state: *State, backend: anytype) @TypeOf(backend.*).WaitError!void {
-    if (state.isReleased()) return;
-    while (true) {
-        const token = state.observe();
-        if (token.isReleased()) return;
-        try backend.wait(state, token);
-    }
-}
+        Family.Impl.arrive(&state, &backend);
+        const middle = state.observe();
 
-fn requireBackend(comptime Backend: type) void {
-    if (!@hasDecl(Backend, "WaitError")) {
-        @compileError("Latch(Backend): Backend must declare pub const WaitError");
-    }
+        try testing.expectEqual(@as(u32, 1), middle.pending());
+        try testing.expect(!middle.isReleased());
+        try testing.expect(state.changedSince(initial));
+        try testing.expectEqual(@as(usize, 0), backend.wakes);
 
-    const info = @typeInfo(Backend.WaitError);
-    if (info != .error_set) {
-        @compileError("Latch(Backend): Backend.WaitError must be an error set");
-    }
+        Family.Impl.arrive(&state, &backend);
+        const released = state.observe();
 
-    if (info.error_set == null) {
-        @compileError(
-            "Latch(Backend): Backend.WaitError must be an explicit error set; " ++
-                "anyerror is not approved",
-        );
+        try testing.expect(released.isReleased());
+        try testing.expectEqual(@as(u32, 0), state.pending());
+        try testing.expect(state.changedSince(middle));
+        try testing.expect(!state.changedSince(released));
+        try testing.expectEqual(@as(usize, 1), backend.wakes);
     }
 
-    if (!@hasDecl(Backend, "wait")) {
-        @compileError(
-            "Latch(Backend): Backend must declare " ++
-                "pub fn wait(*Backend, *const State, Token) WaitError!void",
-        );
+    test "wait rechecks spurious returns and leaves pending unchanged on error" {
+        var state = State.init(1);
+        var backend: Backend = .{ .spurious = 2 };
+        const initial = state.observe();
+
+        try testing.expectError(error.Canceled, Family.Impl.wait(&state, &backend));
+
+        try testing.expectEqual(@as(usize, 3), backend.waits);
+        try testing.expect(!state.changedSince(initial));
+        try testing.expectEqual(@as(usize, 0), backend.wakes);
+
+        Family.Impl.arrive(&state, &backend);
+        try Family.Impl.wait(&state, &backend);
+        try Family.Impl.wait(&state, &backend);
+
+        try testing.expectEqual(@as(usize, 3), backend.waits);
+        try testing.expect(state.isReleased());
     }
 
-    if (!@hasDecl(Backend, "wakeAll")) {
-        @compileError(
-            "Latch(Backend): Backend must declare " ++
-                "pub fn wakeAll(*Backend, *const State) void",
-        );
+    test "backend recheck observes a final arrival before parking" {
+        var state = State.init(1);
+        var backend: Backend = .{ .release = &state };
+
+        try Family.Impl.wait(&state, &backend);
+
+        try testing.expect(state.isReleased());
+        try testing.expectEqual(@as(usize, 1), backend.waits);
+        try testing.expectEqual(@as(usize, 1), backend.wakes);
     }
-}
+
+    test "static minimum bound releases on one arrival" {
+        var latch = Family.Static(1).init(.{});
+
+        latch.arrive();
+        try latch.wait();
+
+        try testing.expect(latch.isReleased());
+        try testing.expectEqual(@as(u32, 0), latch.pending());
+        try testing.expectEqual(@as(u32, 1), latch.capacity());
+        try testing.expectEqual(@as(usize, 1), latch.backend.wakes);
+        try testing.expectEqual(@as(usize, 0), latch.backend.waits);
+    }
+
+    test "bounded capacity remains fixed as pending decreases" {
+        var latch = Family.Bounded.init(3, .{});
+
+        latch.arrive();
+
+        try testing.expectEqual(@as(u32, 3), latch.capacity());
+        try testing.expectEqual(@as(u32, 2), latch.pending());
+        try testing.expect(!latch.isReleased());
+    }
+};

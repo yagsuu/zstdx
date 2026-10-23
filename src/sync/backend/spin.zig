@@ -1,15 +1,8 @@
-//! Spin-only wait/wake backend. See `docs/specs/sync/spin.md`.
+//! spin-only wait/wake backend
 
 const std = @import("std");
 
-/// Zero-sized wait/wake backend satisfying the shared backend contract for
-/// every wait-capable primitive in `stdx.sync` and `stdx.concurrent`.
-/// `wait` performs a single `std.atomic.spinLoopHint()` and returns; the
-/// consuming primitive supplies the outer recheck loop. `wakeAll` is a
-/// no-op. `Backend{}` is the sole constructor.
 pub const Backend = struct {
-    /// Empty error set: `Backend.wait` is infallible; `try` monomorphizes
-    /// away at every callsite.
     pub const WaitError = error{};
 
     comptime {
@@ -17,9 +10,7 @@ pub const Backend = struct {
         std.debug.assert(@alignOf(Backend) == 1);
     }
 
-    /// Spin-only wait: emits one `std.atomic.spinLoopHint()` and returns
-    /// with no state observation. `state` and `observed` are discarded;
-    /// the consuming primitive supplies the outer recheck loop.
+    /// does not observe state; callers must recheck readiness
     pub fn wait(
         self: *Backend,
         state: *const anyopaque,
@@ -31,9 +22,7 @@ pub const Backend = struct {
         std.atomic.spinLoopHint();
     }
 
-    /// No-op: nothing is blocked on `wait` that requires waking; the
-    /// caller's next iteration observes the primitive state on its own
-    /// recheck.
+    /// no parked waiters need waking
     pub fn wakeAll(self: *Backend, state: *const anyopaque) void {
         _ = self;
         _ = state;

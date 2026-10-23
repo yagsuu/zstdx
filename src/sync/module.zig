@@ -12,3 +12,9 @@ pub const Once = once.Once;
 pub const RawSpinLock = raw_spin_lock.RawSpinLock;
 pub const Rendezvous = rendezvous.Rendezvous;
 pub const Signal = signal.Signal;
+
+test {
+    _ = signal.unit;
+    _ = once.unit;
+    _ = latch.unit;
+}

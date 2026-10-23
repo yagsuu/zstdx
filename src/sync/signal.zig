@@ -1,67 +1,43 @@
-//! Manual-reset sticky notification primitive. See `docs/specs/sync/signal.md`.
+//! manual-reset signals
 
 const std = @import("std");
 
-// State word encoding: bit 0 is the set flag (1 = set, 0 = unset); the
-// remaining bits are a generation counter that advances by `generation_step`
-// on every real set/clear edge. Redundant `set` while set and redundant
-// `clear` while unset leave the word unchanged.
-const set_bit: usize = 1;
-const generation_step: usize = 2;
-
-/// Manual-reset sticky notification family. `Signal.State` is the raw atomic
-/// word, `Signal.Token` is an observed snapshot, and `Signal.Manual(Backend)`
-/// pairs the state with a compile-time wait/wake backend.
 pub const Signal = struct {
-    /// Initial state selector for `State.init` and `Manual.init`.
-    pub const InitialState = enum { unset, set };
+    pub const Status = enum(u1) { unset, set };
 
-    /// Observed snapshot of a `State` word. Compares by identity for
-    /// `changedSince`; carries both the set flag and the generation counter.
     pub const Token = enum(usize) {
         _,
 
-        /// True if the token's set flag is set at the moment it was observed.
         pub fn isSet(self: Token) bool {
-            return (@intFromEnum(self) & set_bit) != 0;
+            const word: Word = @bitCast(@intFromEnum(self));
+            return word.status == .set;
         }
     };
 
-    /// Atomic sticky signal state. One `usize` word encodes the set flag and
-    /// the generation counter; all reads are `.acquire` and all publications
-    /// are `.release`.
     pub const State = struct {
-        word: std.atomic.Value(usize),
+        word: std.atomic.Value(Word),
 
-        /// Initializes an `.unset` or `.set` state; generation starts at zero.
-        pub fn init(initial: InitialState) State {
-            return .{ .word = std.atomic.Value(usize).init(switch (initial) {
-                .unset => 0,
-                .set => set_bit,
+        pub fn init(initial: Status) State {
+            return .{ .word = std.atomic.Value(Word).init(.{
+                .status = initial,
+                .generation = 0,
             }) };
         }
 
-        /// Acquire-loads the word and reports whether the set flag is set.
         pub fn isSet(self: *const State) bool {
             return self.observe().isSet();
         }
 
-        /// Acquire-loads the word into a `Token`; used to arm a lost-wakeup
-        /// safe wait.
         pub fn observe(self: *const State) Token {
-            return @enumFromInt(self.word.load(.acquire));
+            return @enumFromInt(@as(usize, @bitCast(self.word.load(.acquire))));
         }
 
-        /// Acquire-loads the word and reports whether any set/clear transition
-        /// has occurred since `token` was observed.
         pub fn changedSince(self: *const State, token: Token) bool {
-            return self.word.load(.acquire) != @intFromEnum(token);
+            return @as(usize, @bitCast(self.word.load(.acquire))) != @intFromEnum(token);
         }
     };
 
-    /// Wait-capable manual-reset signal parameterized on `Backend`. `Backend`
-    /// must expose `WaitError`, `fn wait(*Backend, *const State, Token) WaitError!void`,
-    /// and `fn wakeAll(*Backend, *const State) void`. `Backend` is stored by value.
+    /// blocking backends must enroll, recheck changedSince, then park
     pub fn Manual(comptime Backend: type) type {
         return struct {
             state: Signal.State,
@@ -69,76 +45,196 @@ pub const Signal = struct {
 
             const Self = @This();
 
-            /// Backend-provided error set for `wait`.
             pub const WaitError = Backend.WaitError;
 
-            /// Returns a signal with initialized state and backend. Must complete before
-            /// any concurrent use; copying or moving the signal after initialization is
-            /// outside the primitive's contract.
-            pub fn init(initial: Signal.InitialState, backend: Backend) Self {
+            pub fn init(initial: Signal.Status, backend: Backend) Self {
                 return .{ .state = Signal.State.init(initial), .backend = backend };
             }
 
-            /// Acquire-loads the state and reports the set flag.
             pub fn isSet(self: *const Self) bool {
                 return self.state.isSet();
             }
 
-            /// Transitions to set. Idempotent: only the winning unset-to-set
-            /// CAS bumps the generation, release-publishes the transition,
-            /// and calls `backend.wakeAll(&state)`.
+            /// release-publishes a set transition; redundant sets do not wake waiters
             pub fn set(self: *Self) void {
-                var current = self.state.word.load(.acquire);
-                while (true) {
-                    if ((current & set_bit) != 0) return;
-
-                    const next = (current +% generation_step) | set_bit;
-                    if (self.state.word.cmpxchgWeak(current, next, .release, .acquire)) |observed| {
-                        current = observed;
-                        continue;
-                    }
-
-                    self.backend.wakeAll(&self.state);
-                    return;
-                }
+                Impl.set(&self.state, &self.backend);
             }
 
-            /// Transitions to unset. Idempotent: only the winning set-to-unset
-            /// CAS bumps the generation and release-publishes the transition.
-            /// Never invokes the backend.
+            /// release-publishes an unset transition without waking waiters
             pub fn clear(self: *Self) void {
-                var current = self.state.word.load(.acquire);
-                while (true) {
-                    if ((current & set_bit) == 0) return;
-
-                    const next = (current +% generation_step) & ~set_bit;
-                    if (self.state.word.cmpxchgWeak(current, next, .release, .acquire)) |observed| {
-                        current = observed;
-                        continue;
-                    }
-
-                    return;
-                }
+                Impl.clear(&self.state);
             }
 
-            /// Waits until it observes the signal set.
-            ///
-            /// Each iteration observes a token and returns immediately if set. Otherwise,
-            /// it calls `backend.wait(&state, token)`. Spurious backend successes
-            /// re-observe the state before returning. Backend errors are propagated unchanged.
             pub fn wait(self: *Self) WaitError!void {
-                while (true) {
-                    const token = self.state.observe();
-                    if (token.isSet()) return;
-                    try self.backend.wait(&self.state, token);
-                }
+                return Impl.wait(&self.state, &self.backend);
             }
 
-            /// Borrows the underlying `State` for backend enrollment or
-            /// external `changedSince` recheck.
             pub fn stateRef(self: *const Self) *const Signal.State {
                 return &self.state;
             }
+
+            const Impl = struct {
+                fn set(state: *Signal.State, backend: *Backend) void {
+                    var current = state.word.load(.acquire);
+                    while (true) {
+                        if (current.status == .set) {
+                            return;
+                        }
+
+                        if (state.word.cmpxchgWeak(current, current.next(.set), .release, .acquire)) |observed| {
+                            current = observed;
+                            continue;
+                        }
+
+                        backend.wakeAll(state);
+                        return;
+                    }
+                }
+
+                fn clear(state: *Signal.State) void {
+                    var current = state.word.load(.acquire);
+                    while (true) {
+                        if (current.status == .unset) {
+                            return;
+                        }
+
+                        if (state.word.cmpxchgWeak(current, current.next(.unset), .release, .acquire)) |observed| {
+                            current = observed;
+                            continue;
+                        }
+                        return;
+                    }
+                }
+
+                fn wait(state: *Signal.State, backend: *Backend) WaitError!void {
+                    while (true) {
+                        const token = state.observe();
+                        if (token.isSet()) {
+                            return;
+                        }
+                        try backend.wait(state, token);
+                    }
+                }
+            };
         };
+    }
+
+    const Word = packed struct(usize) {
+        status: Status,
+        generation: std.meta.Int(.unsigned, @bitSizeOf(usize) - 1),
+
+        fn next(self: Word, status: Status) Word {
+            return .{
+                .status = status,
+                .generation = self.generation +% 1,
+            };
+        }
+    };
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    const Manual = Signal.Manual(Backend);
+
+    const Backend = struct {
+        waits: usize = 0,
+        wakes: usize = 0,
+        spurious: usize = 0,
+
+        pub const WaitError = error{Canceled};
+
+        pub fn wait(self: *@This(), state: *const Signal.State, token: Signal.Token) WaitError!void {
+            self.waits += 1;
+            if (state.changedSince(token)) {
+                return;
+            }
+            if (self.spurious != 0) {
+                self.spurious -= 1;
+                return;
+            }
+            return error.Canceled;
+        }
+
+        pub fn wakeAll(self: *@This(), _: *const Signal.State) void {
+            self.wakes += 1;
+        }
+    };
+
+    test "signal transitions distinguish a complete cycle without redundant wakes" {
+        var state = Signal.State.init(.unset);
+        var backend: Backend = .{};
+        const initial = state.observe();
+
+        Manual.Impl.set(&state, &backend);
+        const set = state.observe();
+        Manual.Impl.set(&state, &backend);
+
+        try testing.expect(set.isSet());
+        try testing.expectEqual(set, state.observe());
+        try testing.expect(state.changedSince(initial));
+        try testing.expectEqual(@as(usize, 1), backend.wakes);
+
+        Manual.Impl.clear(&state);
+        const cleared = state.observe();
+        Manual.Impl.clear(&state);
+
+        try testing.expect(!cleared.isSet());
+        try testing.expectEqual(cleared, state.observe());
+        try testing.expect(state.changedSince(set));
+        try testing.expect(state.changedSince(initial));
+        try testing.expectEqual(@as(usize, 1), backend.wakes);
+
+        Manual.Impl.set(&state, &backend);
+
+        try testing.expectEqual(@as(usize, 2), backend.wakes);
+        try testing.expect(state.isSet());
+    }
+
+    test "signal wait bypasses backend when ready and rechecks spurious returns" {
+        var state = Signal.State.init(.set);
+        var backend: Backend = .{ .spurious = 2 };
+
+        try Manual.Impl.wait(&state, &backend);
+        try testing.expectEqual(@as(usize, 0), backend.waits);
+
+        Manual.Impl.clear(&state);
+        try testing.expectError(error.Canceled, Manual.Impl.wait(&state, &backend));
+
+        try testing.expect(!state.isSet());
+        try testing.expectEqual(@as(usize, 3), backend.waits);
+        try testing.expectEqual(@as(usize, 0), backend.wakes);
+    }
+
+    test "signal token recheck detects a transition before backend registration" {
+        var signal = Manual.init(.unset, .{});
+        const token = signal.stateRef().observe();
+
+        signal.set();
+        try signal.backend.wait(signal.stateRef(), token);
+        try signal.wait();
+
+        try testing.expect(signal.isSet());
+        try testing.expectEqual(@as(usize, 1), signal.backend.waits);
+        try testing.expectEqual(@as(usize, 1), signal.backend.wakes);
+    }
+
+    test "signal generation wraps without losing transition status" {
+        var state: Signal.State = .{ .word = .init(.{
+            .status = .set,
+            .generation = std.math.maxInt(std.meta.Int(.unsigned, @bitSizeOf(usize) - 1)),
+        }) };
+
+        var backend: Backend = .{};
+        const before = state.observe();
+
+        Manual.Impl.clear(&state);
+        const cleared = state.observe();
+        Manual.Impl.set(&state, &backend);
+
+        try testing.expect(!cleared.isSet());
+        try testing.expect(state.changedSince(before));
+        try testing.expect(state.isSet());
+        try testing.expectEqual(@as(usize, 1), backend.wakes);
     }
 };
