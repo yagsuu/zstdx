@@ -7,4 +7,5 @@ test {
     _ = alloc.arena.unit;
     _ = alloc.slab.allocator.unit;
     _ = alloc.slab.cache.unit;
+    _ = alloc.bitmap.unit;
 }
