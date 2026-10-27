@@ -6,11 +6,11 @@ const layout = @import("layout");
 
 pub const PhysTag = opaque {};
 pub const VirtTag = opaque {};
-pub const DMATag = opaque {};
+pub const DmaTag = opaque {};
 
 pub const PhysAddr = Address(PhysTag, u64);
 pub const VirtAddr = Address(VirtTag, usize);
-pub const DMAAddr = Address(DMATag, u64);
+pub const DmaAddr = Address(DmaTag, u64);
 
 pub fn Address(comptime DomainT: type, comptime IntT: type) type {
     comptime requireUnsignedInt(IntT);

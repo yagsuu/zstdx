@@ -4,7 +4,7 @@ const std = @import("std");
 
 const address = @import("addr").address;
 
-const DMAAddr = address.DMAAddr;
+const DmaAddr = address.DmaAddr;
 
 fn requireRuntimeValue(comptime T: type) void {
     if (@sizeOf(T) == 0) @compileError("Buffer element type must have nonzero size");
@@ -15,12 +15,12 @@ pub fn Buffer(comptime T: type) type {
 
     return struct {
         virt: []T,
-        dma: DMAAddr,
+        dma: DmaAddr,
 
         const Self = @This();
 
         pub const Item = T;
-        pub const Address = DMAAddr;
+        pub const Address = DmaAddr;
 
         pub const InitError = error{ Misaligned, Overflow };
         pub const OffsetError = error{OutOfBounds};

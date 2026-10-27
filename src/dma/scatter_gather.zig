@@ -6,22 +6,22 @@ const std = @import("std");
 const address = @import("addr").address;
 const buffer = @import("buffer.zig");
 
-const DMAAddr = address.DMAAddr;
-const DMAInt = DMAAddr.Int;
+const DmaAddr = address.DmaAddr;
+const DmaInt = DmaAddr.Int;
 
 /// A segment describes an untyped device-visible byte range.
 pub const Segment = struct {
-    addr: DMAAddr,
-    len_bytes: DMAInt,
+    addr: DmaAddr,
+    len_bytes: DmaInt,
 
-    pub const Address = DMAAddr;
+    pub const Address = DmaAddr;
 
     /// `Overflow`: `addr.raw() + len_bytes` exceeds `Address.Int`.
     pub const Error = error{Overflow};
 
     /// Validates that `[addr, addr + len_bytes)` does not overflow.
-    pub fn init(addr: DMAAddr, len_bytes: DMAInt) Error!Segment {
-        _ = std.math.add(DMAInt, addr.raw(), len_bytes) catch return error.Overflow;
+    pub fn init(addr: DmaAddr, len_bytes: DmaInt) Error!Segment {
+        _ = std.math.add(DmaInt, addr.raw(), len_bytes) catch return error.Overflow;
         return .{ .addr = addr, .len_bytes = len_bytes };
     }
 
@@ -29,7 +29,7 @@ pub const Segment = struct {
         return .{ .addr = buf.dmaAddr(), .len_bytes = buf.byteLen() };
     }
 
-    pub fn byteLen(self: Segment) DMAInt {
+    pub fn byteLen(self: Segment) DmaInt {
         return self.len_bytes;
     }
 
@@ -38,13 +38,13 @@ pub const Segment = struct {
     }
 
     /// The returned address is one byte past the segment.
-    pub fn endAddr(self: Segment) Error!DMAAddr {
-        const raw = std.math.add(DMAInt, self.addr.raw(), self.len_bytes) catch return error.Overflow;
-        return DMAAddr.from(raw);
+    pub fn endAddr(self: Segment) Error!DmaAddr {
+        const raw = std.math.add(DmaInt, self.addr.raw(), self.len_bytes) catch return error.Overflow;
+        return DmaAddr.from(raw);
     }
 
     /// Returns `false` for zero or non-power-of-two alignment.
-    pub fn isAligned(self: Segment, alignment: DMAInt) bool {
+    pub fn isAligned(self: Segment, alignment: DmaInt) bool {
         if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return false;
         const mask = alignment - 1;
         if ((self.addr.raw() & mask) != 0) return false;
@@ -52,7 +52,7 @@ pub const Segment = struct {
     }
 
     pub fn assertValid(self: Segment) void {
-        _ = std.math.add(DMAInt, self.addr.raw(), self.len_bytes) catch unreachable;
+        _ = std.math.add(DmaInt, self.addr.raw(), self.len_bytes) catch unreachable;
     }
 };
 
@@ -140,7 +140,7 @@ pub const List = struct {
             }
 
             /// `error.Overflow` is returned if the sum exceeds `Address.Int`.
-            pub fn totalByteLen(self: *const Self) error{Overflow}!DMAInt {
+            pub fn totalByteLen(self: *const Self) error{Overflow}!DmaInt {
                 return sumSegmentLens(self.asConstSlice());
             }
 
@@ -227,7 +227,7 @@ pub const List = struct {
             return &self.buffer[index];
         }
 
-        pub fn totalByteLen(self: *const Bounded) error{Overflow}!DMAInt {
+        pub fn totalByteLen(self: *const Bounded) error{Overflow}!DmaInt {
             return sumSegmentLens(self.asConstSlice());
         }
 
@@ -238,7 +238,7 @@ pub const List = struct {
     };
 };
 
-fn requireAlignment(comptime alignment: DMAInt) void {
+fn requireAlignment(comptime alignment: DmaInt) void {
     if (alignment == 0) @compileError("Builder alignment must be non-zero");
     if (!std.math.isPowerOfTwo(alignment)) @compileError("Builder alignment must be a power of two");
 }
@@ -246,7 +246,7 @@ fn requireAlignment(comptime alignment: DMAInt) void {
 /// Builders require a uniform alignment for each appended segment.
 pub const Builder = struct {
     /// Static builders own inline segment storage.
-    pub fn Static(comptime capacity_segments: usize, comptime alignment: DMAInt) type {
+    pub fn Static(comptime capacity_segments: usize, comptime alignment: DmaInt) type {
         comptime if (capacity_segments == 0) @compileError("dma.Builder.Static capacity_segments must be non-zero");
         comptime requireAlignment(alignment);
         return struct {
@@ -324,7 +324,7 @@ pub const Builder = struct {
     }
 
     /// Bounded builders borrow segment storage.
-    pub fn Bounded(comptime alignment: DMAInt) type {
+    pub fn Bounded(comptime alignment: DmaInt) type {
         comptime requireAlignment(alignment);
         return struct {
             list: List.Bounded,
@@ -400,10 +400,10 @@ pub const Builder = struct {
     }
 };
 
-fn sumSegmentLens(segments: []const Segment) error{Overflow}!DMAInt {
-    var total: DMAInt = 0;
+fn sumSegmentLens(segments: []const Segment) error{Overflow}!DmaInt {
+    var total: DmaInt = 0;
     for (segments) |segment| {
-        total = std.math.add(DMAInt, total, segment.len_bytes) catch return error.Overflow;
+        total = std.math.add(DmaInt, total, segment.len_bytes) catch return error.Overflow;
     }
     return total;
 }
