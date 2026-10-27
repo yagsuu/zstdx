@@ -1,4 +1,4 @@
-const InclusiveRange = @import("stdx").core.InclusiveRange;
+const InclusiveRange = @import("stdx").ranges.InclusiveRange;
 
 export fn instantiateSigned() void {
     _ = InclusiveRange(i8);

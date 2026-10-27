@@ -95,7 +95,7 @@ pub const Modules = struct {
         modules.stdx.addImport("time", modules.time);
 
         modules.addr.addImport("layout", modules.layout);
-        modules.algo.addImport("core", modules.core);
+        modules.algo.addImport("ranges", modules.ranges);
         modules.arch.addImport("addr", modules.addr);
         modules.arch.addImport("bits", modules.bits);
         modules.arch.addImport("core", modules.core);
@@ -120,6 +120,7 @@ pub const Modules = struct {
         modules.mem.addImport("cpu", modules.cpu);
         modules.mem.addImport("layout", modules.layout);
         modules.mem.addImport("sync", modules.sync);
+        modules.mem.addImport("ranges", modules.ranges);
         modules.ranges.addImport("core", modules.core);
         modules.sync.addImport("core", modules.core);
         modules.tags.addImport("bits", modules.bits);

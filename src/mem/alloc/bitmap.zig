@@ -5,7 +5,7 @@ const std = @import("std");
 const debug = @import("core").debug;
 
 const Bitmap = @import("bits").Set(u64);
-const RangeUsize = @import("core").Range(usize);
+const RangeUsize = @import("ranges").Range(usize);
 
 pub const BitmapAllocator = struct {
     pub fn Static(comptime count: usize) type {

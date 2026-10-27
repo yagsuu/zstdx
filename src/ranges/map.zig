@@ -4,6 +4,7 @@ const std = @import("std");
 
 const core = @import("core");
 
+const RangeType = @import("range.zig").Range;
 const Allocator = std.mem.Allocator;
 
 pub const RangeMap = struct {
@@ -20,7 +21,7 @@ pub const RangeMap = struct {
 
             const Self = @This();
 
-            pub const Range = core.Range(T);
+            pub const Range = RangeType(T);
             pub const Entry = struct {
                 range: Range,
                 value: V,
@@ -134,7 +135,7 @@ pub const RangeMap = struct {
 
             const Self = @This();
 
-            pub const Range = core.Range(T);
+            pub const Range = RangeType(T);
             pub const Entry = struct {
                 range: Range,
                 value: V,
@@ -241,7 +242,7 @@ pub const RangeMap = struct {
 
             const Self = @This();
 
-            pub const Range = core.Range(T);
+            pub const Range = RangeType(T);
             pub const Entry = struct {
                 range: Range,
                 value: V,

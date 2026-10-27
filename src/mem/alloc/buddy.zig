@@ -21,7 +21,7 @@ pub const BuddyAllocator = struct {
 
             pub const Word = Bitmap.Word;
             pub const Block = buddy.Block;
-            pub const Range = @import("core").Range(usize);
+            pub const Range = @import("ranges").Range(usize);
             pub const Error = Impl.Error;
 
             const Self = @This();
@@ -84,7 +84,7 @@ pub const BuddyAllocator = struct {
         const Self = @This();
         pub const Word = Bitmap.Word;
         pub const Block = buddy.Block;
-        pub const Range = @import("core").Range(usize);
+        pub const Range = @import("ranges").Range(usize);
         pub const Error = Impl.Error;
 
         /// items must outlive the allocator; invalid arguments leave them unchanged
@@ -180,7 +180,7 @@ const Layout = struct {
 const Impl = struct {
     const Word = Bitmap.Word;
     const Block = buddy.Block;
-    const Range = @import("core").Range(usize);
+    const Range = @import("ranges").Range(usize);
 
     const Error = error{
         OutOfMemory,
@@ -662,7 +662,7 @@ pub const unit = struct {
 
     const Word = Bitmap.Word;
     const Block = buddy.Block;
-    const Range = @import("core").Range(usize);
+    const Range = @import("ranges").Range(usize);
 
     test "splitting chooses the lowest index and free eagerly coalesces" {
         var bitmap = Impl.initial(8, 4);

@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-pub const Range = @import("core").Range(usize);
+pub const Range = @import("ranges").Range(usize);
 pub const Error = Impl.Error;
 
 pub const Request = struct {

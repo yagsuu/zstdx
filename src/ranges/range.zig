@@ -1,6 +1,5 @@
 //! Half-open `[start, end)` and inclusive `[start, end]` ranges over unsigned
-//! integers. Both range types are pure values. Failed operations leave inputs
-//! unchanged. See `docs/specs/core/range.md`.
+//! integers.
 
 const std = @import("std");
 

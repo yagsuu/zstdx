@@ -1,8 +1,8 @@
-//! Fixed-capacity canonical range sets. See `docs/specs/ranges/set.md`.
+//! Fixed-capacity range sets.
 
 const std = @import("std");
 
-const core = @import("core");
+const RangeType = @import("range.zig").Range;
 
 pub const RangeSet = struct {
     pub fn Static(comptime T: type, comptime capacity_ranges: usize) type {
@@ -18,7 +18,7 @@ pub const RangeSet = struct {
 
             const Self = @This();
 
-            pub const Range = core.Range(T);
+            pub const Range = RangeType(T);
             pub const Error = error{ Full, InvalidRange };
 
             pub const range_capacity = capacity_ranges;
@@ -100,7 +100,7 @@ pub const RangeSet = struct {
 
             const Self = @This();
 
-            pub const Range = core.Range(T);
+            pub const Range = RangeType(T);
             pub const Error = error{ Full, InvalidRange };
 
             pub fn wrap(buffer: []Range) Self {
@@ -135,12 +135,10 @@ pub const RangeSet = struct {
                 self.count = 0;
             }
 
-            /// An empty range is a no-op. On success, prior slices are invalid. On error, the set is unchanged.
             pub fn insert(self: *Self, range: Range) Error!void {
                 try Impl.insertRange(Range, self.buffer, &self.count, range);
             }
 
-            /// Empty or disjoint ranges are no-ops. On success, prior slices are invalid. On error, the set is unchanged.
             pub fn remove(self: *Self, range: Range) Error!void {
                 try Impl.removeRange(Range, self.buffer, &self.count, range);
             }
@@ -389,15 +387,15 @@ pub const unit = struct {
 
         try testing.expect(zero.isEmpty());
         try testing.expect(zero.isFull());
-        try zero.insert(core.Range(u8).empty(0));
-        try testing.expectError(error.Full, zero.insert(core.Range(u8).of(0, 1)));
-        try zero.remove(core.Range(u8).of(0, 1));
+        try zero.insert(RangeType(u8).empty(0));
+        try testing.expectError(error.Full, zero.insert(RangeType(u8).of(0, 1)));
+        try zero.remove(RangeType(u8).of(0, 1));
 
         zero.assertValid();
     }
 
     test "insert canonicalizes sorted adjacent and overlapping ranges" {
-        const Range = core.Range(u64);
+        const Range = RangeType(u64);
 
         var buffer: [4]Range = undefined;
         var count: usize = 0;
@@ -415,7 +413,7 @@ pub const unit = struct {
     }
 
     test "full and invalid mutations leave the canonical ranges unchanged" {
-        const Range = core.Range(u8);
+        const Range = RangeType(u8);
 
         var buffer = [_]Range{Range.of(10, 30)};
         var count: usize = 1;
@@ -429,7 +427,7 @@ pub const unit = struct {
     }
 
     test "remove deletes shrinks splits and spans canonical ranges" {
-        const Range = core.Range(u64);
+        const Range = RangeType(u64);
 
         var buffer: [5]Range = undefined;
         buffer[0] = Range.of(10, 30);
@@ -456,7 +454,7 @@ pub const unit = struct {
     }
 
     test "queries follow half-open endpoints and empty boundary containment" {
-        const Range = core.Range(u64);
+        const Range = RangeType(u64);
         const ranges = [_]Range{ Range.of(10, 20), Range.of(30, 40) };
 
         try testing.expectEqual(ranges[0], Impl.findContainingValue(Range, &ranges, @as(u64, 10)).?);
@@ -475,7 +473,7 @@ pub const unit = struct {
     }
 
     test "model: canonical ranges match a bitset over a small domain" {
-        const Range = core.Range(u8);
+        const Range = RangeType(u8);
 
         var buffer: [16]Range = undefined;
         var count: usize = 0;

@@ -1,4 +1,4 @@
-const InclusiveRange = @import("stdx").core.InclusiveRange;
+const InclusiveRange = @import("stdx").ranges.InclusiveRange;
 
 export fn constructFullDomain() void {
     _ = InclusiveRange(u8).of(0, 255);
