@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const ModuleImport = struct { []const u8, *std.Build.Module };
+
 pub const Modules = struct {
     stdx: *std.Build.Module,
     addr: *std.Build.Module,
@@ -71,64 +73,122 @@ pub const Modules = struct {
             .time = addCategory(b, "time", target, optimize, visibility),
         };
 
-        modules.stdx.addImport("addr", modules.addr);
-        modules.stdx.addImport("algo", modules.algo);
-        modules.stdx.addImport("arch", modules.arch);
-        modules.stdx.addImport("barrier", modules.barrier);
-        modules.stdx.addImport("bits", modules.bits);
-        modules.stdx.addImport("bytes", modules.bytes);
-        modules.stdx.addImport("collections", modules.collections);
-        modules.stdx.addImport("concurrent", modules.concurrent);
-        modules.stdx.addImport("core", modules.core);
-        modules.stdx.addImport("cpu", modules.cpu);
-        modules.stdx.addImport("diag", modules.diag);
-        modules.stdx.addImport("dma", modules.dma);
-        modules.stdx.addImport("func", modules.func);
-        modules.stdx.addImport("graph", modules.graph);
-        modules.stdx.addImport("intrusive", modules.intrusive);
-        modules.stdx.addImport("io", modules.io);
-        modules.stdx.addImport("layout", modules.layout);
-        modules.stdx.addImport("mem", modules.mem);
-        modules.stdx.addImport("ranges", modules.ranges);
-        modules.stdx.addImport("sync", modules.sync);
-        modules.stdx.addImport("tags", modules.tags);
-        modules.stdx.addImport("time", modules.time);
+        addImports(modules.stdx, &.{
+            .{ "addr", modules.addr },
+            .{ "algo", modules.algo },
+            .{ "arch", modules.arch },
+            .{ "barrier", modules.barrier },
+            .{ "bits", modules.bits },
+            .{ "bytes", modules.bytes },
+            .{ "collections", modules.collections },
+            .{ "concurrent", modules.concurrent },
+            .{ "core", modules.core },
+            .{ "cpu", modules.cpu },
+            .{ "diag", modules.diag },
+            .{ "dma", modules.dma },
+            .{ "func", modules.func },
+            .{ "graph", modules.graph },
+            .{ "intrusive", modules.intrusive },
+            .{ "io", modules.io },
+            .{ "layout", modules.layout },
+            .{ "mem", modules.mem },
+            .{ "ranges", modules.ranges },
+            .{ "sync", modules.sync },
+            .{ "tags", modules.tags },
+            .{ "time", modules.time },
+        });
 
-        modules.addr.addImport("layout", modules.layout);
-        modules.algo.addImport("ranges", modules.ranges);
-        modules.arch.addImport("addr", modules.addr);
-        modules.arch.addImport("bits", modules.bits);
-        modules.arch.addImport("core", modules.core);
-        modules.barrier.addImport("arch", modules.arch);
-        modules.bits.addImport("core", modules.core);
-        modules.concurrent.addImport("layout", modules.layout);
-        modules.cpu.addImport("core", modules.core);
-        modules.cpu.addImport("layout", modules.layout);
-        modules.diag.addImport("core", modules.core);
-        modules.diag.addImport("layout", modules.layout);
-        modules.diag.addImport("mem", modules.mem);
-        modules.dma.addImport("addr", modules.addr);
-        modules.func.addImport("layout", modules.layout);
-        modules.intrusive.addImport("core", modules.core);
-        modules.io.addImport("core", modules.core);
-        modules.io.addImport("layout", modules.layout);
-        modules.io.addImport("time", modules.time);
-        modules.mem.addImport("addr", modules.addr);
-        modules.mem.addImport("algo", modules.algo);
-        modules.mem.addImport("bits", modules.bits);
-        modules.mem.addImport("core", modules.core);
-        modules.mem.addImport("cpu", modules.cpu);
-        modules.mem.addImport("layout", modules.layout);
-        modules.mem.addImport("sync", modules.sync);
-        modules.mem.addImport("ranges", modules.ranges);
-        modules.ranges.addImport("core", modules.core);
-        modules.sync.addImport("core", modules.core);
-        modules.tags.addImport("bits", modules.bits);
-        modules.time.addImport("core", modules.core);
+        addImports(modules.addr, &.{
+            .{ "layout", modules.layout },
+        });
+
+        addImports(modules.algo, &.{
+            .{ "ranges", modules.ranges },
+        });
+
+        addImports(modules.arch, &.{
+            .{ "addr", modules.addr },
+            .{ "bits", modules.bits },
+            .{ "core", modules.core },
+        });
+
+        addImports(modules.barrier, &.{
+            .{ "arch", modules.arch },
+        });
+
+        addImports(modules.bits, &.{
+            .{ "core", modules.core },
+        });
+
+        addImports(modules.concurrent, &.{
+            .{ "layout", modules.layout },
+        });
+
+        addImports(modules.cpu, &.{
+            .{ "core", modules.core },
+            .{ "layout", modules.layout },
+        });
+
+        addImports(modules.diag, &.{
+            .{ "core", modules.core },
+            .{ "layout", modules.layout },
+            .{ "mem", modules.mem },
+        });
+
+        addImports(modules.dma, &.{
+            .{ "addr", modules.addr },
+        });
+
+        addImports(modules.func, &.{
+            .{ "layout", modules.layout },
+        });
+
+        addImports(modules.intrusive, &.{
+            .{ "core", modules.core },
+        });
+
+        addImports(modules.io, &.{
+            .{ "core", modules.core },
+            .{ "layout", modules.layout },
+            .{ "time", modules.time },
+        });
+
+        addImports(modules.mem, &.{
+            .{ "addr", modules.addr },
+            .{ "algo", modules.algo },
+            .{ "bits", modules.bits },
+            .{ "core", modules.core },
+            .{ "cpu", modules.cpu },
+            .{ "layout", modules.layout },
+            .{ "ranges", modules.ranges },
+            .{ "sync", modules.sync },
+        });
+
+        addImports(modules.ranges, &.{
+            .{ "core", modules.core },
+        });
+
+        addImports(modules.sync, &.{
+            .{ "core", modules.core },
+        });
+
+        addImports(modules.tags, &.{
+            .{ "bits", modules.bits },
+        });
+
+        addImports(modules.time, &.{
+            .{ "core", modules.core },
+        });
 
         return modules;
     }
 };
+
+fn addImports(module: *std.Build.Module, imports: []const ModuleImport) void {
+    for (imports) |entry| {
+        module.addImport(entry[0], entry[1]);
+    }
+}
 
 fn addCategory(
     b: *std.Build,
