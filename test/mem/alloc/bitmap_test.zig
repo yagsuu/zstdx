@@ -5,6 +5,7 @@ const std = @import("std");
 const stdx = @import("stdx");
 
 const BitmapAllocator = stdx.mem.alloc.BitmapAllocator;
+const Word = BitmapAllocator.Bounded.Word;
 
 const testing = std.testing;
 
@@ -59,7 +60,7 @@ test "unit: Static(65) needs two words and keeps unused bits clear" {
     while (k < 65) : (k += 1) _ = try bm.allocOne();
     try testing.expect(bm.isFull());
     // unused high bits of the last word must remain zero.
-    try testing.expectEqual(@as(u64, 1), bm.bitmap.items[1]);
+    try testing.expectEqual(Word.from(1), bm.bitmap.items[1]);
     bm.assertValid();
 }
 
@@ -69,29 +70,29 @@ test "unit: Static(129) tail-word semantics" {
     var k: usize = 0;
     while (k < 129) : (k += 1) _ = try bm.allocOne();
     try testing.expect(bm.isFull());
-    try testing.expectEqual(@as(u64, 1), bm.bitmap.items[2]);
+    try testing.expectEqual(Word.from(1), bm.bitmap.items[2]);
     bm.assertValid();
 }
 
 test "unit: allocated + remaining == capacity after construction" {
     var s = BitmapAllocator.Static(129).init();
     try testing.expectEqual(s.capacity(), s.allocated() + s.remaining());
-    var storage: [3]u64 = .{ 0, 0, 0 };
+    var storage: [3]Word = .{ Word.from(0), Word.from(0), Word.from(0) };
     var b = try BitmapAllocator.Bounded.wrap(&storage, 129);
     try testing.expectEqual(b.capacity(), b.allocated() + b.remaining());
 }
 
 test "unit: Bounded.wrap clears borrowed words" {
-    var storage: [4]u64 = .{ 0xFF, 0xAA, 0x55, 0xCC };
+    var storage: [4]Word = .{ Word.from(0xFF), Word.from(0xAA), Word.from(0x55), Word.from(0xCC) };
     var b = try BitmapAllocator.Bounded.wrap(&storage, 200);
     try testing.expectEqual(@as(usize, 200), b.capacity());
-    for (storage) |w| try testing.expectEqual(@as(u64, 0), w);
+    for (storage) |w| try testing.expectEqual(Word.from(0), w);
     try testing.expect(b.isEmpty());
     b.assertValid();
 }
 
 test "unit: Bounded.wrap rejects unit_capacity > words.len*word_bits" {
-    var storage: [2]u64 = .{ 0xDEADBEEF, 0xCAFEBABE };
+    var storage: [2]Word = .{ Word.from(0xDEADBEEF), Word.from(0xCAFEBABE) };
     const original = storage;
     try testing.expectError(error.OutOfBounds, BitmapAllocator.Bounded.wrap(&storage, 129));
     // borrowed words are unchanged on rejection.
@@ -100,7 +101,7 @@ test "unit: Bounded.wrap rejects unit_capacity > words.len*word_bits" {
 }
 
 test "unit: Bounded with zero-capacity storage" {
-    var empty: [0]u64 = .{};
+    var empty: [0]Word = .{};
     var b = try BitmapAllocator.Bounded.wrap(&empty, 0);
     try testing.expectEqual(@as(usize, 0), b.capacity());
     try testing.expect(b.isEmpty());
@@ -110,7 +111,7 @@ test "unit: Bounded with zero-capacity storage" {
 }
 
 test "unit: Bounded with capacity smaller than words.len*word_bits" {
-    var storage: [3]u64 = .{ 0, 0, 0 };
+    var storage: [3]Word = .{ Word.from(0), Word.from(0), Word.from(0) };
     var b = try BitmapAllocator.Bounded.wrap(&storage, 100);
     try testing.expectEqual(@as(usize, 100), b.capacity());
     var k: usize = 0;
@@ -119,7 +120,7 @@ test "unit: Bounded with capacity smaller than words.len*word_bits" {
     try testing.expectError(error.OutOfMemory, b.allocOne());
     // The third word is borrowed but never used as a unit; assertValid
     // requires it to remain zero.
-    try testing.expectEqual(@as(u64, 0), storage[2]);
+    try testing.expectEqual(Word.from(0), storage[2]);
     b.assertValid();
 }
 
@@ -151,7 +152,7 @@ test "unit: allocOne returns OutOfMemory without mutation when full" {
     _ = try bm.allocOne();
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.OutOfMemory, bm.allocOne());
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: reserveOne succeeds for a free index" {
@@ -173,7 +174,7 @@ test "unit: reserveOne rejects an allocated index without mutation" {
     try bm.reserveOne(3);
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.AlreadyAllocated, bm.reserveOne(3));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: freeOne succeeds for an allocated index" {
@@ -194,7 +195,7 @@ test "unit: freeOne rejects a free index without mutation" {
     var bm = BitmapAllocator.Static(64).init();
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.NotAllocated, bm.freeOne(2));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: isAllocated and isFree return false for out-of-bounds" {
@@ -216,7 +217,7 @@ test "unit: allocRange(0) returns empty range without mutation" {
     try testing.expect(r.isEmpty());
     try testing.expectEqual(@as(usize, 0), r.start);
     try testing.expectEqual(@as(usize, 0), r.end);
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: allocRange(1) matches allocOne" {
@@ -255,7 +256,7 @@ test "unit: allocRange returns OutOfMemory without mutation when exhausted" {
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.OutOfMemory, bm.allocRange(1));
     try testing.expectError(error.OutOfMemory, bm.allocRange(9));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: allocRange fragmented free space without contiguous run" {
@@ -267,7 +268,7 @@ test "unit: allocRange fragmented free space without contiguous run" {
     try testing.expectEqual(@as(usize, 8), bm.remaining());
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.OutOfMemory, bm.allocRange(2));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +299,7 @@ test "unit: reserveRange rejects out-of-bounds ranges without mutation" {
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.OutOfBounds, bm.reserveRange(try Range.init(60, 65)));
     try testing.expectError(error.OutOfBounds, bm.reserveRange(try Range.init(65, 65)));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: reserveRange rejects overlap with allocated without mutation" {
@@ -306,7 +307,7 @@ test "unit: reserveRange rejects overlap with allocated without mutation" {
     try bm.reserveOne(15);
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.AlreadyAllocated, bm.reserveRange(try Range.init(10, 20)));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: freeRange succeeds on allocated non-empty range" {
@@ -325,7 +326,7 @@ test "unit: freeRange accepts in-bounds empty range as no-op" {
     const snapshot = bm.bitmap.items;
     try bm.freeRange(try Range.init(0, 0));
     try bm.freeRange(try Range.init(64, 64));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: freeRange rejects out-of-bounds ranges without mutation" {
@@ -334,7 +335,7 @@ test "unit: freeRange rejects out-of-bounds ranges without mutation" {
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.OutOfBounds, bm.freeRange(try Range.init(60, 65)));
     try testing.expectError(error.OutOfBounds, bm.freeRange(try Range.init(65, 65)));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 test "unit: freeRange rejects overlap with free units without mutation" {
@@ -344,7 +345,7 @@ test "unit: freeRange rejects overlap with free units without mutation" {
     // gap (10..15) is free — freeRange(0..25) must fail.
     const snapshot = bm.bitmap.items;
     try testing.expectError(error.NotAllocated, bm.freeRange(try Range.init(0, 25)));
-    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
 }
 
 // ---------------------------------------------------------------------------
@@ -375,12 +376,12 @@ test "unit: clearRetainingCapacity clears all units" {
 }
 
 test "unit: clearRetainingCapacity on Bounded clears every borrowed word" {
-    var storage: [3]u64 = .{ 0, 0, 0 };
+    var storage: [3]Word = .{ Word.from(0), Word.from(0), Word.from(0) };
     var b = try BitmapAllocator.Bounded.wrap(&storage, 130);
     try b.reserveRange(try Range.init(0, 130));
     b.clearRetainingCapacity();
     try testing.expect(b.isEmpty());
-    for (storage) |w| try testing.expectEqual(@as(u64, 0), w);
+    for (storage) |w| try testing.expectEqual(Word.from(0), w);
 }
 
 test "unit: assertValid succeeds after every public mutation" {
@@ -405,10 +406,10 @@ test "unit: assertValid succeeds after every public mutation" {
 test "unit: unused high bits remain clear after operations" {
     var bm = BitmapAllocator.Static(65).init();
     _ = try bm.allocRange(65);
-    try testing.expectEqual(@as(u64, 1), bm.bitmap.items[1]);
+    try testing.expectEqual(Word.from(1), bm.bitmap.items[1]);
     bm.assertValid();
     try bm.freeRange(try Range.init(0, 65));
-    try testing.expectEqual(@as(u64, 0), bm.bitmap.items[1]);
+    try testing.expectEqual(Word.from(0), bm.bitmap.items[1]);
     bm.assertValid();
 }
 
@@ -416,15 +417,15 @@ test "unit: corrupted unused high bits are detected by isValid" {
     var bm = BitmapAllocator.Static(65).init();
     try testing.expect(bm.isValid());
     // poke an unused high bit in the last word
-    bm.bitmap.items[1] = @as(u64, 1) << 5;
+    bm.bitmap.items[1] = Word.from(1 << 5);
     try testing.expect(!bm.isValid());
 }
 
 test "unit: corrupted trailing storage word in Bounded is detected" {
-    var storage: [3]u64 = .{ 0, 0, 0 };
+    var storage: [3]Word = .{ Word.from(0), Word.from(0), Word.from(0) };
     var b = try BitmapAllocator.Bounded.wrap(&storage, 100);
     try testing.expect(b.isValid());
-    storage[2] = 1;
+    storage[2] = Word.from(1);
     try testing.expect(!b.isValid());
 }
 
@@ -516,7 +517,7 @@ const Model = struct {
     }
 };
 
-fn snapshotStatic(bm: anytype) [@TypeOf(bm.*).word_count]u64 {
+fn snapshotStatic(bm: anytype) [@TypeOf(bm.*).word_count]Word {
     return bm.bitmap.items;
 }
 
@@ -547,7 +548,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
                 try testing.expectEqual(@as(?usize, if (expected) |x| x else |_| null), if (got) |x| x else |_| null);
                 if (got) |_| {} else |err| {
                     try testing.expectEqual(error.OutOfMemory, err);
-                    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+                    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
                 }
             },
             1 => {
@@ -561,7 +562,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
                     try testing.expectEqual(er.end, r.end);
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+                    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
                 }
             },
             2 => {
@@ -573,7 +574,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
                     try expected;
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+                    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
                 }
             },
             3 => {
@@ -587,7 +588,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
                     try expected;
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+                    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
                 }
             },
             4 => {
@@ -599,7 +600,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
                     try expected;
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+                    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
                 }
             },
             5 => {
@@ -613,7 +614,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
                     try expected;
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &bm.bitmap.items);
+                    try testing.expectEqualSlices(Word, &snapshot, &bm.bitmap.items);
                 }
             },
             6 => {
@@ -627,7 +628,7 @@ test "model: Static vs bool-array allocator over randomized sequences" {
 }
 
 test "model: Bounded vs bool-array allocator over randomized sequences" {
-    var storage: [3]u64 = .{ 0, 0, 0 };
+    var storage: [3]Word = .{ Word.from(0), Word.from(0), Word.from(0) };
     var bm = try BitmapAllocator.Bounded.wrap(&storage, model_capacity);
     var model = Model{};
 
@@ -647,7 +648,7 @@ test "model: Bounded vs bool-array allocator over randomized sequences" {
                     try testing.expectEqual(e, x);
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &storage);
+                    try testing.expectEqualSlices(Word, &snapshot, &storage);
                 }
             },
             1 => {
@@ -660,7 +661,7 @@ test "model: Bounded vs bool-array allocator over randomized sequences" {
                     try testing.expectEqual(er.end, r.end);
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &storage);
+                    try testing.expectEqualSlices(Word, &snapshot, &storage);
                 }
             },
             2 => {
@@ -671,7 +672,7 @@ test "model: Bounded vs bool-array allocator over randomized sequences" {
                     try expected;
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &storage);
+                    try testing.expectEqualSlices(Word, &snapshot, &storage);
                 }
             },
             3 => {
@@ -684,7 +685,7 @@ test "model: Bounded vs bool-array allocator over randomized sequences" {
                     try expected;
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &storage);
+                    try testing.expectEqualSlices(Word, &snapshot, &storage);
                 }
             },
             4 => {
@@ -695,7 +696,7 @@ test "model: Bounded vs bool-array allocator over randomized sequences" {
                     try expected;
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &storage);
+                    try testing.expectEqualSlices(Word, &snapshot, &storage);
                 }
             },
             5 => {
@@ -708,7 +709,7 @@ test "model: Bounded vs bool-array allocator over randomized sequences" {
                     try expected;
                 } else |err| {
                     try testing.expectError(err, expected);
-                    try testing.expectEqualSlices(u64, &snapshot, &storage);
+                    try testing.expectEqualSlices(Word, &snapshot, &storage);
                 }
             },
             6 => {

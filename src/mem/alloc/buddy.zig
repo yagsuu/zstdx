@@ -21,7 +21,7 @@ pub const BuddyAllocator = struct {
 
             const Self = @This();
 
-            pub const Word = u64;
+            pub const Word = Bitmap.Word;
             pub const Block = buddy.Block;
             pub const Range = RangeUsize;
             pub const Error = BuddyAllocator.Bounded.Error;
@@ -102,7 +102,7 @@ pub const BuddyAllocator = struct {
         unit_capacity: usize,
         order_count: u8,
 
-        pub const Word = u64;
+        pub const Word = Bitmap.Word;
         pub const word_bits = Bitmap.Word.width;
         pub const Block = buddy.Block;
         pub const Range = RangeUsize;
@@ -222,7 +222,7 @@ pub const BuddyAllocator = struct {
 };
 
 const BuddyBlock = buddy.Block;
-const BuddyWord = u64;
+const BuddyWord = Bitmap.Word;
 const RangeUsize = @import("core").Range(usize);
 const Shift = std.math.Log2Int(usize);
 
@@ -270,7 +270,7 @@ fn validSlotsFor(unit_capacity: usize, order: u8) usize {
 
 fn wordsForOrder(unit_capacity: usize, order: u8) usize {
     const slots = slotsForOrder(unit_capacity, order);
-    return slots / Bitmap.Word.width + @intFromBool(slots % Bitmap.Word.width != 0);
+    return Bitmap.Word.wordsFor(slots);
 }
 
 fn orderWordOffset(unit_capacity: usize, order: u8) usize {
@@ -300,17 +300,17 @@ fn assertStorageShape(bitmap: anytype, unit_capacity: usize, order_count: u8) vo
 
 fn bitIsSet(bitmap: anytype, unit_capacity: usize, order: u8, slot: usize) bool {
     const word_index = orderWordOffset(unit_capacity, order) + slot / Bitmap.Word.width;
-    return Bitmap.Word.isSet(bitmap.items[word_index], slot % Bitmap.Word.width);
+    return bitmap.items[word_index].isSet(slot % Bitmap.Word.width);
 }
 
 fn setBit(bitmap: anytype, unit_capacity: usize, order: u8, slot: usize) void {
     const word_index = orderWordOffset(unit_capacity, order) + slot / Bitmap.Word.width;
-    Bitmap.Word.set(&bitmap.items[word_index], slot % Bitmap.Word.width);
+    bitmap.items[word_index].set(slot % Bitmap.Word.width);
 }
 
 fn clearBit(bitmap: anytype, unit_capacity: usize, order: u8, slot: usize) void {
     const word_index = orderWordOffset(unit_capacity, order) + slot / Bitmap.Word.width;
-    Bitmap.Word.clear(&bitmap.items[word_index], slot % Bitmap.Word.width);
+    bitmap.items[word_index].unset(slot % Bitmap.Word.width);
 }
 
 fn findFirstFreeAtOrder(bitmap: anytype, unit_capacity: usize, order: u8) ?usize {
@@ -319,7 +319,7 @@ fn findFirstFreeAtOrder(bitmap: anytype, unit_capacity: usize, order: u8) ?usize
     const wc = wordsForOrder(unit_capacity, order);
     var wi: usize = 0;
     while (wi < wc) : (wi += 1) {
-        const w = words[off + wi];
+        const w = words[off + wi].raw();
         if (w != 0) {
             const bit = @ctz(w);
             const slot = wi * Bitmap.Word.width + bit;
@@ -361,7 +361,9 @@ fn freeUnitsImpl(bitmap: anytype, unit_capacity: usize, order_count: u8) usize {
         const wc = wordsForOrder(unit_capacity, k);
 
         var pop: usize = 0;
-        for (words[off..][0..wc]) |w| pop += @popCount(w);
+        for (words[off..][0..wc]) |w| {
+            pop += @popCount(w.raw());
+        }
 
         const size = @as(usize, 1) << @as(Shift, @intCast(k));
         total += pop * size;
@@ -612,7 +614,7 @@ fn hasUnusedHighBits(words: []const BuddyWord, unit_capacity: usize, order_count
         var wi: usize = 0;
         while (wi < wc) : (wi += 1) {
             const base = wi * Bitmap.Word.width;
-            const w = words[off + wi];
+            const w = words[off + wi].raw();
 
             if (base >= valid) {
                 if (w != 0) return true;
@@ -624,7 +626,7 @@ fn hasUnusedHighBits(words: []const BuddyWord, unit_capacity: usize, order_count
                 continue;
             }
 
-            const high_mask = ~((@as(BuddyWord, 1) << @as(Bitmap.Word.Shift, @intCast(in_word))) - 1);
+            const high_mask = ~((@as(BuddyWord.Int, 1) << @as(Bitmap.Word.Shift, @intCast(in_word))) - 1);
             if ((w & high_mask) != 0) return true;
         }
     }
@@ -636,7 +638,9 @@ fn checkValid(bitmap: anytype, unit_capacity: usize, order_count: u8) bool {
     const required = requiredWordCount(unit_capacity, order_count);
     if (hasUnusedHighBits(words, unit_capacity, order_count)) return false;
     for (words[required..]) |word| {
-        if (word != 0) return false;
+        if (word.raw() != 0) {
+            return false;
+        }
     }
     if (hasBothBuddiesFree(bitmap, unit_capacity, order_count)) return false;
 

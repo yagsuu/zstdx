@@ -5,7 +5,7 @@ const std = @import("std");
 const Bitmap = @import("bits").Set(u64);
 
 const TagFactory = @import("tag.zig").Tag;
-const BitmapWord = Bitmap.Word.Int;
+const BitmapWord = Bitmap.Word;
 
 pub const TagAllocator = struct {
     pub fn Static(
@@ -119,6 +119,7 @@ pub const TagAllocator = struct {
             pub const Domain = DomainT;
             pub const Int = IntT;
             pub const Tag = TagT;
+            pub const Word = BitmapWord;
 
             pub const WrapError = error{OutOfBounds};
             pub const AllocError = error{OutOfTags};
@@ -218,7 +219,7 @@ pub const unit = struct {
         try testing.expectError(error.AlreadyAllocated, Impl.reserveOne(Tag, &bitmap, &count, Tag.from(3)));
         try testing.expectError(error.OutOfBounds, Impl.reserveOne(Tag, &bitmap, &count, Tag.from(130)));
         try testing.expectError(error.OutOfBounds, Impl.freeOne(Tag, &bitmap, &count, Tag.from(40000)));
-        try testing.expectEqualSlices(u64, &full, &bitmap.items);
+        try testing.expectEqualSlices(BitmapWord, &full, &bitmap.items);
         try testing.expectEqual(@as(usize, 130), count);
 
         for ([_]u16{ 64, 1, 129 }) |index| {
@@ -228,7 +229,7 @@ pub const unit = struct {
         const holes = bitmap.items;
 
         try testing.expectError(error.NotAllocated, Impl.freeOne(Tag, &bitmap, &count, Tag.from(64)));
-        try testing.expectEqualSlices(u64, &holes, &bitmap.items);
+        try testing.expectEqualSlices(BitmapWord, &holes, &bitmap.items);
         try testing.expectEqual(@as(usize, 127), count);
 
         try Impl.reserveOne(Tag, &bitmap, &count, Tag.from(64));
@@ -239,7 +240,7 @@ pub const unit = struct {
     }
 
     test "shared bitmap validation" {
-        var words: [3]u64 = .{ 1, 1, 0 };
+        var words: [3]BitmapWord = .{ BitmapWord.from(1), BitmapWord.from(1), .zero };
         var bitmap: Bitmap.Bounded = .{ .items = &words, .limit = 65 };
 
         try testing.expect(Impl.isValid(&bitmap, 2));
@@ -249,11 +250,11 @@ pub const unit = struct {
         try testing.expect(!Impl.isValid(&bitmap, 66));
         try testing.expect(!Impl.isValid(&bitmap, 1));
 
-        words[1] = 2;
+        words[1] = BitmapWord.from(2);
         try testing.expect(!Impl.isValid(&bitmap, 2));
 
-        words[1] = 1;
-        words[2] = 1;
+        words[1] = BitmapWord.from(1);
+        words[2] = BitmapWord.from(1);
         try testing.expect(!Impl.isValid(&bitmap, 2));
     }
 
@@ -281,7 +282,7 @@ pub const unit = struct {
         _ = try a.allocOne();
         a.clearRetainingCapacity();
         try testing.expectEqual(@as(usize, 0), a.allocated());
-        try testing.expectEqual(@as(u64, 0), a.bitmap.items[0]);
+        try testing.expectEqual(BitmapWord.zero, a.bitmap.items[0]);
 
         a.assertValid();
     }
@@ -289,16 +290,16 @@ pub const unit = struct {
     test "borrowed storage and wrap validation" {
         const B = TagAllocator.Bounded(DomainA, u8);
 
-        var words: [8]u64 = @splat(0xaa);
+        var words: [8]BitmapWord = @splat(BitmapWord.from(0xaa));
         const original = words;
 
         try testing.expectError(error.OutOfBounds, B.wrap(words[0..2], 129));
         try testing.expectError(error.OutOfBounds, B.wrap(&words, 257));
-        try testing.expectEqualSlices(u64, &original, &words);
+        try testing.expectEqualSlices(BitmapWord, &original, &words);
 
         var a = try B.wrap(&words, 256);
         try testing.expectEqual(@as(usize, 256), a.capacity());
-        try testing.expectEqualSlices(u64, &@as([8]u64, @splat(0)), &words);
+        try testing.expectEqualSlices(BitmapWord, &@as([8]BitmapWord, @splat(.zero)), &words);
 
         try a.reserveOne(B.Tag.from(255));
         try testing.expect(a.isAllocated(B.Tag.from(255)));
@@ -308,11 +309,11 @@ pub const unit = struct {
         try testing.expect(a.isFree(B.Tag.from(255)));
         try testing.expectEqual(@as(u8, 0), (try a.allocOne()).raw());
 
-        words[7] = 1;
+        words[7] = BitmapWord.from(1);
         try testing.expect(!a.isValid());
 
         a.clearRetainingCapacity();
-        try testing.expectEqualSlices(u64, &@as([8]u64, @splat(0)), &words);
+        try testing.expectEqualSlices(BitmapWord, &@as([8]BitmapWord, @splat(.zero)), &words);
 
         a.assertValid();
         a.bitmap.limit = 257;
@@ -365,7 +366,7 @@ pub const unit = struct {
     fn modelRun(comptime Domain: type, comptime Int: type, capacity: usize, seed: u64, iterations: usize) !void {
         const Tag = TagFactory(Domain, Int);
 
-        var words: [4]u64 = @splat(0);
+        var words: [4]BitmapWord = @splat(.zero);
         var bitmap = try Bitmap.Bounded.wrap(&words, capacity);
         var count: usize = 0;
         var used: [256]bool = @splat(false);
@@ -506,20 +507,23 @@ const Impl = struct {
     fn isValid(bitmap: anytype, count: usize) bool {
         const capacity = bitmap.capacity();
         const words: []const BitmapWord = bitmap.items[0..];
-        const word_count = capacity / Bitmap.Word.width + @intFromBool(capacity % Bitmap.Word.width != 0);
+        const word_count = Bitmap.Word.wordsFor(capacity);
         if (word_count > words.len or count > capacity) {
             return false;
         }
 
         const remainder = capacity % Bitmap.Word.width;
-        const last_mask = if (remainder == 0) Bitmap.Word.full else Bitmap.Word.maskOf(remainder) - 1;
+        const last_mask = switch (remainder) {
+            0 => BitmapWord.full.raw(),
+            else => BitmapWord.maskOf(remainder) - 1,
+        };
 
         var total: usize = 0;
         for (words[0..word_count], 0..) |value, index| {
-            if (index == word_count - 1 and value & ~last_mask != 0) {
+            if (index == word_count - 1 and value.raw() & ~last_mask != 0) {
                 return false;
             }
-            total += @popCount(value);
+            total += @popCount(value.raw());
         }
 
         if (total != count) {
@@ -527,7 +531,7 @@ const Impl = struct {
         }
 
         for (words[word_count..]) |value| {
-            if (value != 0) {
+            if (value != .zero) {
                 return false;
             }
         }

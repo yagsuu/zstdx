@@ -150,7 +150,7 @@ test "unit: remainingBytes reports expected byte count" {
 }
 
 test "unit: Bounded wrap validates base + capacity does not overflow" {
-    var storage: [64]stdx.mem.alloc.BuddyAllocator.Bounded.Word = @splat(0);
+    var storage: [64]stdx.mem.alloc.BuddyAllocator.Bounded.Word = @splat(.zero);
     const backend = try stdx.mem.alloc.BuddyAllocator.Bounded.wrap(&storage, 16, 4);
 
     const Frames = stdx.mem.alloc.FrameAllocator.Bounded(

@@ -8,6 +8,7 @@ const stdx = @import("stdx");
 const testing = std.testing;
 
 const BuddyAllocator = stdx.mem.alloc.BuddyAllocator;
+const Word = BuddyAllocator.Bounded.Word;
 const buddy = stdx.algo.alloc.buddy;
 
 // Static factory
@@ -18,7 +19,7 @@ test "unit: Static(16, 5) exposes const surface" {
     try testing.expectEqual(@as(u8, 5), T.order_count_const);
     try testing.expectEqual(@as(u8, 4), T.max_order_const);
     try testing.expect(@sizeOf(T) > 0);
-    try testing.expect(@sizeOf(T) < @sizeOf([16]u64));
+    try testing.expect(@sizeOf(T) < @sizeOf([16]Word));
 }
 
 test "unit: Static(1, 1) compiles as degenerate one-block allocator" {
@@ -44,29 +45,30 @@ test "contract: Block type is stdx.algo.alloc.buddy.Block" {
 // wrap
 
 test "unit: Bounded.wrap succeeds for sufficient words" {
-    var words: [16]u64 = @splat(0xdead_beef_dead_beef);
+    var words: [16]Word = @splat(Word.from(0xdead_beef_dead_beef));
     var a = try BuddyAllocator.Bounded.wrap(&words, 16, 5);
     try testing.expectEqual(@as(usize, 16), a.capacity());
     try testing.expectEqual(@as(u8, 5), a.orderCount());
     try testing.expectEqual(@as(u8, 4), a.maxOrder());
     try testing.expect(a.isValid());
     try testing.expectEqual(@as(usize, 0), a.allocatedUnits());
-    // Verify all borrowed words below word_count are zero-or-initial (no leftover
-    // 0xdead pattern) — wrap installs the initial decomposition on top of a
-    // cleared buffer.
-    for (words[0..5]) |w| try testing.expect(w != 0xdead_beef_dead_beef);
+    for (words[0..5]) |w| {
+        try testing.expect(w != Word.from(0xdead_beef_dead_beef));
+    }
 }
 
 test "unit: Bounded.wrap rejects invalid parameters without mutation" {
-    var words: [16]u64 = @splat(0x1234);
+    var words: [16]Word = @splat(Word.from(0x1234));
     try testing.expectError(error.InvalidRequest, BuddyAllocator.Bounded.wrap(&words, 0, 5));
     try testing.expectError(error.InvalidRequest, BuddyAllocator.Bounded.wrap(&words, 16, 0));
     try testing.expectError(error.InvalidRequest, BuddyAllocator.Bounded.wrap(&words, 16, 33));
-    for (words) |w| try testing.expectEqual(@as(u64, 0x1234), w);
+    for (words) |w| {
+        try testing.expectEqual(Word.from(0x1234), w);
+    }
 
-    var tiny: [1]u64 = @splat(0xabcd);
+    var tiny: [1]Word = @splat(Word.from(0xabcd));
     try testing.expectError(error.InvalidRequest, BuddyAllocator.Bounded.wrap(&tiny, 4096, 8));
-    try testing.expectEqual(@as(u64, 0xabcd), tiny[0]);
+    try testing.expectEqual(Word.from(0xabcd), tiny[0]);
 }
 
 // Initial decomposition
@@ -376,7 +378,7 @@ test "unit: fresh Static / Bounded values are valid" {
     try testing.expect(s.isValid());
     s.assertValid();
 
-    var words: [16]u64 = @splat(0);
+    var words: [16]Word = @splat(.zero);
     var b = try BuddyAllocator.Bounded.wrap(&words, 16, 5);
     try testing.expect(b.isValid());
     b.assertValid();
@@ -399,16 +401,14 @@ test "unit: assertValid holds after mutation sequences" {
 }
 
 test "unit: mutated bitmap that pairs order-k buddies both free fails isValid" {
-    var words: [16]u64 = @splat(0);
+    var words: [16]Word = @splat(.zero);
     var a = try BuddyAllocator.Bounded.wrap(&words, 8, 4);
-    // Manually mark {0,0} and {1,0} both free while max_order block is
-    // also free — creates a same-order buddy-pair violation at order 0.
-    words[0] |= 0b11;
+    words[0] = Word.from(words[0].raw() | 0b11);
     try testing.expect(!a.isValid());
 }
 
 test "unit: Bounded with insufficient words fails isValid" {
-    var words: [1]u64 = @splat(0);
+    var words: [1]Word = @splat(.zero);
     // Test-only backdoor: construct a Bounded whose words.len is smaller
     // than requiredWordCount, bypassing wrap's guard.
     var a: BuddyAllocator.Bounded = .{
@@ -486,15 +486,15 @@ test "stress: 10K random ops on Static(256, 6) return to fully-free state" {
 
     // Should equal a freshly-initialised allocator bit-for-bit.
     const fresh: T = .init();
-    try testing.expectEqualSlices(u64, fresh.bitmap.words(), a.bitmap.words());
+    try testing.expectEqualSlices(T.Word, fresh.bitmap.words(), a.bitmap.words());
 }
 
-fn snapshotStatic(a: anytype) [@TypeOf(a.*).word_count]u64 {
+fn snapshotStatic(a: anytype) [@TypeOf(a.*).word_count]@TypeOf(a.*).Word {
     return a.bitmap.items;
 }
 
-fn expectSnapshotStatic(a: anytype, snapshot: [@TypeOf(a.*).word_count]u64) !void {
-    try testing.expectEqualSlices(u64, snapshot[0..], a.bitmap.words());
+fn expectSnapshotStatic(a: anytype, snapshot: [@TypeOf(a.*).word_count]@TypeOf(a.*).Word) !void {
+    try testing.expectEqualSlices(@TypeOf(a.*).Word, snapshot[0..], a.bitmap.words());
 }
 
 fn isUnitFree(a: anytype, unit: usize) bool {
@@ -626,7 +626,7 @@ fn runModel(comptime T: type, comptime capacity: usize, comptime order_count: u8
             if (any_used) {
                 const snapshot = a.bitmap.items;
                 try testing.expectError(error.AlreadyAllocated, a.reserve(try Range.init(start, end)));
-                try testing.expectEqualSlices(u64, snapshot[0..], a.bitmap.words());
+                try testing.expectEqualSlices(T.Word, snapshot[0..], a.bitmap.words());
             } else {
                 try a.reserve(try Range.init(start, end));
                 ref.reserve(start, end);
