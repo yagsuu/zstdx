@@ -5,7 +5,7 @@ const std = @import("std");
 
 const debug = @import("core").debug;
 
-const PerCPU = @import("cpu").per_cpu.PerCPU;
+const PerCpu = @import("cpu").per_cpu.PerCpu;
 const RawSpinLock = @import("sync").raw_spin_lock.RawSpinLock;
 const SlabAllocator = @import("allocator.zig").SlabAllocator;
 
@@ -275,7 +275,7 @@ fn SlabCachePerCpu(
     comptime requirePerCpuCapacity(local_capacity);
 
     const Local = SlabCacheMagazine(T, local_capacity);
-    const LocalSlots = PerCPU.Static(Local, cpu_count);
+    const LocalSlots = PerCpu.Static(Local, cpu_count);
 
     return struct {
         global: Global,
@@ -320,13 +320,13 @@ fn SlabCachePerCpu(
 
         /// Uses the local cache before reserving a global batch.
         pub fn acquire(self: *Self, cpu_index: usize) Error!*T {
-            const local = self.locals.getPtr(cpu_index);
+            const local = self.locals.getMut(cpu_index);
             return local.pop() orelse self.acquireFromGlobal(local);
         }
 
         /// Flushes a full local cache under the global spin lock.
         pub fn release(self: *Self, cpu_index: usize, item: *T) void {
-            const local = self.locals.getPtr(cpu_index);
+            const local = self.locals.getMut(cpu_index);
             if (local.len == local_capacity) self.flushFullLocal(local);
             local.push(item);
         }
@@ -379,14 +379,14 @@ fn SlabCachePerCpu(
         }
 
         fn flushAllLocals(self: *Self) void {
-            for (self.locals.slots()) |*slot| {
+            for (self.locals.slotsMut()) |*slot| {
                 self.flushLocal(&slot.value);
             }
         }
 
         fn cachedCount(self: *const Self) usize {
             var count: usize = 0;
-            for (self.locals.slotsConst()) |slot| {
+            for (self.locals.slots()) |slot| {
                 count += slot.value.len;
             }
             return count;
@@ -399,7 +399,7 @@ fn SlabCachePerCpu(
         }
 
         fn localsAreValid(self: *const Self) bool {
-            for (self.locals.slotsConst()) |slot| {
+            for (self.locals.slots()) |slot| {
                 if (!self.localIsValid(slot.value)) return false;
             }
             return true;

@@ -1,266 +1,289 @@
-//! Per-CPU cache-line-padded storage. See `docs/specs/cpu/per_cpu.md`.
+//! caller-indexed, cache-line-padded storage
 
 const std = @import("std");
 
 const debug = @import("core").debug;
-const cache = @import("layout").cache;
 
-const CachePad = cache.CachePad;
+const CachePad = @import("layout").cache.CachePad;
 
-/// Fixed-capacity, cache-line-padded, typed per-CPU storage. `Static` owns
-/// inline `[N]CachePad(T)` storage; `Bounded` borrows a caller-provided
-/// `[]CachePad(T)` slice. Neither variant discovers CPUs, orders accesses
-/// across slots, or enforces affinity; routing is caller policy.
-pub const PerCPU = struct {
-    /// Provides inline `[N]CachePad(T)` storage indexed by a caller-supplied
-    /// CPU index. `Static(T, 0)` is a compile error because a zero-capacity
-    /// array has no valid consumer.
-    pub fn Static(comptime T: type, comptime N: usize) type {
-        if (N == 0) {
-            @compileError("PerCPU.Static: capacity N must be > 0");
+pub const PerCpu = struct {
+    pub fn Static(comptime T: type, comptime count: usize) type {
+        if (count == 0) {
+            @compileError("PerCpu.Static count must be non-zero");
         }
 
         return struct {
-            storage: [N]Padded,
+            items: [count]Padded,
 
             const Self = @This();
 
-            /// Cache-line-padded slot type; `Padded.value` is the payload `T`.
             pub const Padded = CachePad(T);
+            pub const Error = Impl.Error;
 
-            /// `OutOfBounds`: index at or past `capacity()`.
-            pub const Error = error{OutOfBounds};
-
-            /// Fill every slot's payload with `default`.
-            pub fn init(default: T) Self {
-                var self: Self = .{ .storage = undefined };
-                fillDefault(Padded, T, self.storage[0..], default);
+            pub fn init(value: T) Self {
+                var self: Self = undefined;
+                Impl.fill(T, &self.items, value);
                 return self;
             }
 
-            /// Call `make(index)` once per slot, in index order, and store
-            /// each returned value in the matching slot.
             pub fn initFn(comptime make: fn (index: usize) T) Self {
-                var self: Self = .{ .storage = undefined };
-                fillFn(Padded, T, self.storage[0..], make);
+                var self: Self = undefined;
+                Impl.fillFn(T, &self.items, make);
                 return self;
             }
 
-            /// Call `fill(index, slot_ptr)` once per slot, in index order,
-            /// with a pointer to that slot's payload.
+            /// callback pointers must not outlive the call; storage is returned by value
             pub fn initEach(comptime fill: fn (index: usize, slot: *T) void) Self {
-                var self: Self = .{ .storage = undefined };
-                fillEach(Padded, T, self.storage[0..], fill);
+                var self: Self = undefined;
+                Impl.fillEach(T, &self.items, fill);
                 return self;
             }
 
-            /// Leaves every slot's payload undefined. The caller must write
-            /// each slot before reading.
+            /// each payload must be written before reading
             pub fn initUndefined() Self {
-                return .{ .storage = undefined };
+                return undefined;
             }
 
-            pub fn capacity(self: *const Self) usize {
-                _ = self;
-                return N;
+            pub fn capacity(_: *const Self) usize {
+                return count;
             }
 
-            pub fn len(self: *const Self) usize {
-                _ = self;
-                return N;
-            }
-
-            /// Unchecked read. Out-of-bounds behavior follows the ambient
-            /// Zig array-bounds policy: trap in Debug/ReleaseSafe, undefined
-            /// in ReleaseFast/ReleaseSmall.
-            pub fn get(self: *const Self, index: usize) T {
+            pub fn get(self: *const Self, index: usize) *const T {
                 if (debug.checksEnabled()) {
-                    std.debug.assert(index < N);
+                    std.debug.assert(index < count);
                 }
-                return self.storage[index].value;
+                return &self.items[index].value;
             }
 
-            /// Unchecked pointer to the payload in slot `index`. Same bounds
-            /// policy as `get`.
-            pub fn getPtr(self: *Self, index: usize) *T {
+            pub fn getMut(self: *Self, index: usize) *T {
                 if (debug.checksEnabled()) {
-                    std.debug.assert(index < N);
+                    std.debug.assert(index < count);
                 }
-                return &self.storage[index].value;
+                return &self.items[index].value;
             }
 
-            /// Bounds-checked read; returns `error.OutOfBounds` when
-            /// `index >= capacity()`.
-            pub fn at(self: *const Self, index: usize) Error!T {
-                if (index >= N) return error.OutOfBounds;
-                return self.storage[index].value;
+            pub fn at(self: *const Self, index: usize) Error!*const T {
+                if (index >= count) {
+                    return error.OutOfBounds;
+                }
+                return &self.items[index].value;
             }
 
-            /// Bounds-checked pointer; returns `error.OutOfBounds` when
-            /// `index >= capacity()`.
-            pub fn atPtr(self: *Self, index: usize) Error!*T {
-                if (index >= N) return error.OutOfBounds;
-                return &self.storage[index].value;
+            pub fn atMut(self: *Self, index: usize) Error!*T {
+                if (index >= count) {
+                    return error.OutOfBounds;
+                }
+                return &self.items[index].value;
             }
 
-            /// Returns a mutable padded slot slice. Access each payload through
-            /// `slot.value`.
-            pub fn slots(self: *Self) []Padded {
-                return self.storage[0..];
+            pub fn slots(self: *const Self) []const Padded {
+                return &self.items;
             }
 
-            /// Returns an immutable padded slot slice. Access each payload through
-            /// `slot.value`.
-            pub fn slotsConst(self: *const Self) []const Padded {
-                return self.storage[0..];
-            }
-
-            /// Invariant: The storage base is padded-aligned, and adjacent slots are
-            /// exactly `@sizeOf(Padded)` apart. This method does not gate checks;
-            /// callers can gate it with `stdx.core.debug.checksEnabled()`.
-            pub fn assertValid(self: *const Self) void {
-                assertValidPadded(Padded, self.storage[0..]);
+            pub fn slotsMut(self: *Self) []Padded {
+                return &self.items;
             }
         };
     }
 
-    /// Runtime-capacity per-CPU storage over a caller-provided
-    /// `[]CachePad(T)` slice. Copying a `Bounded` shares the backing slice;
-    /// every copy sees writes performed through any other copy.
     pub fn Bounded(comptime T: type) type {
         return struct {
-            slots_backing: []Padded,
+            items: []Padded,
 
             const Self = @This();
 
-            /// Cache-line-padded slot type; `Padded.value` is the payload `T`.
             pub const Padded = CachePad(T);
+            pub const Error = Impl.Error;
 
-            /// `OutOfBounds`: index at or past `capacity()`.
-            pub const Error = error{OutOfBounds};
-
-            /// Stores `backing` and fills every slot's payload with `default`.
-            pub fn init(backing: []Padded, default: T) Self {
-                fillDefault(Padded, T, backing, default);
-                return .{ .slots_backing = backing };
+            pub fn wrap(items: []Padded, value: T) Self {
+                Impl.fill(T, items, value);
+                return .{ .items = items };
             }
 
-            /// Stores `backing` and calls `make(index)` once per slot in index
-            /// order.
-            pub fn initFn(
-                backing: []Padded,
-                comptime make: fn (index: usize) T,
-            ) Self {
-                fillFn(Padded, T, backing, make);
-                return .{ .slots_backing = backing };
+            pub fn wrapFn(items: []Padded, comptime make: fn (index: usize) T) Self {
+                Impl.fillFn(T, items, make);
+                return .{ .items = items };
             }
 
-            /// Stores `backing` and calls `fill(index, slot_ptr)` once per slot
-            /// in index order.
-            pub fn initEach(
-                backing: []Padded,
-                comptime fill: fn (index: usize, slot: *T) void,
-            ) Self {
-                fillEach(Padded, T, backing, fill);
-                return .{ .slots_backing = backing };
+            pub fn wrapEach(items: []Padded, comptime fill: fn (index: usize, slot: *T) void) Self {
+                Impl.fillEach(T, items, fill);
+                return .{ .items = items };
             }
 
-            /// Stores `backing` without writing. The caller must write each
-            /// slot before reading.
-            pub fn initUndefined(backing: []Padded) Self {
-                return .{ .slots_backing = backing };
+            /// each payload must be written before reading
+            pub fn wrapUndefined(items: []Padded) Self {
+                return .{ .items = items };
             }
 
             pub fn capacity(self: *const Self) usize {
-                return self.slots_backing.len;
+                return self.items.len;
             }
 
-            pub fn len(self: *const Self) usize {
-                return self.slots_backing.len;
-            }
-
-            pub fn get(self: *const Self, index: usize) T {
+            pub fn get(self: *const Self, index: usize) *const T {
                 if (debug.checksEnabled()) {
-                    std.debug.assert(index < self.slots_backing.len);
+                    std.debug.assert(index < self.items.len);
                 }
-                return self.slots_backing[index].value;
+                return &self.items[index].value;
             }
 
-            pub fn getPtr(self: *Self, index: usize) *T {
+            pub fn getMut(self: *Self, index: usize) *T {
                 if (debug.checksEnabled()) {
-                    std.debug.assert(index < self.slots_backing.len);
+                    std.debug.assert(index < self.items.len);
                 }
-                return &self.slots_backing[index].value;
+                return &self.items[index].value;
             }
 
-            pub fn at(self: *const Self, index: usize) Error!T {
-                if (index >= self.slots_backing.len) return error.OutOfBounds;
-                return self.slots_backing[index].value;
+            pub fn at(self: *const Self, index: usize) Error!*const T {
+                if (index >= self.items.len) {
+                    return error.OutOfBounds;
+                }
+                return &self.items[index].value;
             }
 
-            pub fn atPtr(self: *Self, index: usize) Error!*T {
-                if (index >= self.slots_backing.len) return error.OutOfBounds;
-                return &self.slots_backing[index].value;
+            pub fn atMut(self: *Self, index: usize) Error!*T {
+                if (index >= self.items.len) {
+                    return error.OutOfBounds;
+                }
+                return &self.items[index].value;
             }
 
-            pub fn slots(self: *Self) []Padded {
-                return self.slots_backing;
+            pub fn slots(self: *const Self) []const Padded {
+                return self.items;
             }
 
-            pub fn slotsConst(self: *const Self) []const Padded {
-                return self.slots_backing;
-            }
-
-            /// Invariant: The backing-slice base is padded-aligned, and adjacent slots
-            /// are exactly `@sizeOf(Padded)` apart. This method does not gate checks;
-            /// callers can gate it with `stdx.core.debug.checksEnabled()`.
-            pub fn assertValid(self: *const Self) void {
-                assertValidPadded(Padded, self.slots_backing);
+            pub fn slotsMut(self: *Self) []Padded {
+                return self.items;
             }
         };
     }
 };
 
-fn fillDefault(
-    comptime Padded: type,
-    comptime T: type,
-    padded: []Padded,
-    default: T,
-) void {
-    for (padded) |*slot| {
-        slot.value = default;
-    }
-}
+const Impl = struct {
+    const Error = error{OutOfBounds};
 
-fn fillFn(
-    comptime Padded: type,
-    comptime T: type,
-    padded: []Padded,
-    comptime make: fn (index: usize) T,
-) void {
-    for (padded, 0..) |*slot, index| {
-        slot.value = make(index);
+    fn fill(comptime T: type, items: []CachePad(T), value: T) void {
+        for (items) |*slot| {
+            slot.value = value;
+        }
     }
-}
 
-fn fillEach(
-    comptime Padded: type,
-    comptime T: type,
-    padded: []Padded,
-    comptime fill: fn (index: usize, slot: *T) void,
-) void {
-    for (padded, 0..) |*slot, index| {
-        fill(index, &slot.value);
+    fn fillFn(comptime T: type, items: []CachePad(T), comptime make: fn (index: usize) T) void {
+        for (items, 0..) |*slot, index| {
+            slot.value = make(index);
+        }
     }
-}
 
-fn assertValidPadded(comptime Padded: type, padded: []const Padded) void {
-    const base = @intFromPtr(padded.ptr);
-    std.debug.assert(base % @alignOf(Padded) == 0);
-
-    if (padded.len >= 2) {
-        const first = @intFromPtr(&padded[0]);
-        const second = @intFromPtr(&padded[1]);
-        std.debug.assert(second - first == @sizeOf(Padded));
+    fn fillEach(comptime T: type, items: []CachePad(T), comptime initialize: fn (index: usize, slot: *T) void) void {
+        for (items, 0..) |*slot, index| {
+            initialize(index, &slot.value);
+        }
     }
-}
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "fill changes only the supplied payloads" {
+        var items: [5]CachePad(u64) = undefined;
+        Impl.fill(u64, &items, 99);
+        Impl.fill(u64, items[1..4], 17);
+
+        for (items, 0..) |slot, index| {
+            const expected: u64 = switch (index) {
+                0, 4 => 99,
+                else => 17,
+            };
+
+            try testing.expectEqual(expected, slot.value);
+        }
+    }
+
+    test "callbacks initialize once per slot in index order" {
+        const Callbacks = struct {
+            var next: usize = 0;
+
+            fn make(index: usize) u64 {
+                std.debug.assert(index == next);
+                next += 1;
+                return @intCast(3 * index + 1);
+            }
+
+            fn fill(index: usize, value: *u64) void {
+                value.* = make(index);
+            }
+        };
+
+        var items: [4]CachePad(u64) = undefined;
+        Callbacks.next = 0;
+        Impl.fillFn(u64, &items, Callbacks.make);
+
+        try testing.expectEqual(items.len, Callbacks.next);
+        for (items, 0..) |slot, index| {
+            try testing.expectEqual(@as(u64, @intCast(3 * index + 1)), slot.value);
+        }
+
+        Callbacks.next = 0;
+        const borrowed = PerCpu.Bounded(u64).wrapEach(&items, Callbacks.fill);
+
+        try testing.expectEqual(items.len, Callbacks.next);
+        for (0..borrowed.capacity()) |index| {
+            try testing.expectEqual(@as(u64, @intCast(3 * index + 1)), borrowed.get(index).*);
+        }
+    }
+
+    test "static pointer access and padded views share the same payloads" {
+        var values = PerCpu.Static(u64, 3).init(10);
+        const read: *const @TypeOf(values) = &values;
+        const first = read.get(0);
+        const last = try values.atMut(2);
+
+        values.getMut(0).* = 31;
+        last.* = 47;
+        values.slotsMut()[1].value = 59;
+
+        try testing.expectEqual(@as(u64, 31), first.*);
+        try testing.expectEqual(@as(u64, 59), (try read.at(1)).*);
+        try testing.expectEqual(@as(u64, 47), read.slots()[2].value);
+        try testing.expectError(error.OutOfBounds, read.at(3));
+        try testing.expectError(error.OutOfBounds, values.atMut(3));
+    }
+
+    test "borrowed copies alias payloads and empty storage rejects access" {
+        const Bounded = PerCpu.Bounded(u64);
+
+        var items: [2]Bounded.Padded = undefined;
+        var writer = Bounded.wrap(&items, 7);
+        var reader = writer;
+
+        writer.getMut(1).* = 23;
+        reader.slotsMut()[0].value = 41;
+
+        try testing.expectEqual(@as(u64, 23), reader.get(1).*);
+        try testing.expectEqual(@as(u64, 41), writer.get(0).*);
+
+        var empty = Bounded.wrap(items[0..0], 99);
+
+        try testing.expectEqual(@as(usize, 0), empty.capacity());
+        try testing.expectError(error.OutOfBounds, empty.at(0));
+        try testing.expectError(error.OutOfBounds, empty.atMut(0));
+        try testing.expectEqual(@as(u64, 41), items[0].value);
+    }
+
+    test "undefined initialization permits writing before reading" {
+        const Bounded = PerCpu.Bounded(u64);
+
+        var fixed = PerCpu.Static(u64, 2).initUndefined();
+        var items: [2]Bounded.Padded = undefined;
+        var borrowed = Bounded.wrapUndefined(&items);
+
+        for (0..fixed.capacity()) |index| {
+            fixed.getMut(index).* = @intCast(index + 3);
+            borrowed.getMut(index).* = @intCast(index + 7);
+        }
+
+        try testing.expectEqual(@as(u64, 3), fixed.get(0).*);
+        try testing.expectEqual(@as(u64, 4), fixed.get(1).*);
+        try testing.expectEqual(@as(u64, 7), borrowed.get(0).*);
+        try testing.expectEqual(@as(u64, 8), borrowed.get(1).*);
+    }
+};
