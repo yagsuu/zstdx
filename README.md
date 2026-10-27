@@ -97,17 +97,6 @@ The public facade is `src/stdx.zig`. It re-exports these namespaces:
 | `stdx.arch`, `stdx.io`, `stdx.dma`, `stdx.cpu` | Target wrappers, MMIO, DMA data structures, and per-CPU substrate |
 | `stdx.time`, `stdx.tags`, `stdx.func`, `stdx.diag` | Time, tag allocation, callbacks, and diagnostics |
 
-## Design
-
-- **Caller-owned policy.** The caller or a downstream package owns platform
-  discovery, scheduling, DMA mapping, and device-protocol policy.
-- **Explicit storage and allocation.** `Static` owns inline storage; `Bounded`
-  borrows fixed storage; allocator-backed types identify their allocator use.
-- **Explicit effects.** Public contracts state applicable allocation, waiting,
-  capacity, ownership, invalidation, error, concurrency, and ordering effects.
-- **Domain-neutral APIs.** The library provides mechanisms rather than a
-  kernel, firmware, driver, hypervisor, or protocol stack.
-
 ## Build and test
 
 Run the default suite:
