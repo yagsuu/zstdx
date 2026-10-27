@@ -97,6 +97,7 @@ pub fn addHostTests(
 
         if (std.mem.eql(u8, category, "algo")) {
             addSuite(b, category_step, check_step, modules.algo);
+            continue;
         }
 
         const root = b.createModule(.{
