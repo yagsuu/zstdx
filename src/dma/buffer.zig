@@ -106,7 +106,7 @@ pub fn Buffer(comptime T: type) type {
             if (offset_items > self.virt.len) return error.OutOfBounds;
             const offset_raw: Address.Int = @intCast(offset_items);
             const byte_offset = offset_raw * @sizeOf(T);
-            return Address.from(self.dma.raw() + byte_offset);
+            return self.dma.add(byte_offset) catch unreachable;
         }
 
         /// Returns a validated subrange that preserves the caller's contiguity claim.
@@ -123,7 +123,7 @@ pub fn Buffer(comptime T: type) type {
             const byte_offset = offset_raw * @sizeOf(T);
             return .{
                 .virt = self.virt[range.offset_items..end],
-                .dma = Address.from(self.dma.raw() + byte_offset),
+                .dma = self.dma.add(byte_offset) catch unreachable,
             };
         }
 

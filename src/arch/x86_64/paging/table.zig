@@ -477,7 +477,7 @@ fn producerEntryAddress(base: Phys4K.Base, index: Index) PhysAddr {
     std.debug.assert(base.raw() >> architectural_address_bits == 0);
     const offset_bytes = @as(u64, index.raw()) * entry_size_bytes;
     std.debug.assert(offset_bytes < table_alignment_bytes);
-    return PhysAddr.from(base.raw() + offset_bytes);
+    return base.addr().offset(@intCast(offset_bytes)) catch unreachable;
 }
 
 const TableEntry = packed struct(u64) {
