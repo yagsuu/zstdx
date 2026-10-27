@@ -57,7 +57,7 @@ test "region source composes with SlabCache over host memory" {
     cache.drain();
 
     try testing.expectEqual(@as(u64, 0), pages.allocated());
-    cache.assertValid();
+    try testing.expect(cache.isValid());
     try testing.expect(pages.isValid());
 }
 
