@@ -1,27 +1,27 @@
-//! Multi-region typed object cache over `SlabAllocator.Bounded`.
-//! See `docs/specs/mem/alloc/slab/cache.md`.
+//! multi-region typed object cache.
+//! see `docs/specs/mem/alloc/slab/cache.md`.
 
 const std = @import("std");
 
 const debug = @import("core").debug;
-const slab_allocator = @import("allocator.zig");
 
 const PerCPU = @import("cpu").per_cpu.PerCPU;
 const RawSpinLock = @import("sync").raw_spin_lock.RawSpinLock;
+const SlabAllocator = @import("allocator.zig").SlabAllocator;
 
 const alignUp = @import("layout").alignment.alignUp;
 
 pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
     comptime requireRuntimeValue(T);
 
-    const Layout = SlabCacheLayout(T, RegionSource);
-    const RegionHeader = Layout.RegionHeader;
+    const Layout = RegionLayout(T, RegionSource);
+    const Header = Layout.Header;
 
     return struct {
         source: *RegionSource,
-        empty_head: ?*RegionHeader = null,
-        partial_head: ?*RegionHeader = null,
-        full_head: ?*RegionHeader = null,
+        empty_head: ?*Header = null,
+        partial_head: ?*Header = null,
+        full_head: ?*Header = null,
         region_count: usize = 0,
         live_count: usize = 0,
         next_color: usize = 0,
@@ -34,9 +34,8 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
 
         pub const color_stride = Layout.color_stride;
         pub const color_count = Layout.color_count;
-        pub const slots_per_region = Layout.slots_per_region;
+        pub const slots_per_region = Layout.capacity;
 
-        /// `cpu_index` must have one concurrent executor.
         pub fn PerCpu(comptime cpu_count: usize, comptime local_capacity: usize) type {
             return SlabCachePerCpu(T, RegionSource, Self, cpu_count, local_capacity);
         }
@@ -66,13 +65,13 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
         }
 
         pub fn contains(self: *const Self, item: *const T) bool {
-            return self.ownsHeader(Layout.headerFromItem(item));
+            return self.ownsHeader(Header.fromItem(item));
         }
 
         /// Does not acquire a region.
         pub fn acquire(self: *Self) Error!*T {
             const header = try self.nextAvailableHeader();
-            const item = header.inner.acquire() catch unreachable;
+            const item = header.pool.acquire() catch unreachable;
 
             self.live_count += 1;
             self.reclassify(header);
@@ -81,11 +80,11 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
 
         /// `item` must be live and belong to this cache.
         pub fn release(self: *Self, item: *T) void {
-            const header = Layout.headerFromItem(item);
+            const header = Header.fromItem(item);
             self.assertOwnsHeader(header);
 
-            std.debug.assert(header.inner.len() > 0);
-            header.inner.release(item);
+            std.debug.assert(header.pool.len() > 0);
+            header.pool.release(item);
 
             self.live_count -= 1;
             self.reclassify(header);
@@ -112,7 +111,7 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
             std.debug.assert(self.isValid());
         }
 
-        fn nextAvailableHeader(self: *Self) Error!*RegionHeader {
+        fn nextAvailableHeader(self: *Self) Error!*Header {
             return self.partial_head orelse self.empty_head orelse error.OutOfMemory;
         }
 
@@ -120,7 +119,7 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
             self: *Self,
             region: *align(RegionSource.region_align) [RegionSource.region_bytes]u8,
         ) void {
-            const header = Layout.initHeader(region, self.takeNextColor());
+            const header = Header.init(region, self.takeNextColor());
             self.linkHead(.empty, header);
             self.region_count += 1;
         }
@@ -131,23 +130,23 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
             return color;
         }
 
-        fn releaseEmptyRegion(self: *Self, header: *RegionHeader) void {
+        fn releaseEmptyRegion(self: *Self, header: *Header) void {
             self.unlink(header);
-            self.source.release(header.region);
+            self.source.release(@ptrCast(@alignCast(header)));
             self.region_count -= 1;
         }
 
-        fn reclassify(self: *Self, header: *RegionHeader) void {
-            self.move(header, Layout.occupancy(header));
+        fn reclassify(self: *Self, header: *Header) void {
+            self.move(header, header.classify());
         }
 
-        fn assertOwnsHeader(self: *const Self, header: *const RegionHeader) void {
+        fn assertOwnsHeader(self: *const Self, header: *const Header) void {
             if (debug.checksEnabled()) {
                 std.debug.assert(self.ownsHeader(header));
             }
         }
 
-        fn listHead(self: *Self, list: RegionHeader.ListID) *?*RegionHeader {
+        fn listHead(self: *Self, list: Header.Occupancy) *?*Header {
             return switch (list) {
                 .empty => &self.empty_head,
                 .partial => &self.partial_head,
@@ -155,7 +154,7 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
             };
         }
 
-        fn linkHead(self: *Self, list: RegionHeader.ListID, header: *RegionHeader) void {
+        fn linkHead(self: *Self, list: Header.Occupancy, header: *Header) void {
             const head = self.listHead(list);
 
             header.prev = null;
@@ -166,11 +165,11 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
             }
 
             head.* = header;
-            header.list = list;
+            header.occupancy = list;
         }
 
-        fn unlink(self: *Self, header: *RegionHeader) void {
-            const head = self.listHead(header.list);
+        fn unlink(self: *Self, header: *Header) void {
+            const head = self.listHead(header.occupancy);
 
             if (header.prev) |prev| {
                 prev.next = header.next;
@@ -187,14 +186,14 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
             header.next = null;
         }
 
-        fn move(self: *Self, header: *RegionHeader, destination: RegionHeader.ListID) void {
-            if (header.list == destination) return;
+        fn move(self: *Self, header: *Header, destination: Header.Occupancy) void {
+            if (header.occupancy == destination) return;
 
             self.unlink(header);
             self.linkHead(destination, header);
         }
 
-        fn listContains(head: ?*RegionHeader, target: *const RegionHeader) bool {
+        fn listContains(head: ?*Header, target: *const Header) bool {
             var current = head;
             while (current) |header| {
                 if (header == target) return true;
@@ -203,7 +202,7 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
             return false;
         }
 
-        fn ownsHeader(self: *const Self, target: *const RegionHeader) bool {
+        fn ownsHeader(self: *const Self, target: *const Header) bool {
             return listContains(self.empty_head, target) or
                 listContains(self.partial_head, target) or
                 listContains(self.full_head, target);
@@ -229,11 +228,11 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
 
         fn listTotals(
             self: *const Self,
-            head: ?*RegionHeader,
-            expected: RegionHeader.ListID,
+            head: ?*Header,
+            expected: Header.Occupancy,
         ) ?ValidationTotals {
             var totals: ValidationTotals = .{};
-            var previous: ?*RegionHeader = null;
+            var previous: ?*Header = null;
             var current = head;
 
             while (current) |header| {
@@ -241,7 +240,7 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
                 if (totals.region_count > self.region_count) return null;
                 if (!headerIsValid(header, expected, previous)) return null;
 
-                totals.live_count += header.inner.len();
+                totals.live_count += header.pool.len();
                 previous = header;
                 current = header.next;
             }
@@ -250,18 +249,18 @@ pub fn SlabCache(comptime T: type, comptime RegionSource: type) type {
         }
 
         fn headerIsValid(
-            header: *const RegionHeader,
-            expected: RegionHeader.ListID,
-            previous: ?*const RegionHeader,
+            header: *const Header,
+            expected: Header.Occupancy,
+            previous: ?*const Header,
         ) bool {
-            if (header.list != expected) return false;
+            if (header.occupancy != expected) return false;
             if (header.prev != previous) return false;
 
             if (header.next) |next| {
                 if (next.prev != header) return false;
             }
 
-            return Layout.isHeaderValid(header) and Layout.occupancy(header) == expected;
+            return header.isValid() and header.classify() == expected;
         }
     };
 }
@@ -418,155 +417,88 @@ fn SlabCachePerCpu(
     };
 }
 
-fn SlabCacheLayout(comptime T: type, comptime RegionSource: type) type {
-    const InnerSlabAllocator = slab_allocator.SlabAllocator.Bounded(T);
-    const LayoutSlot = InnerSlabAllocator.Slot;
+fn RegionLayout(comptime T: type, comptime RegionSource: type) type {
+    const Pool = SlabAllocator.Bounded(T);
 
-    const region_bytes = RegionSource.region_bytes;
-    const region_align = RegionSource.region_align;
+    const region_bytes: usize = RegionSource.region_bytes;
+    const region_align: usize = RegionSource.region_align;
 
-    const Header = struct {
-        prev: ?*Self = null,
-        next: ?*Self = null,
-        list: ListID,
-        inner: InnerSlabAllocator,
-        region: *align(region_align) [region_bytes]u8,
-        slot_offset: usize,
-
-        const ListID = enum(u8) { empty, partial, full };
-
-        const Self = @This();
-
-        fn init(
-            region: *align(region_align) [region_bytes]u8,
-            slots: []LayoutSlot,
-            slot_offset: usize,
-        ) Self {
-            return .{
-                .list = .empty,
-                .inner = InnerSlabAllocator.wrap(slots),
-                .region = region,
-                .slot_offset = slot_offset,
-            };
+    return struct {
+        comptime {
+            requireRegionSourceInterface(RegionSource);
+            requireRegionAlignment(RegionSource, Header);
         }
-    };
 
-    const SlotLayout = struct {
-        first_slot_offset: usize,
-        color_stride: usize,
-        color_count: usize,
-        slots_per_region: usize,
+        const Slot = Pool.Slot;
+        const Header = struct {
+            prev: ?*Self = null,
+            next: ?*Self = null,
+            occupancy: Occupancy,
+            pool: Pool,
 
-        const Self = @This();
+            const Occupancy = enum(u8) { empty, partial, full };
 
-        fn init() Self {
-            const first_slot_offset = alignUp(usize, @sizeOf(Header), @alignOf(LayoutSlot)) catch unreachable;
-            const color_stride = @max(std.atomic.cache_line, @alignOf(LayoutSlot));
-            const colored_slots = slotCount(first_slot_offset + color_stride);
+            const Self = @This();
 
-            if (colored_slots == 0) {
-                return .{
-                    .first_slot_offset = first_slot_offset,
-                    .color_stride = color_stride,
-                    .color_count = 1,
-                    .slots_per_region = slotCount(first_slot_offset),
+            fn init(region: *align(region_align) [region_bytes]u8, color: usize) *Self {
+                std.debug.assert(color < color_count);
+
+                const bytes: [*]align(region_align) u8 = @ptrCast(region);
+                const items: [*]Slot = @ptrCast(@alignCast(bytes + offset + color * color_stride));
+
+                const header: *Self = @ptrCast(region);
+                header.* = .{ .occupancy = .empty, .pool = Pool.wrap(items[0..capacity]) };
+                return header;
+            }
+
+            fn fromItem(item: *const T) *Self {
+                return @ptrFromInt(@intFromPtr(item) & ~(region_align - 1));
+            }
+
+            fn classify(self: *const Self) Occupancy {
+                return switch (self.pool.len()) {
+                    0 => .empty,
+                    capacity => .full,
+                    else => .partial,
                 };
             }
 
-            return .{
-                .first_slot_offset = first_slot_offset,
-                .color_stride = color_stride,
-                .color_count = 2,
-                .slots_per_region = colored_slots,
-            };
-        }
+            fn isValid(self: *const Self) bool {
+                const base = @intFromPtr(self);
+                const start = @intFromPtr(self.pool.items.ptr);
 
-        fn slotCount(slot_offset: usize) usize {
-            if (slot_offset >= region_bytes) return 0;
-            return @divFloor(region_bytes - slot_offset, @sizeOf(LayoutSlot));
-        }
+                if (base % region_align != 0 or start < base) {
+                    return false;
+                }
 
-        fn slotOffset(self: Self, color: usize) usize {
-            std.debug.assert(color < self.color_count);
-            return self.first_slot_offset + color * self.color_stride;
-        }
-    };
+                const item_offset = start - base;
+                if (item_offset < offset) {
+                    return false;
+                }
 
-    const slot_layout = SlotLayout.init();
+                const color_offset = item_offset - offset;
+                if (color_offset % color_stride != 0 or color_offset / color_stride >= color_count) {
+                    return false;
+                }
 
-    comptime requireRegionSource(RegionSource, Header, LayoutSlot, slot_layout.slots_per_region);
+                return self.pool.items.len == capacity and self.pool.isValid();
+            }
+        };
 
-    return struct {
-        pub const Slot = LayoutSlot;
-        pub const RegionHeader = Header;
+        const offset = alignUp(usize, @sizeOf(Header), @alignOf(Slot)) catch {
+            @compileError("SlabCache slot alignment overflowed");
+        };
 
-        pub const color_stride = slot_layout.color_stride;
-        pub const color_count = slot_layout.color_count;
-        pub const slots_per_region = slot_layout.slots_per_region;
+        const capacity = blk: {
+            if (offset >= region_bytes or region_bytes - offset < @sizeOf(Slot)) {
+                @compileError("SlabCache region is too small to hold Header + one Slot");
+            }
+            break :blk (region_bytes - offset) / @sizeOf(Slot);
+        };
 
-        pub fn initHeader(
-            region: *align(region_align) [region_bytes]u8,
-            color: usize,
-        ) *Header {
-            const slot_offset = slot_layout.slotOffset(color);
-            const header = headerAt(region);
-            header.* = Header.init(region, slotsAt(region, slot_offset), slot_offset);
-            return header;
-        }
-
-        pub fn headerFromItem(item: anytype) *Header {
-            const item_addr = @intFromPtr(item);
-            const region_addr = item_addr & ~(region_align - 1);
-            return @ptrFromInt(region_addr);
-        }
-
-        pub fn occupancy(header: *const Header) Header.ListID {
-            const live = header.inner.len();
-            if (live == 0) return .empty;
-            if (live == slot_layout.slots_per_region) return .full;
-            return .partial;
-        }
-
-        pub fn isHeaderValid(header: *const Header) bool {
-            return hasRegionBase(header) and
-                hasValidSlotOffset(header) and
-                hasExpectedSlotBuffer(header) and
-                header.inner.isValid();
-        }
-
-        fn headerAt(region: *align(region_align) [region_bytes]u8) *Header {
-            const bytes: [*]align(region_align) u8 = @ptrCast(region);
-            return @ptrCast(@alignCast(bytes));
-        }
-
-        fn slotsAt(
-            region: *align(region_align) [region_bytes]u8,
-            slot_offset: usize,
-        ) []LayoutSlot {
-            const bytes: [*]align(region_align) u8 = @ptrCast(region);
-            const slot_bytes: [*]align(@alignOf(LayoutSlot)) u8 =
-                @alignCast(bytes + slot_offset);
-            return @as([*]LayoutSlot, @ptrCast(slot_bytes))[0..slot_layout.slots_per_region];
-        }
-
-        fn hasRegionBase(header: *const Header) bool {
-            return @intFromPtr(header.region) == @intFromPtr(header) and
-                @intFromPtr(header.region) % region_align == 0;
-        }
-
-        fn hasValidSlotOffset(header: *const Header) bool {
-            if (header.slot_offset < slot_layout.first_slot_offset) return false;
-
-            const color_offset = header.slot_offset - slot_layout.first_slot_offset;
-            return color_offset % slot_layout.color_stride == 0 and
-                @divExact(color_offset, slot_layout.color_stride) < slot_layout.color_count;
-        }
-
-        fn hasExpectedSlotBuffer(header: *const Header) bool {
-            return @intFromPtr(header.inner.items.ptr) ==
-                @intFromPtr(header.region) + header.slot_offset and
-                header.inner.items.len == slot_layout.slots_per_region;
-        }
+        const slack = region_bytes - offset - capacity * @sizeOf(Slot);
+        const color_stride = @max(std.atomic.cache_line, @alignOf(Slot));
+        const color_count = 1 + slack / color_stride;
     };
 }
 
@@ -600,17 +532,6 @@ fn requirePerCpuCapacity(comptime local_capacity: usize) void {
     if (local_capacity == 0) {
         @compileError("SlabCache.PerCpu local_capacity must be non-zero");
     }
-}
-
-fn requireRegionSource(
-    comptime RegionSource: type,
-    comptime Header: type,
-    comptime Slot: type,
-    comptime slots_per_region: usize,
-) void {
-    requireRegionSourceInterface(RegionSource);
-    requireRegionAlignment(RegionSource, Header);
-    requireRegionSlotCapacity(RegionSource, Header, Slot, slots_per_region);
 }
 
 fn requireRegionSourceInterface(comptime RegionSource: type) void {
@@ -651,26 +572,88 @@ fn requireRegionAlignment(comptime RegionSource: type, comptime Header: type) vo
     }
 
     if (region_align < @alignOf(Header)) {
-        @compileError("SlabCache RegionSource.region_align is smaller than RegionHeader alignment");
+        @compileError("SlabCache RegionSource.region_align is smaller than Header alignment");
     }
 }
 
-fn requireRegionSlotCapacity(
-    comptime RegionSource: type,
-    comptime Header: type,
-    comptime Slot: type,
-    comptime slots_per_region: usize,
-) void {
-    const region_bytes: usize = RegionSource.region_bytes;
-    const slot_start = alignUp(usize, @sizeOf(Header), @alignOf(Slot)) catch |err| {
-        @compileError("SlabCache slot start alignment overflowed: " ++ @errorName(err));
+pub const unit = struct {
+    const testing = std.testing;
+
+    const Source = struct {
+        bytes: [region_bytes]u8 align(region_align) = undefined,
+        used: bool = false,
+
+        pub const region_bytes = 16 * std.atomic.cache_line;
+        pub const region_align = region_bytes;
+
+        pub const Error = error{OutOfMemory};
+
+        pub fn acquire(self: *@This()) Error!*align(region_align) [region_bytes]u8 {
+            if (self.used) {
+                return error.OutOfMemory;
+            }
+
+            self.used = true;
+            return &self.bytes;
+        }
+
+        pub fn release(self: *@This(), region: *align(region_align) [region_bytes]u8) void {
+            std.debug.assert(region == &self.bytes and self.used);
+            self.used = false;
+        }
     };
 
-    if (slot_start >= region_bytes or (region_bytes - slot_start) < @sizeOf(Slot)) {
-        @compileError("SlabCache region is too small to hold RegionHeader + one Slot");
+    test "small slots keep maximum capacity when no color fits in slack" {
+        const Layout = RegionLayout(u64, Source);
+
+        var source: Source = .{};
+        const region = try source.acquire();
+        defer source.release(region);
+
+        const header = Layout.Header.init(region, 0);
+        const end = @intFromPtr(header.pool.items.ptr) + header.pool.items.len * @sizeOf(Layout.Slot);
+        const limit = @intFromPtr(region) + Source.region_bytes;
+
+        try testing.expectEqual(@as(usize, 1), Layout.color_count);
+        try testing.expect(end <= limit);
+        try testing.expect(limit - end < @sizeOf(Layout.Slot));
+        try testing.expect(header.isValid());
     }
 
-    if (slots_per_region == 0) {
-        @compileError("SlabCache region is too small to hold RegionHeader + one colored Slot");
+    test "every color preserves maximum capacity alignment bounds and header recovery" {
+        const Payload = [4 * std.atomic.cache_line]u8;
+        const Layout = RegionLayout(Payload, Source);
+
+        var source: Source = .{};
+        const region = try source.acquire();
+        defer source.release(region);
+
+        const base = @intFromPtr(region);
+        const limit = base + Source.region_bytes;
+
+        try testing.expect(Layout.color_count > 1);
+
+        for (0..Layout.color_count) |color| {
+            const header = Layout.Header.init(region, color);
+            const start = @intFromPtr(header.pool.items.ptr);
+            const end = start + header.pool.capacity() * @sizeOf(Layout.Slot);
+
+            try testing.expectEqual(Layout.capacity, header.pool.capacity());
+            try testing.expectEqual(Layout.offset + color * Layout.color_stride, start - base);
+            try testing.expectEqual(@as(usize, 0), start % @alignOf(Layout.Slot));
+            try testing.expect(end <= limit);
+
+            if (color == 0) {
+                try testing.expect(limit - end < @sizeOf(Layout.Slot));
+            }
+
+            for (0..Layout.capacity) |_| {
+                const item = try header.pool.acquire();
+                try testing.expectEqual(header, Layout.Header.fromItem(item));
+            }
+
+            try testing.expectError(error.OutOfMemory, header.pool.acquire());
+            try testing.expect(header.isValid());
+        }
     }
-}
+};

@@ -222,22 +222,48 @@ test "unit: SlabCache recovers a region with alignment larger than its size" {
     try testing.expect(!store.used);
 }
 
-test "unit: SlabCache.refill rotates slot colors and maintains doubly linked empty list" {
-    const Store = MockStore(1024, 4);
-    const Cache = SlabCache(Item, Store);
-    comptime std.debug.assert(Cache.color_count == 2);
-
+test "integration: slab colors rotate without changing capacity and drain returns each region" {
+    const Payload = [4 * std.atomic.cache_line]u8;
+    const Store = MockStore(16 * std.atomic.cache_line, 16);
+    const Cache = SlabCache(Payload, Store);
     var store: Store = .{};
     var cache = Cache.init(&store);
-    try cache.refill();
-    const first = cache.empty_head.?;
-    try cache.refill();
-    const second = cache.empty_head.?;
+    var first_offset: usize = undefined;
 
-    try testing.expectEqual(Cache.color_stride, second.slot_offset - first.slot_offset);
-    try testing.expectEqual(first, second.next.?);
-    try testing.expectEqual(second, first.prev.?);
-    cache.assertValid();
+    try testing.expect(Cache.color_count > 1);
+
+    for (0..Cache.color_count + 1) |i| {
+        try cache.refill();
+        const header = cache.empty_head.?;
+        const offset = @intFromPtr(header.pool.items.ptr) - @intFromPtr(header);
+        if (i == 0) {
+            first_offset = offset;
+        }
+
+        try testing.expectEqual(first_offset + (i % Cache.color_count) * Cache.color_stride, offset);
+        try testing.expectEqual(Cache.slots_per_region, header.pool.capacity());
+        try testing.expectEqual(@intFromPtr(&store.buffer[i]), @intFromPtr(header));
+        cache.assertValid();
+    }
+
+    const count = cache.capacity();
+    for (0..count) |i| {
+        const item = try cache.acquire();
+        @memset(item, @intCast(i));
+
+        try testing.expect(cache.contains(item));
+    }
+    try testing.expectError(error.OutOfMemory, cache.acquire());
+
+    while (cache.full_head orelse cache.partial_head) |header| {
+        for (header.pool.items) |*slot| {
+            cache.release(&slot.occupied);
+        }
+    }
+    cache.drain();
+
+    try testing.expectEqual(@as(usize, 0), store.liveRegions());
+    try testing.expectEqual(store.acquire_calls, store.release_calls);
 }
 
 test "unit: SlabCache.release moves a non-head full region in O(1)" {
