@@ -113,6 +113,7 @@ pub const Modules = struct {
         modules.io.addImport("core", modules.core);
         modules.io.addImport("layout", modules.layout);
         modules.io.addImport("time", modules.time);
+        modules.mem.addImport("addr", modules.addr);
         modules.mem.addImport("algo", modules.algo);
         modules.mem.addImport("bits", modules.bits);
         modules.mem.addImport("core", modules.core);

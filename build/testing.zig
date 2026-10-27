@@ -95,6 +95,10 @@ pub fn addHostTests(
             addSuite(b, category_step, check_step, modules.mem);
         }
 
+        if (std.mem.eql(u8, category, "algo")) {
+            addSuite(b, category_step, check_step, modules.algo);
+        }
+
         const root = b.createModule(.{
             .root_source_file = b.path(b.fmt("test/{s}/all.zig", .{category})),
             .target = target,
@@ -189,6 +193,12 @@ fn addCompileFixture(
 }
 
 const fixtures = [_]CompileFixture{
+    .{
+        .name = "mem/alloc/page/static_extent",
+        .path = "test/fixtures/mem/alloc/page/static_extent.zig",
+        .target = "native",
+        .expected = .{ .failure = "PageAllocator.Static extent overflows page address space" },
+    },
     .{
         .name = "arch/x86_64/paging/explicit_target",
         .path = "test/fixtures/arch/x86_64/paging/explicit_target.zig",
