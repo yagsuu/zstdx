@@ -563,9 +563,9 @@ fn SlabCacheLayout(comptime T: type, comptime RegionSource: type) type {
         }
 
         fn hasExpectedSlotBuffer(header: *const Header) bool {
-            return @intFromPtr(header.inner.buffer.ptr) ==
+            return @intFromPtr(header.inner.items.ptr) ==
                 @intFromPtr(header.region) + header.slot_offset and
-                header.inner.buffer.len == slot_layout.slots_per_region;
+                header.inner.items.len == slot_layout.slots_per_region;
         }
     };
 }

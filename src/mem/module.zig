@@ -2,3 +2,8 @@
 //! See `docs/specs/mem/`.
 
 pub const alloc = @import("alloc.zig");
+
+test {
+    _ = alloc.arena.unit;
+    _ = alloc.slab.allocator.unit;
+}
