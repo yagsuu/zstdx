@@ -8,7 +8,7 @@ const debug = @import("core").debug;
 pub const RawSpinLock = struct {
     state: std.atomic.Value(u32),
 
-    pub const State = enum(u32) {
+    const State = enum(u32) {
         unlocked = 0,
         locked = 1,
     };
@@ -21,18 +21,7 @@ pub const RawSpinLock = struct {
 
     /// spins without yielding; successful acquisition has acquire ordering
     pub fn acquire(self: *Self) void {
-        while (true) {
-            if (self.state.cmpxchgWeak(
-                @intFromEnum(State.unlocked),
-                @intFromEnum(State.locked),
-                .acquire,
-                .acquire,
-            ) == null) return;
-
-            while (self.state.load(.monotonic) != @intFromEnum(State.unlocked)) {
-                std.atomic.spinLoopHint();
-            }
-        }
+        Impl.acquire(&self.state);
     }
 
     /// tries once without spurious failure; never spins
@@ -47,17 +36,76 @@ pub const RawSpinLock = struct {
 
     /// only the acquiring thread may release the lock
     pub fn release(self: *Self) void {
-        if (debug.checksEnabled()) self.assertHeld();
+        if (debug.checksEnabled()) {
+            std.debug.assert(self.isLocked());
+        }
         self.state.store(@intFromEnum(State.unlocked), .release);
     }
 
     /// relaxed diagnostic snapshot; does not establish ownership or synchronization
-    pub fn isHeld(self: *const Self) bool {
+    pub fn isLocked(self: *const Self) bool {
         return self.state.load(.monotonic) == @intFromEnum(State.locked);
     }
+};
 
-    /// checks locked state in checked builds; does not verify ownership
-    pub fn assertHeld(self: *const Self) void {
-        if (debug.checksEnabled()) std.debug.assert(self.isHeld());
+const Impl = struct {
+    fn acquire(state: *std.atomic.Value(u32)) void {
+        while (true) {
+            if (state.cmpxchgWeak(
+                @intFromEnum(RawSpinLock.State.unlocked),
+                @intFromEnum(RawSpinLock.State.locked),
+                .acquire,
+                .acquire,
+            ) == null) {
+                return;
+            }
+
+            while (state.load(.monotonic) != @intFromEnum(RawSpinLock.State.unlocked)) {
+                std.atomic.spinLoopHint();
+            }
+        }
+    }
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "lock lifecycle preserves acquisition and release state" {
+        var lock = RawSpinLock.init();
+
+        try testing.expect(!lock.isLocked());
+
+        Impl.acquire(&lock.state);
+
+        try testing.expect(lock.isLocked());
+        try testing.expect(!lock.tryAcquire());
+
+        lock.release();
+
+        try testing.expect(!lock.isLocked());
+        try testing.expect(lock.tryAcquire());
+
+        lock.release();
+        lock.acquire();
+
+        try testing.expect(lock.isLocked());
+
+        lock.release();
+
+        try testing.expect(!lock.isLocked());
+    }
+
+    test "zero initialization produces a usable unlocked lock" {
+        var lock: RawSpinLock = undefined;
+        @memset(std.mem.asBytes(&lock), 0);
+
+        try testing.expect(!lock.isLocked());
+        try testing.expect(lock.tryAcquire());
+
+        lock.release();
+        lock.acquire();
+        lock.release();
+
+        try testing.expect(!lock.isLocked());
     }
 };

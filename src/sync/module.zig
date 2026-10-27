@@ -17,4 +17,6 @@ test {
     _ = signal.unit;
     _ = once.unit;
     _ = latch.unit;
+    _ = raw_spin_lock.unit;
+    _ = rendezvous.unit;
 }
