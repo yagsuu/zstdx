@@ -86,9 +86,13 @@ pub fn addHostTests(
             continue;
         }
 
-        if (std.mem.eql(u8, category, "time") or std.mem.eql(u8, category, "sync")) {
-            const module = if (std.mem.eql(u8, category, "time")) modules.time else modules.sync;
-            addSuite(b, category_step, check_step, module);
+        if (std.mem.eql(u8, category, "time")) {
+            addSuite(b, category_step, check_step, modules.time);
+            continue;
+        }
+
+        if (std.mem.eql(u8, category, "sync")) {
+            addSuite(b, category_step, check_step, modules.sync);
         }
 
         if (std.mem.eql(u8, category, "mem")) {

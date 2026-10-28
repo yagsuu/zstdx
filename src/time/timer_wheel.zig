@@ -1,358 +1,173 @@
-//! Fixed-tick, fixed-capacity timer wheel. See `docs/specs/time/timer_wheel.md`.
-
 const std = @import("std");
 
 const debug = @import("core").debug;
-const deadline = @import("deadline.zig");
-const monotonic = @import("monotonic.zig");
 
-const Deadline = deadline.Deadline;
-const Instant = monotonic.Instant;
+const Deadline = @import("deadline.zig").Deadline;
+const Instant = @import("monotonic.zig").Instant;
 
-const none: usize = std.math.maxInt(usize);
-const max_u64: u64 = std.math.maxInt(u64);
-
-/// Fixed-capacity, single-level timer wheel for coarse timers. Callers supply
-/// the origin and advance time explicitly; operations never read a clock or
-/// invoke callbacks.
 pub const TimerWheel = struct {
     pub const Config = struct {
         tick_ns: u64,
-        slot_count: usize,
+        bucket_count: usize,
     };
 
-    pub fn Static(
-        comptime T: type,
-        comptime capacity_items: usize,
-        comptime config: Config,
-    ) type {
+    pub fn Static(comptime T: type, comptime count: usize, comptime config: Config) type {
         comptime {
-            if (capacity_items == 0) @compileError("TimerWheel.Static capacity_items must be non-zero");
-            validateConfig(config);
+            Impl.requireConfig(config);
+            if (count == 0) {
+                @compileError("TimerWheel.Static count must be non-zero");
+            }
         }
 
         return struct {
-            slots: [capacity_items]Slot,
-            buckets: [config.slot_count]Bucket,
-            origin_instant: Instant,
-            cursor_tick: u64,
-            live_len: usize,
-            free_head: usize,
-            expired_head: usize,
-            expired_tail: usize,
+            slots: [count]Slot,
+            buckets: [config.bucket_count]Impl.List,
+            start: Instant,
+            tick: Impl.Tick,
+            count: usize,
+            free: usize,
+            expired: Impl.List,
 
-            pub const item_capacity = capacity_items;
-            pub const wheel_config = config;
-
-            pub const Handle = enum(u128) { _ };
-            pub const Entry = struct {
-                deadline: Deadline,
-                item: T,
-            };
-
-            pub const Error = error{ Full, OutOfRange };
-            pub const RangeError = error{OutOfRange};
+            pub const bound = count;
 
             const Self = @This();
-            const Slot = SlotFor(T);
-            const Bucket = BucketFor();
+            const Slot = Impl.Slot(T);
 
-            fn slotSlice(self: *Self) []Slot {
-                return self.slots[0..capacity_items];
-            }
+            pub const Handle = Impl.Handle(Self);
+            pub const Entry = Impl.Entry(T);
+            pub const Error = Impl.Error;
+            pub const RangeError = Impl.RangeError;
 
-            fn slotSliceConst(self: *const Self) []const Slot {
-                return self.slots[0..capacity_items];
-            }
-
-            fn bucketSlice(self: *Self) []Bucket {
-                return self.buckets[0..config.slot_count];
-            }
-
-            fn bucketSliceConst(self: *const Self) []const Bucket {
-                return self.buckets[0..config.slot_count];
-            }
-
-            pub fn init(origin_value: Instant) Self {
-                var self: Self = .{
-                    .slots = undefined,
-                    .buckets = undefined,
-                    .origin_instant = origin_value,
-                    .cursor_tick = 0,
-                    .live_len = 0,
-                    .free_head = none,
-                    .expired_head = none,
-                    .expired_tail = none,
-                };
-                initStorage(self.slotSlice(), self.bucketSlice(), &self.free_head);
+            pub fn init(start: Instant) Self {
+                var self: Self = undefined;
+                self.start = start;
+                Impl.initialize(&self);
                 return self;
             }
 
             pub fn len(self: *const Self) usize {
-                return self.live_len;
+                return self.count;
             }
 
-            pub fn capacity(self: *const Self) usize {
-                _ = self;
-                return capacity_items;
+            pub fn capacity(_: *const Self) usize {
+                return bound;
             }
 
             pub fn remaining(self: *const Self) usize {
-                return self.capacity() - self.live_len;
+                return bound - self.count;
             }
 
             pub fn isEmpty(self: *const Self) bool {
-                return self.live_len == 0;
+                return self.count == 0;
             }
 
             pub fn isFull(self: *const Self) bool {
-                return self.live_len == self.capacity();
+                return self.count == bound;
             }
 
             pub fn origin(self: *const Self) Instant {
-                return self.origin_instant;
+                return self.start;
             }
 
             pub fn cursor(self: *const Self) Instant {
-                return instantForTick(self.origin_instant, self.cursor_tick, config.tick_ns);
+                return self.tick.instant(self.start, config.tick_ns).?;
             }
 
             pub fn clearRetainingCapacity(self: *Self) void {
-                clearStorage(
-                    self.slotSlice(),
-                    self.bucketSlice(),
-                    &self.live_len,
-                    &self.free_head,
-                    &self.expired_head,
-                    &self.expired_tail,
-                );
+                Impl.clear(self);
             }
 
             pub fn advanceTo(self: *Self, now: Instant) void {
-                advanceToStorage(
-                    self.slotSlice(),
-                    self.bucketSlice(),
-                    self.origin_instant,
-                    &self.cursor_tick,
-                    &self.expired_head,
-                    &self.expired_tail,
-                    now,
-                    config,
-                );
+                if (debug.checksEnabled()) {
+                    std.debug.assert(now.nanos() >= self.cursor().nanos());
+                }
+                Impl.advanceTo(self, now, config);
             }
 
-            pub fn insert(self: *Self, dl: Deadline, item: T) Error!Handle {
-                const due_tick = try self.quantize(dl);
-                if (self.isFull()) return error.Full;
-                return self.insertDueAssumeCapacity(dl, item, due_tick);
+            pub fn insert(self: *Self, deadline: Deadline, item: T) Error!Handle {
+                if (self.isFull()) {
+                    return error.Full;
+                }
+                const due = try Impl.quantize(self, deadline, config);
+                return Impl.insert(T, self, deadline, item, due);
             }
 
-            pub fn insertAssumeCapacity(
-                self: *Self,
-                dl: Deadline,
-                item: T,
-            ) RangeError!Handle {
-                const due_tick = try self.quantize(dl);
-                if (debug.checksEnabled()) std.debug.assert(!self.isFull());
-                return self.insertDueAssumeCapacity(dl, item, due_tick);
+            pub fn insertAssumeCapacity(self: *Self, deadline: Deadline, item: T) RangeError!Handle {
+                if (debug.checksEnabled()) {
+                    std.debug.assert(!self.isFull());
+                }
+                const due = try Impl.quantize(self, deadline, config);
+                return Impl.insert(T, self, deadline, item, due);
             }
 
             pub fn nextWake(self: *const Self) ?Instant {
-                return nextWakeStorage(
-                    self.slotSliceConst(),
-                    self.bucketSliceConst(),
-                    self.origin_instant,
-                    self.cursor_tick,
-                    self.expired_head,
-                    config.tick_ns,
-                );
+                return Impl.nextWake(self, config);
             }
 
             pub fn popExpired(self: *Self) ?Entry {
-                const index = popExpiredIndex(
-                    self.slotSlice(),
-                    &self.expired_head,
-                    &self.expired_tail,
-                ) orelse return null;
-                return self.removeSlotIndex(index);
+                return Impl.popExpired(self);
             }
 
             pub fn remove(self: *Self, handle: Handle) ?Entry {
-                const index = self.liveIndex(handle) orelse return null;
-                detachLiveIndex(
-                    self.slotSlice(),
-                    self.bucketSlice(),
-                    &self.expired_head,
-                    &self.expired_tail,
-                    index,
-                );
-                return self.removeSlotIndex(index);
+                return Impl.remove(self, handle);
             }
 
-            pub fn updateDeadline(
-                self: *Self,
-                handle: Handle,
-                dl: Deadline,
-            ) RangeError!bool {
-                const index = self.liveIndex(handle) orelse return false;
-                const due_tick = try self.quantize(dl);
-
-                detachLiveIndex(
-                    self.slotSlice(),
-                    self.bucketSlice(),
-                    &self.expired_head,
-                    &self.expired_tail,
-                    index,
-                );
-
-                var slot = &self.slotSlice()[index];
-                slot.deadline = dl;
-                slot.due_tick = due_tick;
-
-                attachByDueTick(
-                    self.slotSlice(),
-                    self.bucketSlice(),
-                    &self.expired_head,
-                    &self.expired_tail,
-                    index,
-                    self.cursor_tick,
-                    config.slot_count,
-                );
-
-                return true;
+            pub fn updateDeadline(self: *Self, handle: Handle, deadline: Deadline) RangeError!bool {
+                return Impl.updateDeadline(self, handle, deadline, config);
             }
 
             pub fn contains(self: *const Self, handle: Handle) bool {
-                return self.liveIndex(handle) != null;
+                return Impl.resolve(self, handle) != null;
             }
 
-            pub fn assertValid(self: *const Self) void {
-                assertValidStorage(
-                    self.slotSliceConst(),
-                    self.bucketSliceConst(),
-                    self.origin_instant,
-                    self.cursor_tick,
-                    self.live_len,
-                    self.free_head,
-                    self.expired_head,
-                    self.expired_tail,
-                    config,
-                );
-            }
-
-            fn quantize(self: *const Self, dl: Deadline) RangeError!u64 {
-                return quantizeDeadline(
-                    dl,
-                    self.origin_instant,
-                    self.cursor_tick,
-                    config,
-                );
-            }
-
-            fn insertDueAssumeCapacity(
-                self: *Self,
-                dl: Deadline,
-                item: T,
-                due_tick: u64,
-            ) Handle {
-                const slots = self.slotSlice();
-                const index = allocSlot(slots, &self.free_head);
-                var slot = &slots[index];
-                slot.item = item;
-                slot.deadline = dl;
-                slot.due_tick = due_tick;
-                attachByDueTick(
-                    self.slotSlice(),
-                    self.bucketSlice(),
-                    &self.expired_head,
-                    &self.expired_tail,
-                    index,
-                    self.cursor_tick,
-                    config.slot_count,
-                );
-                self.live_len += 1;
-                return encodeHandle(Handle, index, slot.generation);
-            }
-
-            fn liveIndex(self: *const Self, handle: Handle) ?usize {
-                return liveIndexForHandle(self.slotSliceConst(), handle);
-            }
-
-            fn removeSlotIndex(self: *Self, index: usize) Entry {
-                const slots = self.slotSlice();
-                const slot = &slots[index];
-
-                const entry: Entry = .{
-                    .deadline = slot.deadline,
-                    .item = slot.item,
-                };
-
-                freeSlot(slots, &self.free_head, index);
-                self.live_len -= 1;
-
-                return entry;
+            pub fn isValid(self: *const Self) bool {
+                return Impl.isValid(self, config);
             }
         };
     }
 
-    pub fn Bounded(
-        comptime T: type,
-        comptime config: Config,
-    ) type {
-        comptime validateConfig(config);
+    pub fn Bounded(comptime T: type, comptime config: Config) type {
+        comptime Impl.requireConfig(config);
 
         return struct {
             slots: []Slot,
             buckets: []Bucket,
-            origin_instant: Instant,
-            cursor_tick: u64,
-            live_len: usize,
-            free_head: usize,
-            expired_head: usize,
-            expired_tail: usize,
-
-            pub const wheel_config = config;
-
-            pub const Slot = SlotFor(T);
-            pub const Bucket = BucketFor();
-
-            pub const Handle = enum(u128) { _ };
-            pub const Entry = struct {
-                deadline: Deadline,
-                item: T,
-            };
-
-            pub const Error = error{ Full, OutOfRange };
-            pub const RangeError = error{OutOfRange};
+            start: Instant,
+            tick: Impl.Tick,
+            count: usize,
+            free: usize,
+            expired: Impl.List,
 
             const Self = @This();
 
-            pub fn wrap(
-                slots: []Slot,
-                buckets: []Bucket,
-                origin_value: Instant,
-            ) Self {
-                if (debug.checksEnabled()) {
-                    std.debug.assert(buckets.len == config.slot_count);
-                }
+            pub const Slot = Impl.Slot(T);
+            pub const Bucket = Impl.List;
+            pub const Handle = Impl.Handle(Self);
+            pub const Entry = Impl.Entry(T);
+            pub const Error = Impl.Error;
+            pub const RangeError = Impl.RangeError;
 
+            /// borrows and reinitializes slots and buckets; buckets.len must equal config.bucket_count
+            /// storage must remain valid and exclusive to this wheel for its lifetime
+            pub fn wrap(slots: []Slot, buckets: []Bucket, start: Instant) Self {
+                if (debug.checksEnabled()) {
+                    std.debug.assert(buckets.len == config.bucket_count);
+                }
                 var self: Self = .{
                     .slots = slots,
                     .buckets = buckets,
-                    .origin_instant = origin_value,
-                    .cursor_tick = 0,
-                    .live_len = 0,
-                    .free_head = none,
-                    .expired_head = none,
-                    .expired_tail = none,
+                    .start = start,
+                    .tick = undefined,
+                    .count = undefined,
+                    .free = undefined,
+                    .expired = undefined,
                 };
-
-                initStorage(self.slots, self.buckets, &self.free_head);
+                Impl.initialize(&self);
                 return self;
             }
 
             pub fn len(self: *const Self) usize {
-                return self.live_len;
+                return self.count;
             }
 
             pub fn capacity(self: *const Self) usize {
@@ -360,691 +175,1133 @@ pub const TimerWheel = struct {
             }
 
             pub fn remaining(self: *const Self) usize {
-                return self.capacity() - self.live_len;
+                return self.slots.len - self.count;
             }
 
             pub fn isEmpty(self: *const Self) bool {
-                return self.live_len == 0;
+                return self.count == 0;
             }
 
             pub fn isFull(self: *const Self) bool {
-                return self.live_len == self.capacity();
+                return self.count == self.slots.len;
             }
 
             pub fn origin(self: *const Self) Instant {
-                return self.origin_instant;
+                return self.start;
             }
 
             pub fn cursor(self: *const Self) Instant {
-                return instantForTick(self.origin_instant, self.cursor_tick, config.tick_ns);
+                return self.tick.instant(self.start, config.tick_ns).?;
             }
 
             pub fn clearRetainingCapacity(self: *Self) void {
-                clearStorage(
-                    self.slots,
-                    self.buckets,
-                    &self.live_len,
-                    &self.free_head,
-                    &self.expired_head,
-                    &self.expired_tail,
-                );
+                Impl.clear(self);
             }
 
             pub fn advanceTo(self: *Self, now: Instant) void {
-                advanceToStorage(
-                    self.slots,
-                    self.buckets,
-                    self.origin_instant,
-                    &self.cursor_tick,
-                    &self.expired_head,
-                    &self.expired_tail,
-                    now,
-                    config,
-                );
+                if (debug.checksEnabled()) {
+                    std.debug.assert(now.nanos() >= self.cursor().nanos());
+                }
+                Impl.advanceTo(self, now, config);
             }
 
-            pub fn insert(self: *Self, dl: Deadline, item: T) Error!Handle {
-                const due_tick = try self.quantize(dl);
-                if (self.isFull()) return error.Full;
-                return self.insertDueAssumeCapacity(dl, item, due_tick);
+            pub fn insert(self: *Self, deadline: Deadline, item: T) Error!Handle {
+                const due = try Impl.quantize(self, deadline, config);
+                if (self.isFull()) {
+                    return error.Full;
+                }
+                return Impl.insert(T, self, deadline, item, due);
             }
 
-            pub fn insertAssumeCapacity(
-                self: *Self,
-                dl: Deadline,
-                item: T,
-            ) RangeError!Handle {
-                const due_tick = try self.quantize(dl);
-                if (debug.checksEnabled()) std.debug.assert(!self.isFull());
-                return self.insertDueAssumeCapacity(dl, item, due_tick);
+            pub fn insertAssumeCapacity(self: *Self, deadline: Deadline, item: T) RangeError!Handle {
+                const due = try Impl.quantize(self, deadline, config);
+                if (debug.checksEnabled()) {
+                    std.debug.assert(!self.isFull());
+                }
+                return Impl.insert(T, self, deadline, item, due);
             }
 
             pub fn nextWake(self: *const Self) ?Instant {
-                return nextWakeStorage(
-                    self.slots,
-                    self.buckets,
-                    self.origin_instant,
-                    self.cursor_tick,
-                    self.expired_head,
-                    config.tick_ns,
-                );
+                return Impl.nextWake(self, config);
             }
 
             pub fn popExpired(self: *Self) ?Entry {
-                const index = popExpiredIndex(
-                    self.slots,
-                    &self.expired_head,
-                    &self.expired_tail,
-                ) orelse return null;
-                return self.removeSlotIndex(index);
+                return Impl.popExpired(self);
             }
 
             pub fn remove(self: *Self, handle: Handle) ?Entry {
-                const index = self.liveIndex(handle) orelse return null;
-                detachLiveIndex(
-                    self.slots,
-                    self.buckets,
-                    &self.expired_head,
-                    &self.expired_tail,
-                    index,
-                );
-                return self.removeSlotIndex(index);
+                return Impl.remove(self, handle);
             }
 
-            pub fn updateDeadline(
-                self: *Self,
-                handle: Handle,
-                dl: Deadline,
-            ) RangeError!bool {
-                const index = self.liveIndex(handle) orelse return false;
-                const due_tick = try self.quantize(dl);
-
-                detachLiveIndex(
-                    self.slots,
-                    self.buckets,
-                    &self.expired_head,
-                    &self.expired_tail,
-                    index,
-                );
-
-                var slot = &self.slots[index];
-                slot.deadline = dl;
-                slot.due_tick = due_tick;
-
-                attachByDueTick(
-                    self.slots,
-                    self.buckets,
-                    &self.expired_head,
-                    &self.expired_tail,
-                    index,
-                    self.cursor_tick,
-                    config.slot_count,
-                );
-
-                return true;
+            pub fn updateDeadline(self: *Self, handle: Handle, deadline: Deadline) RangeError!bool {
+                return Impl.updateDeadline(self, handle, deadline, config);
             }
 
             pub fn contains(self: *const Self, handle: Handle) bool {
-                return self.liveIndex(handle) != null;
+                return Impl.resolve(self, handle) != null;
             }
 
-            pub fn assertValid(self: *const Self) void {
-                assertValidStorage(
-                    self.slots,
-                    self.buckets,
-                    self.origin_instant,
-                    self.cursor_tick,
-                    self.live_len,
-                    self.free_head,
-                    self.expired_head,
-                    self.expired_tail,
-                    config,
-                );
-            }
-
-            fn quantize(self: *const Self, dl: Deadline) RangeError!u64 {
-                return quantizeDeadline(
-                    dl,
-                    self.origin_instant,
-                    self.cursor_tick,
-                    config,
-                );
-            }
-
-            fn insertDueAssumeCapacity(
-                self: *Self,
-                dl: Deadline,
-                item: T,
-                due_tick: u64,
-            ) Handle {
-                const index = allocSlot(self.slots, &self.free_head);
-
-                var slot = &self.slots[index];
-                slot.item = item;
-                slot.deadline = dl;
-                slot.due_tick = due_tick;
-
-                attachByDueTick(
-                    self.slots,
-                    self.buckets,
-                    &self.expired_head,
-                    &self.expired_tail,
-                    index,
-                    self.cursor_tick,
-                    config.slot_count,
-                );
-
-                self.live_len += 1;
-                return encodeHandle(Handle, index, slot.generation);
-            }
-
-            fn liveIndex(self: *const Self, handle: Handle) ?usize {
-                return liveIndexForHandle(self.slots, handle);
-            }
-
-            fn removeSlotIndex(self: *Self, index: usize) Entry {
-                const slot = &self.slots[index];
-                const entry: Entry = .{
-                    .deadline = slot.deadline,
-                    .item = slot.item,
-                };
-
-                freeSlot(self.slots, &self.free_head, index);
-                self.live_len -= 1;
-
-                return entry;
+            pub fn isValid(self: *const Self) bool {
+                return Impl.isValid(self, config);
             }
         };
     }
 };
 
-const SlotState = enum {
-    free,
-    bucket,
-    expired,
-};
+const Impl = struct {
+    const Error = error{ Full, OutOfRange };
+    const RangeError = error{OutOfRange};
+    const none: usize = std.math.maxInt(usize);
 
-fn SlotFor(comptime T: type) type {
-    return struct {
-        item: T = undefined,
-        deadline: Deadline = undefined,
-        due_tick: u64 = 0,
-        generation: u64 = 1,
-        prev: usize = none,
-        next: usize = none,
-        bucket: usize = 0,
-        state: SlotState = .free,
-        next_free: usize = none,
+    const Tick = struct {
+        index: u64,
+
+        const Self = @This();
+        const zero: Self = .{ .index = 0 };
+
+        fn floor(start: Instant, now: Instant, tick_ns: u64) Self {
+            if (now.nanos() <= start.nanos()) {
+                return zero;
+            }
+            return .{ .index = (now.nanos() - start.nanos()) / tick_ns };
+        }
+
+        fn ceil(start: Instant, now: Instant, tick_ns: u64) Self {
+            if (now.nanos() <= start.nanos()) {
+                return zero;
+            }
+            const delta = now.nanos() - start.nanos();
+            var index = delta / tick_ns;
+            if (delta % tick_ns != 0) {
+                index += 1;
+            }
+            return .{ .index = index };
+        }
+
+        fn instant(self: Self, start: Instant, tick_ns: u64) ?Instant {
+            if (self.index > (std.math.maxInt(u64) - start.nanos()) / tick_ns) {
+                return null;
+            }
+            return Instant.fromNanos(start.nanos() + self.index * tick_ns);
+        }
+
+        fn bucket(self: Self, bucket_count: usize) usize {
+            return @intCast(self.index & @as(u64, @intCast(bucket_count - 1)));
+        }
     };
-}
 
-fn BucketFor() type {
-    return struct {
+    fn Slot(comptime T: type) type {
+        return struct {
+            deadline: Deadline,
+            item: T,
+            due: Tick,
+            generation: u64,
+            prev: usize,
+            next: usize,
+            bucket: usize,
+            state: State,
+
+            const State = enum { free, bucket, expired };
+            const Self = @This();
+
+            fn invalidate(self: *Self, next: usize) void {
+                self.generation +%= 1;
+                if (self.generation == 0) {
+                    self.generation = 1;
+                }
+                self.deadline = Deadline.never;
+                self.item = undefined;
+                self.due = Tick.zero;
+                self.prev = none;
+                self.next = next;
+                self.bucket = none;
+                self.state = .free;
+            }
+        };
+    }
+
+    fn Entry(comptime T: type) type {
+        return struct {
+            deadline: Deadline,
+            item: T,
+        };
+    }
+
+    fn Handle(comptime Owner: type) type {
+        return enum(u128) {
+            _,
+
+            const Self = @This();
+            const Parts = struct { index: usize, generation: u64 };
+
+            fn init(index: usize, generation: u64) Self {
+                _ = Owner;
+                const encoded_index: u64 = @intCast(index);
+                return @enumFromInt((@as(u128, generation) << 64) | encoded_index);
+            }
+
+            fn decode(self: Self) ?Parts {
+                const raw = @intFromEnum(self);
+                const encoded_index: u64 = @truncate(raw);
+                return .{
+                    .index = std.math.cast(usize, encoded_index) orelse return null,
+                    .generation = @truncate(raw >> 64),
+                };
+            }
+        };
+    }
+
+    const List = struct {
         head: usize = none,
         tail: usize = none,
-    };
-}
 
-fn validateConfig(comptime config: TimerWheel.Config) void {
-    if (config.tick_ns == 0) @compileError("TimerWheel.Config.tick_ns must be greater than zero");
-    if (config.slot_count < 2) @compileError("TimerWheel.Config.slot_count must be at least 2");
-    if (!std.math.isPowerOfTwo(config.slot_count)) {
-        @compileError("TimerWheel.Config.slot_count must be a power of two");
-    }
+        fn append(self: *List, slots: anytype, index: usize) void {
+            slots[index].prev = self.tail;
+            slots[index].next = none;
 
-    const horizon_ticks: u128 = @as(u128, config.slot_count - 1);
-    const horizon_ns: u128 = horizon_ticks * @as(u128, config.tick_ns);
-    if (horizon_ns > max_u64) {
-        @compileError("TimerWheel.Config horizon must fit in the Instant nanosecond domain");
-    }
-}
+            if (self.tail == none) {
+                self.head = index;
+            } else {
+                slots[self.tail].next = index;
+            }
 
-fn initStorage(slots: anytype, buckets: anytype, free_head: *usize) void {
-    var i: usize = 0;
-    while (i < buckets.len) : (i += 1) {
-        buckets[i] = .{};
-    }
-
-    free_head.* = if (slots.len == 0) none else 0;
-
-    i = 0;
-    while (i < slots.len) : (i += 1) {
-        slots[i].generation = 1;
-        slots[i].prev = none;
-        slots[i].next = none;
-        slots[i].bucket = 0;
-        slots[i].state = .free;
-        slots[i].next_free = if (i + 1 < slots.len) i + 1 else none;
-        slots[i].due_tick = 0;
-    }
-}
-
-fn clearStorage(
-    slots: anytype,
-    buckets: anytype,
-    live_len: *usize,
-    free_head: *usize,
-    expired_head: *usize,
-    expired_tail: *usize,
-) void {
-    var i: usize = 0;
-    while (i < buckets.len) : (i += 1) {
-        buckets[i].head = none;
-        buckets[i].tail = none;
-    }
-
-    expired_head.* = none;
-    expired_tail.* = none;
-    live_len.* = 0;
-    free_head.* = if (slots.len == 0) none else 0;
-
-    i = 0;
-    while (i < slots.len) : (i += 1) {
-        if (slots[i].state != .free) bumpGeneration(&slots[i].generation);
-        slots[i].prev = none;
-        slots[i].next = none;
-        slots[i].bucket = 0;
-        slots[i].state = .free;
-        slots[i].next_free = if (i + 1 < slots.len) i + 1 else none;
-    }
-}
-
-fn quantizeDeadline(
-    dl: Deadline,
-    origin: Instant,
-    cursor_tick: u64,
-    comptime config: TimerWheel.Config,
-) error{OutOfRange}!u64 {
-    if (dl.isNever()) return error.OutOfRange;
-
-    const cursor_ns = instantNsForTick(origin, cursor_tick, config.tick_ns) orelse {
-        return error.OutOfRange;
-    };
-    const deadline_ns = dl.instant().nanos();
-
-    const due_tick: u64 = if (deadline_ns <= cursor_ns) cursor_tick else due: {
-        const origin_ns = origin.nanos();
-        const delta: u128 = if (deadline_ns <= origin_ns) 0 else @as(u128, deadline_ns - origin_ns);
-        const tick_ns: u128 = config.tick_ns;
-        const due_u128 = @divFloor(delta + tick_ns - 1, tick_ns);
-        if (due_u128 > max_u64) return error.OutOfRange;
-        break :due @intCast(due_u128);
-    };
-
-    const horizon_end: u128 = @as(u128, cursor_tick) + @as(u128, config.slot_count);
-    if (@as(u128, due_tick) < @as(u128, cursor_tick)) return error.OutOfRange;
-    if (@as(u128, due_tick) >= horizon_end) return error.OutOfRange;
-    if (instantNsForTick(origin, due_tick, config.tick_ns) == null) return error.OutOfRange;
-    return due_tick;
-}
-
-fn advanceToStorage(
-    slots: anytype,
-    buckets: anytype,
-    origin: Instant,
-    cursor_tick: *u64,
-    expired_head: *usize,
-    expired_tail: *usize,
-    now: Instant,
-    comptime config: TimerWheel.Config,
-) void {
-    const cursor_ns = instantNsForTick(origin, cursor_tick.*, config.tick_ns) orelse unreachable;
-    const now_ns = now.nanos();
-
-    if (debug.checksEnabled()) std.debug.assert(now_ns >= cursor_ns);
-    if (now_ns <= cursor_ns) return;
-
-    const target_tick = tickFloor(origin, now, config.tick_ns);
-    if (target_tick <= cursor_tick.*) return;
-
-    const old_tick = cursor_tick.*;
-    const advanced: u128 = @as(u128, target_tick) - @as(u128, old_tick);
-
-    if (advanced >= config.slot_count) {
-        var bucket_index: usize = 0;
-        while (bucket_index < buckets.len) : (bucket_index += 1) {
-            expireBucket(slots, &buckets[bucket_index], expired_head, expired_tail);
+            self.tail = index;
         }
-    } else {
-        var tick = old_tick + 1;
-        while (tick <= target_tick) : (tick += 1) {
-            const bucket_index = bucketIndex(tick, config.slot_count);
-            expireBucket(slots, &buckets[bucket_index], expired_head, expired_tail);
+
+        fn remove(self: *List, slots: anytype, index: usize) void {
+            const prev = slots[index].prev;
+            const next = slots[index].next;
+
+            if (prev == none) {
+                self.head = next;
+            } else {
+                slots[prev].next = next;
+            }
+
+            if (next == none) {
+                self.tail = prev;
+            } else {
+                slots[next].prev = prev;
+            }
+
+            slots[index].prev = none;
+            slots[index].next = none;
+        }
+
+        fn isValid(self: *const List, slots: anytype) ?usize {
+            var index = self.head;
+            var prev = none;
+            var count: usize = 0;
+
+            while (index != none) {
+                if (index >= slots.len or count == slots.len) {
+                    return null;
+                }
+
+                if (slots[index].prev != prev) {
+                    return null;
+                }
+
+                prev = index;
+                index = slots[index].next;
+                count += 1;
+            }
+
+            if (prev != self.tail) {
+                return null;
+            }
+
+            return count;
+        }
+    };
+
+    fn requireConfig(comptime config: TimerWheel.Config) void {
+        if (config.tick_ns == 0) {
+            @compileError("TimerWheel.Config.tick_ns must be greater than zero");
+        }
+        if (config.bucket_count < 2 or !std.math.isPowerOfTwo(config.bucket_count)) {
+            @compileError("TimerWheel.Config.bucket_count must be a power of two of at least 2");
+        }
+        if (config.bucket_count - 1 > std.math.maxInt(u64) / config.tick_ns) {
+            @compileError("TimerWheel.Config horizon must fit in the Instant nanosecond domain");
         }
     }
 
-    cursor_tick.* = target_tick;
-}
+    fn initialize(wheel: anytype) void {
+        for (wheel.slots[0..], 0..) |*slot, index| {
+            slot.generation = 0;
+            slot.invalidate(if (index + 1 < wheel.slots.len) index + 1 else none);
+        }
 
-fn tickFloor(origin: Instant, now: Instant, tick_ns: u64) u64 {
-    const now_ns = now.nanos();
-    const origin_ns = origin.nanos();
-    if (now_ns <= origin_ns) return 0;
-    return @divFloor(now_ns - origin_ns, tick_ns);
-}
+        for (wheel.buckets[0..]) |*bucket| {
+            bucket.* = .{};
+        }
 
-fn nextWakeStorage(
-    slots: anytype,
-    buckets: anytype,
-    origin: Instant,
-    cursor_tick: u64,
-    expired_head: usize,
-    tick_ns: u64,
-) ?Instant {
-    if (expired_head != none) return instantForTick(origin, cursor_tick, tick_ns);
-
-    var best: ?u64 = null;
-    var bucket_index_value: usize = 0;
-    while (bucket_index_value < buckets.len) : (bucket_index_value += 1) {
-        const head = buckets[bucket_index_value].head;
-        if (head == none) continue;
-        const due_tick = slots[head].due_tick;
-        if (best == null or due_tick < best.?) best = due_tick;
+        wheel.tick = Tick.zero;
+        wheel.count = 0;
+        wheel.free = if (wheel.slots.len == 0) none else 0;
+        wheel.expired = .{};
     }
 
-    return if (best) |due_tick| instantForTick(origin, due_tick, tick_ns) else null;
-}
+    fn clear(wheel: anytype) void {
+        for (wheel.slots[0..], 0..) |*slot, index| {
+            slot.invalidate(if (index + 1 < wheel.slots.len) index + 1 else none);
+        }
 
-fn allocSlot(slots: anytype, free_head: *usize) usize {
-    const index = free_head.*;
-    std.debug.assert(index != none);
-    var slot = &slots[index];
-    std.debug.assert(slot.state == .free);
-    free_head.* = slot.next_free;
-    slot.next_free = none;
-    slot.prev = none;
-    slot.next = none;
-    return index;
-}
+        for (wheel.buckets[0..]) |*bucket| {
+            bucket.* = .{};
+        }
 
-fn freeSlot(slots: anytype, free_head: *usize, index: usize) void {
-    var slot = &slots[index];
-    bumpGeneration(&slot.generation);
-    slot.prev = none;
-    slot.next = none;
-    slot.bucket = 0;
-    slot.state = .free;
-    slot.next_free = free_head.*;
-    free_head.* = index;
-}
-
-fn bumpGeneration(generation: *u64) void {
-    generation.* +%= 1;
-    if (generation.* == 0) generation.* = 1;
-}
-
-fn attachByDueTick(
-    slots: anytype,
-    buckets: anytype,
-    expired_head: *usize,
-    expired_tail: *usize,
-    index: usize,
-    cursor_tick: u64,
-    comptime slot_count: usize,
-) void {
-    if (slots[index].due_tick <= cursor_tick) {
-        appendExpired(slots, expired_head, expired_tail, index);
-        return;
+        wheel.count = 0;
+        wheel.free = if (wheel.slots.len == 0) none else 0;
+        wheel.expired = .{};
     }
 
-    const bucket_index_value = bucketIndex(slots[index].due_tick, slot_count);
-    appendBucket(slots, &buckets[bucket_index_value], bucket_index_value, index);
-}
+    fn quantize(wheel: anytype, deadline: Deadline, comptime config: TimerWheel.Config) RangeError!Tick {
+        if (deadline.isNever()) {
+            return error.OutOfRange;
+        }
 
-fn appendBucket(slots: anytype, bucket: anytype, bucket_index_value: usize, index: usize) void {
-    var slot = &slots[index];
-    slot.state = .bucket;
-    slot.bucket = bucket_index_value;
-    slot.prev = bucket.tail;
-    slot.next = none;
+        const cursor = wheel.tick.instant(wheel.start, config.tick_ns) orelse return error.OutOfRange;
+        const deadline_ns = deadline.instant().nanos();
+        if (deadline_ns <= cursor.nanos()) {
+            return wheel.tick;
+        }
 
-    if (bucket.tail == none) {
-        bucket.head = index;
-    } else {
-        slots[bucket.tail].next = index;
-    }
-    bucket.tail = index;
-}
+        const due = Tick.ceil(wheel.start, deadline.instant(), config.tick_ns);
+        if (due.index - wheel.tick.index >= config.bucket_count) {
+            return error.OutOfRange;
+        }
 
-fn appendExpired(slots: anytype, expired_head: *usize, expired_tail: *usize, index: usize) void {
-    var slot = &slots[index];
-    slot.state = .expired;
-    slot.prev = expired_tail.*;
-    slot.next = none;
-
-    if (expired_tail.* == none) {
-        expired_head.* = index;
-    } else {
-        slots[expired_tail.*].next = index;
-    }
-    expired_tail.* = index;
-}
-
-fn expireBucket(slots: anytype, bucket: anytype, expired_head: *usize, expired_tail: *usize) void {
-    while (bucket.head != none) {
-        const index = bucket.head;
-        removeFromBucket(slots, bucket, index);
-        appendExpired(slots, expired_head, expired_tail, index);
-    }
-}
-
-fn popExpiredIndex(slots: anytype, expired_head: *usize, expired_tail: *usize) ?usize {
-    const index = expired_head.*;
-    if (index == none) return null;
-    removeFromExpired(slots, expired_head, expired_tail, index);
-    return index;
-}
-
-fn detachLiveIndex(
-    slots: anytype,
-    buckets: anytype,
-    expired_head: *usize,
-    expired_tail: *usize,
-    index: usize,
-) void {
-    switch (slots[index].state) {
-        .bucket => removeFromBucket(slots, &buckets[slots[index].bucket], index),
-        .expired => removeFromExpired(slots, expired_head, expired_tail, index),
-        .free => unreachable,
-    }
-}
-
-fn removeFromBucket(slots: anytype, bucket: anytype, index: usize) void {
-    const prev = slots[index].prev;
-    const next = slots[index].next;
-
-    if (prev == none) {
-        bucket.head = next;
-    } else {
-        slots[prev].next = next;
+        _ = due.instant(wheel.start, config.tick_ns) orelse return error.OutOfRange;
+        return due;
     }
 
-    if (next == none) {
-        bucket.tail = prev;
-    } else {
-        slots[next].prev = prev;
+    fn insert(
+        comptime T: type,
+        wheel: anytype,
+        deadline: Deadline,
+        item: T,
+        due: Tick,
+    ) @TypeOf(wheel.*).Handle {
+        const Wheel = @TypeOf(wheel.*);
+
+        const index = wheel.free;
+        const slot = &wheel.slots[index];
+        wheel.free = slot.next;
+
+        slot.deadline = deadline;
+        slot.item = item;
+        slot.due = due;
+        attach(wheel, index);
+
+        wheel.count += 1;
+
+        return Wheel.Handle.init(index, slot.generation);
     }
 
-    slots[index].prev = none;
-    slots[index].next = none;
-}
+    fn advanceTo(wheel: anytype, now: Instant, comptime config: TimerWheel.Config) void {
+        const target = Tick.floor(wheel.start, now, config.tick_ns);
+        if (target.index <= wheel.tick.index) {
+            return;
+        }
 
-fn removeFromExpired(slots: anytype, expired_head: *usize, expired_tail: *usize, index: usize) void {
-    const prev = slots[index].prev;
-    const next = slots[index].next;
+        if (target.index - wheel.tick.index >= config.bucket_count) {
+            for (0..wheel.buckets.len) |index| {
+                expireBucket(wheel, index);
+            }
+        } else {
+            var tick = wheel.tick;
+            while (tick.index < target.index) {
+                tick.index += 1;
+                expireBucket(wheel, tick.bucket(config.bucket_count));
+            }
+        }
 
-    if (prev == none) {
-        expired_head.* = next;
-    } else {
-        slots[prev].next = next;
+        wheel.tick = target;
     }
 
-    if (next == none) {
-        expired_tail.* = prev;
-    } else {
-        slots[next].prev = prev;
+    fn nextWake(wheel: anytype, comptime config: TimerWheel.Config) ?Instant {
+        if (wheel.expired.head != none) {
+            return wheel.tick.instant(wheel.start, config.tick_ns);
+        }
+
+        var best: ?Tick = null;
+        for (wheel.buckets[0..]) |bucket| {
+            if (bucket.head != none) {
+                const due = wheel.slots[bucket.head].due;
+                if (best == null or due.index < best.?.index) {
+                    best = due;
+                }
+            }
+        }
+
+        return if (best) |tick| tick.instant(wheel.start, config.tick_ns) else null;
     }
 
-    slots[index].prev = none;
-    slots[index].next = none;
-}
+    fn popExpired(wheel: anytype) ?@TypeOf(wheel.*).Entry {
+        if (wheel.expired.head == none) {
+            return null;
+        }
+        return removeAt(wheel, wheel.expired.head);
+    }
 
-fn bucketIndex(tick: u64, comptime slot_count: usize) usize {
-    return @intCast(tick & @as(u64, slot_count - 1));
-}
+    fn remove(wheel: anytype, handle: @TypeOf(wheel.*).Handle) ?@TypeOf(wheel.*).Entry {
+        const index = resolve(wheel, handle) orelse return null;
+        return removeAt(wheel, index);
+    }
 
-fn encodeHandle(comptime Handle: type, index: usize, generation: u64) Handle {
-    const index_u64: u64 = @intCast(index);
-    const raw = (@as(u128, generation) << 64) | @as(u128, index_u64);
-    return @enumFromInt(raw);
-}
+    fn updateDeadline(
+        wheel: anytype,
+        handle: @TypeOf(wheel.*).Handle,
+        deadline: Deadline,
+        comptime config: TimerWheel.Config,
+    ) RangeError!bool {
+        const index = resolve(wheel, handle) orelse return false;
+        const due = try quantize(wheel, deadline, config);
 
-const DecodedHandle = struct {
-    index: usize,
-    generation: u64,
+        detach(wheel, index);
+        wheel.slots[index].deadline = deadline;
+        wheel.slots[index].due = due;
+        attach(wheel, index);
+
+        return true;
+    }
+
+    fn resolve(wheel: anytype, handle: @TypeOf(wheel.*).Handle) ?usize {
+        const parts = handle.decode() orelse return null;
+        if (parts.index >= wheel.slots.len) {
+            return null;
+        }
+
+        const slot = &wheel.slots[parts.index];
+        if (slot.state == .free or slot.generation != parts.generation) {
+            return null;
+        }
+
+        return parts.index;
+    }
+
+    fn removeAt(wheel: anytype, index: usize) @TypeOf(wheel.*).Entry {
+        const slot = &wheel.slots[index];
+        const entry: @TypeOf(wheel.*).Entry = .{ .deadline = slot.deadline, .item = slot.item };
+
+        detach(wheel, index);
+        slot.invalidate(wheel.free);
+
+        wheel.free = index;
+        wheel.count -= 1;
+
+        return entry;
+    }
+
+    fn attach(wheel: anytype, index: usize) void {
+        const slot = &wheel.slots[index];
+        if (slot.due.index <= wheel.tick.index) {
+            slot.state = .expired;
+            slot.bucket = none;
+            wheel.expired.append(wheel.slots[0..], index);
+        } else {
+            const bucket = slot.due.bucket(wheel.buckets.len);
+            slot.state = .bucket;
+            slot.bucket = bucket;
+            wheel.buckets[bucket].append(wheel.slots[0..], index);
+        }
+    }
+
+    fn detach(wheel: anytype, index: usize) void {
+        const slot = &wheel.slots[index];
+        switch (slot.state) {
+            .free => unreachable,
+            .bucket => wheel.buckets[slot.bucket].remove(wheel.slots[0..], index),
+            .expired => wheel.expired.remove(wheel.slots[0..], index),
+        }
+    }
+
+    fn expireBucket(wheel: anytype, index: usize) void {
+        const bucket = &wheel.buckets[index];
+        while (bucket.head != none) {
+            const head = bucket.head;
+            bucket.remove(wheel.slots[0..], head);
+            wheel.slots[head].state = .expired;
+            wheel.slots[head].bucket = none;
+            wheel.expired.append(wheel.slots[0..], head);
+        }
+    }
+
+    fn isValid(wheel: anytype, comptime config: TimerWheel.Config) bool {
+        if (wheel.buckets.len != config.bucket_count or wheel.count > wheel.slots.len) {
+            return false;
+        }
+
+        if (wheel.tick.instant(wheel.start, config.tick_ns) == null) {
+            return false;
+        }
+
+        var free_count: usize = 0;
+        var index = wheel.free;
+
+        while (index != none) {
+            if (index >= wheel.slots.len or free_count == wheel.slots.len) {
+                return false;
+            }
+
+            const slot = &wheel.slots[index];
+            if (slot.state != .free) {
+                return false;
+            }
+
+            if (slot.prev != none or slot.bucket != none) {
+                return false;
+            }
+
+            free_count += 1;
+            index = slot.next;
+        }
+
+        var listed = wheel.expired.isValid(wheel.slots[0..]) orelse return false;
+
+        index = wheel.expired.head;
+        while (index != none) {
+            const slot = &wheel.slots[index];
+            if (slot.state != .expired or slot.bucket != none) {
+                return false;
+            }
+
+            if (slot.due.index > wheel.tick.index) {
+                return false;
+            }
+
+            index = slot.next;
+        }
+
+        for (wheel.buckets[0..], 0..) |*bucket, bucket_index| {
+            const bucket_len = bucket.isValid(wheel.slots[0..]) orelse return false;
+            if (bucket_len > wheel.slots.len - listed) {
+                return false;
+            }
+
+            listed += bucket_len;
+            index = bucket.head;
+
+            while (index != none) {
+                const slot = &wheel.slots[index];
+                if (slot.state != .bucket or slot.bucket != bucket_index) {
+                    return false;
+                }
+
+                if (slot.due.index <= wheel.tick.index) {
+                    return false;
+                }
+
+                if (slot.due.index - wheel.tick.index >= config.bucket_count) {
+                    return false;
+                }
+
+                if (slot.due.bucket(config.bucket_count) != bucket_index) {
+                    return false;
+                }
+
+                if (slot.due.instant(wheel.start, config.tick_ns) == null) {
+                    return false;
+                }
+
+                index = slot.next;
+            }
+        }
+
+        for (wheel.slots[0..]) |*slot| {
+            if (slot.generation == 0) {
+                return false;
+            }
+        }
+
+        return listed == wheel.count and free_count == wheel.slots.len - wheel.count;
+    }
 };
 
-fn decodeHandle(handle: anytype) ?DecodedHandle {
-    const raw: u128 = @intFromEnum(handle);
-    const index_u64: u64 = @truncate(raw);
-    const generation: u64 = @truncate(raw >> 64);
-    const index = std.math.cast(usize, index_u64) orelse return null;
-    return .{
-        .index = index,
-        .generation = generation,
-    };
-}
+pub const unit = struct {
+    const testing = std.testing;
 
-fn liveIndexForHandle(slots: anytype, handle: anytype) ?usize {
-    const decoded = decodeHandle(handle) orelse return null;
-    if (decoded.index >= slots.len) return null;
+    const config = TimerWheel.Config{ .tick_ns = 10, .bucket_count = 8 };
 
-    const slot = &slots[decoded.index];
-    if (slot.state == .free) return null;
-    if (slot.generation != decoded.generation) return null;
-    return decoded.index;
-}
+    fn instant(ns: u64) Instant {
+        return Instant.fromNanos(ns);
+    }
 
-fn instantForTick(origin: Instant, tick: u64, tick_ns: u64) Instant {
-    return Instant.fromNanos(instantNsForTick(origin, tick, tick_ns) orelse unreachable);
-}
+    fn makeDeadline(ns: u64) Deadline {
+        return Deadline.from(instant(ns));
+    }
 
-fn instantNsForTick(origin: Instant, tick: u64, tick_ns: u64) ?u64 {
-    const ns_u128 = @as(u128, origin.nanos()) + @as(u128, tick) * @as(u128, tick_ns);
-    if (ns_u128 > max_u64) return null;
-    return @intCast(ns_u128);
-}
+    fn Wheel(comptime T: type, comptime capacity: usize) type {
+        return TimerWheel.Static(T, capacity, config);
+    }
 
-fn assertValidStorage(
-    slots: anytype,
-    buckets: anytype,
-    origin: Instant,
-    cursor_tick: u64,
-    live_len: usize,
-    free_head: usize,
-    expired_head: usize,
-    expired_tail: usize,
-    comptime config: TimerWheel.Config,
-) void {
-    std.debug.assert(buckets.len == config.slot_count);
-    std.debug.assert(live_len <= slots.len);
-    std.debug.assert(instantNsForTick(origin, cursor_tick, config.tick_ns) != null);
+    fn insert(wheel: anytype, deadline: Deadline, item: u8) !@TypeOf(wheel.*).Handle {
+        const due = try Impl.quantize(wheel, deadline, config);
+        return Impl.insert(u8, wheel, deadline, item, due);
+    }
 
-    var state_free_count: usize = 0;
-    var state_live_count: usize = 0;
-    var i: usize = 0;
-    while (i < slots.len) : (i += 1) {
-        switch (slots[i].state) {
-            .free => state_free_count += 1,
-            .bucket, .expired => {
-                std.debug.assert(slots[i].generation != 0);
-                state_live_count += 1;
-            },
+    fn expectWake(wheel: anytype, ns: ?u64) !void {
+        const wake = Impl.nextWake(wheel, config);
+        if (ns) |value| {
+            try testing.expectEqual(instant(value), wake.?);
+        } else {
+            try testing.expect(wake == null);
         }
     }
-    std.debug.assert(state_live_count == live_len);
 
-    const free_count = countFreeList(slots, free_head);
-    std.debug.assert(free_count == state_free_count);
-    std.debug.assert(free_count + live_len == slots.len);
-
-    var listed_live_count: usize = 0;
-    listed_live_count += validateExpiredList(slots, expired_head, expired_tail, cursor_tick);
-
-    var bucket_index_value: usize = 0;
-    while (bucket_index_value < buckets.len) : (bucket_index_value += 1) {
-        listed_live_count += validateBucketList(
-            slots,
-            buckets[bucket_index_value],
-            bucket_index_value,
-            cursor_tick,
-            config,
-        );
+    fn expectEntry(entry: anytype, ns: u64, item: u8) !void {
+        try testing.expectEqual(makeDeadline(ns), entry.deadline);
+        try testing.expectEqual(item, entry.item);
     }
-    std.debug.assert(listed_live_count == live_len);
-}
 
-fn countFreeList(slots: anytype, free_head: usize) usize {
-    var count: usize = 0;
-    var index = free_head;
-    while (index != none) {
-        std.debug.assert(index < slots.len);
-        std.debug.assert(slots[index].state == .free);
-        count += 1;
-        std.debug.assert(count <= slots.len);
-        index = slots[index].next_free;
+    test "owned and borrowed storage preserve entries across capacity and range errors" {
+        const Borrowed = TimerWheel.Bounded(*u8, config);
+
+        {
+            var item: u8 = 0;
+            var slots: [0]Borrowed.Slot = .{};
+            var buckets: [config.bucket_count]Borrowed.Bucket = undefined;
+            var wheel = Borrowed.wrap(&slots, &buckets, instant(100));
+
+            try testing.expectEqual(@as(usize, 0), wheel.capacity());
+            try testing.expect(wheel.isEmpty() and wheel.isFull());
+            try testing.expectError(error.OutOfRange, wheel.insert(Deadline.never, &item));
+            try testing.expectError(error.Full, wheel.insert(makeDeadline(100), &item));
+            try testing.expect(wheel.isValid());
+        }
+
+        var first: u8 = 1;
+        var second: u8 = 2;
+        var owned = Wheel(*u8, 2).init(instant(100));
+        var slots: [2]Borrowed.Slot = undefined;
+        var buckets: [config.bucket_count]Borrowed.Bucket = undefined;
+        var borrowed = Borrowed.wrap(&slots, &buckets, instant(100));
+
+        inline for (.{ &owned, &borrowed }) |wheel| {
+            const due = try wheel.insertAssumeCapacity(makeDeadline(100), &first);
+            const future = try wheel.insert(makeDeadline(170), &second);
+
+            try testing.expectEqual(@as(usize, 2), wheel.len());
+            try testing.expectEqual(@as(usize, 0), wheel.remaining());
+            try testing.expect(wheel.isFull());
+            try testing.expectError(error.Full, wheel.insert(makeDeadline(110), &first));
+
+            const popped = wheel.popExpired().?;
+
+            try testing.expectEqual(makeDeadline(100), popped.deadline);
+            try testing.expectEqual(&first, popped.item);
+            try testing.expectEqual(@as(u8, 1), popped.item.*);
+            try testing.expect(!wheel.contains(due));
+
+            const removed = wheel.remove(future).?;
+
+            try testing.expectEqual(makeDeadline(170), removed.deadline);
+            try testing.expectEqual(&second, removed.item);
+            try testing.expectEqual(@as(u8, 2), removed.item.*);
+
+            try testing.expectError(error.OutOfRange, wheel.insert(Deadline.never, &first));
+            try testing.expectError(error.OutOfRange, wheel.insert(makeDeadline(171), &first));
+            try testing.expectError(error.OutOfRange, wheel.insertAssumeCapacity(Deadline.never, &first));
+            try testing.expect(wheel.isEmpty());
+            try testing.expect(wheel.isValid());
+        }
+
+        try testing.expect(borrowed.slots.ptr == &slots);
+        try testing.expect(borrowed.buckets.ptr == &buckets);
     }
-    return count;
-}
 
-fn validateExpiredList(slots: anytype, head: usize, tail: usize, cursor_tick: u64) usize {
-    if (head == none) std.debug.assert(tail == none);
-    if (tail == none) std.debug.assert(head == none);
+    test "ceiling quantization and inclusive cursor expiry never expire early" {
+        var wheel = Wheel(u8, 4).init(instant(100));
+        _ = try insert(&wheel, makeDeadline(99), 0);
+        _ = try insert(&wheel, makeDeadline(105), 1);
+        _ = try insert(&wheel, makeDeadline(120), 2);
+        _ = try insert(&wheel, makeDeadline(121), 3);
 
-    var count: usize = 0;
-    var prev: usize = none;
-    var index = head;
-    while (index != none) {
-        std.debug.assert(index < slots.len);
-        std.debug.assert(slots[index].state == .expired);
-        std.debug.assert(slots[index].prev == prev);
-        std.debug.assert(slots[index].due_tick <= cursor_tick);
-        prev = index;
-        index = slots[index].next;
-        count += 1;
-        std.debug.assert(count <= slots.len);
+        try expectWake(&wheel, 100);
+
+        const past = Impl.popExpired(&wheel).?;
+
+        try expectEntry(past, 99, 0);
+        try expectWake(&wheel, 110);
+
+        Impl.advanceTo(&wheel, instant(109), config);
+
+        try testing.expectEqual(instant(100), wheel.cursor());
+        try testing.expect(Impl.popExpired(&wheel) == null);
+
+        Impl.advanceTo(&wheel, instant(110), config);
+        const rounded = Impl.popExpired(&wheel).?;
+
+        try expectEntry(rounded, 105, 1);
+        try expectWake(&wheel, 120);
+
+        Impl.advanceTo(&wheel, instant(119), config);
+
+        try testing.expect(Impl.popExpired(&wheel) == null);
+
+        Impl.advanceTo(&wheel, instant(120), config);
+        const exact = Impl.popExpired(&wheel).?;
+
+        try expectEntry(exact, 120, 2);
+        try expectWake(&wheel, 130);
+
+        Impl.advanceTo(&wheel, instant(129), config);
+
+        try testing.expect(Impl.popExpired(&wheel) == null);
+
+        Impl.advanceTo(&wheel, instant(130), config);
+        const after = Impl.popExpired(&wheel).?;
+
+        try expectEntry(after, 121, 3);
+        try expectWake(&wheel, null);
+        try testing.expect(Impl.isValid(&wheel, config));
     }
-    std.debug.assert(prev == tail);
-    return count;
-}
 
-fn validateBucketList(
-    slots: anytype,
-    bucket: anytype,
-    bucket_index_value: usize,
-    cursor_tick: u64,
-    comptime config: TimerWheel.Config,
-) usize {
-    if (bucket.head == none) std.debug.assert(bucket.tail == none);
-    if (bucket.tail == none) std.debug.assert(bucket.head == none);
+    test "updates detach and append including unchanged deadlines and expired entries" {
+        var wheel = Wheel(u8, 4).init(instant(0));
+        const first = try insert(&wheel, makeDeadline(50), 1);
+        const second = try insert(&wheel, makeDeadline(20), 2);
+        const third = try insert(&wheel, makeDeadline(20), 3);
 
-    const horizon_end: u128 = @as(u128, cursor_tick) + @as(u128, config.slot_count);
-    var count: usize = 0;
-    var prev: usize = none;
-    var index = bucket.head;
-    while (index != none) {
-        std.debug.assert(index < slots.len);
-        std.debug.assert(slots[index].state == .bucket);
-        std.debug.assert(slots[index].bucket == bucket_index_value);
-        std.debug.assert(slots[index].prev == prev);
-        std.debug.assert(slots[index].due_tick > cursor_tick);
-        std.debug.assert(@as(u128, slots[index].due_tick) < horizon_end);
-        std.debug.assert(bucketIndex(slots[index].due_tick, config.slot_count) == bucket_index_value);
-        prev = index;
-        index = slots[index].next;
-        count += 1;
-        std.debug.assert(count <= slots.len);
+        const moved = try Impl.updateDeadline(&wheel, first, makeDeadline(20), config);
+        const unchanged = try Impl.updateDeadline(&wheel, second, makeDeadline(20), config);
+        Impl.advanceTo(&wheel, instant(20), config);
+        const head = Impl.popExpired(&wheel).?;
+
+        try testing.expect(moved and unchanged);
+        try expectEntry(head, 20, 3);
+        try testing.expect(Impl.resolve(&wheel, third) == null);
+
+        const postponed = try Impl.updateDeadline(&wheel, first, makeDeadline(60), config);
+        const expired = try Impl.updateDeadline(&wheel, second, makeDeadline(20), config);
+        const next = Impl.popExpired(&wheel).?;
+
+        try testing.expect(postponed and expired);
+        try expectEntry(next, 20, 2);
+        try expectWake(&wheel, 60);
+
+        try testing.expectError(error.OutOfRange, Impl.updateDeadline(&wheel, first, Deadline.never, config));
+        try testing.expectError(error.OutOfRange, Impl.updateDeadline(&wheel, first, makeDeadline(100), config));
+        try expectWake(&wheel, 60);
+
+        const removed = Impl.remove(&wheel, first).?;
+
+        try expectEntry(removed, 60, 1);
+        try expectWake(&wheel, null);
+        try testing.expect(Impl.isValid(&wheel, config));
     }
-    std.debug.assert(prev == bucket.tail);
-    return count;
-}
+
+    test "pop remove clear and generation rollover invalidate handles after reuse" {
+        const Timers = Wheel(void, 1);
+
+        {
+            var wheel = Timers.init(instant(100));
+            var stale: [3]Timers.Handle = undefined;
+
+            stale[0] = try wheel.insert(makeDeadline(100), {});
+            _ = Impl.popExpired(&wheel).?;
+
+            stale[1] = try wheel.insert(makeDeadline(110), {});
+            _ = Impl.remove(&wheel, stale[1]).?;
+
+            stale[2] = try wheel.insert(makeDeadline(130), {});
+            Impl.advanceTo(&wheel, instant(120), config);
+            Impl.clear(&wheel);
+            const current = try wheel.insert(makeDeadline(120), {});
+
+            try testing.expectEqual(instant(100), wheel.origin());
+            try testing.expectEqual(instant(120), wheel.cursor());
+            try testing.expect(wheel.contains(current));
+
+            for (stale) |handle| {
+                const removed = Impl.remove(&wheel, handle);
+                const updated = try Impl.updateDeadline(&wheel, handle, Deadline.never, config);
+
+                try testing.expect(Impl.resolve(&wheel, handle) == null);
+                try testing.expect(removed == null);
+                try testing.expect(!updated);
+            }
+
+            try testing.expect(Impl.isValid(&wheel, config));
+        }
+
+        {
+            var wheel = Timers.init(instant(120));
+            wheel.slots[0].generation = std.math.maxInt(u64);
+
+            const wrapping = try wheel.insert(makeDeadline(120), {});
+            _ = Impl.remove(&wheel, wrapping).?;
+            const reused = try wheel.insert(makeDeadline(120), {});
+
+            try testing.expectEqual(@as(u64, 1), wheel.slots[0].generation);
+            try testing.expect(!wheel.contains(wrapping));
+            try testing.expect(wheel.contains(reused));
+            try testing.expect(Impl.isValid(&wheel, config));
+        }
+
+        {
+            var wheel = Timers.init(instant(100));
+            const invalid: Timers.Handle = @enumFromInt((@as(u128, 1) << 64) | std.math.maxInt(u64));
+
+            try testing.expect(!wheel.contains(@enumFromInt(0)));
+            try testing.expect(!wheel.contains(invalid));
+        }
+    }
+
+    test "maximum instants reject unrepresentable rounded wakes and permit final tick advances" {
+        const max = std.math.maxInt(u64);
+
+        {
+            const Fine = TimerWheel.Static(u8, 2, .{ .tick_ns = 1, .bucket_count = 8 });
+            var wheel = Fine.init(instant(0));
+            wheel.advanceTo(instant(max - 2));
+            _ = try wheel.insert(makeDeadline(max - 1), 1);
+
+            wheel.advanceTo(instant(max));
+            wheel.advanceTo(instant(max));
+            const entry = wheel.popExpired().?;
+
+            try expectEntry(entry, max - 1, 1);
+            try testing.expect(wheel.isValid());
+        }
+
+        {
+            var wheel = Wheel(u8, 2).init(instant(max - 15));
+            _ = try wheel.insert(makeDeadline(max - 5), 2);
+
+            try testing.expectError(error.OutOfRange, wheel.insert(makeDeadline(max - 4), 3));
+
+            wheel.advanceTo(instant(max));
+            const entry = wheel.popExpired().?;
+
+            try testing.expectEqual(instant(max - 5), wheel.cursor());
+            try expectEntry(entry, max - 5, 2);
+            try testing.expect(wheel.isValid());
+        }
+    }
+
+    test "validator rejects invalid links accounting generations ticks and storage lengths" {
+        var wheel = Wheel(u8, 4).init(instant(0));
+        const handle = try insert(&wheel, makeDeadline(20), 1);
+        const live = Impl.resolve(&wheel, handle).?;
+        const free = wheel.free;
+        const original = wheel;
+
+        try testing.expect(Impl.isValid(&original, config));
+
+        {
+            var invalid = original;
+            invalid.count += 1;
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            invalid.slots[free].next = free;
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            invalid.slots[live].next = live;
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            invalid.slots[live].prev = free;
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            invalid.free = live;
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            invalid.slots[free].generation = 0;
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            invalid.slots[live].due = .{ .index = 3 };
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            invalid.slots[live].due = .{ .index = 10 };
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            invalid.tick = .{ .index = std.math.maxInt(u64) };
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = original;
+            Impl.advanceTo(&invalid, instant(20), config);
+            invalid.slots[live].due = .{ .index = 3 };
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        const Borrowed = TimerWheel.Bounded(u8, config);
+        var slots: [2]Borrowed.Slot = undefined;
+        var buckets: [config.bucket_count]Borrowed.Bucket = undefined;
+        const borrowed = Borrowed.wrap(&slots, &buckets, instant(0));
+
+        {
+            var invalid = borrowed;
+            invalid.buckets = buckets[0 .. buckets.len - 1];
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+
+        {
+            var invalid = borrowed;
+            invalid.slots = slots[0..1];
+
+            try testing.expect(!Impl.isValid(&invalid, config));
+        }
+    }
+
+    const Model = struct {
+        const capacity = 6;
+        const origin_ns = 0;
+        const tick_ns = config.tick_ns;
+        const bucket_count = config.bucket_count;
+
+        const Entry = struct {
+            live: bool = false,
+            deadline_ns: u64 = 0,
+            due_tick: u64 = 0,
+            item: u8 = 0,
+        };
+
+        entries: [capacity]Entry = [_]Entry{.{}} ** capacity,
+        current_tick: u64 = 0,
+        len: usize = 0,
+
+        fn cursorNs(self: *const Model) u64 {
+            return origin_ns + self.current_tick * tick_ns;
+        }
+
+        fn quantize(self: *const Model, ns: u64) error{OutOfRange}!u64 {
+            const due_tick = if (ns <= self.cursorNs())
+                self.current_tick
+            else
+                @divFloor(ns - origin_ns + tick_ns - 1, tick_ns);
+
+            if (due_tick < self.current_tick or due_tick >= self.current_tick + bucket_count) {
+                return error.OutOfRange;
+            }
+            return due_tick;
+        }
+
+        fn insert(self: *Model, id: usize, ns: u64, item: u8) error{OutOfRange}!void {
+            const due_tick = try self.quantize(ns);
+            testing.expect(!self.entries[id].live) catch unreachable;
+            self.entries[id] = .{
+                .live = true,
+                .deadline_ns = ns,
+                .due_tick = due_tick,
+                .item = item,
+            };
+            self.len += 1;
+        }
+
+        fn update(self: *Model, id: usize, ns: u64) error{OutOfRange}!bool {
+            if (!self.entries[id].live) {
+                return false;
+            }
+            const due_tick = try self.quantize(ns);
+            self.entries[id].deadline_ns = ns;
+            self.entries[id].due_tick = due_tick;
+            return true;
+        }
+
+        fn advanceTo(self: *Model, ns: u64) void {
+            const target_tick = @divFloor(ns - origin_ns, tick_ns);
+            if (target_tick > self.current_tick) {
+                self.current_tick = target_tick;
+            }
+        }
+
+        fn nextWakeNs(self: *const Model) ?u64 {
+            if (self.len == 0) {
+                return null;
+            }
+
+            var best: ?u64 = null;
+            for (self.entries) |entry| {
+                if (!entry.live) {
+                    continue;
+                }
+                if (entry.due_tick <= self.current_tick) {
+                    return self.cursorNs();
+                }
+                if (best == null or entry.due_tick < best.?) {
+                    best = entry.due_tick;
+                }
+            }
+            return origin_ns + best.? * tick_ns;
+        }
+
+        fn removeExpired(self: *Model, item: u8) !Entry {
+            for (&self.entries) |*entry| {
+                if (!entry.live or entry.item != item) {
+                    continue;
+                }
+
+                try testing.expect(entry.due_tick <= self.current_tick);
+                const expected = entry.*;
+                entry.live = false;
+                self.len -= 1;
+                return expected;
+            }
+            return error.TestUnexpectedResult;
+        }
+
+        fn clear(self: *Model) void {
+            for (&self.entries) |*entry| {
+                entry.live = false;
+            }
+            self.len = 0;
+        }
+    };
+
+    fn expectModelState(comptime Timers: type, wheel: *const Timers, model: *const Model) !void {
+        try testing.expectEqual(model.len, wheel.len());
+        try expectWake(wheel, model.nextWakeNs());
+        try testing.expect(Impl.isValid(wheel, config));
+    }
+
+    fn popAndMirror(comptime Timers: type, wheel: *Timers, model: *Model) !void {
+        const entry = wheel.popExpired() orelse {
+            for (model.entries) |expected| {
+                try testing.expect(!expected.live or expected.due_tick > model.current_tick);
+            }
+            return;
+        };
+        const expected = try model.removeExpired(entry.item);
+
+        try expectEntry(entry, expected.deadline_ns, expected.item);
+        try expectModelState(Timers, wheel, model);
+    }
+
+    test "model: deterministic sequence matches reference wheel semantics" {
+        const Timers = Wheel(u8, Model.capacity);
+
+        var wheel = Timers.init(instant(Model.origin_ns));
+        var model = Model{};
+        var handles: [Model.capacity]Timers.Handle = undefined;
+
+        try expectModelState(Timers, &wheel, &model);
+
+        handles[0] = try wheel.insert(makeDeadline(5), 0);
+        try model.insert(0, 5, 0);
+
+        try expectModelState(Timers, &wheel, &model);
+
+        handles[1] = try wheel.insert(makeDeadline(24), 1);
+        try model.insert(1, 24, 1);
+
+        try expectModelState(Timers, &wheel, &model);
+
+        try testing.expectError(error.OutOfRange, wheel.insert(makeDeadline(80), 5));
+        try expectModelState(Timers, &wheel, &model);
+
+        const moved = try wheel.updateDeadline(handles[1], makeDeadline(45));
+        const model_moved = try model.update(1, 45);
+
+        try testing.expectEqual(model_moved, moved);
+        try expectModelState(Timers, &wheel, &model);
+
+        try testing.expectError(error.OutOfRange, wheel.updateDeadline(handles[0], Deadline.never));
+        try expectModelState(Timers, &wheel, &model);
+
+        wheel.advanceTo(instant(9));
+        model.advanceTo(9);
+
+        try expectModelState(Timers, &wheel, &model);
+        try popAndMirror(Timers, &wheel, &model);
+
+        wheel.advanceTo(instant(10));
+        model.advanceTo(10);
+
+        try expectModelState(Timers, &wheel, &model);
+        try popAndMirror(Timers, &wheel, &model);
+
+        try testing.expect(!wheel.contains(handles[0]));
+        const removed = wheel.remove(handles[0]);
+        const updated = try wheel.updateDeadline(handles[0], makeDeadline(10));
+
+        try testing.expect(removed == null);
+        try testing.expect(!updated);
+        try expectModelState(Timers, &wheel, &model);
+
+        handles[2] = try wheel.insert(makeDeadline(70), 2);
+        try model.insert(2, 70, 2);
+
+        try expectModelState(Timers, &wheel, &model);
+
+        const advanced = try wheel.updateDeadline(handles[1], makeDeadline(15));
+        const model_advanced = try model.update(1, 15);
+
+        try testing.expectEqual(model_advanced, advanced);
+        try expectModelState(Timers, &wheel, &model);
+
+        try testing.expectError(error.OutOfRange, wheel.updateDeadline(handles[1], makeDeadline(90)));
+        try expectModelState(Timers, &wheel, &model);
+
+        wheel.advanceTo(instant(100));
+        model.advanceTo(100);
+
+        try expectModelState(Timers, &wheel, &model);
+        try popAndMirror(Timers, &wheel, &model);
+        try popAndMirror(Timers, &wheel, &model);
+        try popAndMirror(Timers, &wheel, &model);
+
+        handles[3] = try wheel.insert(makeDeadline(100), 3);
+        try model.insert(3, 100, 3);
+
+        try expectModelState(Timers, &wheel, &model);
+        try popAndMirror(Timers, &wheel, &model);
+
+        handles[4] = try wheel.insert(makeDeadline(120), 4);
+        try model.insert(4, 120, 4);
+
+        handles[5] = try wheel.insert(makeDeadline(150), 5);
+        try model.insert(5, 150, 5);
+
+        try expectModelState(Timers, &wheel, &model);
+
+        wheel.clearRetainingCapacity();
+        model.clear();
+
+        try expectModelState(Timers, &wheel, &model);
+
+        const cleared = wheel.remove(handles[4]);
+        const rescheduled = try wheel.updateDeadline(handles[5], makeDeadline(100));
+
+        try testing.expect(cleared == null);
+        try testing.expect(!rescheduled);
+    }
+};

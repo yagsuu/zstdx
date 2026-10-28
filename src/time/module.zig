@@ -22,4 +22,5 @@ test {
     _ = backoff.unit;
     _ = rate_counter.unit;
     _ = deadline_queue.unit;
+    _ = timer_wheel.unit;
 }
