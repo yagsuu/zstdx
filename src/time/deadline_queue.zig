@@ -1,87 +1,84 @@
-//! Fixed-capacity deadline priority queue. See `docs/specs/time/deadline_queue.md`.
+//! fixed-capacity deadline priority queue
 
 const std = @import("std");
 
 const debug = @import("core").debug;
-const deadline = @import("deadline.zig");
-const monotonic = @import("monotonic.zig");
 
-const Deadline = deadline.Deadline;
-const Instant = monotonic.Instant;
+const Deadline = @import("deadline.zig").Deadline;
+const Instant = @import("monotonic.zig").Instant;
 
-const invalid_index = std.math.maxInt(usize);
-
-/// Fixed-capacity deadline queues for caller-owned scheduling state. `Static`
-/// owns inline storage; `Bounded` wraps caller storage. Operations never
-/// allocate, wait, read a clock, or invoke callbacks.
 pub const DeadlineQueue = struct {
-    pub fn Static(comptime T: type, comptime capacity_items: usize) type {
-        comptime if (capacity_items == 0) @compileError("DeadlineQueue.Static capacity_items must be non-zero");
-
-        const SlotType = QueueSlot(T);
+    pub fn Static(comptime T: type, comptime count: usize) type {
+        comptime {
+            if (count == 0) {
+                @compileError("DeadlineQueue.Static count must be non-zero");
+            }
+        }
 
         return struct {
-            slots: [capacity_items]Slot,
-            heap: [capacity_items]usize,
+            slots: [count]Slot,
+            heap: [count]usize,
             count: usize,
-            free_head: usize,
+            free: usize,
 
-            pub const item_capacity = capacity_items;
+            pub const bound = count;
 
             const Self = @This();
+            const Slot = Impl.Slot(T);
 
-            const Slot = SlotType;
-            const Impl = Common(T, Self);
-
-            pub const Handle = Impl.Handle;
-            pub const Entry = Impl.Entry;
+            pub const Handle = Impl.Handle(Self);
+            pub const Entry = Impl.Entry(T);
             pub const Error = Impl.Error;
 
             pub fn init() Self {
-                var self: Self = .{
-                    .slots = undefined,
-                    .heap = undefined,
-                    .count = 0,
-                    .free_head = invalid_index,
-                };
-                Impl.initializeStorage(&self);
+                var self: Self = undefined;
+                Impl.initialize(&self);
                 return self;
             }
 
             pub fn len(self: *const Self) usize {
-                return Impl.len(self);
+                return self.count;
             }
 
-            pub fn capacity(self: *const Self) usize {
-                return Impl.capacity(self);
+            pub fn capacity(_: *const Self) usize {
+                return bound;
             }
 
             pub fn remaining(self: *const Self) usize {
-                return Impl.remaining(self);
+                return bound - self.count;
             }
 
             pub fn isEmpty(self: *const Self) bool {
-                return Impl.isEmpty(self);
+                return self.count == 0;
             }
 
             pub fn isFull(self: *const Self) bool {
-                return Impl.isFull(self);
+                return self.count == bound;
             }
 
             pub fn clearRetainingCapacity(self: *Self) void {
-                Impl.clearRetainingCapacity(self);
+                Impl.clear(self);
             }
 
-            pub fn insert(self: *Self, dl: Deadline, item: T) Error!Handle {
-                return Impl.insert(self, dl, item);
+            pub fn insert(self: *Self, deadline: Deadline, item: T) Error!Handle {
+                if (self.isFull()) {
+                    return error.Full;
+                }
+                return Impl.insert(T, self, deadline, item);
             }
 
-            pub fn insertAssumeCapacity(self: *Self, dl: Deadline, item: T) Handle {
-                return Impl.insertAssumeCapacity(self, dl, item);
+            pub fn insertAssumeCapacity(self: *Self, deadline: Deadline, item: T) Handle {
+                if (debug.checksEnabled()) {
+                    std.debug.assert(!self.isFull());
+                }
+                return Impl.insert(T, self, deadline, item);
             }
 
             pub fn peekDeadline(self: *const Self) ?Deadline {
-                return Impl.peekDeadline(self);
+                if (self.count == 0) {
+                    return null;
+                }
+                return self.slots[self.heap[0]].deadline;
             }
 
             pub fn popExpired(self: *Self, now: Instant) ?Entry {
@@ -89,60 +86,46 @@ pub const DeadlineQueue = struct {
             }
 
             pub fn popNext(self: *Self) ?Entry {
-                return Impl.popNext(self);
+                if (self.count == 0) {
+                    return null;
+                }
+                return Impl.removeAt(self, 0);
             }
 
             pub fn remove(self: *Self, handle: Handle) ?Entry {
                 return Impl.remove(self, handle);
             }
 
-            pub fn updateDeadline(self: *Self, handle: Handle, dl: Deadline) bool {
-                return Impl.updateDeadline(self, handle, dl);
+            pub fn updateDeadline(self: *Self, handle: Handle, deadline: Deadline) bool {
+                return Impl.updateDeadline(self, handle, deadline);
             }
 
             pub fn contains(self: *const Self, handle: Handle) bool {
-                return Impl.contains(self, handle);
+                return Impl.resolve(self, handle) != null;
             }
 
-            pub fn assertValid(self: *const Self) void {
-                Impl.assertValid(self);
-            }
-
-            fn slotsSlice(self: *Self) []Slot {
-                return self.slots[0..];
-            }
-
-            fn slotsConstSlice(self: *const Self) []const Slot {
-                return self.slots[0..];
-            }
-
-            fn heapSlice(self: *Self) []usize {
-                return self.heap[0..];
-            }
-
-            fn heapConstSlice(self: *const Self) []const usize {
-                return self.heap[0..];
+            pub fn isValid(self: *const Self) bool {
+                return Impl.isValid(self);
             }
         };
     }
 
     pub fn Bounded(comptime T: type) type {
-        const SlotType = QueueSlot(T);
-
         return struct {
             slots: []Slot,
             heap: []usize,
             count: usize,
-            free_head: usize,
+            free: usize,
 
             const Self = @This();
-            const Impl = Common(T, Self);
 
-            pub const Slot = SlotType;
-            pub const Handle = Impl.Handle;
-            pub const Entry = Impl.Entry;
+            pub const Slot = Impl.Slot(T);
+            pub const Handle = Impl.Handle(Self);
+            pub const Entry = Impl.Entry(T);
             pub const Error = Impl.Error;
 
+            /// borrows and reinitializes both slices; lengths must match
+            /// storage must remain valid and exclusively used by this queue
             pub fn wrap(slots: []Slot, heap: []usize) Self {
                 if (debug.checksEnabled()) {
                     std.debug.assert(slots.len == heap.len);
@@ -151,48 +134,57 @@ pub const DeadlineQueue = struct {
                 var self: Self = .{
                     .slots = slots,
                     .heap = heap,
-                    .count = 0,
-                    .free_head = invalid_index,
+                    .count = undefined,
+                    .free = undefined,
                 };
 
-                Impl.initializeStorage(&self);
+                Impl.initialize(&self);
                 return self;
             }
 
             pub fn len(self: *const Self) usize {
-                return Impl.len(self);
+                return self.count;
             }
 
             pub fn capacity(self: *const Self) usize {
-                return Impl.capacity(self);
+                return self.slots.len;
             }
 
             pub fn remaining(self: *const Self) usize {
-                return Impl.remaining(self);
+                return self.slots.len - self.count;
             }
 
             pub fn isEmpty(self: *const Self) bool {
-                return Impl.isEmpty(self);
+                return self.count == 0;
             }
 
             pub fn isFull(self: *const Self) bool {
-                return Impl.isFull(self);
+                return self.count == self.slots.len;
             }
 
             pub fn clearRetainingCapacity(self: *Self) void {
-                Impl.clearRetainingCapacity(self);
+                Impl.clear(self);
             }
 
-            pub fn insert(self: *Self, dl: Deadline, item: T) Error!Handle {
-                return Impl.insert(self, dl, item);
+            pub fn insert(self: *Self, deadline: Deadline, item: T) Error!Handle {
+                if (self.isFull()) {
+                    return error.Full;
+                }
+                return Impl.insert(T, self, deadline, item);
             }
 
-            pub fn insertAssumeCapacity(self: *Self, dl: Deadline, item: T) Handle {
-                return Impl.insertAssumeCapacity(self, dl, item);
+            pub fn insertAssumeCapacity(self: *Self, deadline: Deadline, item: T) Handle {
+                if (debug.checksEnabled()) {
+                    std.debug.assert(!self.isFull());
+                }
+                return Impl.insert(T, self, deadline, item);
             }
 
             pub fn peekDeadline(self: *const Self) ?Deadline {
-                return Impl.peekDeadline(self);
+                if (self.count == 0) {
+                    return null;
+                }
+                return self.slots[self.heap[0]].deadline;
             }
 
             pub fn popExpired(self: *Self, now: Instant) ?Entry {
@@ -200,430 +192,840 @@ pub const DeadlineQueue = struct {
             }
 
             pub fn popNext(self: *Self) ?Entry {
-                return Impl.popNext(self);
+                if (self.count == 0) {
+                    return null;
+                }
+                return Impl.removeAt(self, 0);
             }
 
             pub fn remove(self: *Self, handle: Handle) ?Entry {
                 return Impl.remove(self, handle);
             }
 
-            pub fn updateDeadline(self: *Self, handle: Handle, dl: Deadline) bool {
-                return Impl.updateDeadline(self, handle, dl);
+            pub fn updateDeadline(self: *Self, handle: Handle, deadline: Deadline) bool {
+                return Impl.updateDeadline(self, handle, deadline);
             }
 
             pub fn contains(self: *const Self, handle: Handle) bool {
-                return Impl.contains(self, handle);
+                return Impl.resolve(self, handle) != null;
             }
 
-            pub fn assertValid(self: *const Self) void {
-                Impl.assertValid(self);
-            }
-
-            fn slotsSlice(self: *Self) []Slot {
-                return self.slots;
-            }
-
-            fn slotsConstSlice(self: *const Self) []const Slot {
-                return self.slots;
-            }
-
-            fn heapSlice(self: *Self) []usize {
-                return self.heap;
-            }
-
-            fn heapConstSlice(self: *const Self) []const usize {
-                return self.heap;
+            pub fn isValid(self: *const Self) bool {
+                return Impl.isValid(self);
             }
         };
     }
 };
 
-fn QueueSlot(comptime T: type) type {
-    return struct {
-        deadline: Deadline,
-        item: T,
-        generation: u64,
-        heap_pos: usize,
-        next_free: usize,
-        occupied: bool,
-    };
-}
+const Impl = struct {
+    const Error = error{Full};
 
-fn Common(comptime T: type, comptime Self: type) type {
-    return struct {
-        pub const Handle = enum(u128) { _ };
+    const none: usize = std.math.maxInt(usize);
 
-        pub const Entry = struct {
+    fn Slot(comptime T: type) type {
+        return struct {
+            deadline: Deadline,
+            item: T,
+            generation: u64,
+            position: usize,
+            next: usize,
+            occupied: bool,
+
+            const Self = @This();
+
+            fn invalidate(self: *Self, next: usize) void {
+                self.generation +%= 1;
+                if (self.generation == 0) {
+                    self.generation = 1;
+                }
+                self.deadline = Deadline.never;
+                self.item = undefined;
+                self.position = none;
+                self.next = next;
+                self.occupied = false;
+            }
+        };
+    }
+
+    fn Entry(comptime T: type) type {
+        return struct {
             deadline: Deadline,
             item: T,
         };
+    }
 
-        pub const Error = error{Full};
+    fn Handle(comptime Owner: type) type {
+        return enum(u128) {
+            _,
 
-        const DecodedHandle = struct {
-            index: usize,
-            generation: u64,
+            const Self = @This();
+
+            const Parts = struct {
+                index: usize,
+                generation: u64,
+            };
+
+            fn init(index: usize, generation: u64) Self {
+                _ = Owner;
+                const encoded_index: u64 = @intCast(index);
+                return @enumFromInt((@as(u128, generation) << 64) | encoded_index);
+            }
+
+            fn decode(self: Self) ?Parts {
+                const raw = @intFromEnum(self);
+                const encoded_index: u64 = @truncate(raw);
+                return .{
+                    .index = std.math.cast(usize, encoded_index) orelse return null,
+                    .generation = @truncate(raw >> 64),
+                };
+            }
         };
+    }
 
-        pub fn len(self: *const Self) usize {
-            return self.count;
-        }
-
-        pub fn capacity(self: *const Self) usize {
-            return self.slotsConstSlice().len;
-        }
-
-        pub fn remaining(self: *const Self) usize {
-            return self.capacity() - self.count;
-        }
-
-        pub fn isEmpty(self: *const Self) bool {
-            return self.count == 0;
-        }
-
-        pub fn isFull(self: *const Self) bool {
-            return self.count == self.capacity();
-        }
-
-        pub fn clearRetainingCapacity(self: *Self) void {
-            const slots = self.slotsSlice();
-            const heap = self.heapSlice();
-            const old_len = self.count;
-
-            for (heap[0..old_len]) |*heap_entry| {
-                const index = heap_entry.*;
-                const slot = &slots[index];
-
-                bumpGeneration(slot);
-
-                slot.deadline = Deadline.never;
-                slot.item = undefined;
-                slot.heap_pos = invalid_index;
-                slot.next_free = self.free_head;
-                slot.occupied = false;
-                self.free_head = index;
-                heap_entry.* = invalid_index;
+    fn initialize(queue: anytype) void {
+        for (queue.slots[0..], 0..) |*slot, index| {
+            var next = none;
+            if (index + 1 < queue.slots.len) {
+                next = index + 1;
             }
 
-            self.count = 0;
+            slot.* = .{
+                .deadline = Deadline.never,
+                .item = undefined,
+                .generation = 1,
+                .position = none,
+                .next = next,
+                .occupied = false,
+            };
         }
 
-        pub fn insert(self: *Self, dl: Deadline, item: T) Error!Handle {
-            if (self.isFull()) return error.Full;
-            return self.insertAssumeCapacity(dl, item);
+        for (queue.heap[0..]) |*entry| {
+            entry.* = none;
         }
 
-        pub fn insertAssumeCapacity(self: *Self, dl: Deadline, item: T) Handle {
-            if (debug.checksEnabled()) {
-                std.debug.assert(!self.isFull());
-            }
+        queue.count = 0;
+        queue.free = switch (queue.slots.len) {
+            0 => none,
+            else => 0,
+        };
+    }
 
-            const slots = self.slotsSlice();
-            const heap = self.heapSlice();
-            const index = self.free_head;
-
-            std.debug.assert(index != invalid_index);
-            std.debug.assert(index < slots.len);
-
-            const slot = &slots[index];
-            self.free_head = slot.next_free;
-
-            slot.deadline = dl;
-            slot.item = item;
-            slot.heap_pos = self.count;
-            slot.next_free = invalid_index;
-            slot.occupied = true;
-
-            heap[self.count] = index;
-            self.count += 1;
-            siftUp(self, slot.heap_pos);
-
-            return makeHandle(index, slot.generation);
+    fn clear(queue: anytype) void {
+        for (queue.heap[0..queue.count]) |*entry| {
+            const index = entry.*;
+            queue.slots[index].invalidate(queue.free);
+            queue.free = index;
+            entry.* = none;
         }
+        queue.count = 0;
+    }
 
-        pub fn peekDeadline(self: *const Self) ?Deadline {
-            if (self.count == 0) return null;
-            const slots = self.slotsConstSlice();
-            const heap = self.heapConstSlice();
-            return slots[heap[0]].deadline;
+    fn insert(comptime T: type, queue: anytype, deadline: Deadline, item: T) @TypeOf(queue.*).Handle {
+        const Queue = @TypeOf(queue.*);
+
+        const index = queue.free;
+        const slot = &queue.slots[index];
+        queue.free = slot.next;
+        slot.deadline = deadline;
+        slot.item = item;
+        slot.position = queue.count;
+        slot.next = none;
+        slot.occupied = true;
+        queue.heap[queue.count] = index;
+        queue.count += 1;
+        siftUp(queue, slot.position);
+        return Queue.Handle.init(index, slot.generation);
+    }
+
+    fn popExpired(queue: anytype, now: Instant) ?@TypeOf(queue.*).Entry {
+        if (queue.count == 0) {
+            return null;
         }
-
-        pub fn popExpired(self: *Self, now: Instant) ?Entry {
-            if (self.count == 0) return null;
-
-            const slots = self.slotsConstSlice();
-            const heap = self.heapConstSlice();
-            const index = heap[0];
-            const dl = slots[index].deadline;
-
-            if (!now.isAtOrAfter(dl.instant())) return null;
-
-            return removeHeapPosition(self, 0);
+        if (!now.isAtOrAfter(queue.slots[queue.heap[0]].deadline.instant())) {
+            return null;
         }
+        return removeAt(queue, 0);
+    }
 
-        pub fn popNext(self: *Self) ?Entry {
-            if (self.count == 0) return null;
-            return removeHeapPosition(self, 0);
-        }
+    fn remove(queue: anytype, handle: @TypeOf(queue.*).Handle) ?@TypeOf(queue.*).Entry {
+        const index = resolve(queue, handle) orelse return null;
+        return removeAt(queue, queue.slots[index].position);
+    }
 
-        pub fn remove(self: *Self, handle: Handle) ?Entry {
-            const index = resolveHandle(self, handle) orelse return null;
-            const pos = self.slotsConstSlice()[index].heap_pos;
-            return removeHeapPosition(self, pos);
-        }
-
-        pub fn updateDeadline(self: *Self, handle: Handle, dl: Deadline) bool {
-            const index = resolveHandle(self, handle) orelse return false;
-            const slots = self.slotsSlice();
-            const old_key = deadlineKey(slots[index].deadline);
-            const new_key = deadlineKey(dl);
-            const pos = slots[index].heap_pos;
-
-            slots[index].deadline = dl;
-
-            if (new_key < old_key) {
-                siftUp(self, pos);
-            } else if (new_key > old_key) {
-                siftDown(self, pos);
-            }
-
+    fn updateDeadline(queue: anytype, handle: @TypeOf(queue.*).Handle, deadline: Deadline) bool {
+        const index = resolve(queue, handle) orelse return false;
+        const slot = &queue.slots[index];
+        const previous = slot.deadline;
+        if (deadline == previous) {
             return true;
         }
 
-        pub fn contains(self: *const Self, handle: Handle) bool {
-            return resolveHandle(self, handle) != null;
+        slot.deadline = deadline;
+        if (deadline.instant().nanos() < previous.instant().nanos()) {
+            siftUp(queue, slot.position);
+        } else {
+            siftDown(queue, slot.position);
+        }
+        return true;
+    }
+
+    fn resolve(queue: anytype, handle: @TypeOf(queue.*).Handle) ?usize {
+        const parts = handle.decode() orelse return null;
+        if (parts.index >= queue.slots.len) {
+            return null;
         }
 
-        pub fn assertValid(self: *const Self) void {
-            const slots = self.slotsConstSlice();
-            const heap = self.heapConstSlice();
-
-            std.debug.assert(heap.len == slots.len);
-            std.debug.assert(self.count <= slots.len);
-            std.debug.assert(self.remaining() == self.capacity() - self.count);
-            std.debug.assert(self.isEmpty() == (self.count == 0));
-            std.debug.assert(self.isFull() == (self.count == self.capacity()));
-            std.debug.assert((self.peekDeadline() == null) == (self.count == 0));
-
-            var occupied_count: usize = 0;
-            for (slots, 0..) |slot, index| {
-                if (slot.occupied) {
-                    occupied_count += 1;
-                    std.debug.assert(slot.next_free == invalid_index);
-                    std.debug.assert(slot.heap_pos < self.count);
-                    std.debug.assert(heap[slot.heap_pos] == index);
-                } else {
-                    std.debug.assert(slot.heap_pos == invalid_index);
-                }
-            }
-
-            std.debug.assert(occupied_count == self.count);
-
-            for (heap[0..self.count], 0..) |index, pos| {
-                std.debug.assert(index < slots.len);
-                std.debug.assert(slots[index].occupied);
-                std.debug.assert(slots[index].heap_pos == pos);
-                if (pos > 0) {
-                    const parent = @divFloor(pos - 1, 2);
-                    std.debug.assert(!lessHeap(self, pos, parent));
-                }
-            }
-
-            if (self.count == 0) {
-                std.debug.assert(self.peekDeadline() == null);
-            } else {
-                const first = heap[0];
-                const first_key = deadlineKey(slots[first].deadline);
-                std.debug.assert(self.peekDeadline().? == slots[first].deadline);
-                for (heap[0..self.count]) |index| {
-                    std.debug.assert(first_key <= deadlineKey(slots[index].deadline));
-                }
-            }
-
-            var free_count: usize = 0;
-            var cursor = self.free_head;
-            while (cursor != invalid_index) {
-                std.debug.assert(cursor < slots.len);
-                std.debug.assert(!slots[cursor].occupied);
-
-                var previous_cursor = self.free_head;
-                var previous_count: usize = 0;
-                while (previous_count < free_count) : (previous_count += 1) {
-                    std.debug.assert(previous_cursor != cursor);
-                    previous_cursor = slots[previous_cursor].next_free;
-                }
-
-                free_count += 1;
-                std.debug.assert(free_count <= slots.len);
-                cursor = slots[cursor].next_free;
-            }
-
-            std.debug.assert(free_count + occupied_count == slots.len);
+        const slot = &queue.slots[parts.index];
+        if (!slot.occupied or slot.generation != parts.generation) {
+            return null;
         }
 
-        fn initializeStorage(self: *Self) void {
-            const slots = self.slotsSlice();
-            const heap = self.heapSlice();
+        return parts.index;
+    }
 
-            for (slots, 0..) |*slot, index| {
-                slot.* = .{
-                    .deadline = Deadline.never,
-                    .item = undefined,
-                    .generation = 1,
-                    .heap_pos = invalid_index,
-                    .next_free = nextIndex(index, slots.len),
-                    .occupied = false,
+    fn removeAt(queue: anytype, position: usize) @TypeOf(queue.*).Entry {
+        const index = queue.heap[position];
+        const slot = &queue.slots[index];
+        const entry: @TypeOf(queue.*).Entry = .{ .deadline = slot.deadline, .item = slot.item };
+
+        queue.count -= 1;
+
+        if (position != queue.count) {
+            const moved = queue.heap[queue.count];
+            queue.heap[position] = moved;
+            queue.slots[moved].position = position;
+        }
+
+        queue.heap[queue.count] = none;
+
+        if (position != queue.count) {
+            repair(queue, position);
+        }
+
+        slot.invalidate(queue.free);
+        queue.free = index;
+        return entry;
+    }
+
+    fn repair(queue: anytype, position: usize) void {
+        if (position > 0 and less(queue, position, (position - 1) / 2)) {
+            siftUp(queue, position);
+        } else {
+            siftDown(queue, position);
+        }
+    }
+
+    fn siftUp(queue: anytype, start: usize) void {
+        var position = start;
+        while (position > 0) {
+            const parent = (position - 1) / 2;
+            if (!less(queue, position, parent)) {
+                break;
+            }
+            swap(queue, position, parent);
+            position = parent;
+        }
+    }
+
+    fn siftDown(queue: anytype, start: usize) void {
+        var position = start;
+        while (position < queue.count / 2) {
+            const left = position * 2 + 1;
+            const right = left + 1;
+            var best = left;
+
+            if (right < queue.count and less(queue, right, left)) {
+                best = right;
+            }
+
+            if (!less(queue, best, position)) {
+                break;
+            }
+
+            swap(queue, position, best);
+            position = best;
+        }
+    }
+
+    fn swap(queue: anytype, a: usize, b: usize) void {
+        const a_index = queue.heap[a];
+        const b_index = queue.heap[b];
+        queue.heap[a] = b_index;
+        queue.heap[b] = a_index;
+        queue.slots[a_index].position = b;
+        queue.slots[b_index].position = a;
+    }
+
+    fn less(queue: anytype, a: usize, b: usize) bool {
+        return queue.slots[queue.heap[a]].deadline.instant().nanos() <
+            queue.slots[queue.heap[b]].deadline.instant().nanos();
+    }
+
+    fn isValid(queue: anytype) bool {
+        if (queue.slots.len != queue.heap.len or queue.count > queue.slots.len) {
+            return false;
+        }
+
+        var occupied: usize = 0;
+        for (queue.slots[0..], 0..) |*slot, index| {
+            if (slot.generation == 0) {
+                return false;
+            }
+
+            if (slot.occupied) {
+                if (slot.position >= queue.count or slot.next != none) {
+                    return false;
+                }
+                if (queue.heap[slot.position] != index) {
+                    return false;
+                }
+                occupied += 1;
+            } else if (slot.position != none) {
+                return false;
+            }
+        }
+
+        if (occupied != queue.count) {
+            return false;
+        }
+
+        for (queue.heap[0..queue.count], 0..) |index, position| {
+            if (index >= queue.slots.len) {
+                return false;
+            }
+
+            const slot = &queue.slots[index];
+            if (!slot.occupied or slot.position != position) {
+                return false;
+            }
+
+            if (position > 0 and less(queue, position, (position - 1) / 2)) {
+                return false;
+            }
+        }
+
+        for (queue.heap[queue.count..]) |index| {
+            if (index != none) {
+                return false;
+            }
+        }
+
+        var free: usize = 0;
+        var next = queue.free;
+        while (next != none) {
+            if (next >= queue.slots.len or free >= queue.slots.len - occupied) {
+                return false;
+            }
+
+            const slot = &queue.slots[next];
+            if (slot.occupied) {
+                return false;
+            }
+
+            free += 1;
+            next = slot.next;
+        }
+
+        return free + occupied == queue.slots.len;
+    }
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    fn makeInstant(ns: u64) Instant {
+        return Instant.fromNanos(ns);
+    }
+
+    fn makeDeadline(ns: u64) Deadline {
+        return Deadline.from(makeInstant(ns));
+    }
+
+    fn deadlineKey(value: Deadline) u64 {
+        return value.instant().nanos();
+    }
+
+    fn expectAccessors(queue: anytype, count: usize, capacity: usize) !void {
+        try testing.expectEqual(count, queue.len());
+        try testing.expectEqual(capacity, queue.capacity());
+        try testing.expectEqual(capacity - count, queue.remaining());
+        try testing.expectEqual(count == 0, queue.isEmpty());
+        try testing.expectEqual(count == capacity, queue.isFull());
+        try testing.expect(queue.isValid());
+    }
+
+    test "storage initialization and Full preserve live entries" {
+        var first: u8 = 1;
+        var second: u8 = 2;
+        var owned = DeadlineQueue.Static(*u8, 2).init();
+        const Queue = DeadlineQueue.Bounded(*u8);
+        var slots: [2]Queue.Slot = undefined;
+        var heap: [2]usize = undefined;
+        var borrowed = Queue.wrap(&slots, &heap);
+        var no_slots: [0]Queue.Slot = .{};
+        var no_heap: [0]usize = .{};
+        var empty = Queue.wrap(&no_slots, &no_heap);
+
+        try expectAccessors(&owned, 0, 2);
+        try expectAccessors(&borrowed, 0, 2);
+        try expectAccessors(&empty, 0, 0);
+        try testing.expect(empty.popNext() == null);
+        try testing.expect(empty.peekDeadline() == null);
+        try testing.expectError(error.Full, empty.insert(makeDeadline(1), &first));
+        inline for (.{ &owned, &borrowed }) |queue| {
+            const later = queue.insertAssumeCapacity(makeDeadline(20), &second);
+            const earlier = try queue.insert(makeDeadline(10), &first);
+
+            try testing.expectError(error.Full, queue.insert(makeDeadline(0), &first));
+            try expectAccessors(queue, 2, 2);
+            try testing.expect(queue.contains(later));
+            try testing.expect(queue.contains(earlier));
+            try testing.expectEqual(&first, queue.popNext().?.item);
+            try testing.expectEqual(&second, queue.remove(later).?.item);
+            try expectAccessors(queue, 0, 2);
+        }
+    }
+
+    test "expiration is inclusive, ties unordered, and never orders last" {
+        var queue = DeadlineQueue.Static(u8, 4).init();
+        _ = Impl.insert(u8, &queue, Deadline.never, 3);
+        _ = Impl.insert(u8, &queue, makeDeadline(100), 1);
+        _ = Impl.insert(u8, &queue, makeDeadline(100), 2);
+        _ = Impl.insert(u8, &queue, makeDeadline(101), 0);
+
+        try testing.expect(Impl.popExpired(&queue, makeInstant(99)) == null);
+        var seen = [_]bool{ false, false, false };
+        for (0..2) |_| {
+            const entry = Impl.popExpired(&queue, makeInstant(100)).?;
+
+            try testing.expectEqual(makeDeadline(100), entry.deadline);
+            try testing.expect(entry.item == 1 or entry.item == 2);
+            try testing.expect(!seen[entry.item]);
+            seen[entry.item] = true;
+            try testing.expect(Impl.isValid(&queue));
+        }
+        try testing.expect(seen[1] and seen[2]);
+        try testing.expect(Impl.popExpired(&queue, makeInstant(100)) == null);
+        try testing.expectEqual(@as(u8, 0), Impl.popExpired(&queue, makeInstant(101)).?.item);
+        try testing.expect(Impl.popExpired(&queue, makeInstant(std.math.maxInt(u64) - 1)) == null);
+        try testing.expectEqual(Deadline.never, queue.peekDeadline().?);
+        try testing.expectEqual(Deadline.never, Impl.popExpired(&queue, makeInstant(std.math.maxInt(u64))).?.deadline);
+        try expectAccessors(&queue, 0, 4);
+    }
+
+    test "removing root, interior, and tail repairs in both directions" {
+        const keys = [_]u64{ 1, 10, 2, 11, 12, 3, 4 };
+        const sorted = [_]usize{ 0, 2, 5, 6, 1, 3, 4 };
+        inline for (.{ @as(usize, 0), 1, 3, 6 }) |removed_index| {
+            const Queue = DeadlineQueue.Static(u8, keys.len);
+            var queue = Queue.init();
+            var handles: [keys.len]Queue.Handle = undefined;
+            for (keys, 0..) |key, index| {
+                handles[index] = Impl.insert(u8, &queue, makeDeadline(key), @intCast(index));
+            }
+
+            const removed = Impl.remove(&queue, handles[removed_index]).?;
+
+            try testing.expectEqual(keys[removed_index], deadlineKey(removed.deadline));
+            try testing.expectEqual(@as(u8, @intCast(removed_index)), removed.item);
+            try testing.expect(Impl.resolve(&queue, handles[removed_index]) == null);
+            try testing.expect(Impl.isValid(&queue));
+            for (sorted) |index| {
+                if (index == removed_index) {
+                    continue;
+                }
+                const entry = queue.popNext().?;
+
+                try testing.expectEqual(makeDeadline(keys[index]), entry.deadline);
+                try testing.expectEqual(@as(u8, @intCast(index)), entry.item);
+                try testing.expect(Impl.isValid(&queue));
+            }
+            try testing.expect(queue.popNext() == null);
+        }
+    }
+
+    test "deadline updates move earlier, later, unchanged, and to never" {
+        var queue = DeadlineQueue.Static(u8, 3).init();
+        const moving = Impl.insert(u8, &queue, makeDeadline(50), 1);
+        const fixed = Impl.insert(u8, &queue, makeDeadline(30), 2);
+
+        try testing.expect(Impl.updateDeadline(&queue, moving, makeDeadline(10)));
+        try testing.expectEqual(makeDeadline(10), queue.peekDeadline().?);
+        try testing.expect(Impl.updateDeadline(&queue, moving, makeDeadline(10)));
+        try testing.expect(Impl.isValid(&queue));
+        try testing.expect(Impl.updateDeadline(&queue, moving, makeDeadline(40)));
+        try testing.expectEqual(makeDeadline(30), queue.peekDeadline().?);
+        try testing.expect(Impl.updateDeadline(&queue, fixed, Deadline.never));
+        try testing.expectEqual(makeDeadline(40), queue.peekDeadline().?);
+        try testing.expectEqual(@as(u8, 1), queue.popNext().?.item);
+        try testing.expectEqual(@as(u8, 2), queue.popNext().?.item);
+        try testing.expect(Impl.isValid(&queue));
+    }
+
+    test "pop, remove, clear, and generation rollover reject stale handles after reuse" {
+        const Queue = DeadlineQueue.Static(void, 1);
+        var queue = Queue.init();
+        queue.slots[0].generation = 100;
+        var stale: [3]Queue.Handle = undefined;
+        stale[0] = Impl.insert(void, &queue, makeDeadline(1), {});
+        _ = queue.popNext().?;
+
+        try testing.expect(!queue.contains(stale[0]));
+        stale[1] = Impl.insert(void, &queue, makeDeadline(2), {});
+        _ = Impl.remove(&queue, stale[1]).?;
+
+        try testing.expect(!queue.contains(stale[1]));
+        stale[2] = Impl.insert(void, &queue, makeDeadline(3), {});
+        Impl.clear(&queue);
+        const reused = Impl.insert(void, &queue, makeDeadline(5), {});
+
+        try testing.expect(queue.contains(reused));
+        for (stale) |handle| {
+            try testing.expect(Impl.resolve(&queue, handle) == null);
+            try testing.expect(Impl.remove(&queue, handle) == null);
+            try testing.expect(!Impl.updateDeadline(&queue, handle, makeDeadline(0)));
+        }
+        Impl.clear(&queue);
+        queue.slots[0].generation = std.math.maxInt(u64);
+        const wrapping = Impl.insert(void, &queue, makeDeadline(4), {});
+        _ = Impl.remove(&queue, wrapping).?;
+        const current = Impl.insert(void, &queue, makeDeadline(5), {});
+
+        try testing.expect(queue.slots[0].generation != 0);
+        try testing.expect(Impl.resolve(&queue, wrapping) == null);
+        const invalid: Queue.Handle = @enumFromInt(0);
+        const out_of_bounds: Queue.Handle = @enumFromInt((@as(u128, 1) << 64) | std.math.maxInt(u64));
+
+        try testing.expect(!queue.contains(invalid));
+        try testing.expect(!queue.contains(out_of_bounds));
+        try testing.expect(queue.contains(current));
+        try testing.expectEqual(makeDeadline(5), queue.peekDeadline().?);
+        try expectAccessors(&queue, 1, 1);
+    }
+
+    test "validator rejects corrupt heap, slot, and free-chain metadata" {
+        var queue = DeadlineQueue.Static(u8, 4).init();
+        _ = Impl.insert(u8, &queue, makeDeadline(1), 1);
+        _ = Impl.insert(u8, &queue, makeDeadline(2), 2);
+        const root = queue.heap[0];
+        const child = queue.heap[1];
+        const free = queue.free;
+
+        try testing.expect(Impl.isValid(&queue));
+        queue.count = 5;
+        try testing.expect(!Impl.isValid(&queue));
+        queue.count = 2;
+        queue.heap[0] = queue.slots.len;
+        try testing.expect(!Impl.isValid(&queue));
+        queue.heap[0] = root;
+        queue.slots[root].position = 1;
+        try testing.expect(!Impl.isValid(&queue));
+        queue.slots[root].position = 0;
+        queue.slots[root].occupied = false;
+        try testing.expect(!Impl.isValid(&queue));
+        queue.slots[root].occupied = true;
+        queue.slots[child].deadline = makeDeadline(0);
+        try testing.expect(!Impl.isValid(&queue));
+        queue.slots[child].deadline = makeDeadline(2);
+        const next = queue.slots[free].next;
+        queue.slots[free].next = free;
+        try testing.expect(!Impl.isValid(&queue));
+        queue.slots[free].next = queue.slots.len;
+        try testing.expect(!Impl.isValid(&queue));
+        queue.slots[free].next = next;
+        queue.free = root;
+        try testing.expect(!Impl.isValid(&queue));
+        queue.free = free;
+        queue.slots[root].generation = 0;
+        try testing.expect(!Impl.isValid(&queue));
+        queue.slots[root].generation = 1;
+        try testing.expect(Impl.isValid(&queue));
+    }
+
+    fn QueueModel(comptime Queue: type, comptime max_records: usize) type {
+        return struct {
+            records: [max_records]Record = undefined,
+            count: usize = 0,
+
+            const Self = @This();
+
+            const Record = struct {
+                handle: Queue.Handle,
+                deadline: Deadline,
+                item: u16,
+                live: bool,
+            };
+
+            fn liveCount(self: *const Self) usize {
+                var live: usize = 0;
+                var i: usize = 0;
+                while (i < self.count) : (i += 1) {
+                    if (self.records[i].live) {
+                        live += 1;
+                    }
+                }
+                return live;
+            }
+
+            fn add(self: *Self, handle: Queue.Handle, deadline_value: Deadline, item: u16) void {
+                std.debug.assert(self.count < self.records.len);
+                self.records[self.count] = .{
+                    .handle = handle,
+                    .deadline = deadline_value,
+                    .item = item,
+                    .live = true,
                 };
+                self.count += 1;
             }
 
-            for (heap) |*entry| {
-                entry.* = invalid_index;
+            fn findByHandle(self: *const Self, handle: Queue.Handle) ?usize {
+                var i: usize = 0;
+                while (i < self.count) : (i += 1) {
+                    if (self.records[i].live and self.records[i].handle == handle) {
+                        return i;
+                    }
+                }
+                return null;
             }
 
-            self.count = 0;
-            self.free_head = if (slots.len == 0) invalid_index else 0;
-        }
-
-        fn removeHeapPosition(self: *Self, pos: usize) Entry {
-            const slots = self.slotsSlice();
-            const heap = self.heapSlice();
-            std.debug.assert(pos < self.count);
-
-            const removed_index = heap[pos];
-            const removed_slot = &slots[removed_index];
-            const entry: Entry = .{
-                .deadline = removed_slot.deadline,
-                .item = removed_slot.item,
-            };
-
-            const last_pos = self.count - 1;
-            if (pos != last_pos) {
-                const moved_index = heap[last_pos];
-                heap[pos] = moved_index;
-                slots[moved_index].heap_pos = pos;
-            }
-            heap[last_pos] = invalid_index;
-            self.count -= 1;
-
-            removed_slot.heap_pos = invalid_index;
-
-            if (pos != last_pos) {
-                fixHeapAt(self, pos);
+            fn nthLiveHandle(self: *const Self, n: usize) Queue.Handle {
+                var seen: usize = 0;
+                var i: usize = 0;
+                while (i < self.count) : (i += 1) {
+                    if (!self.records[i].live) {
+                        continue;
+                    }
+                    if (seen == n) {
+                        return self.records[i].handle;
+                    }
+                    seen += 1;
+                }
+                unreachable;
             }
 
-            releaseSlot(self, removed_index);
-            return entry;
-        }
+            fn removeHandle(self: *Self, handle: Queue.Handle) ?Record {
+                if (self.findByHandle(handle)) |index| {
+                    self.records[index].live = false;
+                    return self.records[index];
+                }
+                return null;
+            }
 
-        fn releaseSlot(self: *Self, index: usize) void {
-            const slot = &self.slotsSlice()[index];
-            bumpGeneration(slot);
-            slot.deadline = Deadline.never;
-            slot.item = undefined;
-            slot.heap_pos = invalid_index;
-            slot.next_free = self.free_head;
-            slot.occupied = false;
-            self.free_head = index;
-        }
+            fn updateHandle(self: *Self, handle: Queue.Handle, deadline_value: Deadline) bool {
+                if (self.findByHandle(handle)) |index| {
+                    self.records[index].deadline = deadline_value;
+                    return true;
+                }
+                return false;
+            }
 
-        fn fixHeapAt(self: *Self, pos: usize) void {
-            if (pos > 0) {
-                const parent = @divFloor(pos - 1, 2);
-                if (lessHeap(self, pos, parent)) {
-                    siftUp(self, pos);
-                    return;
+            fn minKey(self: *const Self) ?u64 {
+                var best: ?u64 = null;
+                var i: usize = 0;
+                while (i < self.count) : (i += 1) {
+                    if (!self.records[i].live) {
+                        continue;
+                    }
+                    const key = deadlineKey(self.records[i].deadline);
+                    if (best == null or key < best.?) {
+                        best = key;
+                    }
+                }
+                return best;
+            }
+
+            fn clear(self: *Self) void {
+                var i: usize = 0;
+                while (i < self.count) : (i += 1) {
+                    self.records[i].live = false;
                 }
             }
-            siftDown(self, pos);
-        }
 
-        fn siftUp(self: *Self, start_pos: usize) void {
-            var pos = start_pos;
-            while (pos > 0) {
-                const parent = @divFloor(pos - 1, 2);
-                if (!lessHeap(self, pos, parent)) break;
-                swapHeap(self, pos, parent);
-                pos = parent;
-            }
-        }
-
-        fn siftDown(self: *Self, start_pos: usize) void {
-            var pos = start_pos;
-            while (true) {
-                const left = pos * 2 + 1;
-                if (left >= self.count) break;
-
-                const right = left + 1;
-                var best = left;
-                if (right < self.count and lessHeap(self, right, left)) {
-                    best = right;
+            fn appendLiveHandles(self: *const Self, stale: []Queue.Handle, stale_len: *usize) void {
+                var i: usize = 0;
+                while (i < self.count) : (i += 1) {
+                    if (!self.records[i].live) {
+                        continue;
+                    }
+                    std.debug.assert(stale_len.* < stale.len);
+                    stale[stale_len.*] = self.records[i].handle;
+                    stale_len.* += 1;
                 }
+            }
 
-                if (!lessHeap(self, best, pos)) break;
-                swapHeap(self, pos, best);
-                pos = best;
+            fn removeReturned(self: *Self, entry: Queue.Entry) bool {
+                var i: usize = 0;
+                while (i < self.count) : (i += 1) {
+                    if (!self.records[i].live) {
+                        continue;
+                    }
+                    if (self.records[i].deadline == entry.deadline and self.records[i].item == entry.item) {
+                        self.records[i].live = false;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            fn expectPeek(self: *const Self, queue: *const Queue) !void {
+                const peeked = queue.peekDeadline();
+                if (self.minKey()) |expected_key| {
+                    try testing.expect(peeked != null);
+                    try testing.expectEqual(expected_key, deadlineKey(peeked.?));
+                } else {
+                    try testing.expect(peeked == null);
+                }
+            }
+
+            fn expectLiveEntries(self: *const Self, queue: *const Queue) !void {
+                try testing.expectEqual(self.liveCount(), queue.len());
+                var i: usize = 0;
+                while (i < self.count) : (i += 1) {
+                    try testing.expectEqual(self.records[i].live, queue.contains(self.records[i].handle));
+                }
+            }
+        };
+    }
+
+    test "model: deterministic operations match reference and equal deadlines are unordered" {
+        const Queue = DeadlineQueue.Static(u16, 8);
+
+        var queue = Queue.init();
+        var model = QueueModel(Queue, 512){};
+        var stale: [512]Queue.Handle = undefined;
+        var stale_len: usize = 0;
+        var next_item: u16 = 1;
+
+        const deadline_values = [_]u64{ 10, 10, 20, 30, 30, 40, 60, std.math.maxInt(u64) };
+        const now_values = [_]u64{ 0, 9, 10, 20, 29, 30, 45, 59, 60 };
+
+        var prng = std.Random.DefaultPrng.init(0xD1EA_D11E_5EED);
+        const random = prng.random();
+
+        var step: usize = 0;
+        while (step < 300) : (step += 1) {
+            try testing.expect(queue.isValid());
+            try model.expectLiveEntries(&queue);
+            try model.expectPeek(&queue);
+
+            switch (random.uintLessThan(u8, 8)) {
+                0 => {
+                    const key = deadline_values[random.uintLessThan(usize, deadline_values.len)];
+                    const d = switch (key) {
+                        std.math.maxInt(u64) => Deadline.never,
+                        else => makeDeadline(key),
+                    };
+
+                    const item = next_item;
+                    next_item += 1;
+
+                    if (queue.isFull()) {
+                        const before_len = queue.len();
+                        const before_peek = queue.peekDeadline();
+                        try testing.expectError(error.Full, queue.insert(d, item));
+                        try testing.expectEqual(before_len, queue.len());
+                        try testing.expectEqual(before_peek, queue.peekDeadline());
+                    } else {
+                        const handle = try queue.insert(d, item);
+                        model.add(handle, d, item);
+                        try testing.expect(queue.contains(handle));
+                    }
+                },
+                1 => {
+                    const live_count = model.liveCount();
+                    if (live_count == 0) {
+                        continue;
+                    }
+
+                    const handle = model.nthLiveHandle(random.uintLessThan(usize, live_count));
+                    const expected = model.removeHandle(handle).?;
+                    const got = queue.remove(handle).?;
+
+                    try testing.expectEqual(expected.deadline, got.deadline);
+                    try testing.expectEqual(expected.item, got.item);
+
+                    stale[stale_len] = handle;
+                    stale_len += 1;
+
+                    try testing.expect(queue.remove(handle) == null);
+                },
+                2 => {
+                    const live_count = model.liveCount();
+                    if (live_count == 0) {
+                        continue;
+                    }
+
+                    const handle = model.nthLiveHandle(random.uintLessThan(usize, live_count));
+                    const key = deadline_values[random.uintLessThan(usize, deadline_values.len)];
+                    const d = switch (key) {
+                        std.math.maxInt(u64) => Deadline.never,
+                        else => makeDeadline(key),
+                    };
+
+                    try testing.expect(queue.updateDeadline(handle, d));
+                    try testing.expect(model.updateHandle(handle, d));
+                    try testing.expect(queue.contains(handle));
+                },
+                3 => {
+                    const now = makeInstant(now_values[random.uintLessThan(usize, now_values.len)]);
+                    const min_key = model.minKey();
+                    if (min_key != null and now.nanos() >= min_key.?) {
+                        const got = queue.popExpired(now).?;
+                        try testing.expectEqual(min_key.?, deadlineKey(got.deadline));
+                        try testing.expect(deadlineKey(got.deadline) <= now.nanos());
+                        try testing.expect(model.removeReturned(got));
+                    } else {
+                        const before_len = queue.len();
+                        const before_peek = queue.peekDeadline();
+                        try testing.expect(queue.popExpired(now) == null);
+                        try testing.expectEqual(before_len, queue.len());
+                        try testing.expectEqual(before_peek, queue.peekDeadline());
+                    }
+                },
+                4 => {
+                    if (model.minKey()) |min_key| {
+                        const got = queue.popNext().?;
+                        try testing.expectEqual(min_key, deadlineKey(got.deadline));
+                        try testing.expect(model.removeReturned(got));
+                    } else {
+                        try testing.expect(queue.popNext() == null);
+                    }
+                },
+                5 => {
+                    model.appendLiveHandles(&stale, &stale_len);
+                    queue.clearRetainingCapacity();
+                    model.clear();
+                    try testing.expect(queue.isEmpty());
+                    try testing.expectEqual(@as(usize, 8), queue.capacity());
+                },
+                6 => {
+                    if (stale_len == 0) {
+                        continue;
+                    }
+                    const handle = stale[random.uintLessThan(usize, stale_len)];
+                    const before_len = queue.len();
+                    const before_peek = queue.peekDeadline();
+                    try testing.expect(queue.remove(handle) == null);
+                    try testing.expect(!queue.updateDeadline(handle, makeDeadline(1)));
+                    try testing.expectEqual(before_len, queue.len());
+                    try testing.expectEqual(before_peek, queue.peekDeadline());
+                },
+                else => {
+                    const live_count = model.liveCount();
+                    if (live_count > 0) {
+                        const handle = model.nthLiveHandle(random.uintLessThan(usize, live_count));
+                        try testing.expect(queue.contains(handle));
+                    }
+                    if (stale_len > 0) {
+                        const handle = stale[random.uintLessThan(usize, stale_len)];
+                        try testing.expect(!queue.contains(handle));
+                    }
+                },
             }
         }
 
-        fn swapHeap(self: *Self, a: usize, b: usize) void {
-            if (a == b) return;
-
-            const slots = self.slotsSlice();
-            const heap = self.heapSlice();
-            const a_index = heap[a];
-            const b_index = heap[b];
-
-            heap[a] = b_index;
-            heap[b] = a_index;
-            slots[a_index].heap_pos = b;
-            slots[b_index].heap_pos = a;
-        }
-
-        fn lessHeap(self: *const Self, a: usize, b: usize) bool {
-            const slots = self.slotsConstSlice();
-            const heap = self.heapConstSlice();
-            return deadlineKey(slots[heap[a]].deadline) < deadlineKey(slots[heap[b]].deadline);
-        }
-
-        fn resolveHandle(self: *const Self, handle: Handle) ?usize {
-            const decoded = decodeHandle(handle) orelse return null;
-            const slots = self.slotsConstSlice();
-            if (decoded.index >= slots.len) return null;
-
-            const slot = slots[decoded.index];
-            if (!slot.occupied) return null;
-            if (slot.generation != decoded.generation) return null;
-            return decoded.index;
-        }
-
-        fn makeHandle(index: usize, generation: u64) Handle {
-            const index_u64: u64 = @intCast(index);
-            const raw = (@as(u128, generation) << 64) | @as(u128, index_u64);
-            return @enumFromInt(raw);
-        }
-
-        fn decodeHandle(handle: Handle) ?DecodedHandle {
-            const raw = @intFromEnum(handle);
-            const index_u64: u64 = @truncate(raw);
-            const index = std.math.cast(usize, index_u64) orelse return null;
-            const generation: u64 = @truncate(raw >> 64);
-            return .{
-                .index = index,
-                .generation = generation,
-            };
-        }
-    };
-}
-
-fn nextIndex(index: usize, len: usize) usize {
-    return if (index + 1 == len) invalid_index else index + 1;
-}
-
-fn deadlineKey(dl: Deadline) u64 {
-    return dl.instant().nanos();
-}
-
-fn bumpGeneration(slot: anytype) void {
-    slot.generation +%= 1;
-    if (slot.generation == 0) slot.generation = 1;
-}
+        try testing.expect(queue.isValid());
+        try model.expectLiveEntries(&queue);
+        try model.expectPeek(&queue);
+    }
+};
