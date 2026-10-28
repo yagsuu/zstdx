@@ -6,5 +6,6 @@ pub const qsbr = @import("qsbr.zig");
 pub const spsc = @import("spsc.zig");
 
 test {
+    _ = @import("mpsc/ring.zig").unit;
     _ = @import("spsc/ring.zig").unit;
 }

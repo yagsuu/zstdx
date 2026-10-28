@@ -1,4 +1,4 @@
-//! Bounded multi-producer/single-consumer ring. See `docs/specs/concurrent/mpsc/ring.md`.
+//! bounded multi-producer/single-consumer ring
 
 const std = @import("std");
 
@@ -7,247 +7,363 @@ const cache = @import("layout").cache;
 const AtomicUsize = std.atomic.Value(usize);
 const CachePad = cache.CachePad;
 
-/// Family of bounded multi-producer/single-consumer FIFO rings. Both
-/// variants share slot publication protocol, one-attempt producer
-/// reservation, and single-consumer dequeue. The ring owns data movement
-/// and publication only; wake, scheduler, and waiting policy belong to
-/// the caller (typically paired with `stdx.sync.Signal`).
 pub const Ring = struct {
-    /// Inline `[cap]Slot` storage. Capacity is a comptime
-    /// non-zero power of two; zero-sized `T` is rejected at compile time.
-    pub fn Static(comptime T: type, comptime cap: usize) type {
-        comptime requireRuntimeValue(T);
-        comptime requireStaticCapacity(cap);
+    pub fn Static(comptime T: type, comptime count: usize) type {
+        comptime Impl.requireItem(T);
+        comptime Impl.requireCapacity(count);
 
         return struct {
-            slots: [item_capacity]Slot = undefined,
+            slots: [bound]Slot = undefined,
             head: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
             tail: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
 
+            pub const bound = count;
+
             const Self = @This();
 
-            /// Per-slot storage. `sequence` carries the publication ticket:
-            /// `0` when empty and `reserved_tail + 1` after the producer
-            /// release-publishes `item`. The consumer reads `item` only
-            /// after observing `sequence == head + 1`.
-            pub const Slot = struct {
-                sequence: AtomicUsize = AtomicUsize.init(0),
-                item: T = undefined,
-            };
+            pub const Item = T;
+            pub const Slot = Impl.Slot(T);
+            pub const Error = Impl.Error;
 
-            /// `Full`: `tryPushBack` observed `tail - head >= capacity`;
-            /// ring is unchanged.
-            /// `Contended`: `tryPushBack` lost the tail reservation CAS to
-            /// another producer; ring is unchanged.
-            pub const Error = error{ Full, Contended };
-
-            pub const item_capacity = cap;
-
-            /// Resets head, tail, and every slot's publication ticket to
-            /// zero. Must be called before any concurrent use.
+            /// requires exclusive access
             pub fn init(self: *Self) void {
-                self.head.value.store(0, .monotonic);
-                self.tail.value.store(0, .monotonic);
-                for (&self.slots) |*slot| {
-                    slot.sequence.store(0, .monotonic);
-                }
+                Impl.initialize(self);
             }
 
             pub fn capacity(self: *const Self) usize {
                 _ = self;
-                return item_capacity;
+                return bound;
             }
 
-            /// Consumer snapshot: true when the front slot is not currently
-            /// published. May return true while a producer holds a reserved
-            /// but unpublished slot; producers must not use this to decide
-            /// whether to signal.
             pub fn isEmpty(self: *const Self) bool {
-                return isEmptyImpl(Slot, T, self.slots[0..], &self.head);
+                return Impl.isEmpty(self);
             }
 
-            /// One-attempt producer enqueue. On success, `item` is
-            /// release-published to the reserved slot. On `error.Full` or
-            /// `error.Contended` the ring is unchanged; retry, backoff, and
-            /// signaling policies belong to the caller.
-            pub fn tryPushBack(self: *Self, item: T) Error!void {
-                return tryPushBackImpl(Slot, T, self.slots[0..], &self.head, &self.tail, item);
+            pub fn tryPushBack(self: *Self, item: Item) Error!void {
+                return Impl.tryPushBack(self, item);
             }
 
-            /// Single-consumer dequeue. Returns the next published item in
-            /// FIFO order and release-frees the slot, or `null` when the
-            /// front slot is not currently published.
-            pub fn popFront(self: *Self) ?T {
-                return popFrontImpl(Slot, T, self.slots[0..], &self.head);
+            pub fn popFront(self: *Self) ?Item {
+                return Impl.popFront(self);
             }
 
-            /// Structural sanity check for exclusive or quiescent access.
-            /// Does not prove absence of concurrent races.
-            pub fn assertValid(self: *const Self) void {
-                std.debug.assert(item_capacity != 0 and std.math.isPowerOfTwo(item_capacity));
-                std.debug.assert(
-                    self.tail.value.load(.monotonic) -% self.head.value.load(.monotonic) <= item_capacity,
-                );
+            pub fn isValid(self: *const Self) bool {
+                return Impl.isValid(self);
             }
         };
     }
 
-    /// Borrowed `[]Slot` storage. Slice length must be a non-zero power of
-    /// two; zero-sized `T` is rejected at compile time. Caller owns slot
-    /// storage lifetime and address stability for the ring lifetime.
     pub fn Bounded(comptime T: type) type {
-        comptime requireRuntimeValue(T);
+        comptime Impl.requireItem(T);
 
         return struct {
             slots: []Slot,
             head: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
             tail: CachePad(AtomicUsize) = .{ .value = AtomicUsize.init(0) },
 
+            pub const Item = T;
+            pub const Slot = Impl.Slot(T);
+            pub const Error = Impl.Error;
+
             const Self = @This();
 
-            /// Per-slot storage. `sequence` carries the publication ticket:
-            /// `0` when empty and `reserved_tail + 1` after the producer
-            /// release-publishes `item`. The consumer reads `item` only
-            /// after observing `sequence == head + 1`.
-            pub const Slot = struct {
-                sequence: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-                item: T = undefined,
-            };
-
-            /// `Full`: `tryPushBack` observed `tail - head >= capacity`;
-            /// ring is unchanged.
-            /// `Contended`: `tryPushBack` lost the tail reservation CAS to
-            /// another producer; ring is unchanged.
-            pub const Error = error{ Full, Contended };
-
-            /// Borrows `slots` and resets head, tail, and every slot's
-            /// publication ticket to zero. Asserts non-zero power-of-two
-            /// slice length. Must be called before any concurrent use.
+            /// requires exclusive access; slots must remain valid and address-stable during ring use
             pub fn init(self: *Self, slots: []Slot) void {
-                std.debug.assert(slots.len != 0 and std.math.isPowerOfTwo(slots.len));
-
+                std.debug.assert(slots.len != 0);
+                std.debug.assert(std.math.isPowerOfTwo(slots.len));
                 self.slots = slots;
-                self.head.value.store(0, .monotonic);
-                self.tail.value.store(0, .monotonic);
-
-                for (self.slots) |*slot| {
-                    slot.sequence.store(0, .monotonic);
-                }
+                Impl.initialize(self);
             }
 
-            /// Runtime capacity in items, equal to `slots.len`.
             pub fn capacity(self: *const Self) usize {
                 return self.slots.len;
             }
 
-            /// Consumer snapshot: true when the front slot is not currently
-            /// published. May return true while a producer holds a reserved
-            /// but unpublished slot.
             pub fn isEmpty(self: *const Self) bool {
-                return isEmptyImpl(Slot, T, self.slots, &self.head);
+                return Impl.isEmpty(self);
             }
 
-            /// One-attempt producer enqueue. On success, `item` is
-            /// release-published. On `error.Full` or `error.Contended` the
-            /// ring is unchanged.
-            pub fn tryPushBack(self: *Self, item: T) Error!void {
-                return tryPushBackImpl(Slot, T, self.slots, &self.head, &self.tail, item);
+            pub fn tryPushBack(self: *Self, item: Item) Error!void {
+                return Impl.tryPushBack(self, item);
             }
 
-            /// Single-consumer dequeue. Returns the next published item in
-            /// FIFO order and release-frees the slot, or `null` when the
-            /// front slot is not currently published.
-            pub fn popFront(self: *Self) ?T {
-                return popFrontImpl(Slot, T, self.slots, &self.head);
+            pub fn popFront(self: *Self) ?Item {
+                return Impl.popFront(self);
             }
 
-            /// Structural sanity check for exclusive or quiescent access.
-            /// Does not prove absence of concurrent races.
-            pub fn assertValid(self: *const Self) void {
-                const item_capacity = self.slots.len;
-                std.debug.assert(item_capacity != 0 and std.math.isPowerOfTwo(item_capacity));
-                std.debug.assert(
-                    self.tail.value.load(.monotonic) -% self.head.value.load(.monotonic) <= item_capacity,
-                );
+            pub fn isValid(self: *const Self) bool {
+                return Impl.isValid(self);
             }
         };
     }
 };
 
-fn tryPushBackImpl(
-    comptime Slot: type,
-    comptime T: type,
-    slots: []Slot,
-    head: *const CachePad(std.atomic.Value(usize)),
-    tail: *CachePad(std.atomic.Value(usize)),
-    item: T,
-) error{ Full, Contended }!void {
-    std.debug.assert(slots.len != 0 and std.math.isPowerOfTwo(slots.len));
+const Impl = struct {
+    const Error = error{ Full, Contended };
 
-    const capacity = slots.len;
-    const mask = capacity - 1;
-    const observed_tail = tail.value.load(.monotonic);
-
-    // Ordering: the acquire load pairs with the consumer's release-store of head in popFrontImpl.
-    // This ensures the slot at observed_tail & mask is free for reuse before publication.
-    const observed_head = head.value.load(.acquire);
-
-    if (observed_tail -% observed_head >= capacity) return error.Full;
-    if (tail.value.cmpxchgStrong(observed_tail, observed_tail +% 1, .monotonic, .monotonic) != null) {
-        return error.Contended;
+    fn Slot(comptime T: type) type {
+        return struct {
+            sequence: AtomicUsize = AtomicUsize.init(0),
+            item: T = undefined,
+        };
     }
 
-    const slot = &slots[observed_tail & mask];
-    slot.item = item;
-
-    // Ordering: the release store publishes slot.item to the consumer's acquire-load of slot.sequence in popFrontImpl.
-    slot.sequence.store(observed_tail +% 1, .release);
-}
-
-fn popFrontImpl(
-    comptime Slot: type,
-    comptime T: type,
-    slots: []Slot,
-    head: *CachePad(std.atomic.Value(usize)),
-) ?T {
-    std.debug.assert(slots.len != 0 and std.math.isPowerOfTwo(slots.len));
-
-    const observed_head = head.value.load(.monotonic);
-    const slot = &slots[observed_head & (slots.len - 1)];
-
-    // Ordering: the acquire load pairs with the producer's release-store of slot.sequence in tryPushBackImpl.
-    // This ensures slot.item is visible before it is read.
-    if (slot.sequence.load(.acquire) != observed_head +% 1) return null;
-
-    const out = slot.item;
-
-    // Ordering: the release store publishes slot consumption to producers' acquire-load of head in tryPushBackImpl.
-    head.value.store(observed_head +% 1, .release);
-    return out;
-}
-
-fn isEmptyImpl(
-    comptime Slot: type,
-    comptime T: type,
-    slots: []const Slot,
-    head: *const CachePad(std.atomic.Value(usize)),
-) bool {
-    _ = T;
-    std.debug.assert(slots.len != 0 and std.math.isPowerOfTwo(slots.len));
-
-    const observed_head = head.value.load(.monotonic);
-    const slot = &slots[observed_head & (slots.len - 1)];
-
-    // Ordering: the acquire load pairs with the producer's release-store of slot.sequence in tryPushBackImpl.
-    return slot.sequence.load(.acquire) != observed_head +% 1;
-}
-
-fn requireRuntimeValue(comptime T: type) void {
-    if (@sizeOf(T) == 0) @compileError("MPSC ring element type must have nonzero size");
-}
-
-fn requireStaticCapacity(comptime capacity_items: usize) void {
-    if (capacity_items == 0 or !std.math.isPowerOfTwo(capacity_items)) {
-        @compileError("MPSC ring capacity must be non-zero and a power of two");
+    fn requireItem(comptime T: type) void {
+        if (@sizeOf(T) == 0) {
+            @compileError("MPSC ring element type must have nonzero size");
+        }
     }
-}
+
+    fn requireCapacity(comptime count: usize) void {
+        if (count == 0 or !std.math.isPowerOfTwo(count)) {
+            @compileError("MPSC ring capacity must be non-zero and a power of two");
+        }
+    }
+
+    fn initialize(ring: anytype) void {
+        ring.head.value.store(0, .monotonic);
+        ring.tail.value.store(0, .monotonic);
+
+        for (ring.slots[0..]) |*slot| {
+            slot.sequence.store(0, .monotonic);
+        }
+    }
+
+    fn tryPushBack(ring: anytype, item: @TypeOf(ring.*).Item) Error!void {
+        const capacity = ring.slots.len;
+        const observed_tail = ring.tail.value.load(.monotonic);
+        const observed_head = ring.head.value.load(.acquire);
+
+        if (observed_tail -% observed_head >= capacity) {
+            return error.Full;
+        }
+
+        if (ring.tail.value.cmpxchgStrong(observed_tail, observed_tail +% 1, .monotonic, .monotonic) != null) {
+            return error.Contended;
+        }
+
+        const slot = &ring.slots[observed_tail & (capacity - 1)];
+        slot.item = item;
+        slot.sequence.store(observed_tail +% 1, .release);
+    }
+
+    fn popFront(ring: anytype) ?@TypeOf(ring.*).Item {
+        const observed_head = ring.head.value.load(.monotonic);
+        const slot = &ring.slots[observed_head & (ring.slots.len - 1)];
+
+        if (slot.sequence.load(.acquire) != observed_head +% 1) {
+            return null;
+        }
+
+        const item = slot.item;
+        ring.head.value.store(observed_head +% 1, .release);
+        return item;
+    }
+
+    fn isEmpty(ring: anytype) bool {
+        const observed_head = ring.head.value.load(.monotonic);
+        const slot = &ring.slots[observed_head & (ring.slots.len - 1)];
+        return slot.sequence.load(.acquire) != observed_head +% 1;
+    }
+
+    fn isValid(ring: anytype) bool {
+        const capacity = ring.slots.len;
+        if (capacity == 0) {
+            return false;
+        }
+
+        if (!std.math.isPowerOfTwo(capacity)) {
+            return false;
+        }
+
+        const head = ring.head.value.load(.monotonic);
+        const tail = ring.tail.value.load(.monotonic);
+        return tail -% head <= capacity;
+    }
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "core FIFO preserves full state and reuses released slots" {
+        var ring: Ring.Static(u8, 2) = undefined;
+        ring.init();
+
+        const empty = Impl.popFront(&ring);
+
+        try testing.expectEqual(@as(?u8, null), empty);
+        try testing.expect(Impl.isEmpty(&ring));
+        try testing.expectEqual(@as(usize, 2), ring.capacity());
+
+        try Impl.tryPushBack(&ring, 10);
+        try Impl.tryPushBack(&ring, 20);
+        const head = ring.head.value.load(.monotonic);
+        const tail = ring.tail.value.load(.monotonic);
+        const full = Impl.tryPushBack(&ring, 30);
+        const full_again = Impl.tryPushBack(&ring, 40);
+
+        try testing.expectError(error.Full, full);
+        try testing.expectError(error.Full, full_again);
+        try testing.expectEqual(head, ring.head.value.load(.monotonic));
+        try testing.expectEqual(tail, ring.tail.value.load(.monotonic));
+        try testing.expectEqual(@as(u8, 10), ring.slots[0].item);
+        try testing.expectEqual(@as(u8, 20), ring.slots[1].item);
+        try testing.expectEqual(@as(usize, 1), ring.slots[0].sequence.load(.monotonic));
+        try testing.expectEqual(@as(usize, 2), ring.slots[1].sequence.load(.monotonic));
+        try testing.expect(!Impl.isEmpty(&ring));
+        try testing.expect(Impl.isValid(&ring));
+
+        const first = Impl.popFront(&ring);
+        try Impl.tryPushBack(&ring, 30);
+        const second = Impl.popFront(&ring);
+        const third = Impl.popFront(&ring);
+        const drained = Impl.popFront(&ring);
+
+        try testing.expectEqual(@as(?u8, 10), first);
+        try testing.expectEqual(@as(?u8, 20), second);
+        try testing.expectEqual(@as(?u8, 30), third);
+        try testing.expectEqual(@as(?u8, null), drained);
+        try testing.expect(Impl.isEmpty(&ring));
+        try testing.expect(Impl.isValid(&ring));
+    }
+
+    test "core counters and publication tickets wrap through zero" {
+        inline for (.{ 1, 4 }) |count| {
+            var ring: Ring.Static(u32, count) = undefined;
+            ring.init();
+
+            const start: usize = std.math.maxInt(usize) - 1;
+            ring.head.value.store(start, .monotonic);
+            ring.tail.value.store(start, .monotonic);
+
+            for (0..count) |i| {
+                const ticket = start +% i;
+                ring.slots[ticket & (count - 1)].sequence.store(ticket -% count +% 1, .monotonic);
+            }
+
+            for (0..8) |cycle| {
+                const before = Impl.popFront(&ring);
+
+                try testing.expectEqual(@as(?u32, null), before);
+                try testing.expect(Impl.isEmpty(&ring));
+
+                for (0..count) |i| {
+                    try Impl.tryPushBack(&ring, @intCast(cycle * count + i));
+                }
+
+                const full = Impl.tryPushBack(&ring, 999);
+
+                try testing.expectError(error.Full, full);
+                try testing.expect(Impl.isValid(&ring));
+
+                for (0..count) |i| {
+                    const item = Impl.popFront(&ring);
+
+                    try testing.expectEqual(@as(?u32, @intCast(cycle * count + i)), item);
+                }
+
+                const empty = Impl.popFront(&ring);
+
+                try testing.expectEqual(@as(?u32, null), empty);
+                try testing.expect(Impl.isEmpty(&ring));
+                try testing.expect(Impl.isValid(&ring));
+            }
+
+            try testing.expectEqual(start +% (8 * count), ring.head.value.load(.monotonic));
+            try testing.expectEqual(start +% (8 * count), ring.tail.value.load(.monotonic));
+        }
+    }
+
+    test "core does not bypass a reserved unpublished front" {
+        var ring: Ring.Static(u8, 2) = undefined;
+        ring.init();
+        ring.tail.value.store(1, .monotonic);
+
+        try Impl.tryPushBack(&ring, 20);
+        const unpublished = Impl.popFront(&ring);
+        const full = Impl.tryPushBack(&ring, 30);
+
+        try testing.expectEqual(@as(?u8, null), unpublished);
+        try testing.expect(Impl.isEmpty(&ring));
+        try testing.expectEqual(@as(usize, 0), ring.head.value.load(.monotonic));
+        try testing.expectError(error.Full, full);
+        try testing.expect(Impl.isValid(&ring));
+
+        ring.slots[0].item = 10;
+        ring.slots[0].sequence.store(1, .release);
+        const published = !Impl.isEmpty(&ring);
+        const first = Impl.popFront(&ring);
+        const second = Impl.popFront(&ring);
+        const drained = Impl.popFront(&ring);
+
+        try testing.expect(published);
+        try testing.expectEqual(@as(?u8, 10), first);
+        try testing.expectEqual(@as(?u8, 20), second);
+        try testing.expectEqual(@as(?u8, null), drained);
+        try testing.expect(Impl.isEmpty(&ring));
+    }
+
+    test "borrowed storage preserves pointer payload aliases and resets publication" {
+        const Bounded = Ring.Bounded(*u32);
+        var slots: [2]Bounded.Slot = undefined;
+        var ring: Bounded = undefined;
+        ring.init(&slots);
+        var payload: u32 = 7;
+
+        try ring.tryPushBack(&payload);
+        payload = 11;
+        const item = ring.popFront().?;
+        item.* = 13;
+
+        try testing.expectEqual(&slots[0], &ring.slots[0]);
+        try testing.expectEqual(&payload, slots[0].item);
+        try testing.expectEqual(&payload, item);
+        try testing.expectEqual(@as(u32, 13), payload);
+        try testing.expectEqual(@as(usize, 2), ring.capacity());
+        try testing.expect(ring.isEmpty());
+        try testing.expect(ring.isValid());
+
+        try ring.tryPushBack(&payload);
+        try ring.tryPushBack(&payload);
+        ring.init(&slots);
+        const empty = ring.popFront();
+
+        try testing.expectEqual(@as(?*u32, null), empty);
+        try testing.expect(ring.isEmpty());
+        try testing.expect(ring.isValid());
+
+        try ring.tryPushBack(&payload);
+        const reused = ring.popFront();
+
+        try testing.expectEqual(@as(?*u32, &payload), reused);
+        try testing.expect(ring.isEmpty());
+    }
+
+    test "core validity rejects invalid storage shape and occupancy" {
+        const Bounded = Ring.Bounded(u8);
+        var slots: [4]Bounded.Slot = undefined;
+        var ring: Bounded = undefined;
+        ring.init(&slots);
+
+        inline for (.{ 0, 3 }) |count| {
+            ring.slots = slots[0..count];
+
+            try testing.expect(!Impl.isValid(&ring));
+        }
+
+        ring.slots = &slots;
+        ring.head.value.store(std.math.maxInt(usize), .monotonic);
+        ring.tail.value.store(3, .monotonic);
+
+        try testing.expect(Impl.isValid(&ring));
+
+        ring.tail.value.store(4, .monotonic);
+
+        try testing.expect(!Impl.isValid(&ring));
+
+        ring.head.value.store(1, .monotonic);
+        ring.tail.value.store(0, .monotonic);
+
+        try testing.expect(!Impl.isValid(&ring));
+    }
+};

@@ -1,5 +1,4 @@
-//! MPSC ring contract tests. See `docs/specs/concurrent/mpsc/ring.md`.
-
+const builtin = @import("builtin");
 const std = @import("std");
 
 const stdx = @import("stdx");
@@ -7,69 +6,11 @@ const stdx = @import("stdx");
 const mpsc = stdx.concurrent.mpsc;
 const testing = std.testing;
 
-test "unit: mpsc.Ring.Static initializes in place, enforces capacity, and drains FIFO" {
-    const Ring = mpsc.Ring.Static(u8, 2);
-
-    var ring: Ring = undefined;
-    ring.init();
-
-    try testing.expectEqual(@as(usize, 2), ring.capacity());
-    try testing.expect(ring.isEmpty());
-
-    try ring.tryPushBack(1);
-    try ring.tryPushBack(2);
-    try testing.expectError(error.Full, ring.tryPushBack(3));
-
-    try testing.expectEqual(@as(?u8, 1), ring.popFront());
-    try testing.expectEqual(@as(?u8, 2), ring.popFront());
-    try testing.expectEqual(@as(?u8, null), ring.popFront());
-    try testing.expect(ring.isEmpty());
-}
-
-test "unit: mpsc.Ring.Static preserves FIFO across wraparound" {
-    const Ring = mpsc.Ring.Static(u8, 2);
-
-    var ring: Ring = undefined;
-    ring.init();
-
-    try ring.tryPushBack(1);
-    try testing.expectEqual(@as(?u8, 1), ring.popFront());
-    try ring.tryPushBack(2);
-    try ring.tryPushBack(3);
-
-    try testing.expectEqual(@as(?u8, 2), ring.popFront());
-    try testing.expectEqual(@as(?u8, 3), ring.popFront());
-    try testing.expectEqual(@as(?u8, null), ring.popFront());
-}
-
-test "unit: mpsc.Ring.Bounded enforces capacity and preserves FIFO across wraparound" {
-    const Ring = mpsc.Ring.Bounded(u8);
-
-    var slots: [2]Ring.Slot = undefined;
-    var ring: Ring = undefined;
-    ring.init(slots[0..]);
-
-    try testing.expectEqual(@as(usize, 2), ring.capacity());
-    try testing.expect(ring.isEmpty());
-
-    try ring.tryPushBack(1);
-    try ring.tryPushBack(2);
-    try testing.expectError(error.Full, ring.tryPushBack(3));
-
-    try testing.expectEqual(@as(?u8, 1), ring.popFront());
-    try ring.tryPushBack(3);
-
-    try testing.expectEqual(@as(?u8, 2), ring.popFront());
-    try testing.expectEqual(@as(?u8, 3), ring.popFront());
-    try testing.expectEqual(@as(?u8, null), ring.popFront());
-    try testing.expect(ring.isEmpty());
-}
-
-const Stress = struct {
+const Integration = struct {
     const producer_count = 4;
     const items_per_producer = 256;
     const capacity = 64;
-    const produced_total = producer_count * items_per_producer;
+    const item_count = producer_count * items_per_producer;
 
     const Item = struct {
         producer: u8,
@@ -81,9 +22,7 @@ const Stress = struct {
     const ProducerContext = struct {
         ring: *Ring,
         producer: u8,
-        pushed_count: *std.atomic.Value(usize),
-        full_count: *std.atomic.Value(usize),
-        contended_count: *std.atomic.Value(usize),
+        stop: *std.atomic.Value(bool),
     };
 
     fn producerMain(context: *ProducerContext) void {
@@ -95,20 +34,15 @@ const Stress = struct {
             };
 
             while (true) {
+                if (context.stop.load(.monotonic)) {
+                    return;
+                }
                 context.ring.tryPushBack(item) catch |err| switch (err) {
-                    error.Full => {
-                        _ = context.full_count.fetchAdd(1, .monotonic);
-                        std.Thread.yield() catch {};
-                        continue;
-                    },
-                    error.Contended => {
-                        _ = context.contended_count.fetchAdd(1, .monotonic);
+                    error.Full, error.Contended => {
                         std.Thread.yield() catch {};
                         continue;
                     },
                 };
-
-                _ = context.pushed_count.fetchAdd(1, .release);
                 break;
             }
         }
@@ -116,49 +50,62 @@ const Stress = struct {
 };
 
 test "threaded: mpsc.Ring.Static delivers all producer items exactly once in per-producer order" {
-    var ring: Stress.Ring = undefined;
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    var ring: Integration.Ring = undefined;
     ring.init();
 
-    var pushed_count = std.atomic.Value(usize).init(0);
-    var full_count = std.atomic.Value(usize).init(0);
-    var contended_count = std.atomic.Value(usize).init(0);
-
-    var contexts: [Stress.producer_count]Stress.ProducerContext = undefined;
-    var threads: [Stress.producer_count]std.Thread = undefined;
+    var stop = std.atomic.Value(bool).init(false);
+    var contexts: [Integration.producer_count]Integration.ProducerContext = undefined;
+    var threads: [Integration.producer_count]std.Thread = undefined;
+    var spawned: usize = 0;
+    defer {
+        stop.store(true, .monotonic);
+        for (threads[0..spawned]) |thread| {
+            thread.join();
+        }
+    }
 
     for (&contexts, 0..) |*context, producer_index| {
         context.* = .{
             .ring = &ring,
             .producer = @intCast(producer_index),
-            .pushed_count = &pushed_count,
-            .full_count = &full_count,
-            .contended_count = &contended_count,
+            .stop = &stop,
         };
-        threads[producer_index] = try std.Thread.spawn(.{}, Stress.producerMain, .{context});
+        threads[producer_index] = try std.Thread.spawn(.{}, Integration.producerMain, .{context});
+        spawned += 1;
     }
 
-    var expected: [Stress.producer_count]u16 = [_]u16{0} ** Stress.producer_count;
-    var popped_count: usize = 0;
-    while (popped_count < Stress.produced_total) {
+    var expected: [Integration.producer_count]u16 = [_]u16{0} ** Integration.producer_count;
+    var popped: usize = 0;
+    while (popped < Integration.item_count) {
         if (ring.popFront()) |item| {
-            try testing.expect(item.producer < Stress.producer_count);
+            try testing.expect(item.producer < Integration.producer_count);
             const producer_index: usize = @intCast(item.producer);
+            try testing.expect(expected[producer_index] < Integration.items_per_producer);
             try testing.expectEqual(expected[producer_index], item.seq);
+
             expected[producer_index] += 1;
-            popped_count += 1;
+            popped += 1;
         } else {
             std.Thread.yield() catch {};
         }
     }
 
-    for (threads) |thread| {
+    for (threads[0..spawned]) |thread| {
         thread.join();
     }
+    spawned = 0;
 
-    try testing.expectEqual(@as(usize, Stress.produced_total), popped_count);
-    try testing.expectEqual(@as(usize, Stress.produced_total), pushed_count.load(.acquire));
     for (expected) |seq| {
-        try testing.expectEqual(@as(u16, Stress.items_per_producer), seq);
+        try testing.expectEqual(@as(u16, Integration.items_per_producer), seq);
     }
-    try testing.expectEqual(@as(?Stress.Item, null), ring.popFront());
+
+    const remaining = ring.popFront();
+
+    try testing.expectEqual(@as(?Integration.Item, null), remaining);
+    try testing.expect(ring.isEmpty());
+    try testing.expect(ring.isValid());
 }
