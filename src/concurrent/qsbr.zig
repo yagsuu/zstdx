@@ -1,20 +1,12 @@
-//! Bounded quiescent-state-based reclamation substrate.
-//! See `docs/specs/concurrent/qsbr.md`.
+//! bounded quiescent-state-based reclamation
 
 const std = @import("std");
 
 const cache = @import("layout").cache;
 
-const CachePad = cache.CachePad;
+const AtomicWord = std.atomic.Value(u64);
+const PaddedAtomic = cache.CachePad(AtomicWord);
 
-const Word = u64;
-const AtomicWord = std.atomic.Value(Word);
-const PaddedWord = CachePad(AtomicWord);
-const SlotStorage = CachePad(AtomicWord);
-
-const max_participants = @as(usize, std.math.maxInt(u32)) + 1;
-
-/// Grace-period target generation token.
 pub const GracePeriod = enum(u64) {
     _,
 
@@ -23,7 +15,6 @@ pub const GracePeriod = enum(u64) {
     }
 };
 
-/// Participant slot token. The token carries only the numeric slot index.
 pub const Participant = enum(u32) {
     _,
 
@@ -32,259 +23,394 @@ pub const Participant = enum(u32) {
     }
 };
 
-/// Fixed-capacity QSBR domain family. QSBR observes lifetime progress only;
-/// retired-object storage, freeing, and payload synchronization belong to the caller.
 pub const Domain = struct {
-    /// Inline participant-slot storage. Capacity is fixed at comptime.
-    pub fn Static(comptime capacity_participants: usize) type {
-        comptime requireStaticCapacity(capacity_participants);
+    pub fn Static(comptime count: usize) type {
+        comptime Impl.requireCapacity(count);
 
         return struct {
-            global_generation: PaddedWord,
-            slots: [participant_capacity]Slot,
+            current: PaddedAtomic,
+            slots: [bound]Slot,
+
+            pub const bound = count;
+
+            pub const Slot = cache.CachePad(std.atomic.Value(Impl.Word));
 
             const Self = @This();
 
-            /// Padded atomic participant-slot word.
-            pub const Slot = SlotStorage;
-
-            pub const participant_capacity = capacity_participants;
-
-            /// Returns a domain at generation zero with every participant offline.
             pub fn init() Self {
-                var self: Self = .{
-                    .global_generation = initWord(0),
-                    .slots = undefined,
-                };
-                initSlots(self.slots[0..]);
+                var self: Self = undefined;
+                Impl.initialize(&self);
                 return self;
             }
 
             pub fn capacity(self: *const Self) usize {
                 _ = self;
-                return participant_capacity;
+                return bound;
             }
 
-            /// Acquire-loads and returns the current global generation.
             pub fn generation(self: *const Self) u64 {
-                return generationImpl(&self.global_generation);
+                return self.current.value.load(.acquire);
             }
 
-            /// Returns a token for `index`; the token does not reserve or claim the slot.
             pub fn participant(self: *const Self, index: usize) Participant {
-                return participantImpl(index, self.capacity());
+                std.debug.assert(index < self.capacity());
+                return @enumFromInt(@as(u32, @intCast(index)));
             }
 
-            /// Reports the current generation; earlier grace periods do not wait on a late-online slot.
-            pub fn online(self: *Self, participant_token: Participant) void {
-                onlineImpl(&self.global_generation, self.slots[0..], participant_token);
+            pub fn online(self: *Self, token: Participant) void {
+                Impl.online(self, token);
             }
 
-            /// Release-publishes offline state; offline slots never block grace periods.
-            pub fn offline(self: *Self, participant_token: Participant) void {
-                offlineImpl(self.slots[0..], participant_token);
+            pub fn offline(self: *Self, token: Participant) void {
+                Impl.offline(self, token);
             }
 
-            /// Release-publishes quiescence at the current generation.
-            pub fn quiescent(self: *Self, participant_token: Participant) void {
-                quiescentImpl(&self.global_generation, self.slots[0..], participant_token);
+            pub fn quiescent(self: *Self, token: Participant) void {
+                Impl.quiescent(self, token);
             }
 
-            /// Creates a lifetime barrier for objects retired before the call.
+            /// begins a lifetime barrier for objects retired before this call; generation must not be exhausted
             pub fn beginGracePeriod(self: *Self) GracePeriod {
-                return beginGracePeriodImpl(&self.global_generation);
+                return Impl.beginGracePeriod(self);
             }
 
-            /// Returns whether every blocking participant has reached `grace_period`.
-            pub fn isComplete(self: *const Self, grace_period: GracePeriod) bool {
-                return isCompleteImpl(self.slots[0..], grace_period);
+            pub fn isComplete(self: *const Self, period: GracePeriod) bool {
+                return Impl.isComplete(self, period);
             }
         };
     }
 
-    /// Borrowed participant-slot storage. Caller owns slice lifetime and address stability.
     pub const Bounded = struct {
-        global_generation: PaddedWord,
+        current: PaddedAtomic,
         slots: []Slot,
+
+        pub const Slot = cache.CachePad(std.atomic.Value(Impl.Word));
 
         const Self = @This();
 
-        /// Padded atomic participant-slot word.
-        pub const Slot = SlotStorage;
-
-        /// Borrows `slots`, resets generation to zero, and marks every participant offline.
+        /// slots must remain valid and address-stable during domain use
         pub fn wrap(slots: []Slot) Self {
-            assertRuntimeCapacity(slots.len);
-            initSlots(slots);
-            return .{
-                .global_generation = initWord(0),
-                .slots = slots,
-            };
+            std.debug.assert(slots.len > 0);
+            std.debug.assert(slots.len - 1 <= std.math.maxInt(u32));
+
+            var self: Self = .{ .current = undefined, .slots = slots };
+            Impl.initialize(&self);
+
+            return self;
         }
 
         pub fn capacity(self: *const Self) usize {
             return self.slots.len;
         }
 
-        /// Acquire-loads and returns the current global generation.
         pub fn generation(self: *const Self) u64 {
-            return generationImpl(&self.global_generation);
+            return self.current.value.load(.acquire);
         }
 
-        /// Returns a token for `index`; the token does not reserve or claim the slot.
         pub fn participant(self: *const Self, index: usize) Participant {
-            return participantImpl(index, self.capacity());
+            std.debug.assert(index < self.capacity());
+            return @enumFromInt(@as(u32, @intCast(index)));
         }
 
-        /// Reports the current generation; earlier grace periods do not wait on a late-online slot.
-        pub fn online(self: *Self, participant_token: Participant) void {
-            onlineImpl(&self.global_generation, self.slots, participant_token);
+        pub fn online(self: *Self, token: Participant) void {
+            Impl.online(self, token);
         }
 
-        /// Release-publishes offline state; offline slots never block grace periods.
-        pub fn offline(self: *Self, participant_token: Participant) void {
-            offlineImpl(self.slots, participant_token);
+        pub fn offline(self: *Self, token: Participant) void {
+            Impl.offline(self, token);
         }
 
-        /// Release-publishes quiescence at the current generation.
-        pub fn quiescent(self: *Self, participant_token: Participant) void {
-            quiescentImpl(&self.global_generation, self.slots, participant_token);
+        pub fn quiescent(self: *Self, token: Participant) void {
+            Impl.quiescent(self, token);
         }
 
-        /// Creates a lifetime barrier for objects retired before the call.
         pub fn beginGracePeriod(self: *Self) GracePeriod {
-            return beginGracePeriodImpl(&self.global_generation);
+            return Impl.beginGracePeriod(self);
         }
 
-        /// Returns whether every blocking participant has reached `grace_period`.
-        pub fn isComplete(self: *const Self, grace_period: GracePeriod) bool {
-            return isCompleteImpl(self.slots, grace_period);
+        pub fn isComplete(self: *const Self, period: GracePeriod) bool {
+            return Impl.isComplete(self, period);
         }
     };
 };
 
-const SlotWord = enum(Word) {
-    _,
+const Impl = struct {
+    const Word = packed struct(u64) {
+        generation: u63,
+        offline: bool,
 
-    const offline_bit: Word = @as(Word, 1) << 63;
-    const generation_mask: Word = offline_bit - 1;
+        const inactive: Word = .{ .generation = 0, .offline = true };
+    };
 
-    fn offline() SlotWord {
-        return @enumFromInt(offline_bit);
+    fn requireCapacity(comptime count: usize) void {
+        if (count == 0) {
+            @compileError("QSBR Static capacity must be non-zero");
+        }
+        if (count - 1 > std.math.maxInt(u32)) {
+            @compileError("QSBR Static capacity exceeds Participant index range");
+        }
     }
 
-    fn online(reported_generation: Word) SlotWord {
-        std.debug.assert(reported_generation <= generation_mask);
-        return @enumFromInt(reported_generation);
+    fn initialize(domain: anytype) void {
+        domain.current = .{ .value = AtomicWord.init(0) };
+        for (domain.slots[0..]) |*slot| {
+            slot.* = .{ .value = .init(Word.inactive) };
+        }
     }
 
-    fn fromRaw(encoded: Word) SlotWord {
-        return @enumFromInt(encoded);
+    fn online(domain: anytype, token: Participant) void {
+        const index: usize = token.index();
+        std.debug.assert(index < domain.slots.len);
+
+        const current = domain.current.value.load(.acquire);
+        domain.slots[index].value.store(.{
+            .generation = @intCast(current),
+            .offline = false,
+        }, .release);
     }
 
-    fn raw(self: SlotWord) Word {
-        return @intFromEnum(self);
+    fn offline(domain: anytype, token: Participant) void {
+        const index: usize = token.index();
+        std.debug.assert(index < domain.slots.len);
+        domain.slots[index].value.store(Word.inactive, .release);
     }
 
-    fn isOffline(self: SlotWord) bool {
-        return self.raw() & offline_bit != 0;
+    fn quiescent(domain: anytype, token: Participant) void {
+        const index: usize = token.index();
+        std.debug.assert(index < domain.slots.len);
+
+        const word = domain.slots[index].value.load(.monotonic);
+        std.debug.assert(!word.offline);
+
+        const current = domain.current.value.load(.acquire);
+        domain.slots[index].value.store(.{
+            .generation = @intCast(current),
+            .offline = false,
+        }, .release);
     }
 
-    fn generation(self: SlotWord) Word {
-        return self.raw() & generation_mask;
+    fn beginGracePeriod(domain: anytype) GracePeriod {
+        var current = domain.current.value.load(.acquire);
+        while (true) {
+            std.debug.assert(current < std.math.maxInt(u63));
+
+            const next = current + 1;
+            if (domain.current.value.cmpxchgWeak(current, next, .acq_rel, .acquire)) |observed| {
+                current = observed;
+                continue;
+            }
+
+            return @enumFromInt(next);
+        }
+    }
+
+    fn isComplete(domain: anytype, period: GracePeriod) bool {
+        const target = period.generation();
+        for (domain.slots[0..]) |*slot| {
+            const word = slot.value.load(.acquire);
+            if (word.offline) {
+                continue;
+            }
+
+            if (word.generation < target) {
+                return false;
+            }
+        }
+        return true;
     }
 };
 
-fn requireStaticCapacity(comptime capacity_participants: usize) void {
-    if (capacity_participants == 0) {
-        @compileError("QSBR Static capacity must be non-zero");
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "multiple blockers require separate quiescent or offline reports" {
+        var domain = Domain.Static(3).init();
+        const first = domain.participant(0);
+        const second = domain.participant(1);
+
+        const empty = Impl.beginGracePeriod(&domain);
+
+        try testing.expect(Impl.isComplete(&domain, empty));
+        try testing.expectEqual(@as(usize, 3), domain.capacity());
+
+        Impl.online(&domain, first);
+        Impl.online(&domain, second);
+        const period = Impl.beginGracePeriod(&domain);
+
+        try testing.expect(!Impl.isComplete(&domain, period));
+
+        Impl.quiescent(&domain, first);
+
+        try testing.expect(!Impl.isComplete(&domain, period));
+
+        Impl.offline(&domain, second);
+        Impl.offline(&domain, second);
+
+        try testing.expect(Impl.isComplete(&domain, period));
+
+        Impl.offline(&domain, first);
+        const future = Impl.beginGracePeriod(&domain);
+
+        try testing.expect(Impl.isComplete(&domain, future));
     }
 
-    if (capacity_participants > max_participants) {
-        @compileError("QSBR Static capacity exceeds Participant index range");
+    test "late and repeated online reports do not nest" {
+        var domain = Domain.Static(1).init();
+        const token = domain.participant(0);
+
+        const earlier = Impl.beginGracePeriod(&domain);
+        Impl.online(&domain, token);
+
+        try testing.expect(Impl.isComplete(&domain, earlier));
+
+        const first = Impl.beginGracePeriod(&domain);
+
+        try testing.expect(!Impl.isComplete(&domain, first));
+
+        Impl.online(&domain, token);
+
+        try testing.expect(Impl.isComplete(&domain, first));
+
+        const second = Impl.beginGracePeriod(&domain);
+
+        try testing.expect(!Impl.isComplete(&domain, second));
+
+        Impl.online(&domain, token);
+        Impl.offline(&domain, token);
+        const future = Impl.beginGracePeriod(&domain);
+
+        try testing.expect(Impl.isComplete(&domain, second));
+        try testing.expect(Impl.isComplete(&domain, future));
     }
-}
 
-fn assertRuntimeCapacity(capacity_participants: usize) void {
-    std.debug.assert(capacity_participants != 0);
-    std.debug.assert(capacity_participants <= max_participants);
-}
+    test "overlapping periods distinguish reports before and after begin" {
+        {
+            var domain = Domain.Static(1).init();
+            const token = domain.participant(0);
 
-fn initWord(value: Word) PaddedWord {
-    return .{ .value = AtomicWord.init(value) };
-}
+            Impl.online(&domain, token);
+            Impl.quiescent(&domain, token);
+            const first = Impl.beginGracePeriod(&domain);
 
-fn initSlot(value: Word) SlotStorage {
-    return .{ .value = AtomicWord.init(value) };
-}
+            try testing.expect(!Impl.isComplete(&domain, first));
 
-fn initSlots(slots: []SlotStorage) void {
-    for (slots) |*slot| {
-        slot.* = initSlot(SlotWord.offline().raw());
-    }
-}
+            Impl.quiescent(&domain, token);
+            const second = Impl.beginGracePeriod(&domain);
 
-fn participantImpl(index: usize, capacity_participants: usize) Participant {
-    std.debug.assert(index < capacity_participants);
-    std.debug.assert(index <= std.math.maxInt(u32));
-    return @enumFromInt(@as(u32, @intCast(index)));
-}
+            try testing.expect(Impl.isComplete(&domain, first));
+            try testing.expect(!Impl.isComplete(&domain, second));
 
-fn slotIndex(participant_token: Participant, slot_count: usize) usize {
-    const index: usize = participant_token.index();
-    std.debug.assert(index < slot_count);
-    return index;
-}
+            Impl.quiescent(&domain, token);
 
-fn generationImpl(global_generation: *const PaddedWord) u64 {
-    return global_generation.value.load(.acquire);
-}
-
-fn onlineImpl(global_generation: *const PaddedWord, slots: []SlotStorage, participant_token: Participant) void {
-    const index = slotIndex(participant_token, slots.len);
-    const generation = global_generation.value.load(.acquire);
-    slots[index].value.store(SlotWord.online(generation).raw(), .release);
-}
-
-fn offlineImpl(slots: []SlotStorage, participant_token: Participant) void {
-    const index = slotIndex(participant_token, slots.len);
-    slots[index].value.store(SlotWord.offline().raw(), .release);
-}
-
-fn quiescentImpl(global_generation: *const PaddedWord, slots: []SlotStorage, participant_token: Participant) void {
-    const index = slotIndex(participant_token, slots.len);
-    const word = SlotWord.fromRaw(slots[index].value.load(.monotonic));
-    std.debug.assert(!word.isOffline());
-    const generation = global_generation.value.load(.acquire);
-    slots[index].value.store(SlotWord.online(generation).raw(), .release);
-}
-
-fn beginGracePeriodImpl(global_generation: *PaddedWord) GracePeriod {
-    var current = global_generation.value.load(.acquire);
-    while (true) {
-        std.debug.assert(current < SlotWord.generation_mask);
-
-        const next = current + 1;
-        if (global_generation.value.cmpxchgWeak(current, next, .acq_rel, .acquire)) |observed| {
-            current = observed;
-            continue;
+            try testing.expect(Impl.isComplete(&domain, first));
+            try testing.expect(Impl.isComplete(&domain, second));
         }
 
-        return @enumFromInt(next);
-    }
-}
+        {
+            var domain = Domain.Static(1).init();
+            const token = domain.participant(0);
 
-fn isCompleteImpl(slots: []const SlotStorage, grace_period: GracePeriod) bool {
-    const target = grace_period.generation();
-    for (slots) |*slot| {
-        const word = SlotWord.fromRaw(slot.value.load(.acquire));
-        if (word.isOffline()) continue;
-        if (word.generation() < target) return false;
-    }
-    return true;
-}
+            Impl.online(&domain, token);
+            const first = Impl.beginGracePeriod(&domain);
+            const second = Impl.beginGracePeriod(&domain);
 
-comptime {
-    std.debug.assert(@alignOf(SlotStorage) == std.atomic.cache_line);
-    std.debug.assert(@sizeOf(SlotStorage) >= std.atomic.cache_line);
-}
+            try testing.expect(!Impl.isComplete(&domain, first));
+            try testing.expect(!Impl.isComplete(&domain, second));
+
+            Impl.quiescent(&domain, token);
+
+            try testing.expect(Impl.isComplete(&domain, first));
+            try testing.expect(Impl.isComplete(&domain, second));
+        }
+    }
+
+    test "borrowed storage reinitialization clears participant progress" {
+        var slots: [3]Domain.Bounded.Slot = undefined;
+        var domain = Domain.Bounded.wrap(&slots);
+        const token = domain.participant(2);
+
+        const empty = domain.beginGracePeriod();
+
+        try testing.expect(domain.isComplete(empty));
+        try testing.expectEqual(@as(usize, 3), domain.capacity());
+
+        domain.online(token);
+        const blocked = domain.beginGracePeriod();
+
+        try testing.expect(!domain.isComplete(blocked));
+
+        domain = Domain.Bounded.wrap(&slots);
+        const reset = domain.beginGracePeriod();
+
+        try testing.expectEqual(@as(u64, 1), reset.generation());
+        try testing.expect(domain.isComplete(reset));
+
+        domain.online(token);
+        const next = domain.beginGracePeriod();
+
+        try testing.expect(!domain.isComplete(next));
+
+        domain.quiescent(token);
+
+        try testing.expect(domain.isComplete(next));
+    }
+
+    test "bounded operation stream matches independent reference state" {
+        const participant_count = 3;
+
+        var domain = Domain.Static(participant_count).init();
+        var online = [_]bool{false} ** participant_count;
+        var reported = [_]u64{0} ** participant_count;
+        var periods: [64]GracePeriod = undefined;
+        var period_count: usize = 0;
+        var model_generation: u64 = 0;
+        var prng = std.Random.Xoshiro256.init(0xA51C_0FFE_EE12_3456);
+
+        const random = prng.random();
+
+        for (0..512) |_| {
+            const index = random.uintLessThan(usize, participant_count);
+            const token = domain.participant(index);
+            switch (random.uintLessThan(u8, 5)) {
+                0 => {
+                    Impl.online(&domain, token);
+                    online[index] = true;
+                    reported[index] = model_generation;
+                },
+                1 => {
+                    Impl.offline(&domain, token);
+                    online[index] = false;
+                },
+                2 => {
+                    if (online[index]) {
+                        Impl.quiescent(&domain, token);
+                        reported[index] = model_generation;
+                    }
+                },
+                3 => {
+                    if (period_count < periods.len) {
+                        const period = Impl.beginGracePeriod(&domain);
+                        model_generation += 1;
+                        periods[period_count] = period;
+                        period_count += 1;
+
+                        try testing.expectEqual(model_generation, period.generation());
+                    }
+                },
+                else => {},
+            }
+
+            for (periods[0..period_count]) |period| {
+                var expected = true;
+                for (online, reported) |is_online, generation| {
+                    if (is_online and generation < period.generation()) {
+                        expected = false;
+                        break;
+                    }
+                }
+
+                try testing.expectEqual(expected, Impl.isComplete(&domain, period));
+            }
+        }
+    }
+};
