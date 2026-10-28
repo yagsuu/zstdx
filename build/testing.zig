@@ -108,6 +108,10 @@ pub fn addHostTests(
             addSuite(b, category_step, check_step, modules.cpu);
         }
 
+        if (std.mem.eql(u8, category, "concurrent")) {
+            addSuite(b, category_step, check_step, modules.concurrent);
+        }
+
         const root = b.createModule(.{
             .root_source_file = b.path(b.fmt("test/{s}/all.zig", .{category})),
             .target = target,
