@@ -1,11 +1,93 @@
-//! x86_64 descriptor-register access. See `docs/specs/arch/x86_64/registers.md`.
-
 const std = @import("std");
+const target = @import("../target.zig");
+const Table = @import("segment.zig").Table;
 
-const Table = enum(u1) { gdt, ldt };
-const SelectorKind = enum { tr, ldtr };
+pub const GDTR = extern struct {
+    limit: u16,
+    base: u64 align(2),
 
-fn selector(comptime kind: SelectorKind) type {
+    pub const alignment: usize = 2;
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return .{ .limit = 0, .base = 0 };
+    }
+
+    /// requires CPL 0 when CR4.umip is set.
+    pub fn read() Self {
+        comptime target.require();
+        var value: Self = undefined;
+        asm volatile ("sgdt %[ptr]"
+            : [ptr] "=m" (value),
+            :
+            : .{ .memory = true });
+
+        return value;
+    }
+
+    /// requires CPL 0.
+    pub fn write(self: *const Self) void {
+        comptime target.require();
+        asm volatile ("lgdt (%[ptr])"
+            :
+            : [ptr] "r" (self),
+            : .{ .memory = true });
+    }
+
+    comptime {
+        std.debug.assert(@sizeOf(Self) == 10);
+        std.debug.assert(@alignOf(Self) == alignment);
+        std.debug.assert(@offsetOf(Self, "limit") == 0);
+        std.debug.assert(@offsetOf(Self, "base") == 2);
+    }
+};
+
+pub const IDTR = extern struct {
+    limit: u16,
+    base: u64 align(2),
+
+    pub const alignment: usize = 2;
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return .{ .limit = 0, .base = 0 };
+    }
+
+    /// requires CPL 0 when CR4.umip is set.
+    pub fn read() Self {
+        comptime target.require();
+        var value: Self = undefined;
+        asm volatile ("sidt %[ptr]"
+            : [ptr] "=m" (value),
+            :
+            : .{ .memory = true });
+
+        return value;
+    }
+
+    /// requires CPL 0.
+    pub fn write(self: *const Self) void {
+        comptime target.require();
+        asm volatile ("lidt (%[ptr])"
+            :
+            : [ptr] "r" (self),
+            : .{ .memory = true });
+    }
+
+    comptime {
+        std.debug.assert(@sizeOf(Self) == 10);
+        std.debug.assert(@alignOf(Self) == alignment);
+        std.debug.assert(@offsetOf(Self, "limit") == 0);
+        std.debug.assert(@offsetOf(Self, "base") == 2);
+    }
+};
+
+pub const TR = Selector("tr");
+pub const LDTR = Selector("ldt");
+
+fn Selector(comptime register: []const u8) type {
     return packed struct(u16) {
         rpl: u2,
         table: Table,
@@ -14,10 +96,10 @@ fn selector(comptime kind: SelectorKind) type {
         const Self = @This();
 
         pub fn init() Self {
-            return fromInt(0);
+            return from(0);
         }
 
-        pub fn fromInt(value: u16) Self {
+        pub fn from(value: u16) Self {
             return @bitCast(value);
         }
 
@@ -25,153 +107,32 @@ fn selector(comptime kind: SelectorKind) type {
             return @bitCast(self);
         }
 
-        comptime {
-            _ = kind;
-            std.debug.assert(@bitSizeOf(Self) == 16);
-            std.debug.assert(@sizeOf(Self) == 2);
+        /// requires CPL 0 when CR4.umip is set.
+        pub fn read() Self {
+            comptime target.require();
+            return from(asm volatile ("s" ++ register ++ " %[ret]"
+                : [ret] "=r" (-> u16),
+            ));
+        }
+
+        /// requires CPL 0 and a valid descriptor for the register.
+        pub fn write(self: Self) void {
+            comptime target.require();
+            asm volatile ("l" ++ register ++ " %[sel]"
+                :
+                : [sel] "r" (self.raw()),
+                : .{ .memory = true });
         }
     };
 }
 
-const target = @import("../target.zig");
+pub const unit = struct {
+    test "task selector decodes privilege, table, and index" {
+        const testing = std.testing;
+        const value = TR.from(0xa5f7);
 
-pub const gdtr = struct {
-    pub const GDTR = extern struct {
-        limit: u16,
-        base: u64 align(2),
-
-        const Self = @This();
-
-        pub fn init() Self {
-            return .{ .limit = 0, .base = 0 };
-        }
-
-        pub const alignment: usize = 2;
-
-        comptime {
-            std.debug.assert(@sizeOf(Self) == 10);
-            std.debug.assert(@alignOf(Self) == alignment);
-            std.debug.assert(@offsetOf(Self, "limit") == 0);
-            std.debug.assert(@offsetOf(Self, "base") == 2);
-        }
-    };
-
-    /// Privilege: CPL 0.
-    /// Faults: `#GP` at CPL > 0.
-    /// Clobbers: `memory`.
-    pub fn write(value: GDTR) void {
-        comptime target.require();
-        asm volatile ("lgdt %[ptr]"
-            :
-            : [ptr] "*m" (&value),
-            : .{ .memory = true });
-    }
-
-    /// Privilege: CPU/OS policy at CPL > 0.
-    /// Clobbers: `memory`.
-    pub fn read() GDTR {
-        comptime target.require();
-
-        var value: GDTR = undefined;
-        asm volatile ("sgdt %[ptr]"
-            : [ptr] "=m" (value),
-            :
-            : .{ .memory = true });
-
-        return value;
-    }
-};
-
-pub const idtr = struct {
-    pub const IDTR = extern struct {
-        limit: u16,
-        base: u64 align(2),
-
-        const Self = @This();
-
-        pub fn init() Self {
-            return .{ .limit = 0, .base = 0 };
-        }
-
-        pub const alignment: usize = 2;
-
-        comptime {
-            std.debug.assert(@sizeOf(Self) == 10);
-            std.debug.assert(@alignOf(Self) == alignment);
-            std.debug.assert(@offsetOf(Self, "limit") == 0);
-            std.debug.assert(@offsetOf(Self, "base") == 2);
-        }
-    };
-
-    /// Privilege: CPL 0.
-    /// Faults: `#GP` at CPL > 0.
-    /// Clobbers: `memory`.
-    pub fn write(value: IDTR) void {
-        comptime target.require();
-        asm volatile ("lidt %[ptr]"
-            :
-            : [ptr] "*m" (&value),
-            : .{ .memory = true });
-    }
-
-    /// Privilege: CPU/OS policy at CPL > 0.
-    /// Clobbers: `memory`.
-    pub fn read() IDTR {
-        comptime target.require();
-
-        var value: IDTR = undefined;
-        asm volatile ("sidt %[ptr]"
-            : [ptr] "=m" (value),
-            :
-            : .{ .memory = true });
-
-        return value;
-    }
-};
-
-pub const tr = struct {
-    pub const TR = selector(.tr);
-
-    /// Privilege: CPL 0.
-    /// Faults: `#GP` at CPL > 0 or invalid selector state.
-    /// Clobbers: `memory`.
-    pub fn write(value: TR) void {
-        comptime target.require();
-        asm volatile ("ltr %[sel]"
-            :
-            : [sel] "r" (value.raw()),
-            : .{ .memory = true });
-    }
-
-    /// Privilege: CPU/OS policy at CPL > 0.
-    pub fn read() TR {
-        comptime target.require();
-        return TR.fromInt(asm volatile ("str %[ret]"
-            : [ret] "=r" (-> u16),
-        ));
-    }
-};
-
-pub const ldtr = struct {
-    pub const LDTR = selector(.ldtr);
-
-    /// Privilege: CPL 0.
-    /// Faults: `#GP` at CPL > 0 or invalid/non-present LDT descriptor.
-    /// Clobbers: `memory`.
-    pub fn write(value: LDTR) void {
-        comptime target.require();
-        asm volatile ("lldt %[sel]"
-            :
-            : [sel] "r" (value.raw()),
-            : .{ .memory = true });
-    }
-
-    /// Privilege: CPU/OS policy at CPL > 0.
-    /// Clobbers: registers only.
-    pub fn read() LDTR {
-        comptime target.require();
-        return LDTR.fromInt(asm volatile ("sldt %[ret]"
-            : [ret] "=r" (-> u16),
-        ));
+        try testing.expectEqual(@as(u2, 3), value.rpl);
+        try testing.expectEqual(.ldt, value.table);
+        try testing.expectEqual(@as(u13, 0x14be), value.index);
     }
 };

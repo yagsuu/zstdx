@@ -9,6 +9,7 @@ pub const cpuid = @import("x86_64/cpuid.zig");
 pub const descriptors = @import("x86_64/descriptors.zig");
 pub const fence = @import("x86_64/fence.zig");
 pub const interrupts = @import("x86_64/interrupts.zig");
+pub const msr = @import("x86_64/msr.zig");
 pub const paging = @import("x86_64/paging.zig");
 pub const privilege = @import("x86_64/privilege.zig");
 pub const registers = @import("x86_64/registers.zig");

@@ -1,11 +1,8 @@
-//! x86_64 privilege helpers. See `docs/specs/arch/x86_64.md`.
-
 const target = @import("target.zig");
-const segment = @import("register/segment.zig");
+const CS = @import("register/segment.zig").CS;
 
-/// The `rpl` field of the current CS selector is the architectural CPL.
-/// Privilege: unprivileged.
+/// the RPL of the current CS selector is the architectural CPL.
 pub fn currentLevel() u2 {
     comptime target.require();
-    return segment.cs.read().rpl;
+    return CS.read().rpl;
 }

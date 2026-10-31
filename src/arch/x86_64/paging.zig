@@ -9,9 +9,8 @@ pub const walk = @import("paging/walk.zig");
 pub const Mode = address.Mode;
 pub const Level = table.Level;
 pub const Index = table.Index;
-pub const Indices = table.Indices;
-pub const LinearAddress = address.LinearAddress;
-pub const PhysicalAddressWidth = table.PhysicalAddressWidth;
+pub const LinearAddr = address.LinearAddr;
+pub const PhysWidth = table.PhysWidth;
 
 pub const PhysAddr = address.PhysAddr;
 pub const Phys4K = address.Phys4K;
@@ -24,10 +23,16 @@ pub const PDPT = table.PDPT;
 pub const PD = table.PD;
 pub const PT = table.PT;
 
-pub const PagingStructureEntry = table.PagingStructureEntry;
-pub const TableEntryFlags = table.TableEntryFlags;
+pub const Entry = table.Entry;
+pub const TableFlags = table.TableFlags;
 pub const PageFlags = table.PageFlags;
 pub const PageFrame = table.PageFrame;
 pub const PageAttributes = table.PageAttributes;
 
 pub const Walker = walk.Walker;
+
+test {
+    _ = address.unit;
+    _ = table.unit;
+    _ = walk.unit;
+}

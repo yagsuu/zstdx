@@ -1,239 +1,305 @@
-//! x86_64 debug-register access. See `docs/specs/arch/x86_64/registers.md`.
+//! register access requires privilege level 0 and can fault when DR7.GD is set.
 
 const std = @import("std");
 
 const target = @import("../target.zig");
 
-const DebugAddress = struct {
-    fn forIndex(comptime index: u3) type {
-        return packed struct(u64) {
-            linear_address: u64,
+pub const DR0 = enum(u64) {
+    _,
 
-            const Self = @This();
+    const Self = @This();
 
-            pub fn init() Self {
-                return fromInt(0);
-            }
+    pub fn init() Self {
+        return Self.from(0);
+    }
 
-            pub fn fromInt(value: u64) Self {
-                return @bitCast(value);
-            }
+    pub fn from(value: u64) Self {
+        return @enumFromInt(value);
+    }
 
-            pub fn raw(self: Self) u64 {
-                return @bitCast(self);
-            }
+    pub fn raw(self: Self) u64 {
+        return @intFromEnum(self);
+    }
 
-            comptime {
-                _ = index;
-                std.debug.assert(@bitSizeOf(Self) == 64);
-                std.debug.assert(@sizeOf(Self) == 8);
-            }
-        };
+    pub fn read() Self {
+        return Impl.read(Self, "dr0");
+    }
+
+    pub fn write(self: Self) void {
+        Impl.write("dr0", self);
     }
 };
 
-pub const dr0 = struct {
-    pub const DR0 = DebugAddress.forIndex(0);
+pub const DR1 = enum(u64) {
+    _,
 
-    pub fn read() DR0 {
-        return readDebug(DR0, "dr0");
+    const Self = @This();
+
+    pub fn init() Self {
+        return Self.from(0);
     }
 
-    pub fn write(value: DR0) void {
-        writeDebug(DR0, "dr0", value);
-    }
-};
-
-pub const dr1 = struct {
-    pub const DR1 = DebugAddress.forIndex(1);
-
-    pub fn read() DR1 {
-        return readDebug(DR1, "dr1");
+    pub fn from(value: u64) Self {
+        return @enumFromInt(value);
     }
 
-    pub fn write(value: DR1) void {
-        writeDebug(DR1, "dr1", value);
-    }
-};
-
-pub const dr2 = struct {
-    pub const DR2 = DebugAddress.forIndex(2);
-
-    pub fn read() DR2 {
-        return readDebug(DR2, "dr2");
+    pub fn raw(self: Self) u64 {
+        return @intFromEnum(self);
     }
 
-    pub fn write(value: DR2) void {
-        writeDebug(DR2, "dr2", value);
+    pub fn read() Self {
+        return Impl.read(Self, "dr1");
+    }
+
+    pub fn write(self: Self) void {
+        Impl.write("dr1", self);
     }
 };
 
-pub const dr3 = struct {
-    pub const DR3 = DebugAddress.forIndex(3);
+pub const DR2 = enum(u64) {
+    _,
 
-    pub fn read() DR3 {
-        return readDebug(DR3, "dr3");
+    const Self = @This();
+
+    pub fn init() Self {
+        return Self.from(0);
     }
 
-    pub fn write(value: DR3) void {
-        writeDebug(DR3, "dr3", value);
-    }
-};
-
-pub const dr4 = struct {
-    pub const DR4 = DebugAddress.forIndex(4);
-
-    pub fn read() DR4 {
-        return readDebug(DR4, "dr4");
+    pub fn from(value: u64) Self {
+        return @enumFromInt(value);
     }
 
-    pub fn write(value: DR4) void {
-        writeDebug(DR4, "dr4", value);
-    }
-};
-
-pub const dr5 = struct {
-    pub const DR5 = DebugAddress.forIndex(5);
-
-    pub fn read() DR5 {
-        return readDebug(DR5, "dr5");
+    pub fn raw(self: Self) u64 {
+        return @intFromEnum(self);
     }
 
-    pub fn write(value: DR5) void {
-        writeDebug(DR5, "dr5", value);
+    pub fn read() Self {
+        return Impl.read(Self, "dr2");
+    }
+
+    pub fn write(self: Self) void {
+        Impl.write("dr2", self);
     }
 };
 
-pub const dr6 = struct {
-    pub const DR6 = packed struct(u64) {
-        br0: bool,
-        br1: bool,
-        br2: bool,
-        br3: bool,
-        _reserved0: u7,
-        bus_lock_detect: bool,
-        _reserved1: bool,
-        debug_register_access: bool,
-        single_step: bool,
-        task_switch: bool,
-        restricted_transactional_memory: bool,
-        _reserved2: u47,
+pub const DR3 = enum(u64) {
+    _,
 
-        const Self = @This();
+    const Self = @This();
 
-        pub fn init() Self {
-            return fromInt(0);
-        }
-
-        pub fn fromInt(value: u64) Self {
-            return @bitCast(value);
-        }
-
-        pub fn raw(self: Self) u64 {
-            return @bitCast(self);
-        }
-
-        comptime {
-            std.debug.assert(@bitSizeOf(Self) == 64);
-            std.debug.assert(@sizeOf(Self) == 8);
-        }
-    };
-
-    pub fn read() DR6 {
-        return readDebug(DR6, "dr6");
+    pub fn init() Self {
+        return Self.from(0);
     }
 
-    pub fn write(value: DR6) void {
-        writeDebug(DR6, "dr6", value);
+    pub fn from(value: u64) Self {
+        return @enumFromInt(value);
+    }
+
+    pub fn raw(self: Self) u64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn read() Self {
+        return Impl.read(Self, "dr3");
+    }
+
+    pub fn write(self: Self) void {
+        Impl.write("dr3", self);
     }
 };
 
-pub const dr7 = struct {
-    pub const Breakpoint = packed struct(u4) {
-        condition: u2,
-        length: u2,
+/// aliases DR6 when CR4.DE is clear; access raises #UD when CR4.DE is set.
+pub const DR4 = enum(u64) {
+    _,
 
-        const Self = @This();
+    const Self = @This();
 
-        pub fn init() Self {
-            return fromInt(0);
-        }
-
-        pub fn fromInt(value: u4) Self {
-            return @bitCast(value);
-        }
-
-        pub fn raw(self: Self) u4 {
-            return @bitCast(self);
-        }
-
-        comptime {
-            std.debug.assert(@bitSizeOf(Self) == 4);
-            std.debug.assert(@sizeOf(Self) == 1);
-        }
-    };
-
-    pub const DR7 = packed struct(u64) {
-        local_0: bool,
-        global_0: bool,
-        local_1: bool,
-        global_1: bool,
-        local_2: bool,
-        global_2: bool,
-        local_3: bool,
-        global_3: bool,
-        local_exact: bool,
-        global_exact: bool,
-        fixed_one: bool,
-        _reserved0: u2,
-        general_detect: bool,
-        _reserved1: u2,
-        br0: Breakpoint,
-        br1: Breakpoint,
-        br2: Breakpoint,
-        br3: Breakpoint,
-        _reserved2: u32,
-
-        const Self = @This();
-
-        pub fn init() Self {
-            return fromInt(1 << 10);
-        }
-
-        pub fn fromInt(value: u64) Self {
-            return @bitCast(value);
-        }
-
-        pub fn raw(self: Self) u64 {
-            return @bitCast(self);
-        }
-
-        comptime {
-            std.debug.assert(@bitSizeOf(Self) == 64);
-            std.debug.assert(@sizeOf(Self) == 8);
-        }
-    };
-
-    pub fn read() DR7 {
-        return readDebug(DR7, "dr7");
+    pub fn init() Self {
+        return Self.from(0);
     }
 
-    pub fn write(value: DR7) void {
-        writeDebug(DR7, "dr7", value);
+    pub fn from(value: u64) Self {
+        return @enumFromInt(value);
+    }
+
+    pub fn raw(self: Self) u64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn read() Self {
+        return Impl.read(Self, "dr4");
+    }
+
+    pub fn write(self: Self) void {
+        Impl.write("dr4", self);
     }
 };
 
-fn readDebug(comptime T: type, comptime name: []const u8) T {
-    comptime target.require();
-    return T.fromInt(asm volatile ("mov %%" ++ name ++ ", %[ret]"
-        : [ret] "=r" (-> u64),
-    ));
-}
+/// aliases DR7 when CR4.DE is clear; access raises #UD when CR4.DE is set.
+pub const DR5 = enum(u64) {
+    _,
 
-fn writeDebug(comptime T: type, comptime name: []const u8, value: T) void {
-    comptime target.require();
-    asm volatile ("mov %[v], %%" ++ name
-        :
-        : [v] "r" (value.raw()),
-        : .{ .memory = true });
-}
+    const Self = @This();
+
+    pub fn init() Self {
+        return Self.from(0);
+    }
+
+    pub fn from(value: u64) Self {
+        return @enumFromInt(value);
+    }
+
+    pub fn raw(self: Self) u64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn read() Self {
+        return Impl.read(Self, "dr5");
+    }
+
+    pub fn write(self: Self) void {
+        Impl.write("dr5", self);
+    }
+};
+
+pub const DR6 = packed struct(u64) {
+    br0: bool,
+    br1: bool,
+    br2: bool,
+    br3: bool,
+    _reserved_4: u7,
+    bus_lock_detect: bool,
+    _reserved_12: bool,
+    debug_register_access: bool,
+    single_step: bool,
+    task_switch: bool,
+    restricted_transactional_memory: bool,
+    _reserved_17: u47,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return Self.from(0);
+    }
+
+    pub fn from(value: u64) Self {
+        return @bitCast(value);
+    }
+
+    pub fn raw(self: Self) u64 {
+        return @bitCast(self);
+    }
+
+    pub fn read() Self {
+        return Impl.read(Self, "dr6");
+    }
+
+    pub fn write(self: Self) void {
+        Impl.write("dr6", self);
+    }
+};
+
+pub const DR7 = packed struct(u64) {
+    local_0: bool,
+    global_0: bool,
+    local_1: bool,
+    global_1: bool,
+    local_2: bool,
+    global_2: bool,
+    local_3: bool,
+    global_3: bool,
+    local_exact: bool,
+    global_exact: bool,
+    fixed_one: bool,
+    _unknown_11: bool,
+    _reserved_12: bool,
+    general_detect: bool,
+    _reserved_14: u2,
+    br0: Breakpoint,
+    br1: Breakpoint,
+    br2: Breakpoint,
+    br3: Breakpoint,
+    _reserved_32: u32,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return Self.from(1 << 10);
+    }
+
+    pub fn from(value: u64) Self {
+        return @bitCast(value);
+    }
+
+    pub fn raw(self: Self) u64 {
+        return @bitCast(self);
+    }
+
+    pub fn read() Self {
+        return Impl.read(Self, "dr7");
+    }
+
+    pub fn write(self: Self) void {
+        Impl.write("dr7", self);
+    }
+};
+
+pub const Breakpoint = packed struct(u4) {
+    condition: u2,
+    length: u2,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return Self.from(0);
+    }
+
+    pub fn from(value: u4) Self {
+        return @bitCast(value);
+    }
+
+    pub fn raw(self: Self) u4 {
+        return @bitCast(self);
+    }
+};
+
+const Impl = struct {
+    fn read(comptime T: type, comptime name: []const u8) T {
+        comptime target.require();
+        return T.from(asm volatile ("mov %%" ++ name ++ ", %[ret]"
+            : [ret] "=r" (-> u64),
+        ));
+    }
+
+    fn write(comptime name: []const u8, value: anytype) void {
+        comptime target.require();
+        asm volatile ("mov %[v], %%" ++ name
+            :
+            : [v] "r" (value.raw()),
+            : .{ .memory = true });
+    }
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "debug status and breakpoint fields retain architectural encodings" {
+        const status = DR6.from((1 << 3) | (1 << 11) | (1 << 13) | (1 << 14) | (1 << 15) | (1 << 16));
+
+        var control = DR7.init();
+        control.br0 = .{ .condition = 3, .length = 2 };
+        control.br3 = Breakpoint.from(0b0110);
+        control.general_detect = true;
+
+        try testing.expect(status.br3);
+        try testing.expect(status.bus_lock_detect);
+        try testing.expect(status.debug_register_access);
+        try testing.expect(status.single_step);
+        try testing.expect(status.task_switch);
+        try testing.expect(status.restricted_transactional_memory);
+        try testing.expectEqual(@as(u64, (1 << 10) | (1 << 13) | (0b1011 << 16) | (0b0110 << 28)), control.raw());
+        try testing.expect(control.fixed_one);
+        try testing.expect(!DR7.from(0).fixed_one);
+        try testing.expectEqual(@as(u4, 0b0110), control.br3.raw());
+    }
+};
