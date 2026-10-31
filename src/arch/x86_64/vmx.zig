@@ -1,313 +1,303 @@
-//! x86_64 VMX ISA wrappers. See `docs/specs/arch/x86_64/vmx.md`.
-
 const std = @import("std");
+const addr = @import("addr");
 
 const target = @import("target.zig");
+const registers = @import("registers.zig");
 
-/// RFLAGS-mapped error set common to every VMX wrapper per Intel SDM
-/// Vol.3 §30.2.
+/// reports instruction status from carry and zero flags; architectural faults remain exceptions.
 pub const Error = error{ VMfailInvalid, VMfailValid };
 
-/// Strong physical-address value type covering the full 64-bit
-/// physical-address space. Distinct from `Svm.PhysAddr`.
-pub const PhysAddr = enum(u64) {
-    _,
-
-    pub fn fromInt(value: u64) PhysAddr {
-        return @enumFromInt(value);
-    }
-
-    pub fn raw(self: PhysAddr) u64 {
-        return @intFromEnum(self);
-    }
-};
-
-/// 4 KiB VMXON region per SDM Vol.3 §24.11. The `_reserved` byte array
-/// is the VMXON body — CPU-implementation-defined and MUST NOT be
-/// accessed through ordinary loads or stores.
-pub const VMXONRegion = extern struct {
-    revision_id: u32 align(4096) = 0,
-    _reserved: [4092]u8 = @splat(0),
+/// the processor owns the data after VMXON; ordinary accesses must not modify it.
+/// set header.revision_id to IA32_VMX_BASIC's revision identifier before use.
+pub const Vmxon = extern struct {
+    header: Header align(4096) = .{},
+    data: [4092]u8 = @splat(0),
 
     pub const alignment: usize = 4096;
 
+    pub const Header = packed struct(u32) {
+        revision_id: u31 = 0,
+        _reserved_31: u1 = 0,
+    };
+
     comptime {
-        std.debug.assert(@sizeOf(VMXONRegion) == 4096);
-        std.debug.assert(@alignOf(VMXONRegion) == 4096);
-        std.debug.assert(@offsetOf(VMXONRegion, "revision_id") == 0);
-        std.debug.assert(@offsetOf(VMXONRegion, "_reserved") == 4);
+        std.debug.assert(@sizeOf(@This()) == 4096);
+        std.debug.assert(@alignOf(@This()) == 4096);
+        std.debug.assert(@offsetOf(@This(), "header") == 0);
+        std.debug.assert(@offsetOf(@This(), "data") == 4);
     }
 };
 
-/// 4 KiB VMCS region per SDM Vol.3 §24.2 / §24.11. The `_reserved` byte
-/// array is the VMCS data area — accessible only via `vmread`/`vmwrite`.
+/// the data layout is processor-defined; do not access it directly.
+/// access architectural fields through VMREAD and VMWRITE.
+/// set header.revision_id to IA32_VMX_BASIC's revision identifier before use.
 pub const VMCS = extern struct {
-    revision_id: u32 align(4096) = 0,
+    header: Header align(4096) = .{},
     abort_indicator: u32 = 0,
-    _reserved: [4088]u8 = @splat(0),
+    data: [4088]u8 = @splat(0),
 
     pub const alignment: usize = 4096;
 
+    pub const Header = packed struct(u32) {
+        revision_id: u31 = 0,
+        shadow: bool = false,
+    };
+
     comptime {
-        std.debug.assert(@sizeOf(VMCS) == 4096);
-        std.debug.assert(@alignOf(VMCS) == 4096);
-        std.debug.assert(@offsetOf(VMCS, "revision_id") == 0);
-        std.debug.assert(@offsetOf(VMCS, "abort_indicator") == 4);
-        std.debug.assert(@offsetOf(VMCS, "_reserved") == 8);
+        std.debug.assert(@sizeOf(@This()) == 4096);
+        std.debug.assert(@alignOf(@This()) == 4096);
+        std.debug.assert(@offsetOf(@This(), "header") == 0);
+        std.debug.assert(@offsetOf(@This(), "abort_indicator") == 4);
+        std.debug.assert(@offsetOf(@This(), "data") == 8);
     }
 };
 
-/// INVEPT invalidation kind per SDM Vol.3 §30.3. Open enum; reserved
-/// values produce `VMfailInvalid`.
-pub const InveptKind = enum(u64) {
-    single_context = 1,
-    global = 2,
-    _,
+pub const Invept = struct {
+    pub const Scope = enum(u64) {
+        context = 1,
+        all = 2,
+    };
+
+    pub const Descriptor = extern struct {
+        eptp: u64 align(16),
+        _reserved_64: u64 = 0,
+
+        comptime {
+            std.debug.assert(@sizeOf(@This()) == 16);
+            std.debug.assert(@alignOf(@This()) == 16);
+            std.debug.assert(@offsetOf(@This(), "eptp") == 0);
+            std.debug.assert(@offsetOf(@This(), "_reserved_64") == 8);
+        }
+    };
 };
 
-/// 16-byte INVEPT descriptor per SDM Vol.3 §30.3.
-pub const InveptDescriptor = extern struct {
-    eptp: u64 align(16),
-    _reserved: u64 = 0,
+pub const Invvpid = struct {
+    /// address/context/all include global translations; context_non_global retains them.
+    pub const Scope = enum(u64) {
+        address = 0,
+        context = 1,
+        all = 2,
+        context_non_global = 3,
+    };
 
-    pub const alignment: usize = 16;
+    pub const Descriptor = extern struct {
+        vpid: u16 align(16),
+        _reserved_16: u16 = 0,
+        _reserved_32: u32 = 0,
+        address: addr.VirtAddr = .zero(),
 
-    comptime {
-        std.debug.assert(@sizeOf(InveptDescriptor) == 16);
-        std.debug.assert(@alignOf(InveptDescriptor) == 16);
-        std.debug.assert(@offsetOf(InveptDescriptor, "eptp") == 0);
-        std.debug.assert(@offsetOf(InveptDescriptor, "_reserved") == 8);
-    }
+        comptime {
+            std.debug.assert(@sizeOf(@This()) == 16);
+            std.debug.assert(@alignOf(@This()) == 16);
+            std.debug.assert(@offsetOf(@This(), "vpid") == 0);
+            std.debug.assert(@offsetOf(@This(), "_reserved_16") == 2);
+            std.debug.assert(@offsetOf(@This(), "_reserved_32") == 4);
+            std.debug.assert(@offsetOf(@This(), "address") == 8);
+        }
+    };
 };
 
-/// INVVPID invalidation kind per SDM Vol.3 §30.3. Open enum; reserved
-/// values produce `VMfailInvalid`.
-pub const InvvpidKind = enum(u64) {
-    individual_address = 0,
-    single_context = 1,
-    all_contexts = 2,
-    single_context_retaining_globals = 3,
-    _,
-};
-
-/// 16-byte INVVPID descriptor per SDM Vol.3 §30.3.
-pub const InvvpidDescriptor = extern struct {
-    vpid: u16 align(16),
-    _reserved_low: u16 = 0,
-    _reserved_high: u32 = 0,
-    linear_address: u64 = 0,
-
-    pub const alignment: usize = 16;
-
-    comptime {
-        std.debug.assert(@sizeOf(InvvpidDescriptor) == 16);
-        std.debug.assert(@alignOf(InvvpidDescriptor) == 16);
-        std.debug.assert(@offsetOf(InvvpidDescriptor, "vpid") == 0);
-        std.debug.assert(@offsetOf(InvvpidDescriptor, "_reserved_low") == 2);
-        std.debug.assert(@offsetOf(InvvpidDescriptor, "_reserved_high") == 4);
-        std.debug.assert(@offsetOf(InvvpidDescriptor, "linear_address") == 8);
-    }
-};
-
-// Decode RFLAGS.CF/ZF per SDM Vol.3 §30.2. CF is bit 0, ZF is bit 6.
-// `CF=1, ZF=1` is architecturally impossible but MUST be reported as
-// `VMfailInvalid` per the wrapper contract.
-inline fn mapRflags(rflags: u64) Error!void {
-    if (rflags & 0x1 != 0) return Error.VMfailInvalid;
-    if (rflags & 0x40 != 0) return Error.VMfailValid;
-}
-
-/// Operand: `region` points to a `PhysAddr` value in host memory. The CPU
-/// dereferences that value as m64 to obtain the VMXON region's physical address.
-/// Privilege: CPL 0.
-/// Faults: may `#GP` or `#UD`.
-/// Returns: `Error!void` mapped from RFLAGS.
-pub fn vmxon(region: *const PhysAddr) Error!void {
+/// requires CPL 0 and VMX support; the region must meet VMX physical-width and 4-KiB alignment rules.
+/// region points to the physical address, not the VMXON body.
+pub fn vmxon(region: *const addr.PhysAddr) Error!void {
     comptime target.require();
-    var rflags: u64 = undefined;
+
+    var flags: u64 = undefined;
     asm volatile (
-        \\vmxon %[region]
+        \\vmxon (%[region])
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
-        : [region] "*m" (region),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
+        : [region] "r" (region),
         : .{ .memory = true, .cc = true });
-    return mapRflags(rflags);
+
+    return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// Privilege: CPL 0.
-/// Requirements: VMX root operation.
+/// requires CPL 0 and VMX root operation.
 pub fn vmxoff() Error!void {
     comptime target.require();
-    var rflags: u64 = undefined;
+
+    var flags: u64 = undefined;
     asm volatile (
         \\vmxoff
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
         :
         : .{ .memory = true, .cc = true });
-    return mapRflags(rflags);
+
+    return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// Effects: marks the VMCS inactive and clear on the logical processor.
-/// Privilege: CPL 0.
-pub fn vmclear(vmcs: *const PhysAddr) Error!void {
-    comptime target.require();
-    var rflags: u64 = undefined;
-    asm volatile (
-        \\vmclear %[vmcs]
-        \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
-        : [vmcs] "*m" (vmcs),
-        : .{ .memory = true, .cc = true });
-    return mapRflags(rflags);
-}
-
-/// Effects: makes the referenced region the current VMCS.
-/// Privilege: CPL 0.
-pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
+/// requires CPL 0 and VMX operation; the VMCS physical address must be supported and 4-KiB aligned.
+pub fn vmclear(vmcs: *const addr.PhysAddr) Error!void {
     comptime target.require();
 
-    var rflags: u64 = undefined;
+    var flags: u64 = undefined;
     asm volatile (
-        \\vmptrld %[vmcs]
+        \\vmclear (%[vmcs])
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
-        : [vmcs] "*m" (vmcs),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
+        : [vmcs] "r" (vmcs),
         : .{ .memory = true, .cc = true });
 
-    return mapRflags(rflags);
+    return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// Effects: writes the current VMCS pointer, or all-ones when no VMCS is current.
-/// Privilege: CPL 0.
-pub fn vmptrst(out: *PhysAddr) Error!void {
+/// requires CPL 0 and VMX operation; the VMCS physical address must be supported and 4-KiB aligned.
+pub fn vmptrld(vmcs: *const addr.PhysAddr) Error!void {
     comptime target.require();
 
-    var rflags: u64 = undefined;
+    var flags: u64 = undefined;
     asm volatile (
-        \\vmptrst (%[out])
+        \\vmptrld (%[vmcs])
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
+        : [vmcs] "r" (vmcs),
+        : .{ .memory = true, .cc = true });
+
+    return Impl.checkStatus(registers.RFLAGS.from(flags));
+}
+
+/// requires CPL 0 and VMX root operation; stores all ones when no VMCS is current.
+pub fn vmptrst(out: *addr.PhysAddr) void {
+    comptime target.require();
+
+    asm volatile ("vmptrst (%[out])"
+        :
         : [out] "r" (out),
         : .{ .memory = true, .cc = true });
-
-    return mapRflags(rflags);
 }
 
-/// Effects: on success, transfers control to the guest (`noreturn`).
-/// Privilege: CPL 0.
-pub fn vmlaunch() Error!noreturn {
+/// requires CPL 0 and VMX root operation.
+/// the caller must configure VMCS host state and continuation; successful entry does not return here.
+pub fn vmlaunch() Error {
     comptime target.require();
 
-    var rflags: u64 = undefined;
+    var flags: u64 = undefined;
     asm volatile (
         \\vmlaunch
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
         :
         : .{ .memory = true, .cc = true });
 
-    try mapRflags(rflags);
+    Impl.checkStatus(registers.RFLAGS.from(flags)) catch |err| return err;
     unreachable;
 }
 
-/// Effects: on success, transfers control to the guest (`noreturn`).
-/// Privilege: CPL 0.
-pub fn vmresume() Error!noreturn {
+/// requires CPL 0 and VMX root operation.
+/// the caller must configure VMCS host state and continuation; successful entry does not return here.
+pub fn vmresume() Error {
     comptime target.require();
 
-    var rflags: u64 = undefined;
+    var flags: u64 = undefined;
     asm volatile (
         \\vmresume
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
         :
         : .{ .memory = true, .cc = true });
 
-    try mapRflags(rflags);
+    Impl.checkStatus(registers.RFLAGS.from(flags)) catch |err| return err;
     unreachable;
 }
 
-/// Operands: Intel order is `VMREAD r/m64, r64`; `encoding` is the raw
-/// 32-bit VMCS field encoding.
-/// Privilege: CPL 0.
-pub fn vmread(encoding: u32) Error!u64 {
+/// requires CPL 0; field is a raw VMCS field encoding.
+pub fn vmread(field: u32) Error!u64 {
     comptime target.require();
 
     var value: u64 = undefined;
-    var rflags: u64 = undefined;
+    var flags: u64 = undefined;
     asm volatile (
-        \\vmread %[enc], %[val]
+        \\vmread %[field], %[value]
         \\pushfq
-        \\popq %[rflags]
-        : [val] "=r" (value),
-          [rflags] "=r" (rflags),
-        : [enc] "r" (@as(u64, encoding)),
+        \\popq %[flags]
+        : [value] "=r" (value),
+          [flags] "=r" (flags),
+        : [field] "r" (@as(u64, field)),
         : .{ .memory = true, .cc = true });
 
-    try mapRflags(rflags);
+    try Impl.checkStatus(registers.RFLAGS.from(flags));
     return value;
 }
 
-/// Operands: Intel order is `VMWRITE r64, r/m64`; fields narrower than 64
-/// bits are still exchanged as `u64`.
-/// Privilege: CPL 0.
-pub fn vmwrite(encoding: u32, value: u64) Error!void {
+/// requires CPL 0; narrow VMCS fields still use a 64-bit operand.
+pub fn vmwrite(field: u32, value: u64) Error!void {
     comptime target.require();
 
-    var rflags: u64 = undefined;
+    var flags: u64 = undefined;
     asm volatile (
-        \\vmwrite %[val], %[enc]
+        \\vmwrite %[value], %[field]
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
-        : [enc] "r" (@as(u64, encoding)),
-          [val] "r" (value),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
+        : [field] "r" (@as(u64, field)),
+          [value] "r" (value),
         : .{ .memory = true, .cc = true });
 
-    return mapRflags(rflags);
+    return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// Operands: Intel order is `INVEPT r64, m128`.
-/// Effects: invalidates EPT-derived mappings on the issuing logical processor.
-/// Privilege: CPL 0.
-pub fn invept(kind: InveptKind, descriptor: *const InveptDescriptor) Error!void {
+/// requires CPL 0, VMX operation, and support for the requested INVEPT scope.
+pub fn invept(scope: Invept.Scope, descriptor: *const Invept.Descriptor) Error!void {
     comptime target.require();
 
-    var rflags: u64 = undefined;
+    var flags: u64 = undefined;
     asm volatile (
-        \\invept %[desc], %[kind]
+        \\invept (%[descriptor]), %[scope]
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
-        : [kind] "r" (@as(u64, @intFromEnum(kind))),
-          [desc] "*m" (descriptor),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
+        : [scope] "r" (@intFromEnum(scope)),
+          [descriptor] "r" (descriptor),
         : .{ .memory = true, .cc = true });
-    return mapRflags(rflags);
+
+    return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// Operands: Intel order is `INVVPID r64, m128`.
-/// Effects: invalidates VPID-tagged mappings on the issuing logical processor.
-/// Privilege: CPL 0.
-pub fn invvpid(kind: InvvpidKind, descriptor: *const InvvpidDescriptor) Error!void {
+/// requires CPL 0, VMX operation, and support for the requested INVVPID scope.
+/// address scope requires a canonical address; address/context/context_non_global require a nonzero VPID.
+pub fn invvpid(scope: Invvpid.Scope, descriptor: *const Invvpid.Descriptor) Error!void {
     comptime target.require();
 
-    var rflags: u64 = undefined;
+    var flags: u64 = undefined;
     asm volatile (
-        \\invvpid %[desc], %[kind]
+        \\invvpid (%[descriptor]), %[scope]
         \\pushfq
-        \\popq %[rflags]
-        : [rflags] "=r" (rflags),
-        : [kind] "r" (@as(u64, @intFromEnum(kind))),
-          [desc] "*m" (descriptor),
+        \\popq %[flags]
+        : [flags] "=r" (flags),
+        : [scope] "r" (@intFromEnum(scope)),
+          [descriptor] "r" (descriptor),
         : .{ .memory = true, .cc = true });
 
-    return mapRflags(rflags);
+    return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
+
+const Impl = struct {
+    fn checkStatus(flags: registers.RFLAGS) Error!void {
+        if (flags.carry) {
+            return error.VMfailInvalid;
+        }
+
+        if (flags.zero) {
+            return error.VMfailValid;
+        }
+    }
+};
+
+pub const unit = struct {
+    test "VMX status distinguishes success and failures with carry precedence" {
+        const testing = std.testing;
+
+        try Impl.checkStatus(registers.RFLAGS.from(0x2));
+        try testing.expectError(error.VMfailInvalid, Impl.checkStatus(registers.RFLAGS.from(0x3)));
+        try testing.expectError(error.VMfailValid, Impl.checkStatus(registers.RFLAGS.from(0x42)));
+        try testing.expectError(error.VMfailInvalid, Impl.checkStatus(registers.RFLAGS.from(0x43)));
+    }
+};

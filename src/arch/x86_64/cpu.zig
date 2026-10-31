@@ -1,46 +1,16 @@
-//! x86_64 CPU instructions. See `docs/specs/arch/x86_64/cpu.md`.
-
 const std = @import("std");
+const addr = @import("addr");
 
 const target = @import("target.zig");
 
-/// Privilege: CPL 0.
-/// Effects: halts the CPU until the next interrupt.
-/// Clobbers: `memory`.
-pub fn halt() void {
-    comptime target.require();
-    asm volatile ("hlt" ::: .{ .memory = true });
-}
-
-/// Privilege: unprivileged.
-/// Clobbers: `memory`.
-pub fn pause() void {
-    comptime target.require();
-    asm volatile ("pause" ::: .{ .memory = true });
-}
-
-/// Privilege: unprivileged.
-/// Faults: raises `#BP`; behavior depends on the installed handler.
-/// Clobbers: `memory`.
-pub fn breakpoint() void {
-    comptime target.require();
-    asm volatile ("int3" ::: .{ .memory = true });
-}
-
-/// TSC (time-stamp counter) access via `rdtsc` / `rdtscp`. See also
-/// `docs/specs/arch/x86_64/extensions.md`.
-pub const tsc = struct {
-    /// Combined 64-bit TSC value paired with the `IA32_TSC_AUX` low
-    /// 32 bits that `rdtscp` returns in one instruction.
+pub const Tsc = struct {
     pub const Reading = struct {
-        tsc: u64,
+        count: u64,
         aux: u32,
     };
 
-    /// Privilege: unprivileged unless `Cr4.TSD` blocks userspace.
-    /// Faults: `#GP` at CPL > 0 when `Cr4.TSD` is set.
-    /// Ordering: not serializing.
-    /// Clobbers: registers only.
+    /// requires RDTSC support; CR4.TSD can restrict access to CPL 0.
+    /// does not serialize instructions or memory accesses.
     pub fn read() u64 {
         comptime target.require();
 
@@ -54,12 +24,11 @@ pub const tsc = struct {
         return (@as(u64, hi) << 32) | @as(u64, lo);
     }
 
-    /// Privilege: unprivileged unless `Cr4.TSD` blocks userspace.
-    /// Requirements: `RDTSCP` support.
-    /// Faults: `#UD` when unsupported; `#GP` at CPL > 0 when `Cr4.TSD` is set.
-    /// Ordering: partially serializing on prior instructions.
-    /// Clobbers: `eax`, `ecx`, `edx`.
-    pub fn readSerializing() Reading {
+    /// requires RDTSCP support; CR4.TSD can restrict access to CPL 0.
+    /// waits for prior instructions and loads, but not for prior stores to become globally visible.
+    /// later instructions can execute before the read completes.
+    /// adds no fences or compiler memory barrier.
+    pub fn readAux() Reading {
         comptime target.require();
 
         var lo: u32 = undefined;
@@ -71,63 +40,72 @@ pub const tsc = struct {
               [aux] "={ecx}" (aux),
         );
 
-        return .{ .tsc = (@as(u64, hi) << 32) | @as(u64, lo), .aux = aux };
+        return .{ .count = (@as(u64, hi) << 32) | @as(u64, lo), .aux = aux };
     }
 };
 
-/// Per-address and PCID-scoped TLB invalidation. See also
-/// `docs/specs/arch/x86_64/extensions.md`.
-pub const tlb = struct {
-    /// `invpcid` invalidation kind. Backing values match the immediate
-    /// value the CPU expects in the type register.
-    pub const INVPCIDKind = enum(u2) {
-        individual_address = 0,
-        single_context = 1,
-        all_including_globals = 2,
-        all_excluding_globals = 3,
+pub const Tlb = struct {
+    /// address/context exclude global translations; the processor may invalidate more broadly.
+    pub const Scope = enum(u2) {
+        address = 0,
+        context = 1,
+        all = 2,
+        all_non_global = 3,
     };
 
-    /// 128-bit `invpcid` descriptor. Explicit `align(16)` satisfies the
-    /// instruction's operand-alignment requirement; reserved fields
-    /// default to zero because Intel documents non-zero reserved bits
-    /// as producing `#GP`.
-    pub const INVPCIDDescriptor = extern struct {
-        pcid: u16 align(16),
-        _reserved_pcid_high: u16 = 0,
-        _reserved: u32 = 0,
-        linear_address: u64,
+    pub const Context = packed struct(u64) {
+        pcid: u12 = 0,
+        _reserved_12: u52 = 0,
+    };
+
+    pub const Descriptor = extern struct {
+        context: Context = .{},
+        address: addr.VirtAddr,
 
         comptime {
             std.debug.assert(@sizeOf(@This()) == 16);
-            std.debug.assert(@alignOf(@This()) == 16);
-            std.debug.assert(@offsetOf(@This(), "pcid") == 0);
-            std.debug.assert(@offsetOf(@This(), "linear_address") == 8);
+            std.debug.assert(@alignOf(@This()) == 8);
+            std.debug.assert(@offsetOf(@This(), "context") == 0);
+            std.debug.assert(@offsetOf(@This(), "address") == 8);
         }
-
-        pub const alignment: usize = 16;
     };
 
-    /// Privilege: CPL 0.
-    /// Faults: `#GP` at CPL > 0.
-    /// Clobbers: `memory`.
-    pub fn invalidatePage(addr: usize) void {
+    /// requires CPL 0.
+    pub fn invalidatePage(address: addr.VirtAddr) void {
         comptime target.require();
-        asm volatile ("invlpg (%[addr])"
+        asm volatile ("invlpg (%[address])"
             :
-            : [addr] "r" (addr),
+            : [address] "r" (address.raw()),
             : .{ .memory = true });
     }
 
-    /// Privilege: CPL 0.
-    /// Requirements: `INVPCID` support.
-    /// Faults: `#GP` at CPL > 0; `#UD` when unsupported.
-    /// Clobbers: `memory`.
-    pub fn invalidatePCID(kind: INVPCIDKind, descriptor: *const INVPCIDDescriptor) void {
+    /// requires CPL 0 and INVPCID support.
+    /// descriptor reserved bits must be zero.
+    /// address/context require PCID zero when CR4.PCIDE is clear.
+    /// address requires a canonical linear address.
+    pub fn invalidate(scope: Scope, descriptor: *const Descriptor) void {
         comptime target.require();
         asm volatile ("invpcid (%%rdx), %%rax"
             :
-            : [kind] "{rax}" (@as(u64, @intFromEnum(kind))),
-              [desc] "{rdx}" (descriptor),
+            : [scope] "{rax}" (@as(u64, @intFromEnum(scope))),
+              [descriptor] "{rdx}" (descriptor),
             : .{ .memory = true });
     }
 };
+
+/// requires CPL 0; execution resumes on a wake event.
+pub fn halt() void {
+    comptime target.require();
+    asm volatile ("hlt" ::: .{ .memory = true });
+}
+
+pub fn pause() void {
+    comptime target.require();
+    asm volatile ("pause" ::: .{ .memory = true });
+}
+
+/// raises #BP.
+pub fn breakpoint() void {
+    comptime target.require();
+    asm volatile ("int3" ::: .{ .memory = true });
+}

@@ -1,22 +1,20 @@
-//! x86_64 port I/O primitives. See `docs/specs/arch/x86_64.md`.
-
 const target = @import("target.zig");
 
 pub const Port = enum(u16) {
     _,
 
-    pub fn fromInt(value: u16) Port {
+    const Self = @This();
+
+    pub fn from(value: u16) Self {
         return @enumFromInt(value);
     }
 
-    pub fn raw(self: Port) u16 {
+    pub fn raw(self: Self) u16 {
         return @intFromEnum(self);
     }
 
-    /// Privilege: IOPL/TSS I/O bitmap permits access.
-    /// Faults: `#GP` when access is denied.
-    /// Clobbers: `memory`.
-    pub fn in8(self: Port) u8 {
+    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    pub fn in8(self: Self) u8 {
         comptime target.require();
 
         return asm volatile ("inb %[port], %[ret]"
@@ -25,10 +23,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Privilege: IOPL/TSS I/O bitmap permits access.
-    /// Faults: `#GP` when access is denied.
-    /// Clobbers: `memory`.
-    pub fn in16(self: Port) u16 {
+    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    pub fn in16(self: Self) u16 {
         comptime target.require();
 
         return asm volatile ("inw %[port], %[ret]"
@@ -37,10 +33,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Privilege: IOPL/TSS I/O bitmap permits access.
-    /// Faults: `#GP` when access is denied.
-    /// Clobbers: `memory`.
-    pub fn in32(self: Port) u32 {
+    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    pub fn in32(self: Self) u32 {
         comptime target.require();
 
         return asm volatile ("inl %[port], %[ret]"
@@ -49,10 +43,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Privilege: IOPL/TSS I/O bitmap permits access.
-    /// Faults: `#GP` when access is denied.
-    /// Clobbers: `memory`.
-    pub fn out8(self: Port, value: u8) void {
+    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    pub fn out8(self: Self, value: u8) void {
         comptime target.require();
 
         asm volatile ("outb %[value], %[port]"
@@ -62,10 +54,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Privilege: IOPL/TSS I/O bitmap permits access.
-    /// Faults: `#GP` when access is denied.
-    /// Clobbers: `memory`.
-    pub fn out16(self: Port, value: u16) void {
+    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    pub fn out16(self: Self, value: u16) void {
         comptime target.require();
 
         asm volatile ("outw %[value], %[port]"
@@ -75,10 +65,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Privilege: IOPL/TSS I/O bitmap permits access.
-    /// Faults: `#GP` when access is denied.
-    /// Clobbers: `memory`.
-    pub fn out32(self: Port, value: u32) void {
+    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    pub fn out32(self: Self, value: u32) void {
         comptime target.require();
 
         asm volatile ("outl %[value], %[port]"
@@ -88,88 +76,99 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// Requirements: `DF` clear and slice alignment.
-    /// Clobbers: `rcx`, `rdi`, `memory`.
-    pub fn inSlice8(self: Port, dst: []u8) void {
+    /// requires I/O permission and DF clear.
+    pub fn inSlice8(self: Self, dst: []u8) void {
         comptime target.require();
 
+        var ptr = dst.ptr;
+        var count = dst.len;
         asm volatile ("rep insb"
-            :
+            : [dst] "={rdi}" (ptr),
+              [count] "={rcx}" (count),
             : [port] "{dx}" (@intFromEnum(self)),
-              [dst] "{rdi}" (dst.ptr),
-              [count] "{rcx}" (dst.len),
-            : .{ .rcx = true, .rdi = true, .memory = true });
+              [initial_dst] "0" (ptr),
+              [initial_count] "1" (count),
+            : .{ .memory = true });
     }
 
-    /// Requirements: `DF` clear and slice alignment.
-    /// Clobbers: `rcx`, `rdi`, `memory`.
-    pub fn inSlice16(self: Port, dst: []u16) void {
+    /// requires I/O permission and DF clear.
+    pub fn inSlice16(self: Self, dst: []u16) void {
         comptime target.require();
 
+        var ptr = dst.ptr;
+        var count = dst.len;
         asm volatile ("rep insw"
-            :
+            : [dst] "={rdi}" (ptr),
+              [count] "={rcx}" (count),
             : [port] "{dx}" (@intFromEnum(self)),
-              [dst] "{rdi}" (dst.ptr),
-              [count] "{rcx}" (dst.len),
-            : .{ .rcx = true, .rdi = true, .memory = true });
+              [initial_dst] "0" (ptr),
+              [initial_count] "1" (count),
+            : .{ .memory = true });
     }
 
-    /// Requirements: `DF` clear and slice alignment.
-    /// Clobbers: `rcx`, `rdi`, `memory`.
-    pub fn inSlice32(self: Port, dst: []u32) void {
+    /// requires I/O permission and DF clear.
+    pub fn inSlice32(self: Self, dst: []u32) void {
         comptime target.require();
 
+        var ptr = dst.ptr;
+        var count = dst.len;
         asm volatile ("rep insl"
-            :
+            : [dst] "={rdi}" (ptr),
+              [count] "={rcx}" (count),
             : [port] "{dx}" (@intFromEnum(self)),
-              [dst] "{rdi}" (dst.ptr),
-              [count] "{rcx}" (dst.len),
-            : .{ .rcx = true, .rdi = true, .memory = true });
+              [initial_dst] "0" (ptr),
+              [initial_count] "1" (count),
+            : .{ .memory = true });
     }
 
-    /// Requirements: `DF` clear and slice alignment.
-    /// Clobbers: `rcx`, `rsi`, `memory`.
-    pub fn outSlice8(self: Port, src: []const u8) void {
+    /// requires I/O permission and DF clear.
+    pub fn outSlice8(self: Self, src: []const u8) void {
         comptime target.require();
 
+        var ptr = src.ptr;
+        var count = src.len;
         asm volatile ("rep outsb"
-            :
+            : [src] "={rsi}" (ptr),
+              [count] "={rcx}" (count),
             : [port] "{dx}" (@intFromEnum(self)),
-              [src] "{rsi}" (src.ptr),
-              [count] "{rcx}" (src.len),
-            : .{ .rcx = true, .rsi = true, .memory = true });
+              [initial_src] "0" (ptr),
+              [initial_count] "1" (count),
+            : .{ .memory = true });
     }
 
-    /// Requirements: `DF` clear and slice alignment.
-    /// Clobbers: `rcx`, `rsi`, `memory`.
-    pub fn outSlice16(self: Port, src: []const u16) void {
+    /// requires I/O permission and DF clear.
+    pub fn outSlice16(self: Self, src: []const u16) void {
         comptime target.require();
 
+        var ptr = src.ptr;
+        var count = src.len;
         asm volatile ("rep outsw"
-            :
+            : [src] "={rsi}" (ptr),
+              [count] "={rcx}" (count),
             : [port] "{dx}" (@intFromEnum(self)),
-              [src] "{rsi}" (src.ptr),
-              [count] "{rcx}" (src.len),
-            : .{ .rcx = true, .rsi = true, .memory = true });
+              [initial_src] "0" (ptr),
+              [initial_count] "1" (count),
+            : .{ .memory = true });
     }
 
-    /// Requirements: `DF` clear and slice alignment.
-    /// Clobbers: `rcx`, `rsi`, `memory`.
-    pub fn outSlice32(self: Port, src: []const u32) void {
+    /// requires I/O permission and DF clear.
+    pub fn outSlice32(self: Self, src: []const u32) void {
         comptime target.require();
 
+        var ptr = src.ptr;
+        var count = src.len;
         asm volatile ("rep outsl"
-            :
+            : [src] "={rsi}" (ptr),
+              [count] "={rcx}" (count),
             : [port] "{dx}" (@intFromEnum(self)),
-              [src] "{rsi}" (src.ptr),
-              [count] "{rcx}" (src.len),
-            : .{ .rcx = true, .rsi = true, .memory = true });
+              [initial_src] "0" (ptr),
+              [initial_count] "1" (count),
+            : .{ .memory = true });
     }
 };
 
-/// Privilege: IOPL/TSS I/O bitmap permits access.
-/// Faults: `#GP` when access is denied.
-/// Clobbers: `memory`.
+/// writes zero to port 0x80; any delay depends on the platform.
+/// requires I/O permission through IOPL or the TSS I/O bitmap.
 pub fn ioWait() void {
     comptime target.require();
 

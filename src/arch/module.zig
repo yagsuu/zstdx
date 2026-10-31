@@ -13,4 +13,5 @@ test {
     _ = @import("x86_64/register/efer.zig").unit;
     _ = @import("x86_64/register/rflags.zig").unit;
     _ = @import("x86_64/register/segment.zig").unit;
+    _ = @import("x86_64/vmx.zig").unit;
 }
