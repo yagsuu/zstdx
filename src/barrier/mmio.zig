@@ -1,32 +1,18 @@
-//! MMIO paired fences. See `docs/specs/barrier/dma.md`. Each operation uses
-//! `@compileError` on non-x86_64 targets.
+//! does not guarantee posted-write or device completion.
 
-const builtin = @import("builtin");
+const fence = @import("arch").x86_64.fence;
 
-const x86_64 = @import("arch").x86_64;
-
-const wrong_target = "stdx.barrier.mmio: unsupported target; requires an arch spec beyond arch/x86_64";
-
-/// Orders prior stores to caller memory before a following MMIO store reaches
-/// the device. Emits `sfence` on x86_64 with a `memory` clobber. It does not
-/// synchronize across CPUs beyond the ISA rules or flush caches.
+/// orders prior stores before subsequent stores.
 pub inline fn release() void {
-    if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.fence.sfence();
+    fence.sfence();
 }
 
-/// Orders a preceding MMIO load before following memory reads. Emits `lfence`
-/// on x86_64 with a `memory` clobber. It does not synchronize across CPUs
-/// beyond the ISA rules.
+/// orders prior loads before subsequent loads.
 pub inline fn acquire() void {
-    if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.fence.lfence();
+    fence.lfence();
 }
 
-/// Orders prior stores and MMIO accesses before subsequent stores and loads on
-/// the same CPU. Emits `mfence` on x86_64 with a `memory` clobber. Use the
-/// cheaper `release` or `acquire` when only one direction is necessary.
-pub inline fn releaseAcquire() void {
-    if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.fence.mfence();
+/// orders prior loads and stores before subsequent loads and stores.
+pub inline fn full() void {
+    fence.mfence();
 }

@@ -1,30 +1,19 @@
-//! DMA paired fences. See `docs/specs/barrier/dma.md`. Each operation uses
-//! `@compileError` on non-x86_64 targets.
+//! requires coherent DMA mappings or separate cache maintenance.
+//! does not wait for device completion.
 
-const builtin = @import("builtin");
+const fence = @import("arch").x86_64.fence;
 
-const x86_64 = @import("arch").x86_64;
-
-const wrong_target = "stdx.barrier.dma: unsupported target; requires an arch spec beyond arch/x86_64";
-
-/// Orders prior stores to caller memory before a following store that the
-/// device observes through DMA. Emits `sfence` on x86_64 with a `memory`
-/// clobber. Cache-maintenance sequences are not owned by this API.
+/// orders prior stores before subsequent stores.
 pub inline fn release() void {
-    if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.fence.sfence();
+    fence.sfence();
 }
 
-/// Orders a preceding load of DMA-written data before subsequent loads from
-/// related caller memory. Emits `lfence` on x86_64 with a `memory` clobber.
+/// orders prior loads before subsequent loads.
 pub inline fn acquire() void {
-    if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.fence.lfence();
+    fence.lfence();
 }
 
-/// Orders prior DMA-visible stores before subsequent DMA-visible loads on the
-/// same CPU. Emits `mfence` on x86_64 with a `memory` clobber.
-pub inline fn releaseAcquire() void {
-    if (builtin.cpu.arch != .x86_64) @compileError(wrong_target);
-    x86_64.fence.mfence();
+/// orders prior loads and stores before subsequent loads and stores.
+pub inline fn full() void {
+    fence.mfence();
 }

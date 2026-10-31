@@ -104,6 +104,11 @@ pub fn addHostTests(
             continue;
         }
 
+        if (std.mem.eql(u8, category, "barrier")) {
+            addSuite(b, category_step, check_step, modules.barrier);
+            continue;
+        }
+
         if (std.mem.eql(u8, category, "cpu")) {
             addSuite(b, category_step, check_step, modules.cpu);
         }
