@@ -41,7 +41,7 @@ pub const VMCB = extern struct {
 /// Faults: may `#GP` or `#UD`.
 /// Clobbers: `memory`.
 pub fn vmrun(vmcb: PhysAddr) void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("vmrun"
         :
         : [vmcb] "{rax}" (@intFromEnum(vmcb)),
@@ -52,7 +52,7 @@ pub fn vmrun(vmcb: PhysAddr) void {
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn vmload(vmcb: PhysAddr) void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("vmload"
         :
         : [vmcb] "{rax}" (@intFromEnum(vmcb)),
@@ -63,7 +63,7 @@ pub fn vmload(vmcb: PhysAddr) void {
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn vmsave(vmcb: PhysAddr) void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("vmsave"
         :
         : [vmcb] "{rax}" (@intFromEnum(vmcb)),
@@ -75,7 +75,7 @@ pub fn vmsave(vmcb: PhysAddr) void {
 /// Requirements: `EFER.SVME = 1`.
 /// Clobbers: `memory`.
 pub fn stgi() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("stgi" ::: .{ .memory = true });
 }
 
@@ -85,7 +85,7 @@ pub fn stgi() void {
 /// Requirements: `EFER.SVME = 1`.
 /// Clobbers: `memory`.
 pub fn clgi() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("clgi" ::: .{ .memory = true });
 }
 
@@ -93,7 +93,7 @@ pub fn clgi() void {
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn invlpga(virt_addr: u64, asid: u32) void {
-    target.ensureSupported();
+    comptime target.require();
 
     asm volatile ("invlpga"
         :
@@ -107,7 +107,7 @@ pub fn invlpga(virt_addr: u64, asid: u32) void {
 /// Privilege: CPL 0.
 /// Clobbers: `memory`.
 pub fn skinit(base: u32) noreturn {
-    target.ensureSupported();
+    comptime target.require();
 
     asm volatile ("skinit"
         :

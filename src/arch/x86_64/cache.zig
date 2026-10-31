@@ -9,7 +9,7 @@ const target = @import("target.zig");
 /// Cache-flush line size in bytes, from `CPUID.1:EBX[15:8] * 8`.
 /// Falls back to 64 when CPUID does not advertise a size.
 pub fn lineSize() usize {
-    target.ensureSupported();
+    comptime target.require();
 
     const ebx = cpuid.leaf(.feature_info).ebx;
     const clflush_qwords: u32 = (ebx >> 8) & 0xff;
@@ -21,7 +21,7 @@ pub fn lineSize() usize {
 /// Privilege: unprivileged.
 /// Clobbers: `memory`.
 pub fn flush(addr: usize) void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("clflush (%[addr])"
         :
         : [addr] "r" (addr),
@@ -32,7 +32,7 @@ pub fn flush(addr: usize) void {
 /// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLFLUSHOPT`.
 /// Clobbers: `memory`.
 pub fn flushOptimized(addr: usize) void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("clflushopt (%[addr])"
         :
         : [addr] "r" (addr),
@@ -43,7 +43,7 @@ pub fn flushOptimized(addr: usize) void {
 /// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLWB`.
 /// Clobbers: `memory`.
 pub fn writeBack(addr: usize) void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("clwb (%[addr])"
         :
         : [addr] "r" (addr),
@@ -54,7 +54,7 @@ pub fn writeBack(addr: usize) void {
 /// Contract: `ptr + len` must not wrap; `len == 0` does nothing.
 /// Privilege: unprivileged.
 pub fn flushRange(ptr: [*]const u8, len: usize) void {
-    target.ensureSupported();
+    comptime target.require();
     rangeWalk(ptr, len, flush);
 }
 
@@ -62,7 +62,7 @@ pub fn flushRange(ptr: [*]const u8, len: usize) void {
 /// Contract: `ptr + len` must not wrap; `len == 0` does nothing.
 /// Privilege: unprivileged.
 pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
-    target.ensureSupported();
+    comptime target.require();
     rangeWalk(ptr, len, writeBack);
 }
 
@@ -70,7 +70,7 @@ pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
 pub fn writeBackInvalidate() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("wbinvd" ::: .{ .memory = true });
 }
 
@@ -79,12 +79,12 @@ pub fn writeBackInvalidate() void {
 /// Effects: loses dirty cache state when no prior write-back was issued.
 /// Clobbers: `memory`.
 pub fn invalidate() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("invd" ::: .{ .memory = true });
 }
 
 fn rangeWalk(ptr: [*]const u8, len: usize, comptime op: fn (usize) void) void {
-    target.ensureSupported();
+    comptime target.require();
 
     const line = lineSize();
 

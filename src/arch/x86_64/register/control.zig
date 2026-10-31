@@ -47,7 +47,7 @@ pub const cr0 = struct {
 
     /// Privilege: CPL 0.
     pub fn read() CR0 {
-        target.ensureSupported();
+        comptime target.require();
         return CR0.fromInt(asm volatile ("mov %%cr0, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -56,7 +56,7 @@ pub const cr0 = struct {
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR0) void {
-        target.ensureSupported();
+        comptime target.require();
         asm volatile ("mov %[v], %%cr0"
             :
             : [v] "r" (value.raw()),
@@ -92,7 +92,7 @@ pub const cr2 = struct {
 
     /// Privilege: CPL 0.
     pub fn read() CR2 {
-        target.ensureSupported();
+        comptime target.require();
         return CR2.fromInt(asm volatile ("mov %%cr2, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -101,7 +101,7 @@ pub const cr2 = struct {
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR2) void {
-        target.ensureSupported();
+        comptime target.require();
         asm volatile ("mov %[v], %%cr2"
             :
             : [v] "r" (value.raw()),
@@ -207,7 +207,7 @@ pub const cr3 = struct {
 
     /// Privilege: CPL 0.
     pub fn read() CR3 {
-        target.ensureSupported();
+        comptime target.require();
         return CR3.fromInt(asm volatile ("mov %%cr3, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -217,7 +217,7 @@ pub const cr3 = struct {
     /// Effects: may invalidate TLB entries per architectural rules.
     /// Clobbers: `memory`.
     pub fn write(value: CR3) void {
-        target.ensureSupported();
+        comptime target.require();
         asm volatile ("mov %[v], %%cr3"
             :
             : [v] "r" (value.raw()),
@@ -305,7 +305,7 @@ pub const cr4 = struct {
 
     /// Privilege: CPL 0.
     pub fn read() CR4 {
-        target.ensureSupported();
+        comptime target.require();
         return CR4.fromInt(asm volatile ("mov %%cr4, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -315,7 +315,7 @@ pub const cr4 = struct {
     /// Faults: `#GP` on reserved-bit violations.
     /// Clobbers: `memory`.
     pub fn write(value: CR4) void {
-        target.ensureSupported();
+        comptime target.require();
         asm volatile ("mov %[v], %%cr4"
             :
             : [v] "r" (value.raw()),
@@ -352,7 +352,7 @@ pub const cr8 = struct {
 
     /// Privilege: CPL 0.
     pub fn read() CR8 {
-        target.ensureSupported();
+        comptime target.require();
         return CR8.fromInt(asm volatile ("mov %%cr8, %[ret]"
             : [ret] "=r" (-> u64),
         ));
@@ -361,7 +361,7 @@ pub const cr8 = struct {
     /// Privilege: CPL 0.
     /// Clobbers: `memory`.
     pub fn write(value: CR8) void {
-        target.ensureSupported();
+        comptime target.require();
         asm volatile ("mov %[v], %%cr8"
             :
             : [v] "r" (value.raw()),
@@ -412,7 +412,7 @@ pub const xcr0 = struct {
 
     /// Requirements: `CR4.osxsave`.
     pub fn read() XCR0 {
-        target.ensureSupported();
+        comptime target.require();
 
         var lo: u32 = undefined;
         var hi: u32 = undefined;
@@ -431,7 +431,7 @@ pub const xcr0 = struct {
     /// Faults: `#GP` when bits violate CPU support.
     /// Clobbers: `memory`.
     pub fn write(value: XCR0) void {
-        target.ensureSupported();
+        comptime target.require();
 
         const lo: u32 = @truncate(value.raw());
         const hi: u32 = @truncate(value.raw() >> 32);

@@ -8,14 +8,14 @@ const target = @import("target.zig");
 /// Effects: halts the CPU until the next interrupt.
 /// Clobbers: `memory`.
 pub fn halt() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("hlt" ::: .{ .memory = true });
 }
 
 /// Privilege: unprivileged.
 /// Clobbers: `memory`.
 pub fn pause() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("pause" ::: .{ .memory = true });
 }
 
@@ -23,7 +23,7 @@ pub fn pause() void {
 /// Faults: raises `#BP`; behavior depends on the installed handler.
 /// Clobbers: `memory`.
 pub fn breakpoint() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("int3" ::: .{ .memory = true });
 }
 
@@ -42,7 +42,7 @@ pub const tsc = struct {
     /// Ordering: not serializing.
     /// Clobbers: registers only.
     pub fn read() u64 {
-        target.ensureSupported();
+        comptime target.require();
 
         var lo: u32 = undefined;
         var hi: u32 = undefined;
@@ -60,7 +60,7 @@ pub const tsc = struct {
     /// Ordering: partially serializing on prior instructions.
     /// Clobbers: `eax`, `ecx`, `edx`.
     pub fn readSerializing() Reading {
-        target.ensureSupported();
+        comptime target.require();
 
         var lo: u32 = undefined;
         var hi: u32 = undefined;
@@ -111,7 +111,7 @@ pub const tlb = struct {
     /// Faults: `#GP` at CPL > 0.
     /// Clobbers: `memory`.
     pub fn invalidatePage(addr: usize) void {
-        target.ensureSupported();
+        comptime target.require();
         asm volatile ("invlpg (%[addr])"
             :
             : [addr] "r" (addr),
@@ -123,7 +123,7 @@ pub const tlb = struct {
     /// Faults: `#GP` at CPL > 0; `#UD` when unsupported.
     /// Clobbers: `memory`.
     pub fn invalidatePCID(kind: INVPCIDKind, descriptor: *const INVPCIDDescriptor) void {
-        target.ensureSupported();
+        comptime target.require();
         asm volatile ("invpcid (%%rdx), %%rax"
             :
             : [kind] "{rax}" (@as(u64, @intFromEnum(kind))),

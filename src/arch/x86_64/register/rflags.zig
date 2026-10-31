@@ -50,7 +50,7 @@ const target = @import("../target.zig");
 
 /// Privilege: unprivileged.
 pub fn read() RFLAGS {
-    target.ensureSupported();
+    comptime target.require();
     return RFLAGS.fromInt(asm volatile (
         \\pushfq
         \\popq %[ret]
@@ -62,7 +62,7 @@ pub fn read() RFLAGS {
 /// Effects: bits the caller cannot modify at the current CPL are silently ignored.
 /// Clobbers: `memory`, `cc`.
 pub fn write(value: RFLAGS) void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile (
         \\pushq %[v]
         \\popfq

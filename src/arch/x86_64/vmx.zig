@@ -123,7 +123,7 @@ inline fn mapRflags(rflags: u64) Error!void {
 /// Faults: may `#GP` or `#UD`.
 /// Returns: `Error!void` mapped from RFLAGS.
 pub fn vmxon(region: *const PhysAddr) Error!void {
-    target.ensureSupported();
+    comptime target.require();
     var rflags: u64 = undefined;
     asm volatile (
         \\vmxon %[region]
@@ -138,7 +138,7 @@ pub fn vmxon(region: *const PhysAddr) Error!void {
 /// Privilege: CPL 0.
 /// Requirements: VMX root operation.
 pub fn vmxoff() Error!void {
-    target.ensureSupported();
+    comptime target.require();
     var rflags: u64 = undefined;
     asm volatile (
         \\vmxoff
@@ -153,7 +153,7 @@ pub fn vmxoff() Error!void {
 /// Effects: marks the VMCS inactive and clear on the logical processor.
 /// Privilege: CPL 0.
 pub fn vmclear(vmcs: *const PhysAddr) Error!void {
-    target.ensureSupported();
+    comptime target.require();
     var rflags: u64 = undefined;
     asm volatile (
         \\vmclear %[vmcs]
@@ -168,7 +168,7 @@ pub fn vmclear(vmcs: *const PhysAddr) Error!void {
 /// Effects: makes the referenced region the current VMCS.
 /// Privilege: CPL 0.
 pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
-    target.ensureSupported();
+    comptime target.require();
 
     var rflags: u64 = undefined;
     asm volatile (
@@ -185,7 +185,7 @@ pub fn vmptrld(vmcs: *const PhysAddr) Error!void {
 /// Effects: writes the current VMCS pointer, or all-ones when no VMCS is current.
 /// Privilege: CPL 0.
 pub fn vmptrst(out: *PhysAddr) Error!void {
-    target.ensureSupported();
+    comptime target.require();
 
     var rflags: u64 = undefined;
     asm volatile (
@@ -202,7 +202,7 @@ pub fn vmptrst(out: *PhysAddr) Error!void {
 /// Effects: on success, transfers control to the guest (`noreturn`).
 /// Privilege: CPL 0.
 pub fn vmlaunch() Error!noreturn {
-    target.ensureSupported();
+    comptime target.require();
 
     var rflags: u64 = undefined;
     asm volatile (
@@ -220,7 +220,7 @@ pub fn vmlaunch() Error!noreturn {
 /// Effects: on success, transfers control to the guest (`noreturn`).
 /// Privilege: CPL 0.
 pub fn vmresume() Error!noreturn {
-    target.ensureSupported();
+    comptime target.require();
 
     var rflags: u64 = undefined;
     asm volatile (
@@ -239,7 +239,7 @@ pub fn vmresume() Error!noreturn {
 /// 32-bit VMCS field encoding.
 /// Privilege: CPL 0.
 pub fn vmread(encoding: u32) Error!u64 {
-    target.ensureSupported();
+    comptime target.require();
 
     var value: u64 = undefined;
     var rflags: u64 = undefined;
@@ -260,7 +260,7 @@ pub fn vmread(encoding: u32) Error!u64 {
 /// bits are still exchanged as `u64`.
 /// Privilege: CPL 0.
 pub fn vmwrite(encoding: u32, value: u64) Error!void {
-    target.ensureSupported();
+    comptime target.require();
 
     var rflags: u64 = undefined;
     asm volatile (
@@ -279,7 +279,7 @@ pub fn vmwrite(encoding: u32, value: u64) Error!void {
 /// Effects: invalidates EPT-derived mappings on the issuing logical processor.
 /// Privilege: CPL 0.
 pub fn invept(kind: InveptKind, descriptor: *const InveptDescriptor) Error!void {
-    target.ensureSupported();
+    comptime target.require();
 
     var rflags: u64 = undefined;
     asm volatile (
@@ -297,7 +297,7 @@ pub fn invept(kind: InveptKind, descriptor: *const InveptDescriptor) Error!void 
 /// Effects: invalidates VPID-tagged mappings on the issuing logical processor.
 /// Privilege: CPL 0.
 pub fn invvpid(kind: InvvpidKind, descriptor: *const InvvpidDescriptor) Error!void {
-    target.ensureSupported();
+    comptime target.require();
 
     var rflags: u64 = undefined;
     asm volatile (

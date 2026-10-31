@@ -17,7 +17,7 @@ pub const Port = enum(u16) {
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
     pub fn in8(self: Port) u8 {
-        target.ensureSupported();
+        comptime target.require();
 
         return asm volatile ("inb %[port], %[ret]"
             : [ret] "={al}" (-> u8),
@@ -29,7 +29,7 @@ pub const Port = enum(u16) {
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
     pub fn in16(self: Port) u16 {
-        target.ensureSupported();
+        comptime target.require();
 
         return asm volatile ("inw %[port], %[ret]"
             : [ret] "={ax}" (-> u16),
@@ -41,7 +41,7 @@ pub const Port = enum(u16) {
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
     pub fn in32(self: Port) u32 {
-        target.ensureSupported();
+        comptime target.require();
 
         return asm volatile ("inl %[port], %[ret]"
             : [ret] "={eax}" (-> u32),
@@ -53,7 +53,7 @@ pub const Port = enum(u16) {
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
     pub fn out8(self: Port, value: u8) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("outb %[value], %[port]"
             :
@@ -66,7 +66,7 @@ pub const Port = enum(u16) {
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
     pub fn out16(self: Port, value: u16) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("outw %[value], %[port]"
             :
@@ -79,7 +79,7 @@ pub const Port = enum(u16) {
     /// Faults: `#GP` when access is denied.
     /// Clobbers: `memory`.
     pub fn out32(self: Port, value: u32) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("outl %[value], %[port]"
             :
@@ -91,7 +91,7 @@ pub const Port = enum(u16) {
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice8(self: Port, dst: []u8) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("rep insb"
             :
@@ -104,7 +104,7 @@ pub const Port = enum(u16) {
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice16(self: Port, dst: []u16) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("rep insw"
             :
@@ -117,7 +117,7 @@ pub const Port = enum(u16) {
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rdi`, `memory`.
     pub fn inSlice32(self: Port, dst: []u32) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("rep insl"
             :
@@ -130,7 +130,7 @@ pub const Port = enum(u16) {
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice8(self: Port, src: []const u8) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("rep outsb"
             :
@@ -143,7 +143,7 @@ pub const Port = enum(u16) {
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice16(self: Port, src: []const u16) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("rep outsw"
             :
@@ -156,7 +156,7 @@ pub const Port = enum(u16) {
     /// Requirements: `DF` clear and slice alignment.
     /// Clobbers: `rcx`, `rsi`, `memory`.
     pub fn outSlice32(self: Port, src: []const u32) void {
-        target.ensureSupported();
+        comptime target.require();
 
         asm volatile ("rep outsl"
             :
@@ -171,7 +171,7 @@ pub const Port = enum(u16) {
 /// Faults: `#GP` when access is denied.
 /// Clobbers: `memory`.
 pub fn ioWait() void {
-    target.ensureSupported();
+    comptime target.require();
 
     asm volatile ("outb %[v], $0x80"
         :

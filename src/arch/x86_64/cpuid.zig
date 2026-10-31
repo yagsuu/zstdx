@@ -25,13 +25,13 @@ pub const Leaf = enum(u32) {
 
 /// Privilege: unprivileged.
 pub fn leaf(which: Leaf) Result {
-    target.ensureSupported();
+    comptime target.require();
     return subleaf(which, 0);
 }
 
 /// Privilege: unprivileged.
 pub fn subleaf(which: Leaf, sub: u32) Result {
-    target.ensureSupported();
+    comptime target.require();
 
     var a: u32 = undefined;
     var b: u32 = undefined;
@@ -52,14 +52,14 @@ pub fn subleaf(which: Leaf, sub: u32) Result {
 /// Returns the highest basic CPUID leaf supported by the running CPU.
 /// Privilege: unprivileged.
 pub fn maxBasicLeaf() u32 {
-    target.ensureSupported();
+    comptime target.require();
     return leaf(.max_basic).eax;
 }
 
 /// Returns the highest extended CPUID leaf supported by the running CPU.
 /// Privilege: unprivileged.
 pub fn maxExtendedLeaf() u32 {
-    target.ensureSupported();
+    comptime target.require();
     return leaf(.max_extended).eax;
 }
 
@@ -429,7 +429,7 @@ pub const cache = struct {
         index: u32,
 
         pub fn next(self: *Iterator) ?cache.Descriptor {
-            target.ensureSupported();
+            comptime target.require();
 
             if (maxBasicLeaf() < 4) return null;
 
@@ -466,7 +466,7 @@ pub const AddressSizes = struct {
 
 /// Returns the CPU vendor decoded from CPUID leaf 0.
 pub fn vendor() Vendor {
-    target.ensureSupported();
+    comptime target.require();
 
     const s = vendorString();
     if (std.mem.eql(u8, &s, "GenuineIntel")) return .intel;
@@ -483,7 +483,7 @@ pub fn vendor() Vendor {
 /// Raw 12-byte vendor string. Bytes 0..3 = EBX, 4..7 = EDX, 8..11 = ECX
 /// per Intel SDM Vol.2 Appendix A.
 pub fn vendorString() [12]u8 {
-    target.ensureSupported();
+    comptime target.require();
 
     const r = leaf(.max_basic);
     var out: [12]u8 = @splat(0);
@@ -497,7 +497,7 @@ pub fn vendorString() [12]u8 {
 /// Decode displayed family/model/stepping from CPUID leaf 1 EAX per
 /// Intel SDM Vol.2 Chapter 3 / AMD APM Vol.3 §CPUID Fn0000_0001_EAX.
 pub fn version() Version {
-    target.ensureSupported();
+    comptime target.require();
 
     const eax = leaf(.feature_info).eax;
     const base_family: u4 = @truncate(eax >> 8);
@@ -520,7 +520,7 @@ pub fn version() Version {
 /// Concatenated brand string from leaves `0x80000002..0x80000004`.
 /// Returns `null` when the leaves are unavailable.
 pub fn brandString() ?[48]u8 {
-    target.ensureSupported();
+    comptime target.require();
 
     if (maxExtendedLeaf() < 0x8000_0004) return null;
 
@@ -539,7 +539,7 @@ pub fn brandString() ?[48]u8 {
 
 /// Fetches CPUID leaf 1 EDX/ECX as typed feature masks.
 pub fn basicFeatures() BasicFeatures {
-    target.ensureSupported();
+    comptime target.require();
 
     const r = leaf(.feature_info);
     return .{
@@ -551,7 +551,7 @@ pub fn basicFeatures() BasicFeatures {
 /// Fetches CPUID leaf 7 subleaf 0 EBX/ECX/EDX as typed feature masks.
 /// Returns an all-zero bundle when `maxBasicLeaf() < 7`.
 pub fn structuredFeatures() StructuredFeatures {
-    target.ensureSupported();
+    comptime target.require();
 
     if (maxBasicLeaf() < 7) {
         return .{
@@ -572,7 +572,7 @@ pub fn structuredFeatures() StructuredFeatures {
 /// Fetches CPUID leaf `0x80000001` EDX/ECX as typed feature masks.
 /// Returns an all-zero bundle when `maxExtendedLeaf() < 0x80000001`.
 pub fn extendedFeatures() ExtendedFeatures {
-    target.ensureSupported();
+    comptime target.require();
 
     if (maxExtendedLeaf() < 0x8000_0001) {
         return .{
@@ -590,7 +590,7 @@ pub fn extendedFeatures() ExtendedFeatures {
 
 /// One-shot fetch of every feature-mask bundle owned by this spec.
 pub fn features() Features {
-    target.ensureSupported();
+    comptime target.require();
     return .{
         .basic = basicFeatures(),
         .structured = structuredFeatures(),
@@ -600,14 +600,14 @@ pub fn features() Features {
 
 /// Returns a fresh iterator over leaf-4 cache descriptors.
 pub fn caches() cache.Iterator {
-    target.ensureSupported();
+    comptime target.require();
     return .{ .index = 0 };
 }
 
 /// Decode leaf `0x80000008` address widths. Returns the documented
 /// 32-bit fallback when the leaf is unavailable.
 pub fn addressSizes() AddressSizes {
-    target.ensureSupported();
+    comptime target.require();
 
     if (maxExtendedLeaf() < 0x8000_0008) {
         return .{ .physical_bits = 32, .linear_bits = 32, .guest_physical_bits = 0 };

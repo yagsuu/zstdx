@@ -6,6 +6,6 @@ const segment = @import("register/segment.zig");
 /// The `rpl` field of the current CS selector is the architectural CPL.
 /// Privilege: unprivileged.
 pub fn currentLevel() u2 {
-    target.ensureSupported();
+    comptime target.require();
     return segment.cs.read().rpl;
 }

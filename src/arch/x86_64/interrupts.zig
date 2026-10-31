@@ -7,7 +7,7 @@ const rflags = @import("register/rflags.zig");
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
 pub fn enable() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("sti" ::: .{ .memory = true });
 }
 
@@ -15,13 +15,13 @@ pub fn enable() void {
 /// Faults: `#GP` at CPL > 0.
 /// Clobbers: `memory`.
 pub fn disable() void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("cli" ::: .{ .memory = true });
 }
 
 /// Returns whether the `IF` bit in `RFLAGS` is set.
 /// Privilege: unprivileged.
 pub fn enabled() bool {
-    target.ensureSupported();
+    comptime target.require();
     return (rflags.read() & (1 << 9)) != 0;
 }

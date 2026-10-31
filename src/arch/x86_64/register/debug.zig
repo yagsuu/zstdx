@@ -224,14 +224,14 @@ pub const dr7 = struct {
 };
 
 fn readDebug(comptime T: type, comptime name: []const u8) T {
-    target.ensureSupported();
+    comptime target.require();
     return T.fromInt(asm volatile ("mov %%" ++ name ++ ", %[ret]"
         : [ret] "=r" (-> u64),
     ));
 }
 
 fn writeDebug(comptime T: type, comptime name: []const u8, value: T) void {
-    target.ensureSupported();
+    comptime target.require();
     asm volatile ("mov %[v], %%" ++ name
         :
         : [v] "r" (value.raw()),

@@ -54,7 +54,7 @@ pub const MSR = enum(u32) {
     /// Faults: `#GP` on unimplemented MSRs.
     /// Clobbers: `memory`.
     pub fn read(self: MSR) u64 {
-        target.ensureSupported();
+        comptime target.require();
 
         var lo: u32 = undefined;
         var hi: u32 = undefined;
@@ -71,7 +71,7 @@ pub const MSR = enum(u32) {
     /// Faults: `#GP` on unimplemented MSRs or reserved-bit violations.
     /// Clobbers: `memory`.
     pub fn write(self: MSR, value: u64) void {
-        target.ensureSupported();
+        comptime target.require();
 
         const lo: u32 = @truncate(value);
         const hi: u32 = @truncate(value >> 32);
