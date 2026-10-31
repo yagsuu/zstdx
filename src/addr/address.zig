@@ -214,7 +214,7 @@ pub const unit = struct {
         try testing.expectError(error.Misaligned, castAligned(*const u64, unaligned));
     }
 
-    test "unit: address arithmetic detects overflow and underflow" {
+    test "address arithmetic detects overflow and underflow" {
         const a = A.from(10);
 
         try testing.expectEqual(@as(u8, 12), (try a.add(2)).raw());
@@ -245,7 +245,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, A.max().offset(1));
     }
 
-    test "unit: address alignment preserves rounding and errors" {
+    test "address alignment preserves rounding and errors" {
         const a = A.from(10);
         const up = try a.alignUp(8);
         const down = try a.alignDown(8);
@@ -259,7 +259,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, A.max().alignUp(8));
     }
 
-    test "unit: address arithmetic and alignment work at comptime" {
+    test "address arithmetic and alignment work at comptime" {
         comptime {
             const a = A.from(10);
             const rounded = try a.alignUp(8);

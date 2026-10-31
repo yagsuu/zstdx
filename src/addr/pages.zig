@@ -298,7 +298,7 @@ pub const unit = struct {
     const A = address.Address(opaque {}, u8);
     const P = Page(A, 4);
 
-    test "unit: page families distinguish address domains and page sizes" {
+    test "page families distinguish address domains and page sizes" {
         const Phys4K = Page(address.PhysAddr, _4kib);
         const Virt4K = Page(address.VirtAddr, _4kib);
         const Phys2M = Page(address.PhysAddr, _2mib);
@@ -307,7 +307,7 @@ pub const unit = struct {
         try testing.expect(Phys4K.Base != Phys2M.Base);
     }
 
-    test "unit: page counts preserve checked byte rounding" {
+    test "page counts preserve checked byte rounding" {
         try testing.expectEqual(@as(u8, 2), (try P.Count.fromBytes(8)).raw());
         try testing.expectError(error.Misaligned, P.Count.fromBytes(5));
         try testing.expectEqual(@as(u8, 0), (try P.Count.fromBytesCeil(0)).raw());
@@ -319,7 +319,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, P.Count.max().bytes());
     }
 
-    test "unit: page bases validate alignment and checked page arithmetic" {
+    test "page bases validate alignment and checked page arithmetic" {
         const frame = try P.Base.fromInt(8);
         const next = try frame.add(P.Count.from(2));
         const previous = try frame.sub(P.Count.from(1));
@@ -338,7 +338,7 @@ pub const unit = struct {
         try testing.expectError(error.Misaligned, @as(P.Base, @enumFromInt(1)).add(P.Count.zero()));
     }
 
-    test "unit: page range construction checks alignment and endpoints" {
+    test "page range construction checks alignment and endpoints" {
         const base = try P.Base.fromInt(8);
         const range = try P.Range.init(base, P.Count.from(3));
         const from_bytes = try P.Range.fromBytes(A.from(8), 8);
@@ -366,7 +366,7 @@ pub const unit = struct {
         try testing.expect(!invalid.isValid());
     }
 
-    test "unit: half-open range operations preserve empty boundaries" {
+    test "half-open range operations preserve empty boundaries" {
         const left = try P.Range.fromBytes(A.from(8), 12);
         const right = try P.Range.fromBytes(A.from(20), 8);
         const middle = try P.Range.fromBytes(A.from(12), 8);
@@ -391,7 +391,7 @@ pub const unit = struct {
         try testing.expectEqual(empty, empty.span(empty));
     }
 
-    test "unit: range splitting accepts endpoints and rejects outside boundaries" {
+    test "range splitting accepts endpoints and rejects outside boundaries" {
         const range = try P.Range.fromBytes(A.from(8), 12);
         const split = try range.splitAt(try P.Base.fromInt(12));
         const at_start = try range.splitAt(range.base);
@@ -412,7 +412,7 @@ pub const unit = struct {
         try testing.expectError(error.OutOfBounds, range.splitAt(try P.Base.fromInt(24)));
     }
 
-    test "unit: page arithmetic and range endpoints work at comptime" {
+    test "page arithmetic and range endpoints work at comptime" {
         comptime {
             const count = try P.Count.fromBytesCeil(7);
             const frame = try P.Base.fromInt(8);

@@ -381,7 +381,7 @@ fn requireNonZeroUnsignedInt(comptime T: type) void {
 pub const unit = struct {
     const testing = std.testing;
 
-    test "unit: half-open construction preserves empty bounds and detects overflow" {
+    test "half-open construction preserves empty bounds and detects overflow" {
         const R = Range(u64);
         const literal = comptime R.of(5, 9);
         const empty = comptime R.of(7, 7);
@@ -394,7 +394,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, R.fromStartLen(std.math.maxInt(u64), 1));
     }
 
-    test "unit: half-open containment and intersection exclude the final endpoint and empty ranges" {
+    test "half-open containment and intersection exclude the final endpoint and empty ranges" {
         const R = Range(u64);
         const range = try R.init(10, 20);
         const empty = R.empty(15);
@@ -412,7 +412,7 @@ pub const unit = struct {
         try testing.expectEqual(R.of(0, 20), range.span(R.of(0, 12)));
     }
 
-    test "unit: half-open splits admit endpoints while offsets exclude the end" {
+    test "half-open splits admit endpoints while offsets exclude the end" {
         const R = Range(u64);
         const range = R.of(10, 20);
 
@@ -428,7 +428,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(?u64, null), range.atOffset(10));
     }
 
-    test "unit: half-open shifts preserve length and report overflow in both directions" {
+    test "half-open shifts preserve length and report overflow in both directions" {
         const R = Range(u64);
         const range = R.of(10, 20);
         const high = R.of(std.math.maxInt(u64) - 1, std.math.maxInt(u64));
@@ -439,7 +439,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, high.shiftForward(2));
     }
 
-    test "unit: inclusive construction rejects inverted bounds and unrepresentable cardinality" {
+    test "inclusive construction rejects inverted bounds and unrepresentable cardinality" {
         const R = InclusiveRange(u8);
         const literal = comptime R.of(5, 9);
 
@@ -453,7 +453,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, R.fromStartLen(250, 7));
     }
 
-    test "unit: inclusive length covers singleton and maximum representable cardinalities" {
+    test "inclusive length covers singleton and maximum representable cardinalities" {
         const R = InclusiveRange(u8);
         const U16Domain = InclusiveRange(u32);
         const all_u16 = comptime U16Domain.of(0, std.math.maxInt(u16));
@@ -464,7 +464,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(u32, 65_536), all_u16.len());
     }
 
-    test "unit: inclusive containment and intersection include shared endpoints" {
+    test "inclusive containment and intersection include shared endpoints" {
         const R = InclusiveRange(u8);
         const range = R.of(10, 20);
 
@@ -485,7 +485,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, R.single(0).span(R.single(255)));
     }
 
-    test "unit: inclusive splits share the split point and offsets include the end" {
+    test "inclusive splits share the split point and offsets include the end" {
         const R = InclusiveRange(u8);
         const range = R.of(10, 20);
         const prefix = try range.prefix(14);
@@ -505,7 +505,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(?u8, null), range.offsetOf(21));
     }
 
-    test "unit: inclusive shifts preserve bounds and report overflow in both directions" {
+    test "inclusive shifts preserve bounds and report overflow in both directions" {
         const R = InclusiveRange(u8);
         const range = R.of(10, 20);
 
@@ -515,7 +515,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, R.of(250, 255).shiftForward(1));
     }
 
-    test "unit: range conversions preserve bounds and reject an unrepresentable exclusive end" {
+    test "range conversions preserve bounds and reject an unrepresentable exclusive end" {
         const R = Range(u8);
         const I = InclusiveRange(u8);
         const inclusive = I.fromRange(R.of(10, 20)).?;
