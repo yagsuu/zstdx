@@ -3,6 +3,7 @@
 const std = @import("std");
 
 const layout = @import("layout");
+const ranges = @import("ranges");
 
 pub const PhysTag = opaque {};
 pub const VirtTag = opaque {};
@@ -25,6 +26,7 @@ pub fn Address(comptime DomainT: type, comptime IntT: type) type {
 
         pub const Domain = DomainT;
         pub const Int = IntT;
+        pub const Range = ranges.Range(Self);
 
         pub const OverflowError = error{Overflow};
         pub const AlignError = error{InvalidAlignment};
@@ -147,6 +149,34 @@ pub const unit = struct {
     const testing = std.testing;
 
     const A = Address(opaque {}, u8);
+
+    test "address ranges preserve exclusive bounds and byte offsets" {
+        const range = try A.Range.fromStartLen(A.from(10), 10);
+        const other = try A.Range.init(A.from(15), A.from(25));
+        const overlap = range.intersection(other).?;
+
+        try testing.expectEqual(@as(u8, 10), range.len());
+        try testing.expect(range.contains(A.from(10)));
+        try testing.expect(!range.contains(A.from(20)));
+        try testing.expectEqual(A.from(15), overlap.start);
+        try testing.expectEqual(A.from(20), overlap.end);
+        try testing.expectEqual(@as(?u8, 3), range.offsetOf(A.from(13)));
+        try testing.expectEqual(@as(?A, A.from(13)), range.atOffset(3));
+        try testing.expectEqual(@as(?A, null), range.atOffset(10));
+        try testing.expect(!range.overlaps(A.Range.empty(A.from(15))));
+    }
+
+    test "address range construction and shifts reject unrepresentable endpoints" {
+        const high = try A.Range.init(A.from(250), A.max());
+        const shifted = try high.shiftBackward(5);
+
+        try testing.expectEqual(A.from(245), shifted.start);
+        try testing.expectEqual(A.from(250), shifted.end);
+        try testing.expectError(error.InvalidRange, A.Range.init(A.from(2), A.from(1)));
+        try testing.expectError(error.Overflow, A.Range.fromStartLen(A.max(), 1));
+        try testing.expectError(error.Overflow, high.shiftForward(1));
+        try testing.expectError(error.Overflow, high.shiftBackward(251));
+    }
 
     test "address casts preserve byte offsets across domains" {
         var bytes = [_]u8{ 10, 20, 30, 40 };

@@ -1,15 +1,15 @@
-//! Half-open `[start, end)` and inclusive `[start, end]` ranges over unsigned
-//! integers.
+//! half-open ranges over unsigned integers or typed addresses; inclusive ranges over unsigned integers.
 
 const std = @import("std");
 
 pub fn Range(comptime T: type) type {
-    comptime requireUnsignedInt(T);
+    const Value = RangeEndpoint(T);
     return struct {
         start: T,
         end: T,
 
         const Self = @This();
+        pub const Int = Value.Int;
 
         pub const InvalidRangeError = error{InvalidRange};
         pub const OverflowError = error{Overflow};
@@ -17,22 +17,22 @@ pub fn Range(comptime T: type) type {
         pub const Error = InvalidRangeError || OverflowError || OutOfBoundsError;
 
         pub fn init(start: T, end: T) InvalidRangeError!Self {
-            if (end < start) {
+            if (Value.raw(end) < Value.raw(start)) {
                 return error.InvalidRange;
             }
             return .{ .start = start, .end = end };
         }
 
         pub fn of(comptime start: T, comptime end: T) Self {
-            if (end < start) {
+            if (comptime Value.raw(end) < Value.raw(start)) {
                 @compileError("Range.of requires start <= end");
             }
             return .{ .start = start, .end = end };
         }
 
-        pub fn fromStartLen(start: T, length: T) OverflowError!Self {
-            const end = std.math.add(T, start, length) catch return error.Overflow;
-            return .{ .start = start, .end = end };
+        pub fn fromStartLen(start: T, length: Int) OverflowError!Self {
+            const end = std.math.add(Int, Value.raw(start), length) catch return error.Overflow;
+            return .{ .start = start, .end = Value.from(end) };
         }
 
         pub fn empty(at: T) Self {
@@ -44,12 +44,12 @@ pub fn Range(comptime T: type) type {
         }
 
         pub fn isValid(self: Self) bool {
-            return self.start <= self.end;
+            return Value.raw(self.start) <= Value.raw(self.end);
         }
 
-        pub fn len(self: Self) T {
+        pub fn len(self: Self) Int {
             self.assertValid();
-            return self.end - self.start;
+            return Value.raw(self.end) - Value.raw(self.start);
         }
 
         pub fn isEmpty(self: Self) bool {
@@ -59,19 +59,19 @@ pub fn Range(comptime T: type) type {
 
         pub fn contains(self: Self, value: T) bool {
             self.assertValid();
-            return value >= self.start and value < self.end;
+            return Value.raw(value) >= Value.raw(self.start) and Value.raw(value) < Value.raw(self.end);
         }
 
         pub fn containsRange(self: Self, other: Self) bool {
             self.assertValid();
             other.assertValid();
-            return other.start >= self.start and other.end <= self.end;
+            return Value.raw(other.start) >= Value.raw(self.start) and Value.raw(other.end) <= Value.raw(self.end);
         }
 
         pub fn overlaps(self: Self, other: Self) bool {
             self.assertValid();
             other.assertValid();
-            return @max(self.start, other.start) < @min(self.end, other.end);
+            return @max(Value.raw(self.start), Value.raw(other.start)) < @min(Value.raw(self.end), Value.raw(other.end));
         }
 
         pub fn isAdjacent(self: Self, other: Self) bool {
@@ -84,28 +84,28 @@ pub fn Range(comptime T: type) type {
             self.assertValid();
             other.assertValid();
 
-            const start = @max(self.start, other.start);
-            const end = @min(self.end, other.end);
+            const start = @max(Value.raw(self.start), Value.raw(other.start));
+            const end = @min(Value.raw(self.end), Value.raw(other.end));
 
             if (end <= start) {
                 return null;
             }
 
-            return .{ .start = start, .end = end };
+            return .{ .start = Value.from(start), .end = Value.from(end) };
         }
 
         pub fn span(self: Self, other: Self) Self {
             self.assertValid();
             other.assertValid();
             return .{
-                .start = @min(self.start, other.start),
-                .end = @max(self.end, other.end),
+                .start = Value.from(@min(Value.raw(self.start), Value.raw(other.start))),
+                .end = Value.from(@max(Value.raw(self.end), Value.raw(other.end))),
             };
         }
 
         pub fn prefix(self: Self, point: T) OutOfBoundsError!Self {
             self.assertValid();
-            if (point < self.start or point > self.end) {
+            if (Value.raw(point) < Value.raw(self.start) or Value.raw(point) > Value.raw(self.end)) {
                 return error.OutOfBounds;
             }
             return .{ .start = self.start, .end = point };
@@ -113,40 +113,43 @@ pub fn Range(comptime T: type) type {
 
         pub fn suffix(self: Self, point: T) OutOfBoundsError!Self {
             self.assertValid();
-            if (point < self.start or point > self.end) {
+            if (Value.raw(point) < Value.raw(self.start) or Value.raw(point) > Value.raw(self.end)) {
                 return error.OutOfBounds;
             }
             return .{ .start = point, .end = self.end };
         }
 
-        pub fn offsetOf(self: Self, value: T) ?T {
+        pub fn offsetOf(self: Self, value: T) ?Int {
             if (!self.contains(value)) {
                 return null;
             }
-            return value - self.start;
+            return Value.raw(value) - Value.raw(self.start);
         }
 
-        pub fn atOffset(self: Self, offset: T) ?T {
+        pub fn atOffset(self: Self, offset: Int) ?T {
             if (offset >= self.len()) {
                 return null;
             }
-            return self.start + offset;
+            return Value.from(Value.raw(self.start) + offset);
         }
 
-        pub fn shiftForward(self: Self, amount: T) OverflowError!Self {
+        pub fn shiftForward(self: Self, amount: Int) OverflowError!Self {
             self.assertValid();
 
-            const start = std.math.add(T, self.start, amount) catch return error.Overflow;
-            const end = std.math.add(T, self.end, amount) catch return error.Overflow;
-            return .{ .start = start, .end = end };
+            const start = std.math.add(Int, Value.raw(self.start), amount) catch return error.Overflow;
+            const end = std.math.add(Int, Value.raw(self.end), amount) catch return error.Overflow;
+            return .{ .start = Value.from(start), .end = Value.from(end) };
         }
 
-        pub fn shiftBackward(self: Self, amount: T) OverflowError!Self {
+        pub fn shiftBackward(self: Self, amount: Int) OverflowError!Self {
             self.assertValid();
-            if (amount > self.start) {
+            if (amount > Value.raw(self.start)) {
                 return error.Overflow;
             }
-            return .{ .start = self.start - amount, .end = self.end - amount };
+            return .{
+                .start = Value.from(Value.raw(self.start) - amount),
+                .end = Value.from(Value.raw(self.end) - amount),
+            };
         }
     };
 }
@@ -327,6 +330,36 @@ pub fn InclusiveRange(comptime T: type) type {
 
         pub fn assertValid(self: Self) void {
             std.debug.assert(self.isValid());
+        }
+    };
+}
+
+fn RangeEndpoint(comptime T: type) type {
+    const Backing = switch (@typeInfo(T)) {
+        .int => T,
+        .@"enum" => if (@hasDecl(T, "Int") and @hasDecl(T, "from") and @hasDecl(T, "raw"))
+            T.Int
+        else
+            @compileError("Range requires an unsigned integer or address endpoint"),
+        else => @compileError("Range requires an unsigned integer or address endpoint"),
+    };
+    comptime requireUnsignedInt(Backing);
+
+    return struct {
+        pub const Int = Backing;
+
+        fn raw(value: T) Int {
+            if (comptime T == Int) {
+                return value;
+            }
+            return value.raw();
+        }
+
+        fn from(value: Int) T {
+            if (comptime T == Int) {
+                return value;
+            }
+            return T.from(value);
         }
     };
 }

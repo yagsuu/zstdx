@@ -100,6 +100,7 @@ pub const Modules = struct {
 
         addImports(modules.addr, &.{
             .{ "layout", modules.layout },
+            .{ "ranges", modules.ranges },
         });
 
         addImports(modules.algo, &.{
