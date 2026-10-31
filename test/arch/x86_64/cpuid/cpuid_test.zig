@@ -1,278 +1,94 @@
-//! x86_64 CPUID decoder contract tests.
-//! See `docs/specs/arch/x86_64/cpuid.md`.
+//! host-safe CPUID query integration.
 
 const std = @import("std");
-const builtin = @import("builtin");
-
 const stdx = @import("stdx");
 
 const x86 = stdx.arch.x86_64;
 const cpuid = x86.cpuid;
-
 const testing = std.testing;
 
-// Compile-only structural tests asserting every layout invariant the spec's
-// "Required tests" section pins. These execute at comptime; on non-x86_64
-// targets they still fire because the mask/bundle types have no asm gate.
-
-comptime {
-    // Every feature mask is a packed-struct-of-u32 with @sizeOf == 4.
-    // Spec §Feature masks.
-    const masks = .{
-        cpuid.BasicFeatureEdx,
-        cpuid.BasicFeatureEcx,
-        cpuid.StructuredEbx,
-        cpuid.StructuredEcx,
-        cpuid.StructuredEdx,
-        cpuid.ExtendedFeatureEdx,
-        cpuid.ExtendedFeatureEcx,
-    };
-    for (masks) |M| {
-        std.debug.assert(@bitSizeOf(M) == 32);
-        std.debug.assert(@sizeOf(M) == 4);
-        std.debug.assert(@typeInfo(M).@"struct".layout == .@"packed");
-        std.debug.assert(@typeInfo(M).@"struct".backing_integer == u32);
+test "vendor bytes follow architectural register order" {
+    if (!x86.supported) {
+        return;
     }
 
-    // `@bitCast(u32, BasicFeatureEdx{}) == 0`; the default-initialized mask
-    // has every named bit `false` and every reserved slot 0.
-    std.debug.assert(@as(u32, @bitCast(cpuid.BasicFeatureEdx{
-        .fpu = false,
-        .vme = false,
-        .de = false,
-        .pse = false,
-        .tsc = false,
-        .msr = false,
-        .pae = false,
-        .mce = false,
-        .cx8 = false,
-        .apic = false,
-        .sep = false,
-        .mtrr = false,
-        .pge = false,
-        .mca = false,
-        .cmov = false,
-        .pat = false,
-        .pse36 = false,
-        .psn = false,
-        .clflush = false,
-        .ds = false,
-        .acpi = false,
-        .mmx = false,
-        .fxsr = false,
-        .sse = false,
-        .sse2 = false,
-        .ss = false,
-        .htt = false,
-        .tm = false,
-        .pbe = false,
-    })) == 0);
+    const identity = cpuid.query(.max_basic, 0);
+    const vendor = cpuid.vendorString();
 
-    // `@bitCast(BasicFeatureEdx, @as(u32, 0))` reconstructs an all-false
-    // mask; check one representative field.
-    const zero_mask: cpuid.BasicFeatureEdx = @bitCast(@as(u32, 0));
-    std.debug.assert(zero_mask.fpu == false);
-    std.debug.assert(zero_mask.tsc == false);
-
-    // Bundle sizes. Spec §Feature bundles.
-    std.debug.assert(@sizeOf(cpuid.BasicFeatures) == 8);
-    std.debug.assert(@sizeOf(cpuid.StructuredFeatures) == 12);
-    std.debug.assert(@sizeOf(cpuid.ExtendedFeatures) == 8);
-    std.debug.assert(@sizeOf(cpuid.Features) == 28);
-
-    // `hasReserved` exists on every mask type with signature
-    // `fn (mask) bool`.
-    std.debug.assert(@TypeOf(cpuid.BasicFeatureEdx.hasReserved) == fn (cpuid.BasicFeatureEdx) bool);
-    std.debug.assert(@TypeOf(cpuid.BasicFeatureEcx.hasReserved) == fn (cpuid.BasicFeatureEcx) bool);
-    std.debug.assert(@TypeOf(cpuid.StructuredEbx.hasReserved) == fn (cpuid.StructuredEbx) bool);
-    std.debug.assert(@TypeOf(cpuid.StructuredEcx.hasReserved) == fn (cpuid.StructuredEcx) bool);
-    std.debug.assert(@TypeOf(cpuid.StructuredEdx.hasReserved) == fn (cpuid.StructuredEdx) bool);
-    std.debug.assert(@TypeOf(cpuid.ExtendedFeatureEdx.hasReserved) == fn (cpuid.ExtendedFeatureEdx) bool);
-    std.debug.assert(@TypeOf(cpuid.ExtendedFeatureEcx.hasReserved) == fn (cpuid.ExtendedFeatureEcx) bool);
-
-    // Vendor enum: exactly seven tags in the documented order. Spec
-    // §Vendor and version.
-    const vendor_info = @typeInfo(cpuid.Vendor).@"enum";
-    std.debug.assert(vendor_info.fields.len == 7);
-    std.debug.assert(std.mem.eql(u8, vendor_info.fields[0].name, "intel"));
-    std.debug.assert(std.mem.eql(u8, vendor_info.fields[1].name, "amd"));
-    std.debug.assert(std.mem.eql(u8, vendor_info.fields[6].name, "unknown"));
-
-    // cache.Kind: `enum(u5)` with `_` sentinel (i.e., non-exhaustive).
-    // Spec §Cache topology.
-    const kind_info = @typeInfo(cpuid.cache.Kind).@"enum";
-    std.debug.assert(kind_info.tag_type == u5);
-    std.debug.assert(!kind_info.is_exhaustive);
-    std.debug.assert(@intFromEnum(cpuid.cache.Kind.null) == 0);
-    std.debug.assert(@intFromEnum(cpuid.cache.Kind.data) == 1);
-    std.debug.assert(@intFromEnum(cpuid.cache.Kind.instruction) == 2);
-    std.debug.assert(@intFromEnum(cpuid.cache.Kind.unified) == 3);
-
-    // Version field types match the spec's Approved API block.
-    std.debug.assert(@FieldType(cpuid.Version, "family") == u12);
-    std.debug.assert(@FieldType(cpuid.Version, "model") == u8);
-    std.debug.assert(@FieldType(cpuid.Version, "stepping") == u4);
-    std.debug.assert(@FieldType(cpuid.Version, "eax") == u32);
-
-    // AddressSizes field types.
-    std.debug.assert(@FieldType(cpuid.AddressSizes, "physical_bits") == u8);
-    std.debug.assert(@FieldType(cpuid.AddressSizes, "linear_bits") == u8);
-    std.debug.assert(@FieldType(cpuid.AddressSizes, "guest_physical_bits") == u8);
+    try testing.expectEqual(identity.ebx, std.mem.readInt(u32, vendor[0..4], .little));
+    try testing.expectEqual(identity.edx, std.mem.readInt(u32, vendor[4..8], .little));
+    try testing.expectEqual(identity.ecx, std.mem.readInt(u32, vendor[8..12], .little));
 }
 
-// Compile-only accessor signatures: every asm-emitting accessor exists on
-// x86_64 with the exact spec signature. On non-x86 builds the module still
-// imports; only asm-emitting bodies would trigger `@compileError`, and none
-// is referenced as a value here (function-type queries are comptime).
+test "brand and address widths match available extended leaves" {
+    if (!x86.supported) {
+        return;
+    }
 
-fn expectFn(comptime T: type, comptime f: anytype) void {
-    comptime testing.expectEqual(T, @TypeOf(f)) catch unreachable;
-}
+    const maximum = cpuid.maxExtendedLeaf();
+    const brand = cpuid.brandString();
+    const widths = cpuid.addressSizes();
 
-test "contract: cpuid vendor/version/brand accessors instantiate" {
-    if (!x86.supported) return;
-    expectFn(fn () cpuid.Vendor, cpuid.vendor);
-    expectFn(fn () [12]u8, cpuid.vendorString);
-    expectFn(fn () cpuid.Version, cpuid.version);
-    expectFn(fn () ?[48]u8, cpuid.brandString);
-}
+    if (maximum >= cpuid.Leaf.brand_3.raw()) {
+        const bytes = brand.?;
+        inline for (.{ cpuid.Leaf.brand_1, cpuid.Leaf.brand_2, cpuid.Leaf.brand_3 }, 0..) |which, index| {
+            const raw = cpuid.query(which, 0);
+            const block = bytes[index * 16 ..][0..16];
 
-test "contract: cpuid feature accessors instantiate" {
-    if (!x86.supported) return;
-    expectFn(fn () cpuid.BasicFeatures, cpuid.basicFeatures);
-    expectFn(fn () cpuid.StructuredFeatures, cpuid.structuredFeatures);
-    expectFn(fn () cpuid.ExtendedFeatures, cpuid.extendedFeatures);
-    expectFn(fn () cpuid.Features, cpuid.features);
-}
+            try testing.expectEqual(raw.eax, std.mem.readInt(u32, block[0..4], .little));
+            try testing.expectEqual(raw.ebx, std.mem.readInt(u32, block[4..8], .little));
+            try testing.expectEqual(raw.ecx, std.mem.readInt(u32, block[8..12], .little));
+            try testing.expectEqual(raw.edx, std.mem.readInt(u32, block[12..16], .little));
+        }
+    } else {
+        try testing.expectEqual(@as(?[48]u8, null), brand);
+    }
 
-test "contract: cpuid caches/addressSizes instantiate" {
-    if (!x86.supported) return;
-    expectFn(fn () cpuid.cache.Iterator, cpuid.caches);
-    expectFn(fn () cpuid.AddressSizes, cpuid.addressSizes);
-    expectFn(fn (*cpuid.cache.Iterator) ?cpuid.cache.Descriptor, cpuid.cache.Iterator.next);
-}
+    if (maximum >= cpuid.Leaf.address_sizes.raw()) {
+        const raw = cpuid.query(.address_sizes, 0);
 
-// Value-only model assertions that do not depend on the running CPU.
-
-test "model: hasReserved returns true when a reserved bit is set" {
-    // BasicFeatureEdx reserved bits are at positions 10, 20, 30. Set bit 10.
-    const raw: u32 = 1 << 10;
-    const mask: cpuid.BasicFeatureEdx = @bitCast(raw);
-    try testing.expect(mask.hasReserved());
-    // Confirm round-trip preserves the bit.
-    try testing.expectEqual(raw, @as(u32, @bitCast(mask)));
-}
-
-test "model: hasReserved is false on a zeroed mask" {
-    const mask: cpuid.BasicFeatureEdx = @bitCast(@as(u32, 0));
-    try testing.expect(!mask.hasReserved());
-}
-
-test "model: BasicFeatureEcx round-trips a reserved bit at position 16" {
-    // Ecx reserved bit is at 16.
-    const raw: u32 = 1 << 16;
-    const mask: cpuid.BasicFeatureEcx = @bitCast(raw);
-    try testing.expect(mask.hasReserved());
-    try testing.expectEqual(raw, @as(u32, @bitCast(mask)));
-}
-
-test "model: ExtendedFeatureEdx wide reserved run sets hasReserved" {
-    // ExtendedFeatureEdx bits 0..10 are all reserved. Set bit 0.
-    const raw: u32 = 1 << 0;
-    const mask: cpuid.ExtendedFeatureEdx = @bitCast(raw);
-    try testing.expect(mask.hasReserved());
-}
-
-// Host-safe runtime tests: non-x86 hosts early-return so the module still
-// compiles.
-
-test "unit: vendor returns intel, amd, or unknown" {
-    if (builtin.cpu.arch != .x86_64) return;
-    const v = cpuid.vendor();
-    try testing.expect(v == .intel or v == .amd or v == .unknown);
-}
-
-test "unit: vendorString matches vendor enum prefix" {
-    if (builtin.cpu.arch != .x86_64) return;
-    const s = cpuid.vendorString();
-    switch (cpuid.vendor()) {
-        .intel => try testing.expectEqualSlices(u8, "Genu", s[0..4]),
-        .amd => try testing.expectEqualSlices(u8, "Auth", s[0..4]),
-        else => {},
+        try testing.expectEqual(raw.eax & 0xFF, @as(u32, widths.physical_bits));
+        try testing.expectEqual((raw.eax >> 8) & 0xFF, @as(u32, widths.linear_bits));
+        try testing.expectEqual((raw.eax >> 16) & 0xFF, @as(u32, widths.guest_physical_bits));
+    } else {
+        try testing.expectEqual(cpuid.AddressSizes{
+            .physical_bits = 32,
+            .linear_bits = 32,
+            .guest_physical_bits = 0,
+        }, widths);
     }
 }
 
-test "unit: version.family is at least 6 on modern CPUs" {
-    if (builtin.cpu.arch != .x86_64) return;
-    const v = cpuid.version();
-    try testing.expect(v.family >= 6);
-}
-
-test "unit: basicFeatures FPU and TSC are true; reserved is clean" {
-    if (builtin.cpu.arch != .x86_64) return;
-    const bf = cpuid.basicFeatures();
-    try testing.expect(bf.edx.fpu);
-    try testing.expect(bf.edx.tsc);
-    try testing.expect(!bf.edx.hasReserved());
-}
-
-test "unit: features() bundle matches individual accessors" {
-    if (builtin.cpu.arch != .x86_64) return;
-    const bundle = cpuid.features();
-    const basic = cpuid.basicFeatures();
-    const structured = cpuid.structuredFeatures();
-    const extended = cpuid.extendedFeatures();
-
-    try testing.expectEqual(@as(u32, @bitCast(basic.edx)), @as(u32, @bitCast(bundle.basic.edx)));
-    try testing.expectEqual(@as(u32, @bitCast(basic.ecx)), @as(u32, @bitCast(bundle.basic.ecx)));
-    try testing.expectEqual(@as(u32, @bitCast(structured.ebx)), @as(u32, @bitCast(bundle.structured.ebx)));
-    try testing.expectEqual(@as(u32, @bitCast(structured.ecx)), @as(u32, @bitCast(bundle.structured.ecx)));
-    try testing.expectEqual(@as(u32, @bitCast(structured.edx)), @as(u32, @bitCast(bundle.structured.edx)));
-    try testing.expectEqual(@as(u32, @bitCast(extended.edx)), @as(u32, @bitCast(bundle.extended.edx)));
-    try testing.expectEqual(@as(u32, @bitCast(extended.ecx)), @as(u32, @bitCast(bundle.extended.ecx)));
-}
-
-test "unit: caches iterator produces well-formed L1 descriptor when populated" {
-    if (builtin.cpu.arch != .x86_64) return;
-    // Leaf 4 is Intel-defined; modern AMD implements it partially per
-    // spec §Cache topology. On AMD hosts where leaf 4 is empty (Ryzen
-    // returns all zeros, deferring topology to leaf 0x8000001D), the
-    // iterator correctly returns null on the first call; skip the L1
-    // shape assertion in that case per the spec's "when leaf 4 is
-    // populated" wording.
-    if (cpuid.maxBasicLeaf() < 4) return;
-
-    var it = cpuid.caches();
-    var seen_l1_64 = false;
-    var count: u32 = 0;
-    while (it.next()) |desc| : (count += 1) {
-        try testing.expect(count < 32);
-        try testing.expect(desc.level >= 1 and desc.level <= 4);
-        try testing.expect(desc.line_size > 0);
-        try testing.expect(desc.ways > 0);
-        try testing.expect(desc.sets > 0);
-        if (desc.level == 1 and desc.line_size == 64) seen_l1_64 = true;
+test "leaf four iteration follows raw subleaves through the terminator" {
+    if (!x86.supported) {
+        return;
     }
-    // Spec required-test bullet: on hosts where leaf 4 is populated, at
-    // least one descriptor is L1 with a 64-byte line. Hosts where leaf 4
-    // returns 0 (Ryzen defers to leaf 0x8000001D) skip this bullet.
-    if (count == 0) return;
-    try testing.expect(seen_l1_64);
-}
 
-test "unit: brandString returns non-null printable ASCII on modern CPUs" {
-    if (builtin.cpu.arch != .x86_64) return;
-    const brand = cpuid.brandString() orelse return error.TestSkipped;
-    const trimmed = std.mem.sliceTo(&brand, 0);
-    try testing.expect(trimmed.len > 0);
-    for (trimmed) |c| {
-        // Printable ASCII plus space per Intel SDM leaf 0x80000002..4.
-        try testing.expect(c >= 0x20 and c <= 0x7E);
+    var iterator = cpuid.caches();
+    if (cpuid.maxBasicLeaf() < cpuid.Leaf.cache_parameters.raw()) {
+        const descriptor = iterator.next();
+
+        try testing.expectEqual(@as(?cpuid.Cache.Descriptor, null), descriptor);
+        return;
     }
-}
 
-test "unit: addressSizes physical_bits is between 32 and 57" {
-    if (builtin.cpu.arch != .x86_64) return;
-    const s = cpuid.addressSizes();
-    try testing.expect(s.physical_bits >= 32 and s.physical_bits <= 57);
+    var index: u32 = 0;
+    while (iterator.next()) |descriptor| : (index += 1) {
+        const raw = cpuid.query(.cache_parameters, index);
+
+        try testing.expectEqual(raw, cpuid.Result{
+            .eax = descriptor.eax,
+            .ebx = descriptor.ebx,
+            .ecx = descriptor.ecx,
+            .edx = descriptor.edx,
+        });
+        try testing.expect(raw.eax & 31 != 0);
+    }
+
+    const terminator = cpuid.query(.cache_parameters, index);
+    const exhausted = iterator.next();
+
+    try testing.expectEqual(@as(u32, 0), terminator.eax & 31);
+    try testing.expectEqual(index, iterator.subleaf);
+    try testing.expectEqual(@as(?cpuid.Cache.Descriptor, null), exhausted);
 }

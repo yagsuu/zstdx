@@ -1,106 +1,156 @@
-//! x86_64 cache maintenance wrappers. See `docs/specs/arch/x86_64.md`.
+//! cache maintenance operates on whole cache lines.
+//! callers own ordering and completion; maintenance alone does not establish
+//! persistence or device completion.
 
 const std = @import("std");
 
-const debug = @import("core").debug;
 const cpuid = @import("cpuid.zig");
 const target = @import("target.zig");
 
-/// Cache-flush line size in bytes, from `CPUID.1:EBX[15:8] * 8`.
-/// Falls back to 64 when CPUID does not advertise a size.
+/// requires CLFLUSH support and a nonzero power-of-two advertised line size.
 pub fn lineSize() usize {
-    comptime target.require();
+    const result = cpuid.basicFeatures();
+    std.debug.assert(result.edx.clflush);
 
-    const ebx = cpuid.leaf(.feature_info).ebx;
-    const clflush_qwords: u32 = (ebx >> 8) & 0xff;
-    if (clflush_qwords == 0) return 64;
-
-    return @as(usize, clflush_qwords) * 8;
+    const line = @as(usize, result.ebx.clflush_units) * 8;
+    std.debug.assert(line != 0);
+    std.debug.assert(std.math.isPowerOfTwo(line));
+    return line;
 }
 
-/// Privilege: unprivileged.
-/// Clobbers: `memory`.
-pub fn flush(addr: usize) void {
+/// requires:
+/// - CLFLUSH support
+/// - an address accessible at the current privilege level
+pub fn flush(address: usize) void {
     comptime target.require();
-    asm volatile ("clflush (%[addr])"
+    asm volatile ("clflush (%[address])"
         :
-        : [addr] "r" (addr),
+        : [address] "r" (address),
         : .{ .memory = true });
 }
 
-/// Privilege: unprivileged.
-/// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLFLUSHOPT`.
-/// Clobbers: `memory`.
-pub fn flushOptimized(addr: usize) void {
+/// requires:
+/// - CLFLUSHOPT support
+/// - an address accessible at the current privilege level
+pub fn flushOptimized(address: usize) void {
     comptime target.require();
-    asm volatile ("clflushopt (%[addr])"
+    asm volatile ("clflushopt (%[address])"
         :
-        : [addr] "r" (addr),
+        : [address] "r" (address),
         : .{ .memory = true });
 }
 
-/// Privilege: unprivileged.
-/// Requirements: CPUID leaf 7 subleaf 0 `EBX.CLWB`.
-/// Clobbers: `memory`.
-pub fn writeBack(addr: usize) void {
+/// requires:
+/// - CLWB support
+/// - an address accessible at the current privilege level
+pub fn writeBack(address: usize) void {
     comptime target.require();
-    asm volatile ("clwb (%[addr])"
+    asm volatile ("clwb (%[address])"
         :
-        : [addr] "r" (addr),
+        : [address] "r" (address),
         : .{ .memory = true });
 }
 
-/// Flushes every cache line intersecting `[ptr, ptr + len)`.
-/// Contract: `ptr + len` must not wrap; `len == 0` does nothing.
-/// Privilege: unprivileged.
+/// flushes every cache line intersecting `[ptr, ptr + len)`.
+/// an empty range performs no cache operation.
+///
+/// requires:
+/// - CLFLUSH support for nonempty ranges
+/// - accessible memory
+/// - nonwrapping `ptr + len`
 pub fn flushRange(ptr: [*]const u8, len: usize) void {
     comptime target.require();
-    rangeWalk(ptr, len, flush);
+    if (len == 0) {
+        return;
+    }
+
+    Impl.forEachLine(@intFromPtr(ptr), len, lineSize(), flush);
 }
 
-/// Writes back every cache line intersecting `[ptr, ptr + len)`.
-/// Contract: `ptr + len` must not wrap; `len == 0` does nothing.
-/// Privilege: unprivileged.
+/// writes back every cache line intersecting `[ptr, ptr + len)`.
+/// an empty range performs no cache operation.
+///
+/// requires:
+/// - CLWB and CLFLUSH support for nonempty ranges
+/// - accessible memory
+/// - nonwrapping `ptr + len`
 pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
     comptime target.require();
-    rangeWalk(ptr, len, writeBack);
+    if (len == 0) {
+        return;
+    }
+
+    Impl.forEachLine(@intFromPtr(ptr), len, lineSize(), writeBack);
 }
 
-/// Privilege: CPL 0.
-/// Faults: `#GP` at CPL > 0.
-/// Clobbers: `memory`.
+/// requires privilege level 0.
 pub fn writeBackInvalidate() void {
     comptime target.require();
     asm volatile ("wbinvd" ::: .{ .memory = true });
 }
 
-/// Privilege: CPL 0.
-/// Faults: `#GP` at CPL > 0.
-/// Effects: loses dirty cache state when no prior write-back was issued.
-/// Clobbers: `memory`.
+/// requires privilege level 0.
+///
+/// warning: discards dirty cache data without writing it back.
 pub fn invalidate() void {
     comptime target.require();
     asm volatile ("invd" ::: .{ .memory = true });
 }
 
-fn rangeWalk(ptr: [*]const u8, len: usize, comptime op: fn (usize) void) void {
-    comptime target.require();
-
-    const line = lineSize();
-
-    std.debug.assert(line > 0);
-    std.debug.assert(std.math.isPowerOfTwo(line));
-
-    const start = @intFromPtr(ptr);
-    if (debug.checksEnabled()) {
+const Impl = struct {
+    fn forEachLine(start: usize, len: usize, line: usize, comptime operation: fn (usize) void) void {
+        std.debug.assert(line != 0);
+        std.debug.assert(std.math.isPowerOfTwo(line));
         std.debug.assert(len <= std.math.maxInt(usize) - start);
+
+        if (len == 0) {
+            return;
+        }
+
+        const last = (start + len - 1) & ~(line - 1);
+        var cursor = start & ~(line - 1);
+
+        while (true) {
+            operation(cursor);
+
+            if (cursor == last) {
+                break;
+            }
+
+            cursor += line;
+        }
+    }
+};
+
+pub const unit = struct {
+    var addresses: [4]usize = undefined;
+    var count: usize = 0;
+
+    test "range traversal visits exact intersecting lines without a final increment" {
+        const max = std.math.maxInt(usize);
+        const cases = [_]struct { start: usize, len: usize, line: usize, expected: []const usize }{
+            .{ .start = 63, .len = 66, .line = 64, .expected = &.{ 0, 64, 128 } },
+            .{ .start = 65, .len = 1, .line = 64, .expected = &.{64} },
+            .{ .start = 64, .len = 64, .line = 64, .expected = &.{64} },
+            .{ .start = 63, .len = 1, .line = 64, .expected = &.{0} },
+            .{ .start = 63, .len = 2, .line = 64, .expected = &.{ 0, 64 } },
+            .{ .start = max, .len = 0, .line = 64, .expected = &.{} },
+            .{ .start = max - 64, .len = 64, .line = 64, .expected = &.{ max - 127, max - 63 } },
+            .{ .start = max - 1, .len = 1, .line = 64, .expected = &.{max - 63} },
+            .{ .start = max - 1, .len = 1, .line = 1, .expected = &.{max - 1} },
+        };
+
+        for (cases) |case| {
+            count = 0;
+            Impl.forEachLine(case.start, case.len, case.line, collect);
+
+            try std.testing.expectEqualSlices(usize, case.expected, addresses[0..count]);
+        }
     }
 
-    const end = std.math.add(usize, start, len) catch return;
-    if (len == 0) return;
-
-    var cursor = start & ~(line - 1);
-    while (cursor < end) : (cursor += line) {
-        op(cursor);
+    fn collect(address: usize) void {
+        std.debug.assert(count < addresses.len);
+        addresses[count] = address;
+        count += 1;
     }
-}
+};

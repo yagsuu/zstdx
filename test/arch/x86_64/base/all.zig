@@ -5,5 +5,4 @@ comptime {
     _ = @import("interrupts_test.zig");
     _ = @import("privilege_test.zig");
     _ = @import("fence_test.zig");
-    _ = @import("cache_test.zig");
 }

@@ -1,10 +1,33 @@
-//! x86_64 CPUID decoders. See `docs/specs/arch/x86_64/cpuid.md`.
+//! unprivileged x86_64 CPUID queries and decoders.
 
 const std = @import("std");
 
 const target = @import("target.zig");
 
-/// Snapshot of the four CPUID output registers from a single `cpuid` call.
+pub const Leaf = enum(u32) {
+    max_basic = 0x0000_0000,
+    basic_features = 0x0000_0001,
+    cache_parameters = 0x0000_0004,
+    structured_features = 0x0000_0007,
+    max_extended = 0x8000_0000,
+    extended_features = 0x8000_0001,
+    brand_1 = 0x8000_0002,
+    brand_2 = 0x8000_0003,
+    brand_3 = 0x8000_0004,
+    address_sizes = 0x8000_0008,
+    _,
+
+    const Self = @This();
+
+    pub fn from(value: u32) Self {
+        return @enumFromInt(value);
+    }
+
+    pub fn raw(self: Self) u32 {
+        return @intFromEnum(self);
+    }
+};
+
 pub const Result = struct {
     eax: u32,
     ebx: u32,
@@ -12,59 +35,6 @@ pub const Result = struct {
     edx: u32,
 };
 
-/// Named CPUID leaves used inside zstdx. Callers needing a vendor- or
-/// model-specific leaf pass `@enumFromInt(value)`; the tag is open.
-pub const Leaf = enum(u32) {
-    max_basic = 0x0,
-    feature_info = 0x1,
-    structured_extended_features = 0x7,
-    max_extended = 0x8000_0000,
-    extended_feature_bits = 0x8000_0001,
-    _,
-};
-
-/// Privilege: unprivileged.
-pub fn leaf(which: Leaf) Result {
-    comptime target.require();
-    return subleaf(which, 0);
-}
-
-/// Privilege: unprivileged.
-pub fn subleaf(which: Leaf, sub: u32) Result {
-    comptime target.require();
-
-    var a: u32 = undefined;
-    var b: u32 = undefined;
-    var c: u32 = undefined;
-    var d: u32 = undefined;
-    asm volatile ("cpuid"
-        : [a] "={eax}" (a),
-          [b] "={ebx}" (b),
-          [c] "={ecx}" (c),
-          [d] "={edx}" (d),
-        : [a_in] "{eax}" (@intFromEnum(which)),
-          [c_in] "{ecx}" (sub),
-    );
-
-    return .{ .eax = a, .ebx = b, .ecx = c, .edx = d };
-}
-
-/// Returns the highest basic CPUID leaf supported by the running CPU.
-/// Privilege: unprivileged.
-pub fn maxBasicLeaf() u32 {
-    comptime target.require();
-    return leaf(.max_basic).eax;
-}
-
-/// Returns the highest extended CPUID leaf supported by the running CPU.
-/// Privilege: unprivileged.
-pub fn maxExtendedLeaf() u32 {
-    comptime target.require();
-    return leaf(.max_extended).eax;
-}
-
-/// CPU vendor decoded from CPUID leaf 0 `EBX:EDX:ECX`. Unrecognized
-/// vendor strings map to `.unknown`.
 pub const Vendor = enum {
     intel,
     amd,
@@ -73,75 +43,117 @@ pub const Vendor = enum {
     transmeta,
     centaur,
     unknown,
+
+    pub fn decode(bytes: [12]u8) Vendor {
+        const suffix = bytes[1..];
+        switch (bytes[0]) {
+            'A' => {
+                if (std.mem.eql(u8, suffix, "uthenticAMD")) {
+                    return .amd;
+                }
+            },
+            'C' => {
+                if (std.mem.eql(u8, suffix, "entaurHauls")) {
+                    return .centaur;
+                }
+                if (std.mem.eql(u8, suffix, "yrixInstead")) {
+                    return .cyrix;
+                }
+            },
+            'G' => {
+                if (std.mem.eql(u8, suffix, "enuineIntel")) {
+                    return .intel;
+                }
+                if (std.mem.eql(u8, suffix, "enuineTMx86")) {
+                    return .transmeta;
+                }
+            },
+            'T' => {
+                if (std.mem.eql(u8, suffix, "ransmetaCPU")) {
+                    return .transmeta;
+                }
+            },
+            'V' => {
+                if (std.mem.eql(u8, suffix, "IA VIA VIA ")) {
+                    return .via;
+                }
+            },
+            else => {},
+        }
+
+        return .unknown;
+    }
 };
 
-/// Displayed family/model/stepping decoded from CPUID leaf 1 EAX. `eax`
-/// preserves the raw register for callers who need the type bits
-/// (`EAX[13:12]`) or full processor-signature reconstruction.
+/// family and model include signature extensions where applicable.
 pub const Version = struct {
     family: u12,
     model: u8,
     stepping: u4,
     eax: u32,
-};
 
-fn maskHasReserved(comptime T: type, self: T) bool {
-    inline for (@typeInfo(T).@"struct".fields) |f| {
-        if (comptime std.mem.startsWith(u8, f.name, "_reserved_")) {
-            if (@field(self, f.name) != 0) return true;
+    pub fn decode(signature: Signature) Version {
+        var family: u12 = signature.family;
+        if (signature.family == 0xF) {
+            family += signature.extended_family;
         }
-    }
-    return false;
-}
 
-/// CPUID leaf 1 EDX feature mask. Named bits follow Intel SDM Vol.2
-/// Chapter 3. Reserved bit positions are `_reserved_N: u1 = 0` so
-/// `@bitCast(u32, mask)` round-trips.
-pub const BasicFeatureEdx = packed struct(u32) {
-    fpu: bool,
-    vme: bool,
-    de: bool,
-    pse: bool,
-    tsc: bool,
-    msr: bool,
-    pae: bool,
-    mce: bool,
-    cx8: bool,
-    apic: bool,
-    _reserved_10: u1 = 0,
-    sep: bool,
-    mtrr: bool,
-    pge: bool,
-    mca: bool,
-    cmov: bool,
-    pat: bool,
-    pse36: bool,
-    psn: bool,
-    clflush: bool,
-    _reserved_20: u1 = 0,
-    ds: bool,
-    acpi: bool,
-    mmx: bool,
-    fxsr: bool,
-    sse: bool,
-    sse2: bool,
-    ss: bool,
-    htt: bool,
-    tm: bool,
-    _reserved_30: u1 = 0,
-    pbe: bool,
+        var model: u8 = signature.model;
+        if (signature.family == 0x6 or signature.family == 0xF) {
+            model |= @as(u8, signature.extended_model) << 4;
+        }
 
-    pub fn hasReserved(self: BasicFeatureEdx) bool {
-        return maskHasReserved(BasicFeatureEdx, self);
-    }
-
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
+        return .{
+            .family = family,
+            .model = model,
+            .stepping = signature.stepping,
+            .eax = @bitCast(signature),
+        };
     }
 };
 
-/// CPUID leaf 1 ECX feature mask.
-pub const BasicFeatureEcx = packed struct(u32) {
+pub const Signature = packed struct(u32) {
+    stepping: u4,
+    model: u4,
+    family: u4,
+    processor_type: u2,
+    _reserved_14: u2 = 0,
+    extended_model: u4,
+    extended_family: u8,
+    _reserved_28: u4 = 0,
+};
+
+pub const Features = struct {
+    basic: Basic,
+    structured: Structured,
+    extended: Extended,
+};
+
+/// leaf 1.
+pub const Basic = struct {
+    eax: Signature,
+    ebx: BasicEbx,
+    ecx: BasicEcx,
+    edx: BasicEdx,
+
+    pub fn from(result: Result) Basic {
+        return .{
+            .eax = @bitCast(result.eax),
+            .ebx = @bitCast(result.ebx),
+            .ecx = @bitCast(result.ecx),
+            .edx = @bitCast(result.edx),
+        };
+    }
+};
+
+pub const BasicEbx = packed struct(u32) {
+    brand_index: u8,
+    clflush_units: u8,
+    logical_processors: u8,
+    initial_apic_id: u8,
+};
+
+pub const BasicEcx = packed struct(u32) {
     sse3: bool,
     pclmulqdq: bool,
     dtes64: bool,
@@ -158,7 +170,7 @@ pub const BasicFeatureEcx = packed struct(u32) {
     cmpxchg16b: bool,
     xtpr: bool,
     pdcm: bool,
-    _reserved_16: u1 = 0,
+    _unknown_16: u1,
     pcid: bool,
     dca: bool,
     sse4_1: bool,
@@ -175,16 +187,81 @@ pub const BasicFeatureEcx = packed struct(u32) {
     rdrand: bool,
     hypervisor: bool,
 
-    pub fn hasReserved(self: BasicFeatureEcx) bool {
-        return maskHasReserved(BasicFeatureEcx, self);
-    }
+    pub const unknown_mask: u32 = mask: {
+        var value = std.mem.zeroes(BasicEcx);
+        value._unknown_16 = ~value._unknown_16;
+        break :mask @bitCast(value);
+    };
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
+    pub fn unknownBits(self: BasicEcx) u32 {
+        return @as(u32, @bitCast(self)) & unknown_mask;
     }
 };
 
-/// CPUID leaf 7 subleaf 0 EBX feature mask.
+pub const BasicEdx = packed struct(u32) {
+    fpu: bool,
+    vme: bool,
+    de: bool,
+    pse: bool,
+    tsc: bool,
+    msr: bool,
+    pae: bool,
+    mce: bool,
+    cx8: bool,
+    apic: bool,
+    _unknown_10: u1,
+    sep: bool,
+    mtrr: bool,
+    pge: bool,
+    mca: bool,
+    cmov: bool,
+    pat: bool,
+    pse36: bool,
+    psn: bool,
+    clflush: bool,
+    _unknown_20: u1,
+    ds: bool,
+    acpi: bool,
+    mmx: bool,
+    fxsr: bool,
+    sse: bool,
+    sse2: bool,
+    ss: bool,
+    htt: bool,
+    tm: bool,
+    _unknown_30: u1,
+    pbe: bool,
+
+    pub const unknown_mask: u32 = mask: {
+        var value = std.mem.zeroes(BasicEdx);
+        value._unknown_10 = ~value._unknown_10;
+        value._unknown_20 = ~value._unknown_20;
+        value._unknown_30 = ~value._unknown_30;
+        break :mask @bitCast(value);
+    };
+
+    pub fn unknownBits(self: BasicEdx) u32 {
+        return @as(u32, @bitCast(self)) & unknown_mask;
+    }
+};
+
+/// leaf 7, subleaf 0.
+pub const Structured = struct {
+    eax: u32,
+    ebx: StructuredEbx,
+    ecx: StructuredEcx,
+    edx: StructuredEdx,
+
+    pub fn from(result: Result) Structured {
+        return .{
+            .eax = result.eax,
+            .ebx = @bitCast(result.ebx),
+            .ecx = @bitCast(result.ecx),
+            .edx = @bitCast(result.edx),
+        };
+    }
+};
+
 pub const StructuredEbx = packed struct(u32) {
     fsgsbase: bool,
     tsc_adjust: bool,
@@ -208,7 +285,7 @@ pub const StructuredEbx = packed struct(u32) {
     adx: bool,
     smap: bool,
     avx512_ifma: bool,
-    _reserved_22: u1 = 0,
+    _unknown_22: u1,
     clflushopt: bool,
     clwb: bool,
     intel_pt: bool,
@@ -219,16 +296,17 @@ pub const StructuredEbx = packed struct(u32) {
     avx512bw: bool,
     avx512vl: bool,
 
-    pub fn hasReserved(self: StructuredEbx) bool {
-        return maskHasReserved(StructuredEbx, self);
-    }
+    pub const unknown_mask: u32 = mask: {
+        var value = std.mem.zeroes(StructuredEbx);
+        value._unknown_22 = ~value._unknown_22;
+        break :mask @bitCast(value);
+    };
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
+    pub fn unknownBits(self: StructuredEbx) u32 {
+        return @as(u32, @bitCast(self)) & unknown_mask;
     }
 };
 
-/// CPUID leaf 7 subleaf 0 ECX feature mask.
 pub const StructuredEcx = packed struct(u32) {
     prefetchwt1: bool,
     avx512_vbmi: bool,
@@ -245,51 +323,53 @@ pub const StructuredEcx = packed struct(u32) {
     avx512_bitalg: bool,
     tme_en: bool,
     avx512_vpopcntdq: bool,
-    _reserved_15: u1 = 0,
+    _unknown_15: u1,
     la57: bool,
     mawau: u5,
     rdpid: bool,
     kl: bool,
     bus_lock_detect: bool,
     cldemote: bool,
-    _reserved_26: u1 = 0,
+    _unknown_26: u1,
     movdiri: bool,
     movdir64b: bool,
     enqcmd: bool,
     sgx_lc: bool,
     pks: bool,
 
-    pub fn hasReserved(self: StructuredEcx) bool {
-        return maskHasReserved(StructuredEcx, self);
-    }
+    pub const unknown_mask: u32 = mask: {
+        var value = std.mem.zeroes(StructuredEcx);
+        value._unknown_15 = ~value._unknown_15;
+        value._unknown_26 = ~value._unknown_26;
+        break :mask @bitCast(value);
+    };
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
+    pub fn unknownBits(self: StructuredEcx) u32 {
+        return @as(u32, @bitCast(self)) & unknown_mask;
     }
 };
 
-/// CPUID leaf 7 subleaf 0 EDX feature mask.
 pub const StructuredEdx = packed struct(u32) {
-    _reserved_0: u2 = 0,
+    _unknown_0: u2,
     avx512_4vnniw: bool,
     avx512_4fmaps: bool,
     fast_short_rep_mov: bool,
     uintr: bool,
-    _reserved_6: u2 = 0,
+    _unknown_6: u2,
     avx512_vp2intersect: bool,
     srbds_ctrl: bool,
     md_clear: bool,
     rtm_always_abort: bool,
-    _reserved_12: u1 = 0,
+    _unknown_12: u1,
     rtm_force_abort: bool,
     serialize: bool,
     hybrid: bool,
     tsxldtrk: bool,
-    _reserved_17: u1 = 0,
+    _unknown_17: u1,
     pconfig: bool,
     architectural_lbrs: bool,
     cet_ibt: bool,
-    _reserved_21: u1 = 0,
+    _unknown_21: u1,
     amx_bf16: bool,
     avx512_fp16: bool,
     amx_tile: bool,
@@ -301,39 +381,39 @@ pub const StructuredEdx = packed struct(u32) {
     ia32_core_capabilities: bool,
     ssbd: bool,
 
-    pub fn hasReserved(self: StructuredEdx) bool {
-        return maskHasReserved(StructuredEdx, self);
-    }
+    pub const unknown_mask: u32 = mask: {
+        var value = std.mem.zeroes(StructuredEdx);
+        value._unknown_0 = ~value._unknown_0;
+        value._unknown_6 = ~value._unknown_6;
+        value._unknown_12 = ~value._unknown_12;
+        value._unknown_17 = ~value._unknown_17;
+        value._unknown_21 = ~value._unknown_21;
+        break :mask @bitCast(value);
+    };
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
-    }
-};
-
-/// CPUID leaf `0x80000001` EDX feature mask.
-pub const ExtendedFeatureEdx = packed struct(u32) {
-    _reserved_0: u11 = 0,
-    syscall: bool,
-    _reserved_12: u8 = 0,
-    nx: bool,
-    _reserved_21: u5 = 0,
-    pdpe1gb: bool,
-    rdtscp: bool,
-    _reserved_28: u1 = 0,
-    lm: bool,
-    _reserved_30: u2 = 0,
-
-    pub fn hasReserved(self: ExtendedFeatureEdx) bool {
-        return maskHasReserved(ExtendedFeatureEdx, self);
-    }
-
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
+    pub fn unknownBits(self: StructuredEdx) u32 {
+        return @as(u32, @bitCast(self)) & unknown_mask;
     }
 };
 
-/// CPUID leaf `0x80000001` ECX feature mask.
-pub const ExtendedFeatureEcx = packed struct(u32) {
+/// leaf `0x80000001`.
+pub const Extended = struct {
+    eax: u32,
+    ebx: u32,
+    ecx: ExtendedEcx,
+    edx: ExtendedEdx,
+
+    pub fn from(result: Result) Extended {
+        return .{
+            .eax = result.eax,
+            .ebx = result.ebx,
+            .ecx = @bitCast(result.ecx),
+            .edx = @bitCast(result.edx),
+        };
+    }
+};
+
+pub const ExtendedEcx = packed struct(u32) {
     lahf_lm: bool,
     cmp_legacy: bool,
     svm: bool,
@@ -348,56 +428,57 @@ pub const ExtendedFeatureEcx = packed struct(u32) {
     xop: bool,
     skinit: bool,
     wdt: bool,
-    _reserved_14: u1 = 0,
+    _unknown_14: u1,
     lwp: bool,
     fma4: bool,
     tce: bool,
-    _reserved_18: u4 = 0,
+    _unknown_18: u4,
     topoext: bool,
     perfctr_core: bool,
     perfctr_nb: bool,
-    _reserved_25: u7 = 0,
+    _unknown_25: u7,
 
-    pub fn hasReserved(self: ExtendedFeatureEcx) bool {
-        return maskHasReserved(ExtendedFeatureEcx, self);
+    pub const unknown_mask: u32 = mask: {
+        var value = std.mem.zeroes(ExtendedEcx);
+        value._unknown_14 = ~value._unknown_14;
+        value._unknown_18 = ~value._unknown_18;
+        value._unknown_25 = ~value._unknown_25;
+        break :mask @bitCast(value);
+    };
+
+    pub fn unknownBits(self: ExtendedEcx) u32 {
+        return @as(u32, @bitCast(self)) & unknown_mask;
     }
+};
 
-    comptime {
-        std.debug.assert(@bitSizeOf(@This()) == 32);
+pub const ExtendedEdx = packed struct(u32) {
+    _unknown_0: u11,
+    syscall: bool,
+    _unknown_12: u8,
+    nx: bool,
+    _unknown_21: u5,
+    pdpe1gb: bool,
+    rdtscp: bool,
+    _unknown_28: u1,
+    lm: bool,
+    _unknown_30: u2,
+
+    pub const unknown_mask: u32 = mask: {
+        var value = std.mem.zeroes(ExtendedEdx);
+        value._unknown_0 = ~value._unknown_0;
+        value._unknown_12 = ~value._unknown_12;
+        value._unknown_21 = ~value._unknown_21;
+        value._unknown_28 = ~value._unknown_28;
+        value._unknown_30 = ~value._unknown_30;
+        break :mask @bitCast(value);
+    };
+
+    pub fn unknownBits(self: ExtendedEdx) u32 {
+        return @as(u32, @bitCast(self)) & unknown_mask;
     }
 };
 
-/// CPUID leaf 1 feature-mask bundle.
-pub const BasicFeatures = struct {
-    edx: BasicFeatureEdx,
-    ecx: BasicFeatureEcx,
-};
-
-/// CPUID leaf 7 subleaf 0 feature-mask bundle.
-pub const StructuredFeatures = struct {
-    ebx: StructuredEbx,
-    ecx: StructuredEcx,
-    edx: StructuredEdx,
-};
-
-/// CPUID leaf `0x80000001` feature-mask bundle.
-pub const ExtendedFeatures = struct {
-    edx: ExtendedFeatureEdx,
-    ecx: ExtendedFeatureEcx,
-};
-
-/// One-shot combined feature-mask bundle covering every mask this spec
-/// decodes.
-pub const Features = struct {
-    basic: BasicFeatures,
-    structured: StructuredFeatures,
-    extended: ExtendedFeatures,
-};
-
-/// Cache-topology decoder for CPUID leaf 4 deterministic-cache subleaves.
-pub const cache = struct {
-    /// Cache-type field decoded from `EAX[4:0]`. Open enum: values 4..31
-    /// (Intel-reserved at spec time) round-trip via the `_` sentinel.
+pub const Cache = struct {
     pub const Kind = enum(u5) {
         null = 0,
         data = 1,
@@ -406,191 +487,166 @@ pub const cache = struct {
         _,
     };
 
-    /// One leaf-4 cache descriptor. `eax`..`edx` retain the raw register
-    /// values for callers who need bits beyond the decoded fields.
     pub const Descriptor = struct {
         level: u3,
         kind: Kind,
         line_size: u32,
         partitions: u32,
         ways: u32,
-        sets: u32,
+        sets: u64,
         fully_associative: bool,
         self_initializing: bool,
         eax: u32,
         ebx: u32,
         ecx: u32,
         edx: u32,
-    };
 
-    /// Iterator over successive leaf-4 subleaves. `next()` returns `null`
-    /// when the cache-type field is `0`, signalling the end of the walk.
-    pub const Iterator = struct {
-        index: u32,
-
-        pub fn next(self: *Iterator) ?cache.Descriptor {
-            comptime target.require();
-
-            if (maxBasicLeaf() < 4) return null;
-
-            const r = subleaf(@as(Leaf, @enumFromInt(4)), self.index);
-            const raw_kind: u5 = @truncate(r.eax);
-            if (raw_kind == 0) return null;
-
-            self.index += 1;
+        pub fn decode(raw: Result) ?Descriptor {
+            const eax: Eax = @bitCast(raw.eax);
+            const ebx: Ebx = @bitCast(raw.ebx);
+            if (eax.kind == .null) {
+                return null;
+            }
 
             return .{
-                .level = @truncate(r.eax >> 5),
-                .kind = @as(cache.Kind, @enumFromInt(raw_kind)),
-                .line_size = (r.ebx & 0xFFF) + 1,
-                .partitions = ((r.ebx >> 12) & 0x3FF) + 1,
-                .ways = ((r.ebx >> 22) & 0x3FF) + 1,
-                .sets = r.ecx + 1,
-                .fully_associative = ((r.eax >> 9) & 1) != 0,
-                .self_initializing = ((r.eax >> 8) & 1) != 0,
-                .eax = r.eax,
-                .ebx = r.ebx,
-                .ecx = r.ecx,
-                .edx = r.edx,
+                .level = eax.level,
+                .kind = eax.kind,
+                .line_size = @as(u32, ebx.line_size) + 1,
+                .partitions = @as(u32, ebx.partitions) + 1,
+                .ways = @as(u32, ebx.ways) + 1,
+                .sets = @as(u64, raw.ecx) + 1,
+                .fully_associative = eax.fully_associative,
+                .self_initializing = eax.self_initializing,
+                .eax = raw.eax,
+                .ebx = raw.ebx,
+                .ecx = raw.ecx,
+                .edx = raw.edx,
             };
         }
     };
+
+    pub const Iterator = struct {
+        subleaf: u32,
+        done: bool,
+
+        pub fn next(self: *Iterator) ?Descriptor {
+            comptime target.require();
+
+            if (self.done) {
+                return null;
+            }
+
+            const raw = query(.cache_parameters, self.subleaf);
+            const descriptor = Descriptor.decode(raw) orelse {
+                self.done = true;
+                return null;
+            };
+
+            self.subleaf += 1;
+            return descriptor;
+        }
+    };
+
+    const Eax = packed struct(u32) {
+        kind: Kind,
+        level: u3,
+        self_initializing: bool,
+        fully_associative: bool,
+        _reserved_10: u4 = 0,
+        _unknown_14: u18,
+    };
+
+    const Ebx = packed struct(u32) {
+        line_size: u12,
+        partitions: u10,
+        ways: u10,
+    };
 };
 
-/// Physical/linear/guest-physical address widths from leaf `0x80000008`.
 pub const AddressSizes = struct {
     physical_bits: u8,
     linear_bits: u8,
     guest_physical_bits: u8,
+
+    const Eax = packed struct(u32) {
+        physical_bits: u8,
+        linear_bits: u8,
+        guest_physical_bits: u8,
+        _reserved_24: u8 = 0,
+    };
 };
 
-/// Returns the CPU vendor decoded from CPUID leaf 0.
+/// unavailable leaves and subleaves retain the CPU's raw query behavior.
+pub fn query(leaf: Leaf, subleaf: u32) Result {
+    comptime target.require();
+
+    var eax: u32 = undefined;
+    var ebx: u32 = undefined;
+    var ecx: u32 = undefined;
+    var edx: u32 = undefined;
+    asm volatile ("cpuid"
+        : [eax] "={eax}" (eax),
+          [ebx] "={ebx}" (ebx),
+          [ecx] "={ecx}" (ecx),
+          [edx] "={edx}" (edx),
+        : [eax_in] "{eax}" (leaf.raw()),
+          [ecx_in] "{ecx}" (subleaf),
+    );
+
+    return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
+}
+
+/// the caller selects a decoder matching the requested leaf and subleaf.
+pub fn queryAs(comptime T: type, leaf: Leaf, subleaf: u32) T {
+    return T.from(query(leaf, subleaf));
+}
+
+pub fn maxBasicLeaf() u32 {
+    return query(.max_basic, 0).eax;
+}
+
+pub fn maxExtendedLeaf() u32 {
+    return query(.max_extended, 0).eax;
+}
+
 pub fn vendor() Vendor {
-    comptime target.require();
-
-    const s = vendorString();
-    if (std.mem.eql(u8, &s, "GenuineIntel")) return .intel;
-    if (std.mem.eql(u8, &s, "AuthenticAMD")) return .amd;
-    if (std.mem.eql(u8, &s, "VIA VIA VIA ")) return .via;
-    if (std.mem.eql(u8, &s, "CentaurHauls")) return .centaur;
-    if (std.mem.eql(u8, &s, "CyrixInstead")) return .cyrix;
-    if (std.mem.eql(u8, &s, "GenuineTMx86")) return .transmeta;
-    if (std.mem.eql(u8, &s, "TransmetaCPU")) return .transmeta;
-
-    return .unknown;
+    return Vendor.decode(vendorString());
 }
 
-/// Raw 12-byte vendor string. Bytes 0..3 = EBX, 4..7 = EDX, 8..11 = ECX
-/// per Intel SDM Vol.2 Appendix A.
 pub fn vendorString() [12]u8 {
-    comptime target.require();
+    const result = query(.max_basic, 0);
+    var bytes: [12]u8 = undefined;
 
-    const r = leaf(.max_basic);
-    var out: [12]u8 = @splat(0);
-    std.mem.writeInt(u32, out[0..4], r.ebx, .little);
-    std.mem.writeInt(u32, out[4..8], r.edx, .little);
-    std.mem.writeInt(u32, out[8..12], r.ecx, .little);
+    std.mem.writeInt(u32, bytes[0..4], result.ebx, .little);
+    std.mem.writeInt(u32, bytes[4..8], result.edx, .little);
+    std.mem.writeInt(u32, bytes[8..12], result.ecx, .little);
 
-    return out;
+    return bytes;
 }
 
-/// Decode displayed family/model/stepping from CPUID leaf 1 EAX per
-/// Intel SDM Vol.2 Chapter 3 / AMD APM Vol.3 §CPUID Fn0000_0001_EAX.
-pub fn version() Version {
-    comptime target.require();
-
-    const eax = leaf(.feature_info).eax;
-    const base_family: u4 = @truncate(eax >> 8);
-    const base_model: u4 = @truncate(eax >> 4);
-    const stepping: u4 = @truncate(eax);
-    const ext_family: u8 = @truncate(eax >> 20);
-    const ext_model: u4 = @truncate(eax >> 16);
-
-    var family: u12 = base_family;
-    if (base_family == 0xF) family = @as(u12, base_family) + ext_family;
-
-    var model: u8 = base_model;
-    if (base_family == 0x6 or base_family == 0xF) {
-        model = (@as(u8, ext_model) << 4) | base_model;
-    }
-
-    return .{ .family = family, .model = model, .stepping = stepping, .eax = eax };
-}
-
-/// Concatenated brand string from leaves `0x80000002..0x80000004`.
-/// Returns `null` when the leaves are unavailable.
+/// returns `null` when leaves `0x80000002..0x80000004` are unavailable.
 pub fn brandString() ?[48]u8 {
-    comptime target.require();
-
-    if (maxExtendedLeaf() < 0x8000_0004) return null;
-
-    var out: [48]u8 = @splat(0);
-    inline for (0..3) |i| {
-        const l = @as(Leaf, @enumFromInt(@as(u32, 0x8000_0002) + @as(u32, i)));
-        const r = leaf(l);
-        std.mem.writeInt(u32, out[i * 16 + 0 ..][0..4], r.eax, .little);
-        std.mem.writeInt(u32, out[i * 16 + 4 ..][0..4], r.ebx, .little);
-        std.mem.writeInt(u32, out[i * 16 + 8 ..][0..4], r.ecx, .little);
-        std.mem.writeInt(u32, out[i * 16 + 12 ..][0..4], r.edx, .little);
+    if (maxExtendedLeaf() < Leaf.brand_3.raw()) {
+        return null;
     }
 
-    return out;
-}
-
-/// Fetches CPUID leaf 1 EDX/ECX as typed feature masks.
-pub fn basicFeatures() BasicFeatures {
-    comptime target.require();
-
-    const r = leaf(.feature_info);
-    return .{
-        .edx = @bitCast(r.edx),
-        .ecx = @bitCast(r.ecx),
-    };
-}
-
-/// Fetches CPUID leaf 7 subleaf 0 EBX/ECX/EDX as typed feature masks.
-/// Returns an all-zero bundle when `maxBasicLeaf() < 7`.
-pub fn structuredFeatures() StructuredFeatures {
-    comptime target.require();
-
-    if (maxBasicLeaf() < 7) {
-        return .{
-            .ebx = @bitCast(@as(u32, 0)),
-            .ecx = @bitCast(@as(u32, 0)),
-            .edx = @bitCast(@as(u32, 0)),
-        };
+    var bytes: [48]u8 = undefined;
+    inline for (.{ Leaf.brand_1, Leaf.brand_2, Leaf.brand_3 }, 0..) |which, index| {
+        const result = query(which, 0);
+        std.mem.writeInt(u32, bytes[index * 16 ..][0..4], result.eax, .little);
+        std.mem.writeInt(u32, bytes[index * 16 + 4 ..][0..4], result.ebx, .little);
+        std.mem.writeInt(u32, bytes[index * 16 + 8 ..][0..4], result.ecx, .little);
+        std.mem.writeInt(u32, bytes[index * 16 + 12 ..][0..4], result.edx, .little);
     }
 
-    const r = subleaf(.structured_extended_features, 0);
-    return .{
-        .ebx = @bitCast(r.ebx),
-        .ecx = @bitCast(r.ecx),
-        .edx = @bitCast(r.edx),
-    };
+    return bytes;
 }
 
-/// Fetches CPUID leaf `0x80000001` EDX/ECX as typed feature masks.
-/// Returns an all-zero bundle when `maxExtendedLeaf() < 0x80000001`.
-pub fn extendedFeatures() ExtendedFeatures {
-    comptime target.require();
-
-    if (maxExtendedLeaf() < 0x8000_0001) {
-        return .{
-            .edx = @bitCast(@as(u32, 0)),
-            .ecx = @bitCast(@as(u32, 0)),
-        };
-    }
-
-    const r = leaf(.extended_feature_bits);
-    return .{
-        .edx = @bitCast(r.edx),
-        .ecx = @bitCast(r.ecx),
-    };
+pub fn version() Version {
+    return Version.decode(basicFeatures().eax);
 }
 
-/// One-shot fetch of every feature-mask bundle owned by this spec.
 pub fn features() Features {
-    comptime target.require();
     return .{
         .basic = basicFeatures(),
         .structured = structuredFeatures(),
@@ -598,25 +654,150 @@ pub fn features() Features {
     };
 }
 
-/// Returns a fresh iterator over leaf-4 cache descriptors.
-pub fn caches() cache.Iterator {
-    comptime target.require();
-    return .{ .index = 0 };
+/// leaf 1 is required on x86_64.
+pub fn basicFeatures() Basic {
+    return queryAs(Basic, .basic_features, 0);
 }
 
-/// Decode leaf `0x80000008` address widths. Returns the documented
-/// 32-bit fallback when the leaf is unavailable.
-pub fn addressSizes() AddressSizes {
-    comptime target.require();
+/// returns an all-zero bundle when leaf 7 is unavailable.
+pub fn structuredFeatures() Structured {
+    if (maxBasicLeaf() < Leaf.structured_features.raw()) {
+        return std.mem.zeroes(Structured);
+    }
 
-    if (maxExtendedLeaf() < 0x8000_0008) {
+    return queryAs(Structured, .structured_features, 0);
+}
+
+/// returns an all-zero bundle when leaf `0x80000001` is unavailable.
+pub fn extendedFeatures() Extended {
+    if (maxExtendedLeaf() < Leaf.extended_features.raw()) {
+        return std.mem.zeroes(Extended);
+    }
+
+    return queryAs(Extended, .extended_features, 0);
+}
+
+pub fn caches() Cache.Iterator {
+    return .{ .subleaf = 0, .done = maxBasicLeaf() < Leaf.cache_parameters.raw() };
+}
+
+/// unavailable leaf `0x80000008` returns 32 physical bits, 32 linear bits, and zero guest physical bits.
+pub fn addressSizes() AddressSizes {
+    if (maxExtendedLeaf() < Leaf.address_sizes.raw()) {
         return .{ .physical_bits = 32, .linear_bits = 32, .guest_physical_bits = 0 };
     }
 
-    const r = leaf(@as(Leaf, @enumFromInt(0x8000_0008)));
+    const result = query(.address_sizes, 0);
+    const eax: AddressSizes.Eax = @bitCast(result.eax);
+
     return .{
-        .physical_bits = @truncate(r.eax),
-        .linear_bits = @truncate(r.eax >> 8),
-        .guest_physical_bits = @truncate(r.eax >> 16),
+        .physical_bits = eax.physical_bits,
+        .linear_bits = eax.linear_bits,
+        .guest_physical_bits = eax.guest_physical_bits,
     };
 }
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "signature extensions apply only to their base families" {
+        const cases = [_]struct { eax: u32, family: u12, model: u8 }{
+            .{ .eax = 0x0FF9_05A3, .family = 5, .model = 0xA },
+            .{ .eax = 0x0FF9_06A3, .family = 6, .model = 0x9A },
+            .{ .eax = 0x0FF9_0EA3, .family = 14, .model = 0xA },
+            .{ .eax = 0x0FF9_0FA3, .family = 270, .model = 0x9A },
+        };
+        for (cases) |case| {
+            const decoded = Version.decode(@bitCast(case.eax));
+
+            try testing.expectEqual(case.family, decoded.family);
+            try testing.expectEqual(case.model, decoded.model);
+            try testing.expectEqual(@as(u4, 3), decoded.stepping);
+            try testing.expectEqual(case.eax, decoded.eax);
+        }
+    }
+
+    test "vendor matching uses all twelve bytes and accepts both Transmeta strings" {
+        try testing.expectEqual(Vendor.intel, Vendor.decode("GenuineIntel".*));
+        try testing.expectEqual(Vendor.amd, Vendor.decode("AuthenticAMD".*));
+        try testing.expectEqual(Vendor.via, Vendor.decode("VIA VIA VIA ".*));
+        try testing.expectEqual(Vendor.centaur, Vendor.decode("CentaurHauls".*));
+        try testing.expectEqual(Vendor.cyrix, Vendor.decode("CyrixInstead".*));
+        try testing.expectEqual(Vendor.transmeta, Vendor.decode("GenuineTMx86".*));
+        try testing.expectEqual(Vendor.transmeta, Vendor.decode("TransmetaCPU".*));
+
+        for ([_][12]u8{
+            "AuthenticAM?".*,
+            "CyrixInstea?".*,
+            "GenuineTMx8?".*,
+            "TransmetaCP?".*,
+            "VIA VIA VIA?".*,
+            "XuthenticAMD".*,
+        }) |bytes| {
+            try testing.expectEqual(Vendor.unknown, Vendor.decode(bytes));
+        }
+
+        try testing.expectEqual(Vendor.unknown, Vendor.decode("GenuineInte?".*));
+        try testing.expectEqual(Vendor.unknown, Vendor.decode(@splat(0)));
+    }
+
+    test "cache decoding preserves unknown kinds and the full set count" {
+        const raw: Result = .{
+            .eax = 0xA000_0367,
+            .ebx = (7 << 22) | (1 << 12) | 63,
+            .ecx = 511,
+            .edx = 0x8000_0007,
+        };
+        const decoded = Cache.Descriptor.decode(raw).?;
+        const maximum = Cache.Descriptor.decode(.{
+            .eax = 1,
+            .ebx = 0xFFFF_FFFF,
+            .ecx = 0xFFFF_FFFF,
+            .edx = 0,
+        }).?;
+        const terminator = Cache.Descriptor.decode(.{
+            .eax = 0xFFFF_FFE0,
+            .ebx = 0xFFFF_FFFF,
+            .ecx = 0xFFFF_FFFF,
+            .edx = 0xFFFF_FFFF,
+        });
+
+        try testing.expectEqual(@as(u5, 7), @intFromEnum(decoded.kind));
+        try testing.expectEqual(@as(u3, 3), decoded.level);
+        try testing.expectEqual(@as(u32, 64), decoded.line_size);
+        try testing.expectEqual(@as(u32, 2), decoded.partitions);
+        try testing.expectEqual(@as(u32, 8), decoded.ways);
+        try testing.expectEqual(@as(u64, 512), decoded.sets);
+        try testing.expect(decoded.fully_associative);
+        try testing.expect(decoded.self_initializing);
+        try testing.expectEqual(raw, Result{
+            .eax = decoded.eax,
+            .ebx = decoded.ebx,
+            .ecx = decoded.ecx,
+            .edx = decoded.edx,
+        });
+        try testing.expectEqual(@as(u32, 4096), maximum.line_size);
+        try testing.expectEqual(@as(u32, 1024), maximum.partitions);
+        try testing.expectEqual(@as(u32, 1024), maximum.ways);
+        try testing.expectEqual(@as(u64, 1) << 32, maximum.sets);
+        try testing.expectEqual(@as(?Cache.Descriptor, null), terminator);
+    }
+
+    test "unmodeled positions are extracted without changing feature bits" {
+        const basic: BasicEdx = @bitCast(@as(u32, (1 << 10) | (1 << 25)));
+        const clean: BasicEdx = @bitCast(@as(u32, 1 << 25));
+        const extended: ExtendedEdx = @bitCast(@as(u32, (1 << 0) | (1 << 29)));
+        const structured: StructuredEcx = @bitCast(@as(u32, (1 << 15) | (17 << 17)));
+
+        try testing.expectEqual(@as(u32, 1 << 10), basic.unknownBits());
+        try testing.expect(basic.sse);
+        try testing.expectEqual(@as(u32, (1 << 10) | (1 << 25)), @as(u32, @bitCast(basic)));
+        try testing.expectEqual(@as(u32, 0), clean.unknownBits());
+        try testing.expectEqual(@as(u32, 1), extended.unknownBits());
+        try testing.expect(extended.lm);
+        try testing.expectEqual(@as(u32, (1 << 0) | (1 << 29)), @as(u32, @bitCast(extended)));
+        try testing.expectEqual(@as(u32, 1 << 15), structured.unknownBits());
+        try testing.expectEqual(@as(u5, 17), structured.mawau);
+        try testing.expectEqual(@as(u32, (1 << 15) | (17 << 17)), @as(u32, @bitCast(structured)));
+    }
+};
