@@ -18,6 +18,8 @@ pub fn Address(comptime DomainT: type, comptime IntT: type) type {
     return enum(IntT) {
         _,
 
+        const __StdxAddress = void;
+
         const Self = @This();
         const Offset = @Int(.signed, @bitSizeOf(IntT));
 
@@ -75,6 +77,62 @@ pub fn Address(comptime DomainT: type, comptime IntT: type) type {
         pub fn isAligned(self: Self, alignment: Int) bool {
             return layout.isAligned(Int, self.raw(), alignment);
         }
+
+        fn cast(value: anytype) Self {
+            const Source = @TypeOf(value);
+
+            if (comptime isAddress(Source)) {
+                return Self.from(@intCast(value.raw()));
+            }
+
+            if (comptime isThinPointer(Source)) {
+                return Self.from(@intCast(@intFromPtr(value)));
+            }
+
+            @compileError("addr.cast requires a pointer/address or address/address conversion");
+        }
+    };
+}
+
+pub fn cast(comptime T: type, value: anytype) T {
+    const Source = @TypeOf(value);
+
+    if (comptime isAddress(T)) {
+        return T.cast(value);
+    } else if (comptime isThinPointer(T) and isAddress(Source)) {
+        return @ptrFromInt(@as(usize, @intCast(value.raw())));
+    }
+
+    @compileError("addr.cast requires a pointer/address or address/address conversion");
+}
+
+pub fn castAligned(comptime Pointer: type, address: anytype) error{Misaligned}!Pointer {
+    if (comptime !isThinPointer(Pointer) or !isAddress(@TypeOf(address))) {
+        @compileError("addr.castAligned requires an address-to-pointer conversion");
+    }
+
+    const value: usize = @intCast(address.raw());
+    const pointer = @typeInfo(Pointer).pointer;
+    const alignment = pointer.alignment orelse @alignOf(pointer.child);
+
+    if (value % alignment != 0) {
+        return error.Misaligned;
+    }
+
+    return cast(Pointer, address);
+}
+
+fn isAddress(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .@"enum" => @hasDecl(T, "__StdxAddress"),
+        else => false,
+    };
+}
+
+fn isThinPointer(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |pointer| pointer.size != .slice,
+        else => false,
     };
 }
 
@@ -89,6 +147,42 @@ pub const unit = struct {
     const testing = std.testing;
 
     const A = Address(opaque {}, u8);
+
+    test "address casts preserve byte offsets across domains" {
+        var bytes = [_]u8{ 10, 20, 30, 40 };
+        const physical = cast(PhysAddr, bytes[0..].ptr);
+        const virtual = cast(VirtAddr, physical);
+        const pointer = cast([*]u8, try virtual.add(2));
+
+        pointer[0] = 99;
+
+        try testing.expectEqualSlices(u8, &.{ 10, 20, 99, 40 }, &bytes);
+    }
+
+    test "a pointer to a slice addresses its descriptor rather than its payload" {
+        var bytes = [_]u8{ 10, 20, 30, 40 };
+        var slice: []u8 = &bytes;
+        const address = cast(VirtAddr, &slice);
+        const pointer = cast(*[]u8, address);
+
+        pointer.len = 2;
+
+        try testing.expectEqualSlices(u8, &.{ 10, 20 }, slice);
+        try testing.expectEqualSlices(u8, &.{ 10, 20, 30, 40 }, &bytes);
+    }
+
+    test "aligned casts honor natural and explicit pointer alignment" {
+        var bytes: [32]u8 align(16) = @splat(0);
+        const address = cast(VirtAddr, &bytes[0]);
+        const aligned = try castAligned(*align(16) u8, address);
+        const unaligned = try address.add(1);
+
+        aligned.* = 99;
+
+        try testing.expectEqual(@as(u8, 99), bytes[0]);
+        try testing.expectError(error.Misaligned, castAligned(*align(16) u8, unaligned));
+        try testing.expectError(error.Misaligned, castAligned(*const u64, unaligned));
+    }
 
     test "unit: address arithmetic detects overflow and underflow" {
         const a = A.from(10);

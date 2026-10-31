@@ -9,6 +9,8 @@ pub const PhysAddr = address.PhysAddr;
 pub const VirtAddr = address.VirtAddr;
 pub const DmaAddr = address.DmaAddr;
 pub const Page = pages.Page;
+pub const cast = address.cast;
+pub const castAligned = address.castAligned;
 
 test {
     _ = address.unit;
