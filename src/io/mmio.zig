@@ -1,205 +1,264 @@
-//! MMIO register lanes and byte windows. See `docs/specs/io/mmio.md`.
-
 const std = @import("std");
-
-const debug = @import("core").debug;
+const addr = @import("addr");
 const endian = @import("layout").endian;
 
-/// Ordering: Volatile accesses are compiler-ordered only. Use
-/// `stdx.barrier.mmio` or `stdx.barrier.dma` to order them with other MMIO
-/// accesses or DMA payloads.
-pub const MMIO = struct {
-    pub const default_align: usize = @alignOf(u64);
-
-    /// Requirements: `T` must be `u8`, `u16`, `u32`, or `u64`; `layout.Le` or
-    /// `layout.Be` over one of those types; or a `packed struct(uN)` backed by
-    /// one of those types. Other types are compile errors.
-    /// Representation: The returned `extern struct` has one `T` field, with
-    /// the same size and alignment as `T`, so it composes in register overlays.
+pub const Mmio = struct {
     pub fn Register(comptime T: type) type {
-        comptime requireRegisterType(T);
-
         return extern struct {
-            value: T align(@alignOf(T)),
+            value: Int,
+
+            pub const size = @sizeOf(Int);
+
+            const __StdxMmioRegister = void;
 
             const Self = @This();
 
-            pub const Native = T;
+            pub const Value = T;
+            pub const Int = Impl.Word(T);
 
-            pub const width_bytes: comptime_int = @sizeOf(T);
-
-            /// Loads `T` through one volatile access at the lane's natural width and
-            /// alignment when the target supports that width.
-            /// Ordering: The access is compiler-ordered only. It emits no ISA fence
-            /// and does not synchronize CPUs, DMA, or devices.
             pub fn load(self: *const volatile Self) T {
-                return self.value;
+                return Impl.load(T, &self.value);
             }
 
-            /// Stores `value` through one volatile access at the lane's natural width
-            /// and alignment.
-            /// Ordering: The access is compiler-ordered only. It emits no ISA fence
-            /// and does not synchronize CPUs, DMA, or devices.
             pub fn store(self: *volatile Self, value: T) void {
-                self.value = value;
+                Impl.store(T, &self.value, value);
             }
         };
     }
 
-    /// Returns a non-owning window over a caller-owned MMIO byte range.
-    /// Requirements: `min_align_bytes` is a non-zero power of two; other values
-    /// are compile errors. `register` and `registerUnchecked` require
-    /// `@alignOf(T) <= min_align_bytes`; over-aligned lanes are compile errors.
-    pub fn Window(comptime min_align_bytes: usize) type {
-        comptime requireWindowAlign(min_align_bytes);
-
+    pub fn Ref(comptime T: type) type {
         return struct {
-            base: [*]align(min_align_bytes) volatile u8,
-            len: usize,
+            ptr: Pointer,
 
             const Self = @This();
+            const Pointer = *const volatile Impl.Word(T);
 
-            /// Minimum required alignment of the wrapped byte range.
-            pub const min_align: usize = min_align_bytes;
-
-            pub const Error = error{ OutOfBounds, Misaligned };
-
-            /// Borrows `bytes` without allocation, copying, validation, or device access.
-            /// The declared slice alignment enforces `min_align` at compile time.
-            pub fn wrap(bytes: []align(min_align_bytes) volatile u8) Self {
-                return .{ .base = bytes.ptr, .len = bytes.len };
+            /// checks alignment only; the caller supplies a live mapping.
+            pub fn from(address: addr.VirtAddr) error{Misaligned}!Self {
+                return .{ .ptr = try addr.castAligned(Pointer, address) };
             }
 
-            /// Returns the borrowed byte range length.
-            pub fn byteLen(self: Self) usize {
-                return self.len;
-            }
-
-            /// Returns a `Register(T)` pointer at `offset`.
-            /// Faults: `OutOfBounds` when the lane does not fit and `Misaligned` when
-            /// its address is not aligned for `T`.
-            /// Ownership: The pointer borrows the underlying MMIO mapping.
-            pub fn register(
-                self: Self,
-                comptime T: type,
-                offset: usize,
-            ) Error!*volatile Register(T) {
-                comptime requireRegisterType(T);
-                comptime std.debug.assert(@alignOf(T) <= min_align_bytes);
-                const width = @sizeOf(T);
-                if (width > self.len) return error.OutOfBounds;
-                if (offset > self.len - width) return error.OutOfBounds;
-                const addr = @intFromPtr(self.base) + offset;
-                if (addr % @alignOf(T) != 0) return error.Misaligned;
-                return @ptrFromInt(addr);
-            }
-
-            /// Returns a pointer to `field_name` in a `Layout` overlay at the window base.
-            /// Requirements: `Layout` contains `field_name`, whose type is accepted by
-            /// `Register`.
-            /// Effects: Delegates runtime bounds and alignment checks to `register`.
-            pub fn field(
-                self: Self,
-                comptime Layout: type,
-                comptime field_name: []const u8,
-            ) Error!*volatile Register(@FieldType(Layout, field_name)) {
-                comptime {
-                    if (!@hasField(Layout, field_name)) {
-                        @compileError(
-                            "MMIO.Window.field: layout '" ++ @typeName(Layout) ++
-                                "' has no field '" ++ field_name ++ "'",
-                        );
-                    }
-                    const FieldT = @FieldType(Layout, field_name);
-                    const field_end = @offsetOf(Layout, field_name) + @sizeOf(FieldT);
-                    if (field_end > @sizeOf(Layout)) {
-                        @compileError(
-                            "MMIO.Window.field: field '" ++ field_name ++
-                                "' extends past @sizeOf(" ++ @typeName(Layout) ++ ")",
-                        );
-                    }
-                }
-
-                const FieldT = @FieldType(Layout, field_name);
-                return self.register(FieldT, @offsetOf(Layout, field_name));
-            }
-
-            /// Returns a `Register(T)` pointer at `offset`.
-            /// Requirements: The caller establishes the accepted type, bounds, and address
-            /// alignment. Checked builds assert those conditions.
-            pub fn registerUnchecked(
-                self: Self,
-                comptime T: type,
-                offset: usize,
-            ) *volatile Register(T) {
-                comptime requireRegisterType(T);
-                comptime std.debug.assert(@alignOf(T) <= min_align_bytes);
-
-                if (debug.checksEnabled()) {
-                    const width = @sizeOf(T);
-                    std.debug.assert(width <= self.len);
-                    std.debug.assert(offset <= self.len - width);
-                    std.debug.assert((@intFromPtr(self.base) + offset) % @alignOf(T) == 0);
-                }
-
-                const addr = @intFromPtr(self.base) + offset;
-                return @ptrFromInt(addr);
+            pub fn load(self: Self) T {
+                return Impl.load(T, self.ptr);
             }
         };
     }
 
-    /// Use for MMIO regions guaranteed 8-byte alignment, such as page-aligned BARs.
-    pub const Window64 = Window(@alignOf(u64));
+    pub fn RefMut(comptime T: type) type {
+        return struct {
+            ptr: Pointer,
 
-    /// Use for MMIO regions with only 4-byte alignment, such as legacy PCI BARs.
-    pub const Window32 = Window(@alignOf(u32));
+            const Self = @This();
+            const Pointer = *volatile Impl.Word(T);
+
+            /// checks alignment only; the caller supplies a live mapping.
+            pub fn from(address: addr.VirtAddr) error{Misaligned}!Self {
+                return .{ .ptr = try addr.castAligned(Pointer, address) };
+            }
+
+            pub fn load(self: Self) T {
+                return Impl.load(T, self.ptr);
+            }
+
+            pub fn store(self: Self, value: T) void {
+                Impl.store(T, self.ptr, value);
+            }
+        };
+    }
+
+    pub const Window = struct {
+        bytes: []volatile u8,
+
+        const Self = @This();
+
+        pub const Error = Impl.Error;
+
+        pub fn from(bytes: []volatile u8) Self {
+            return .{ .bytes = bytes };
+        }
+
+        pub fn reg(self: Self, comptime T: type, offset: usize) Error!Ref(T) {
+            return .{ .ptr = try Impl.reg(*const volatile Impl.Word(T), self.bytes, offset) };
+        }
+
+        pub fn regMut(self: Self, comptime T: type, offset: usize) Error!RefMut(T) {
+            return .{ .ptr = try Impl.reg(*volatile Impl.Word(T), self.bytes, offset) };
+        }
+
+        pub fn field(self: Self, comptime Layout: type, comptime name: []const u8) Error!Ref(@FieldType(Layout, name).Value) {
+            const T = @FieldType(Layout, name).Value;
+            return .{ .ptr = try Impl.field(*const volatile Impl.Word(T), Layout, name, self.bytes) };
+        }
+
+        pub fn fieldMut(self: Self, comptime Layout: type, comptime name: []const u8) Error!RefMut(@FieldType(Layout, name).Value) {
+            const T = @FieldType(Layout, name).Value;
+            return .{ .ptr = try Impl.field(*volatile Impl.Word(T), Layout, name, self.bytes) };
+        }
+    };
 };
 
-fn isAllowedNativeInt(comptime T: type) bool {
-    return switch (T) {
-        u8, u16, u32, u64 => true,
-        else => false,
-    };
-}
+const Impl = struct {
+    const Error = error{ OutOfBounds, Misaligned };
 
-fn isAllowedEndianInt(comptime T: type) bool {
-    const info = @typeInfo(T);
-    if (info != .@"struct") return false;
-    if (!@hasDecl(T, "Int")) return false;
+    fn Word(comptime T: type) type {
+        const invalid = "Mmio.Register requires u8/u16/u32/u64, layout.Le/Be over those widths, or a packed struct backed by those widths";
+        const Int = switch (@typeInfo(T)) {
+            .int => T,
+            .@"struct" => |info| if (info.layout == .@"packed")
+                info.backing_integer orelse @compileError(invalid)
+            else if (@hasDecl(T, "Int"))
+                T.Int
+            else
+                @compileError(invalid),
+            else => @compileError(invalid),
+        };
 
-    const Int = T.Int;
-    if (!isAllowedNativeInt(Int)) return false;
-    return T == endian.Le(Int) or T == endian.Be(Int);
-}
+        switch (Int) {
+            u8, u16, u32, u64 => {},
+            else => @compileError(invalid),
+        }
 
-fn isAllowedPackedStruct(comptime T: type) bool {
-    const info = @typeInfo(T);
-    if (info != .@"struct") return false;
-    if (info.@"struct".layout != .@"packed") return false;
+        if (T != Int and @typeInfo(T).@"struct".layout != .@"packed") {
+            if (T != endian.Le(Int) and T != endian.Be(Int)) {
+                @compileError(invalid);
+            }
+        }
 
-    const backing = info.@"struct".backing_integer orelse return false;
-    return switch (backing) {
-        u8, u16, u32, u64 => true,
-        else => false,
-    };
-}
-
-fn requireRegisterType(comptime T: type) void {
-    if (isAllowedNativeInt(T)) return;
-    if (isAllowedEndianInt(T)) return;
-    if (isAllowedPackedStruct(T)) return;
-
-    @compileError(
-        "MMIO.Register requires u8/u16/u32/u64, layout.Le/Be over those widths, " ++
-            "or packed struct(uN) with N in {8,16,32,64}",
-    );
-}
-
-fn requireWindowAlign(comptime bytes: usize) void {
-    if (bytes == 0) {
-        @compileError("MMIO.Window min_align_bytes must be at least 1");
+        return Int;
     }
-    if (!std.math.isPowerOfTwo(bytes)) {
-        @compileError("MMIO.Window min_align_bytes must be a power of two");
+
+    fn load(comptime T: type, pointer: *const volatile Word(T)) T {
+        return @bitCast(pointer.*);
     }
-}
+
+    fn store(comptime T: type, pointer: *volatile Word(T), value: T) void {
+        pointer.* = @bitCast(value);
+    }
+
+    fn reg(comptime Pointer: type, bytes: []volatile u8, offset: usize) Error!Pointer {
+        const size = @sizeOf(@typeInfo(Pointer).pointer.child);
+        if (size > bytes.len) {
+            return error.OutOfBounds;
+        }
+
+        if (offset > bytes.len - size) {
+            return error.OutOfBounds;
+        }
+
+        const address = addr.cast(addr.VirtAddr, bytes.ptr + offset);
+        return addr.castAligned(Pointer, address);
+    }
+
+    fn field(comptime Pointer: type, comptime Layout: type, comptime name: []const u8, bytes: []volatile u8) Error!Pointer {
+        const info = @typeInfo(Layout);
+        if (info != .@"struct" or info.@"struct".layout != .@"extern") {
+            @compileError("Mmio.Window.field requires an extern struct layout");
+        }
+
+        const Lane = @FieldType(Layout, name);
+
+        if (@typeInfo(Lane) != .@"struct" or !@hasDecl(Lane, "__StdxMmioRegister")) {
+            @compileError("Mmio.Window.field requires Register(T) fields");
+        }
+
+        return reg(Pointer, bytes, @offsetOf(Layout, name));
+    }
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    const Flags = packed struct(u32) {
+        enabled: bool,
+        mode: u3,
+        _reserved_4: u28,
+    };
+
+    test "endian registers encode device bytes and packed updates preserve reserved bits" {
+        var bytes: [16]u8 align(8) = @splat(0);
+        const window = Mmio.Window.from(&bytes);
+        const little = try window.regMut(endian.Le(u32), 0);
+        const big = try window.regMut(endian.Be(u32), 4);
+        const flags = try window.regMut(Flags, 8);
+
+        little.store(.from(0x12345678));
+        big.store(.from(0x12345678));
+        flags.store(.{ .enabled = false, .mode = 2, ._reserved_4 = 0xdeadbee });
+
+        var updated = flags.load();
+        updated.enabled = true;
+        updated.mode = 3;
+        flags.store(updated);
+
+        try testing.expectEqualSlices(u8, &.{ 0x78, 0x56, 0x34, 0x12 }, bytes[0..4]);
+        try testing.expectEqualSlices(u8, &.{ 0x12, 0x34, 0x56, 0x78 }, bytes[4..8]);
+        try testing.expectEqual(@as(u32, 0x12345678), (try window.reg(endian.Le(u32), 0)).load().native());
+        try testing.expectEqual(@as(u32, 0x12345678), (try window.reg(endian.Be(u32), 4)).load().native());
+        try testing.expectEqual(@as(u32, 0xdeadbee7), std.mem.readInt(u32, bytes[8..12], @import("builtin").cpu.arch.endian()));
+    }
+
+    test "window bounds and alignment use the actual register address" {
+        var bytes: [16]u8 align(8) = @splat(0);
+        const window = Mmio.Window.from(&bytes);
+        const shifted = Mmio.Window.from(bytes[1..]);
+        const empty = Mmio.Window.from(bytes[0..0]);
+
+        (try window.regMut(u32, 12)).store(0x12345678);
+        (try shifted.regMut(u32, 3)).store(0xaabbccdd);
+
+        try testing.expectEqual(@as(u32, 0x12345678), (try window.reg(u32, 12)).load());
+        try testing.expectEqual(@as(u32, 0xaabbccdd), (try window.reg(u32, 4)).load());
+        try testing.expectError(error.OutOfBounds, window.reg(u32, 13));
+        try testing.expectError(error.OutOfBounds, window.reg(u8, std.math.maxInt(usize)));
+        try testing.expectError(error.OutOfBounds, empty.reg(u8, 0));
+        try testing.expectError(error.Misaligned, window.reg(u32, 2));
+        try testing.expectError(error.Misaligned, shifted.reg(u32, 0));
+    }
+
+    test "extern fields preserve overlay offsets and enforce lane alignment" {
+        const Layout = extern struct {
+            id: Mmio.Register(u16),
+            _padding: [6]u8,
+            config: Mmio.Register(endian.Le(u32)),
+            status: Mmio.Register(Flags),
+        };
+        const Unaligned = extern struct {
+            prefix: u8,
+            value: Mmio.Register(endian.Le(u32)) align(1),
+        };
+        var bytes: [16]u8 align(8) = @splat(0);
+        const window = Mmio.Window.from(&bytes);
+
+        (try window.fieldMut(Layout, "config")).store(.from(0x12345678));
+        (try window.fieldMut(Layout, "status")).store(.{ .enabled = true, .mode = 3, ._reserved_4 = 0 });
+
+        try testing.expectEqualSlices(u8, &.{ 0x78, 0x56, 0x34, 0x12 }, bytes[8..12]);
+        try testing.expectEqual(@as(u3, 3), (try window.field(Layout, "status")).load().mode);
+        try testing.expectError(error.Misaligned, window.field(Unaligned, "value"));
+    }
+
+    test "standalone references validate alignment and alias overlay lanes" {
+        const Layout = extern struct {
+            control: Mmio.Register(Flags),
+        };
+        var registers: Layout = .{ .control = .{ .value = 0xdeadbee0 } };
+        const address = addr.cast(addr.VirtAddr, &registers.control);
+        const reference = try Mmio.RefMut(Flags).from(address);
+        const readonly = try Mmio.Ref(Flags).from(address);
+        var value = reference.load();
+
+        value.enabled = true;
+        value.mode = 3;
+        reference.store(value);
+
+        try testing.expectEqual(@as(u32, 0xdeadbee7), registers.control.value);
+        try testing.expect(readonly.load().enabled);
+
+        registers.control.store(.{ .enabled = false, .mode = 2, ._reserved_4 = 0 });
+
+        try testing.expectEqual(@as(u3, 2), reference.load().mode);
+        try testing.expect(!registers.control.load().enabled);
+        try testing.expectError(error.Misaligned, Mmio.Ref(Flags).from(try address.add(1)));
+        try testing.expectError(error.Misaligned, Mmio.RefMut(Flags).from(try address.add(1)));
+    }
+};

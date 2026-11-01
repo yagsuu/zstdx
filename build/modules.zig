@@ -150,6 +150,7 @@ pub const Modules = struct {
         });
 
         addImports(modules.io, &.{
+            .{ "addr", modules.addr },
             .{ "core", modules.core },
             .{ "layout", modules.layout },
             .{ "time", modules.time },
