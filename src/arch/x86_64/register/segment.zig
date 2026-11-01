@@ -29,7 +29,7 @@ pub const CS = packed struct(u16) {
         ));
     }
 
-    /// the selector must reference a valid code segment for the far return.
+    /// Inputs: Selector must reference a valid code segment for the far return.
     pub fn writeFarReturn(self: Self) void {
         comptime target.require();
         _ = asm volatile (
@@ -50,7 +50,7 @@ pub const FS = Selector("fs");
 pub const GS = Selector("gs");
 pub const SS = Selector("ss");
 
-/// requires FSGSBASE support and CR4.fsgsbase_enable for read and write.
+/// Requires: FSGSBASE; CR4.FSGSBASE = 1.
 pub const FsBase = enum(u64) {
     _,
 
@@ -84,7 +84,7 @@ pub const FsBase = enum(u64) {
     }
 };
 
-/// requires FSGSBASE support and CR4.fsgsbase_enable for read and write.
+/// Requires: FSGSBASE; CR4.FSGSBASE = 1.
 pub const GsBase = enum(u64) {
     _,
 
@@ -117,7 +117,8 @@ pub const GsBase = enum(u64) {
             : .{ .memory = true });
     }
 
-    /// requires CPL 0; exchanges the GS base with IA32_KERNEL_GS_BASE.
+    /// Privilege: CPL 0.
+    /// Effects: Exchanges the GS base with IA32_KERNEL_GS_BASE.
     pub fn swap() void {
         comptime target.require();
         asm volatile ("swapgs" ::: .{ .memory = true });
@@ -151,7 +152,7 @@ fn Selector(comptime register: []const u8) type {
             ));
         }
 
-        /// the selector must satisfy the segment's architectural access rules.
+        /// Inputs: Selector must satisfy the segment's architectural access rules.
         pub fn write(self: Self) void {
             comptime target.require();
             asm volatile ("mov %[v], %%" ++ register

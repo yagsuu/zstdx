@@ -1,13 +1,12 @@
-//! cache maintenance operates on whole cache lines.
-//! callers own ordering and completion; maintenance alone does not establish
-//! persistence or device completion.
+//! Cache maintenance operates on whole cache lines.
+//! Ordering: Caller-managed ordering and completion; no persistence or device-completion guarantee.
 
 const std = @import("std");
 
 const cpuid = @import("cpuid.zig");
 const target = @import("target.zig");
 
-/// requires CLFLUSH support and a nonzero power-of-two advertised line size.
+/// Requires: CLFLUSH; nonzero, power-of-two advertised line size.
 pub fn lineSize() usize {
     const result = cpuid.basicFeatures();
     std.debug.assert(result.edx.clflush);
@@ -18,9 +17,8 @@ pub fn lineSize() usize {
     return line;
 }
 
-/// requires:
-/// - CLFLUSH support
-/// - an address accessible at the current privilege level
+/// Requires: CLFLUSH.
+/// Inputs: Address accessible at the current privilege level.
 pub fn flush(address: usize) void {
     comptime target.require();
     asm volatile ("clflush (%[address])"
@@ -29,9 +27,8 @@ pub fn flush(address: usize) void {
         : .{ .memory = true });
 }
 
-/// requires:
-/// - CLFLUSHOPT support
-/// - an address accessible at the current privilege level
+/// Requires: CLFLUSHOPT.
+/// Inputs: Address accessible at the current privilege level.
 pub fn flushOptimized(address: usize) void {
     comptime target.require();
     asm volatile ("clflushopt (%[address])"
@@ -40,9 +37,8 @@ pub fn flushOptimized(address: usize) void {
         : .{ .memory = true });
 }
 
-/// requires:
-/// - CLWB support
-/// - an address accessible at the current privilege level
+/// Requires: CLWB.
+/// Inputs: Address accessible at the current privilege level.
 pub fn writeBack(address: usize) void {
     comptime target.require();
     asm volatile ("clwb (%[address])"
@@ -51,13 +47,9 @@ pub fn writeBack(address: usize) void {
         : .{ .memory = true });
 }
 
-/// flushes every cache line intersecting `[ptr, ptr + len)`.
-/// an empty range performs no cache operation.
-///
-/// requires:
-/// - CLFLUSH support for nonempty ranges
-/// - accessible memory
-/// - nonwrapping `ptr + len`
+/// Requires: CLFLUSH for nonempty ranges.
+/// Inputs: Accessible memory; nonwrapping `ptr + len`.
+/// Effects: Flushes every line intersecting `[ptr, ptr + len)`; no cache operation for an empty range.
 pub fn flushRange(ptr: [*]const u8, len: usize) void {
     comptime target.require();
     if (len == 0) {
@@ -67,13 +59,9 @@ pub fn flushRange(ptr: [*]const u8, len: usize) void {
     Impl.forEachLine(@intFromPtr(ptr), len, lineSize(), flush);
 }
 
-/// writes back every cache line intersecting `[ptr, ptr + len)`.
-/// an empty range performs no cache operation.
-///
-/// requires:
-/// - CLWB and CLFLUSH support for nonempty ranges
-/// - accessible memory
-/// - nonwrapping `ptr + len`
+/// Requires: CLWB and CLFLUSH for nonempty ranges.
+/// Inputs: Accessible memory; nonwrapping `ptr + len`.
+/// Effects: Writes back every line intersecting `[ptr, ptr + len)`; no cache operation for an empty range.
 pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
     comptime target.require();
     if (len == 0) {
@@ -83,15 +71,14 @@ pub fn writeBackRange(ptr: [*]const u8, len: usize) void {
     Impl.forEachLine(@intFromPtr(ptr), len, lineSize(), writeBack);
 }
 
-/// requires privilege level 0.
+/// Privilege: CPL 0.
 pub fn writeBackInvalidate() void {
     comptime target.require();
     asm volatile ("wbinvd" ::: .{ .memory = true });
 }
 
-/// requires privilege level 0.
-///
-/// warning: discards dirty cache data without writing it back.
+/// Privilege: CPL 0.
+/// Effects: Discards dirty cache data without writeback.
 pub fn invalidate() void {
     comptime target.require();
     asm volatile ("invd" ::: .{ .memory = true });

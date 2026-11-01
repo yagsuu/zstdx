@@ -85,7 +85,7 @@ pub const Vendor = enum {
     }
 };
 
-/// family and model include signature extensions where applicable.
+/// Family and model include signature extensions where applicable.
 pub const Version = struct {
     family: u12,
     model: u8,
@@ -129,7 +129,7 @@ pub const Features = struct {
     extended: Extended,
 };
 
-/// leaf 1.
+/// Leaf 1.
 pub const Basic = struct {
     eax: Signature,
     ebx: BasicEbx,
@@ -245,7 +245,7 @@ pub const BasicEdx = packed struct(u32) {
     }
 };
 
-/// leaf 7, subleaf 0.
+/// Leaf 7, subleaf 0.
 pub const Structured = struct {
     eax: u32,
     ebx: StructuredEbx,
@@ -396,7 +396,7 @@ pub const StructuredEdx = packed struct(u32) {
     }
 };
 
-/// leaf `0x80000001`.
+/// Leaf `0x80000001`.
 pub const Extended = struct {
     eax: u32,
     ebx: u32,
@@ -576,7 +576,7 @@ pub const AddressSizes = struct {
     };
 };
 
-/// unavailable leaves and subleaves retain the CPU's raw query behavior.
+/// Unavailable leaves and subleaves retain the CPU's raw query behavior.
 pub fn query(leaf: Leaf, subleaf: u32) Result {
     comptime target.require();
 
@@ -596,7 +596,7 @@ pub fn query(leaf: Leaf, subleaf: u32) Result {
     return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
 }
 
-/// the caller selects a decoder matching the requested leaf and subleaf.
+/// Inputs: Decoder matching the requested leaf and subleaf.
 pub fn queryAs(comptime T: type, leaf: Leaf, subleaf: u32) T {
     return T.from(query(leaf, subleaf));
 }
@@ -624,7 +624,7 @@ pub fn vendorString() [12]u8 {
     return bytes;
 }
 
-/// returns `null` when leaves `0x80000002..0x80000004` are unavailable.
+/// Returns `null` when leaves `0x80000002..0x80000004` are unavailable.
 pub fn brandString() ?[48]u8 {
     if (maxExtendedLeaf() < Leaf.brand_3.raw()) {
         return null;
@@ -654,12 +654,12 @@ pub fn features() Features {
     };
 }
 
-/// leaf 1 is required on x86_64.
+/// Leaf 1 is required on x86_64.
 pub fn basicFeatures() Basic {
     return queryAs(Basic, .basic_features, 0);
 }
 
-/// returns an all-zero bundle when leaf 7 is unavailable.
+/// Returns an all-zero bundle when leaf 7 is unavailable.
 pub fn structuredFeatures() Structured {
     if (maxBasicLeaf() < Leaf.structured_features.raw()) {
         return std.mem.zeroes(Structured);
@@ -668,7 +668,7 @@ pub fn structuredFeatures() Structured {
     return queryAs(Structured, .structured_features, 0);
 }
 
-/// returns an all-zero bundle when leaf `0x80000001` is unavailable.
+/// Returns an all-zero bundle when leaf `0x80000001` is unavailable.
 pub fn extendedFeatures() Extended {
     if (maxExtendedLeaf() < Leaf.extended_features.raw()) {
         return std.mem.zeroes(Extended);
@@ -681,7 +681,7 @@ pub fn caches() Cache.Iterator {
     return .{ .subleaf = 0, .done = maxBasicLeaf() < Leaf.cache_parameters.raw() };
 }
 
-/// unavailable leaf `0x80000008` returns 32 physical bits, 32 linear bits, and zero guest physical bits.
+/// Unavailable leaf `0x80000008` returns 32 physical bits, 32 linear bits, and zero guest physical bits.
 pub fn addressSizes() AddressSizes {
     if (maxExtendedLeaf() < Leaf.address_sizes.raw()) {
         return .{ .physical_bits = 32, .linear_bits = 32, .guest_physical_bits = 0 };

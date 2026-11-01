@@ -32,7 +32,8 @@ pub const MSR = enum(u32) {
     }
 };
 
-/// requires CPL 0; unsupported registers can cause #GP.
+/// Privilege: CPL 0.
+/// Faults: #GP for unsupported MSRs.
 pub fn read(register: MSR) u64 {
     comptime target.require();
 
@@ -47,7 +48,8 @@ pub fn read(register: MSR) u64 {
     return (@as(u64, hi) << 32) | @as(u64, lo);
 }
 
-/// requires CPL 0; unsupported registers or invalid values can cause #GP.
+/// Privilege: CPL 0.
+/// Faults: #GP for unsupported MSRs or invalid values.
 pub fn write(register: MSR, value: u64) void {
     comptime target.require();
 

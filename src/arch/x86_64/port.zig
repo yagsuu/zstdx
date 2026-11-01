@@ -13,7 +13,7 @@ pub const Port = enum(u16) {
         return @intFromEnum(self);
     }
 
-    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn in8(self: Self) u8 {
         comptime target.require();
 
@@ -23,7 +23,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn in16(self: Self) u16 {
         comptime target.require();
 
@@ -33,7 +33,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn in32(self: Self) u32 {
         comptime target.require();
 
@@ -43,7 +43,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn out8(self: Self, value: u8) void {
         comptime target.require();
 
@@ -54,7 +54,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn out16(self: Self, value: u16) void {
         comptime target.require();
 
@@ -65,7 +65,7 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission through IOPL or the TSS I/O bitmap.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn out32(self: Self, value: u32) void {
         comptime target.require();
 
@@ -76,7 +76,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission and DF clear.
+    /// Requires: DF = 0.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn inSlice8(self: Self, dst: []u8) void {
         comptime target.require();
 
@@ -91,7 +92,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission and DF clear.
+    /// Requires: DF = 0.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn inSlice16(self: Self, dst: []u16) void {
         comptime target.require();
 
@@ -106,7 +108,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission and DF clear.
+    /// Requires: DF = 0.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn inSlice32(self: Self, dst: []u32) void {
         comptime target.require();
 
@@ -121,7 +124,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission and DF clear.
+    /// Requires: DF = 0.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn outSlice8(self: Self, src: []const u8) void {
         comptime target.require();
 
@@ -136,7 +140,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission and DF clear.
+    /// Requires: DF = 0.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn outSlice16(self: Self, src: []const u16) void {
         comptime target.require();
 
@@ -151,7 +156,8 @@ pub const Port = enum(u16) {
             : .{ .memory = true });
     }
 
-    /// requires I/O permission and DF clear.
+    /// Requires: DF = 0.
+    /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
     pub fn outSlice32(self: Self, src: []const u32) void {
         comptime target.require();
 
@@ -167,8 +173,8 @@ pub const Port = enum(u16) {
     }
 };
 
-/// writes zero to port 0x80; any delay depends on the platform.
-/// requires I/O permission through IOPL or the TSS I/O bitmap.
+/// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
+/// Effects: Writes zero to port 0x80; any delay is platform-dependent.
 pub fn ioWait() void {
     comptime target.require();
 

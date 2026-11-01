@@ -35,12 +35,13 @@ pub const EFER = packed struct(u64) {
         return @bitCast(self);
     }
 
-    /// requires cpl 0.
+    /// Privilege: CPL 0.
     pub fn read() Self {
         return Self.from(msr.read(.IA32_EFER));
     }
 
-    /// requires cpl 0; clobbers memory.
+    /// Privilege: CPL 0.
+    /// Ordering: Compiler memory barrier.
     pub fn write(self: Self) void {
         msr.write(.IA32_EFER, self.raw());
     }

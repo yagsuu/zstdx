@@ -15,7 +15,7 @@ pub const GDTR = extern struct {
         return .{ .limit = 0, .base = 0 };
     }
 
-    /// requires CPL 0 when CR4.umip is set.
+    /// Privilege: CPL 0 when CR4.UMIP = 1.
     pub fn read() Self {
         comptime target.require();
         var value: Self = undefined;
@@ -27,7 +27,7 @@ pub const GDTR = extern struct {
         return value;
     }
 
-    /// requires CPL 0.
+    /// Privilege: CPL 0.
     pub fn write(self: *const Self) void {
         comptime target.require();
         asm volatile ("lgdt (%[ptr])"
@@ -57,7 +57,7 @@ pub const IDTR = extern struct {
         return .{ .limit = 0, .base = 0 };
     }
 
-    /// requires CPL 0 when CR4.umip is set.
+    /// Privilege: CPL 0 when CR4.UMIP = 1.
     pub fn read() Self {
         comptime target.require();
         var value: Self = undefined;
@@ -69,7 +69,7 @@ pub const IDTR = extern struct {
         return value;
     }
 
-    /// requires CPL 0.
+    /// Privilege: CPL 0.
     pub fn write(self: *const Self) void {
         comptime target.require();
         asm volatile ("lidt (%[ptr])"
@@ -110,7 +110,7 @@ fn Selector(comptime register: []const u8) type {
             return @bitCast(self);
         }
 
-        /// requires CPL 0 when CR4.umip is set.
+        /// Privilege: CPL 0 when CR4.UMIP = 1.
         pub fn read() Self {
             comptime target.require();
             return from(asm volatile ("s" ++ register ++ " %[ret]"
@@ -118,7 +118,8 @@ fn Selector(comptime register: []const u8) type {
             ));
         }
 
-        /// requires CPL 0 and a valid descriptor for the register.
+        /// Privilege: CPL 0.
+        /// Inputs: Valid descriptor for the register.
         pub fn write(self: Self) void {
             comptime target.require();
             asm volatile ("l" ++ register ++ " %[sel]"

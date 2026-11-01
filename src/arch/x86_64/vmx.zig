@@ -99,8 +99,11 @@ pub const Invvpid = struct {
     };
 };
 
-/// requires CPL 0 and VMX support; the region must meet VMX physical-width and 4-KiB alignment rules.
-/// region points to the physical address, not the VMXON body.
+/// Requires: VMX support.
+/// Privilege: CPL 0.
+/// Inputs:
+/// - The region must meet VMX physical-width and 4-KiB alignment rules.
+/// - region points to the physical address, not the VMXON body.
 pub fn vmxon(region: *const addr.PhysAddr) Error!void {
     comptime target.require();
 
@@ -116,7 +119,8 @@ pub fn vmxon(region: *const addr.PhysAddr) Error!void {
     return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// requires CPL 0 and VMX root operation.
+/// Requires: VMX root operation.
+/// Privilege: CPL 0.
 pub fn vmxoff() Error!void {
     comptime target.require();
 
@@ -132,7 +136,9 @@ pub fn vmxoff() Error!void {
     return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// requires CPL 0 and VMX operation; the VMCS physical address must be supported and 4-KiB aligned.
+/// Requires: VMX operation.
+/// Privilege: CPL 0.
+/// Inputs: The VMCS physical address must be supported and 4-KiB aligned.
 pub fn vmclear(vmcs: *const addr.PhysAddr) Error!void {
     comptime target.require();
 
@@ -148,7 +154,9 @@ pub fn vmclear(vmcs: *const addr.PhysAddr) Error!void {
     return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// requires CPL 0 and VMX operation; the VMCS physical address must be supported and 4-KiB aligned.
+/// Requires: VMX operation.
+/// Privilege: CPL 0.
+/// Inputs: The VMCS physical address must be supported and 4-KiB aligned.
 pub fn vmptrld(vmcs: *const addr.PhysAddr) Error!void {
     comptime target.require();
 
@@ -164,7 +172,9 @@ pub fn vmptrld(vmcs: *const addr.PhysAddr) Error!void {
     return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// requires CPL 0 and VMX root operation; stores all ones when no VMCS is current.
+/// Requires: VMX root operation.
+/// Privilege: CPL 0.
+/// Effects: Stores all ones when no VMCS is current.
 pub fn vmptrst(out: *addr.PhysAddr) void {
     comptime target.require();
 
@@ -174,8 +184,11 @@ pub fn vmptrst(out: *addr.PhysAddr) void {
         : .{ .memory = true, .cc = true });
 }
 
-/// requires CPL 0 and VMX root operation.
-/// the caller must configure VMCS host state and continuation; successful entry does not return here.
+/// Requires:
+/// - VMX root operation.
+/// - Configured VMCS host state and continuation.
+/// Privilege: CPL 0.
+/// Effects: No fallthrough on successful VM entry.
 pub fn vmlaunch() Error {
     comptime target.require();
 
@@ -192,8 +205,11 @@ pub fn vmlaunch() Error {
     unreachable;
 }
 
-/// requires CPL 0 and VMX root operation.
-/// the caller must configure VMCS host state and continuation; successful entry does not return here.
+/// Requires:
+/// - VMX root operation.
+/// - Configured VMCS host state and continuation.
+/// Privilege: CPL 0.
+/// Effects: No fallthrough on successful VM entry.
 pub fn vmresume() Error {
     comptime target.require();
 
@@ -210,7 +226,8 @@ pub fn vmresume() Error {
     unreachable;
 }
 
-/// requires CPL 0; field is a raw VMCS field encoding.
+/// Privilege: CPL 0.
+/// Inputs: field is a raw VMCS field encoding.
 pub fn vmread(field: u32) Error!u64 {
     comptime target.require();
 
@@ -229,7 +246,7 @@ pub fn vmread(field: u32) Error!u64 {
     return value;
 }
 
-/// requires CPL 0; narrow VMCS fields still use a 64-bit operand.
+/// Privilege: CPL 0.
 pub fn vmwrite(field: u32, value: u64) Error!void {
     comptime target.require();
 
@@ -246,7 +263,8 @@ pub fn vmwrite(field: u32, value: u64) Error!void {
     return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// requires CPL 0, VMX operation, and support for the requested INVEPT scope.
+/// Requires: VMX operation and support for the requested INVEPT scope.
+/// Privilege: CPL 0.
 pub fn invept(scope: Invept.Scope, descriptor: *const Invept.Descriptor) Error!void {
     comptime target.require();
 
@@ -263,8 +281,11 @@ pub fn invept(scope: Invept.Scope, descriptor: *const Invept.Descriptor) Error!v
     return Impl.checkStatus(registers.RFLAGS.from(flags));
 }
 
-/// requires CPL 0, VMX operation, and support for the requested INVVPID scope.
-/// address scope requires a canonical address; address/context/context_non_global require a nonzero VPID.
+/// Requires: VMX operation and support for the requested INVVPID scope.
+/// Privilege: CPL 0.
+/// Inputs:
+/// - address scope requires a canonical address.
+/// - address/context/context_non_global require a nonzero VPID.
 pub fn invvpid(scope: Invvpid.Scope, descriptor: *const Invvpid.Descriptor) Error!void {
     comptime target.require();
 

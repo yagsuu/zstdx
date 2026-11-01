@@ -1,13 +1,14 @@
 const target = @import("target.zig");
 const RFLAGS = @import("register/rflags.zig").RFLAGS;
 
-/// requires CPL 0; when IF was clear, interrupt recognition waits through the next instruction.
+/// Privilege: CPL 0.
+/// Effects: One-instruction interrupt shadow when IF transitions 0 -> 1.
 pub fn enable() void {
     comptime target.require();
     asm volatile ("sti" ::: .{ .memory = true });
 }
 
-/// requires CPL 0.
+/// Privilege: CPL 0.
 pub fn disable() void {
     comptime target.require();
     asm volatile ("cli" ::: .{ .memory = true });

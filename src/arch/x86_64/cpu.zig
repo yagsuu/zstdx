@@ -9,8 +9,9 @@ pub const Tsc = struct {
         aux: u32,
     };
 
-    /// requires RDTSC support; CR4.TSD can restrict access to CPL 0.
-    /// does not serialize instructions or memory accesses.
+    /// Requires: RDTSC.
+    /// Privilege: CPL 0 when CR4.TSD = 1.
+    /// Ordering: Non-serializing.
     pub fn read() u64 {
         comptime target.require();
 
@@ -24,10 +25,12 @@ pub const Tsc = struct {
         return (@as(u64, hi) << 32) | @as(u64, lo);
     }
 
-    /// requires RDTSCP support; CR4.TSD can restrict access to CPL 0.
-    /// waits for prior instructions and loads, but not for prior stores to become globally visible.
-    /// later instructions can execute before the read completes.
-    /// adds no fences or compiler memory barrier.
+    /// Requires: RDTSCP.
+    /// Privilege: CPL 0 when CR4.TSD = 1.
+    /// Ordering:
+    /// - Prior instruction completion and prior-load visibility.
+    /// - No prior-store visibility guarantee.
+    /// - No subsequent-instruction serialization or compiler memory barrier.
     pub fn readAux() Reading {
         comptime target.require();
 
@@ -45,7 +48,6 @@ pub const Tsc = struct {
 };
 
 pub const Tlb = struct {
-    /// address/context exclude global translations; the processor may invalidate more broadly.
     pub const Scope = enum(u2) {
         address = 0,
         context = 1,
@@ -71,7 +73,7 @@ pub const Tlb = struct {
         }
     };
 
-    /// requires CPL 0.
+    /// Privilege: CPL 0.
     pub fn invalidatePage(address: addr.VirtAddr) void {
         comptime target.require();
         asm volatile ("invlpg (%[address])"
@@ -80,10 +82,12 @@ pub const Tlb = struct {
             : .{ .memory = true });
     }
 
-    /// requires CPL 0 and INVPCID support.
-    /// descriptor reserved bits must be zero.
-    /// address/context require PCID zero when CR4.PCIDE is clear.
-    /// address requires a canonical linear address.
+    /// Requires: INVPCID.
+    /// Privilege: CPL 0.
+    /// Inputs:
+    /// - Descriptor reserved bits = 0.
+    /// - PCID = 0 for address/context scopes when CR4.PCIDE = 0.
+    /// - Canonical linear address for address scope.
     pub fn invalidate(scope: Scope, descriptor: *const Descriptor) void {
         comptime target.require();
         asm volatile ("invpcid (%%rdx), %%rax"
@@ -94,7 +98,7 @@ pub const Tlb = struct {
     }
 };
 
-/// requires CPL 0; execution resumes on a wake event.
+/// Privilege: CPL 0.
 pub fn halt() void {
     comptime target.require();
     asm volatile ("hlt" ::: .{ .memory = true });
@@ -105,7 +109,7 @@ pub fn pause() void {
     asm volatile ("pause" ::: .{ .memory = true });
 }
 
-/// raises #BP.
+/// Faults: #BP.
 pub fn breakpoint() void {
     comptime target.require();
     asm volatile ("int3" ::: .{ .memory = true });

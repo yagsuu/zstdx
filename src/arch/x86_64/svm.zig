@@ -18,9 +18,14 @@ pub const VMCB = extern struct {
     }
 };
 
-/// requires CPL 0 and EFER.SVME; returns after VMEXIT.
-/// entry/exit assembly must preserve compiler-live registers; this wrapper does not save guest GPR/SIMD state.
-/// the VMCB physical address must be supported and 4-KiB aligned.
+/// Requires:
+/// - EFER.SVME.
+/// - Entry/exit assembly must preserve compiler-live registers.
+/// Privilege: CPL 0.
+/// Inputs: VMCB address 4-KiB aligned; bits 63:MAXPHYADDR = 0.
+/// Effects:
+/// - Returns after VMEXIT.
+/// - This wrapper does not save guest GPR/SIMD state.
 pub fn vmrun(vmcb: addr.PhysAddr) void {
     comptime target.require();
     asm volatile ("vmrun"
@@ -29,8 +34,10 @@ pub fn vmrun(vmcb: addr.PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// requires CPL 0 and EFER.SVME; loads the VMCB's additional host or guest state.
-/// the VMCB physical address must be supported and 4-KiB aligned.
+/// Requires: EFER.SVME.
+/// Privilege: CPL 0.
+/// Inputs: VMCB address 4-KiB aligned; bits 63:MAXPHYADDR = 0.
+/// Effects: Loads the VMCB's additional host or guest state.
 pub fn vmload(vmcb: addr.PhysAddr) void {
     comptime target.require();
     asm volatile ("vmload"
@@ -39,8 +46,10 @@ pub fn vmload(vmcb: addr.PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// requires CPL 0 and EFER.SVME; saves the state subset restored by VMLOAD.
-/// the VMCB physical address must be supported and 4-KiB aligned.
+/// Requires: EFER.SVME.
+/// Privilege: CPL 0.
+/// Inputs: VMCB address 4-KiB aligned; bits 63:MAXPHYADDR = 0.
+/// Effects: Saves the state subset restored by VMLOAD.
 pub fn vmsave(vmcb: addr.PhysAddr) void {
     comptime target.require();
     asm volatile ("vmsave"
@@ -49,19 +58,22 @@ pub fn vmsave(vmcb: addr.PhysAddr) void {
         : .{ .memory = true });
 }
 
-/// requires CPL 0 and EFER.SVME.
+/// Requires: EFER.SVME.
+/// Privilege: CPL 0.
 pub fn stgi() void {
     comptime target.require();
     asm volatile ("stgi" ::: .{ .memory = true });
 }
 
-/// requires CPL 0 and EFER.SVME.
+/// Requires: EFER.SVME.
+/// Privilege: CPL 0.
 pub fn clgi() void {
     comptime target.require();
     asm volatile ("clgi" ::: .{ .memory = true });
 }
 
-/// requires CPL 0 and EFER.SVME.
+/// Requires: EFER.SVME.
+/// Privilege: CPL 0.
 pub fn invlpga(address: addr.VirtAddr, asid: u32) void {
     comptime target.require();
 
@@ -72,8 +84,9 @@ pub fn invlpga(address: addr.VirtAddr, asid: u32) void {
         : .{ .memory = true });
 }
 
-/// requires CPL 0; transfers control to the measured secure loader image.
-/// address is a 64-KiB-aligned physical address below 4 GiB.
+/// Privilege: CPL 0.
+/// Inputs: address is a 64-KiB-aligned physical address below 4 GiB.
+/// Effects: Transfers control to the measured secure loader image.
 pub fn skinit(address: u32) noreturn {
     comptime target.require();
 

@@ -1,18 +1,18 @@
 const target = @import("target.zig");
 
-/// does not ensure prior stores are globally visible.
+/// Ordering: Load fence; no prior-store visibility guarantee.
 pub fn lfence() void {
     comptime target.require();
     asm volatile ("lfence" ::: .{ .memory = true });
 }
 
-/// does not order loads.
+/// Ordering: Store fence; no load ordering.
 pub fn sfence() void {
     comptime target.require();
     asm volatile ("sfence" ::: .{ .memory = true });
 }
 
-/// does not serialize the instruction stream.
+/// Ordering: Load/store fence; non-serializing.
 pub fn mfence() void {
     comptime target.require();
     asm volatile ("mfence" ::: .{ .memory = true });

@@ -34,7 +34,7 @@ pub const CR0 = packed struct(u64) {
         return @bitCast(self);
     }
 
-    /// requires cpl 0.
+    /// Privilege: CPL 0.
     pub fn read() Self {
         comptime target.require();
         return Self.from(asm volatile ("mov %%cr0, %[ret]"
@@ -42,8 +42,8 @@ pub const CR0 = packed struct(u64) {
         ));
     }
 
-    /// requires cpl 0.
-    /// clobbers memory.
+    /// Privilege: CPL 0.
+    /// Ordering: Compiler memory barrier.
     pub fn write(self: Self) void {
         comptime target.require();
         asm volatile ("mov %[v], %%cr0"
@@ -70,7 +70,7 @@ pub const CR2 = enum(u64) {
         return @intFromEnum(self);
     }
 
-    /// requires cpl 0.
+    /// Privilege: CPL 0.
     pub fn read() Self {
         comptime target.require();
         return Self.from(asm volatile ("mov %%cr2, %[ret]"
@@ -78,8 +78,8 @@ pub const CR2 = enum(u64) {
         ));
     }
 
-    /// requires cpl 0.
-    /// clobbers memory.
+    /// Privilege: CPL 0.
+    /// Ordering: Compiler memory barrier.
     pub fn write(self: Self) void {
         comptime target.require();
         asm volatile ("mov %[v], %%cr2"
@@ -136,7 +136,7 @@ pub const CR3 = packed struct(u64) {
         return @bitCast(self);
     }
 
-    /// requires cpl 0.
+    /// Privilege: CPL 0.
     pub fn read() Self {
         comptime target.require();
         return Self.from(asm volatile ("mov %%cr3, %[ret]"
@@ -144,9 +144,9 @@ pub const CR3 = packed struct(u64) {
         ));
     }
 
-    /// requires cpl 0.
-    /// may invalidate tlb entries.
-    /// clobbers memory.
+    /// Privilege: CPL 0.
+    /// Ordering: Compiler memory barrier.
+    /// Effects: May invalidate TLB entries.
     pub fn write(self: Self) void {
         comptime target.require();
         asm volatile ("mov %[v], %%cr3"
@@ -253,7 +253,7 @@ pub const CR4 = packed struct(u64) {
         return @bitCast(self);
     }
 
-    /// requires cpl 0.
+    /// Privilege: CPL 0.
     pub fn read() Self {
         comptime target.require();
         return Self.from(asm volatile ("mov %%cr4, %[ret]"
@@ -261,9 +261,9 @@ pub const CR4 = packed struct(u64) {
         ));
     }
 
-    /// requires cpl 0.
-    /// faults with #GP on reserved-bit violations.
-    /// clobbers memory.
+    /// Privilege: CPL 0.
+    /// Ordering: Compiler memory barrier.
+    /// Faults: #GP on reserved-bit violations.
     pub fn write(self: Self) void {
         comptime target.require();
         asm volatile ("mov %[v], %%cr4"
@@ -317,7 +317,7 @@ pub const CR8 = packed struct(u64) {
         return @bitCast(self);
     }
 
-    /// requires cpl 0.
+    /// Privilege: CPL 0.
     pub fn read() Self {
         comptime target.require();
         return Self.from(asm volatile ("mov %%cr8, %[ret]"
@@ -325,8 +325,8 @@ pub const CR8 = packed struct(u64) {
         ));
     }
 
-    /// requires cpl 0.
-    /// clobbers memory.
+    /// Privilege: CPL 0.
+    /// Ordering: Compiler memory barrier.
     pub fn write(self: Self) void {
         comptime target.require();
         asm volatile ("mov %[v], %%cr8"
@@ -367,7 +367,7 @@ pub const XCR0 = packed struct(u64) {
         return @bitCast(self);
     }
 
-    /// requires CR4.osxsave.
+    /// Requires: CR4.OSXSAVE = 1.
     pub fn read() Self {
         comptime target.require();
 
@@ -383,10 +383,10 @@ pub const XCR0 = packed struct(u64) {
         return Self.from((@as(u64, hi) << 32) | @as(u64, lo));
     }
 
-    /// requires cpl 0.
-    /// requires CR4.osxsave.
-    /// faults with #GP when bits violate cpu support.
-    /// clobbers memory.
+    /// Requires: CR4.OSXSAVE = 1.
+    /// Privilege: CPL 0.
+    /// Ordering: Compiler memory barrier.
+    /// Faults: #GP when bits violate CPU support.
     pub fn write(self: Self) void {
         comptime target.require();
 

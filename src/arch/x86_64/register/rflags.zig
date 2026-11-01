@@ -48,7 +48,7 @@ pub const RFLAGS = packed struct(u64) {
         ));
     }
 
-    /// bits that the current CPL cannot modify remain unchanged.
+    /// Effects: Bits that the current CPL cannot modify remain unchanged.
     pub fn write(self: Self) void {
         comptime target.require();
         asm volatile (

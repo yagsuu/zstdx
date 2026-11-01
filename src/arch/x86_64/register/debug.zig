@@ -1,4 +1,5 @@
-//! register access requires privilege level 0 and can fault when DR7.GD is set.
+//! Privilege: CPL 0 for register access.
+//! Faults: #DB on register access when DR7.GD = 1.
 
 const std = @import("std");
 
@@ -108,7 +109,8 @@ pub const DR3 = enum(u64) {
     }
 };
 
-/// aliases DR6 when CR4.DE is clear; access raises #UD when CR4.DE is set.
+/// Aliases DR6 when CR4.DE = 0.
+/// Faults: #UD on access when CR4.DE = 1.
 pub const DR4 = enum(u64) {
     _,
 
@@ -135,7 +137,8 @@ pub const DR4 = enum(u64) {
     }
 };
 
-/// aliases DR7 when CR4.DE is clear; access raises #UD when CR4.DE is set.
+/// Aliases DR7 when CR4.DE = 0.
+/// Faults: #UD on access when CR4.DE = 1.
 pub const DR5 = enum(u64) {
     _,
 
