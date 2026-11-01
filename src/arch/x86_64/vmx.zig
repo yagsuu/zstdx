@@ -1,5 +1,6 @@
 const std = @import("std");
 const addr = @import("addr");
+const layout = @import("layout");
 
 const target = @import("target.zig");
 const registers = @import("registers.zig");
@@ -21,10 +22,11 @@ pub const Vmxon = extern struct {
     };
 
     comptime {
-        std.debug.assert(@sizeOf(@This()) == 4096);
-        std.debug.assert(@alignOf(@This()) == 4096);
-        std.debug.assert(@offsetOf(@This(), "header") == 0);
-        std.debug.assert(@offsetOf(@This(), "data") == 4);
+        layout.assertLayout(@This(), .{
+            .size = 4096,
+            .alignment = 4096,
+            .offsets = .{ .header = 0, .data = 4 },
+        });
     }
 };
 
@@ -44,11 +46,11 @@ pub const VMCS = extern struct {
     };
 
     comptime {
-        std.debug.assert(@sizeOf(@This()) == 4096);
-        std.debug.assert(@alignOf(@This()) == 4096);
-        std.debug.assert(@offsetOf(@This(), "header") == 0);
-        std.debug.assert(@offsetOf(@This(), "abort_indicator") == 4);
-        std.debug.assert(@offsetOf(@This(), "data") == 8);
+        layout.assertLayout(@This(), .{
+            .size = 4096,
+            .alignment = 4096,
+            .offsets = .{ .header = 0, .abort_indicator = 4, .data = 8 },
+        });
     }
 };
 
@@ -63,10 +65,11 @@ pub const Invept = struct {
         _reserved_64: u64 = 0,
 
         comptime {
-            std.debug.assert(@sizeOf(@This()) == 16);
-            std.debug.assert(@alignOf(@This()) == 16);
-            std.debug.assert(@offsetOf(@This(), "eptp") == 0);
-            std.debug.assert(@offsetOf(@This(), "_reserved_64") == 8);
+            layout.assertLayout(@This(), .{
+                .size = 16,
+                .alignment = 16,
+                .offsets = .{ .eptp = 0, ._reserved_64 = 8 },
+            });
         }
     };
 };
@@ -87,12 +90,11 @@ pub const Invvpid = struct {
         address: addr.VirtAddr = .zero(),
 
         comptime {
-            std.debug.assert(@sizeOf(@This()) == 16);
-            std.debug.assert(@alignOf(@This()) == 16);
-            std.debug.assert(@offsetOf(@This(), "vpid") == 0);
-            std.debug.assert(@offsetOf(@This(), "_reserved_16") == 2);
-            std.debug.assert(@offsetOf(@This(), "_reserved_32") == 4);
-            std.debug.assert(@offsetOf(@This(), "address") == 8);
+            layout.assertLayout(@This(), .{
+                .size = 16,
+                .alignment = 16,
+                .offsets = .{ .vpid = 0, ._reserved_16 = 2, ._reserved_32 = 4, .address = 8 },
+            });
         }
     };
 };

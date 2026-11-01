@@ -1,4 +1,5 @@
 const std = @import("std");
+const layout = @import("layout");
 const target = @import("../target.zig");
 const Table = @import("segment.zig").Table;
 
@@ -36,10 +37,11 @@ pub const GDTR = extern struct {
     }
 
     comptime {
-        std.debug.assert(@sizeOf(Self) == 10);
-        std.debug.assert(@alignOf(Self) == alignment);
-        std.debug.assert(@offsetOf(Self, "limit") == 0);
-        std.debug.assert(@offsetOf(Self, "base") == 2);
+        layout.assertLayout(Self, .{
+            .size = 10,
+            .alignment = alignment,
+            .offsets = .{ .limit = 0, .base = 2 },
+        });
     }
 };
 
@@ -77,10 +79,11 @@ pub const IDTR = extern struct {
     }
 
     comptime {
-        std.debug.assert(@sizeOf(Self) == 10);
-        std.debug.assert(@alignOf(Self) == alignment);
-        std.debug.assert(@offsetOf(Self, "limit") == 0);
-        std.debug.assert(@offsetOf(Self, "base") == 2);
+        layout.assertLayout(Self, .{
+            .size = 10,
+            .alignment = alignment,
+            .offsets = .{ .limit = 0, .base = 2 },
+        });
     }
 };
 

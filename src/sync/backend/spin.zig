@@ -1,13 +1,13 @@
 //! spin-only wait/wake backend
 
 const std = @import("std");
+const layout = @import("layout");
 
 pub const Backend = struct {
     pub const WaitError = error{};
 
     comptime {
-        std.debug.assert(@sizeOf(Backend) == 0);
-        std.debug.assert(@alignOf(Backend) == 1);
+        layout.assertLayout(Backend, .{ .size = 0, .alignment = 1 });
     }
 
     /// does not observe state; callers must recheck readiness

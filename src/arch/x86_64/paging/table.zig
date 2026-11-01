@@ -4,6 +4,7 @@ const std = @import("std");
 
 const addr = @import("addr");
 const bits = @import("bits");
+const layout = @import("layout");
 
 const PhysAddr = addr.PhysAddr;
 const Phys4K = addr.Page(PhysAddr, addr.pages._4kib);
@@ -535,8 +536,7 @@ fn TableStorage(comptime Item: type) type {
         }
 
         comptime {
-            std.debug.assert(@sizeOf(Self) == Phys4K.size);
-            std.debug.assert(@alignOf(Self) == Phys4K.size);
+            layout.assertLayout(Self, .{ .size = Phys4K.size, .alignment = Phys4K.size });
         }
     };
 }

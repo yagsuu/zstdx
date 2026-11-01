@@ -1,4 +1,4 @@
-const std = @import("std");
+const layout = @import("layout");
 const addr = @import("addr");
 
 const target = @import("target.zig");
@@ -10,10 +10,11 @@ pub const VMCB = extern struct {
     pub const alignment: usize = 4096;
 
     comptime {
-        std.debug.assert(@sizeOf(@This()) == 4096);
-        std.debug.assert(@alignOf(@This()) == 4096);
-        std.debug.assert(@offsetOf(@This(), "control") == 0);
-        std.debug.assert(@offsetOf(@This(), "save") == 0x400);
+        layout.assertLayout(@This(), .{
+            .size = 4096,
+            .alignment = 4096,
+            .offsets = .{ .control = 0, .save = 0x400 },
+        });
     }
 };
 

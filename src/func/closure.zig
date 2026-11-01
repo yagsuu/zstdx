@@ -1,6 +1,7 @@
 //! callbacks with inline state
 
 const std = @import("std");
+const layout = @import("layout");
 
 const callback = @import("callback.zig");
 
@@ -64,7 +65,7 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
 
         comptime {
             const aligned_capacity = alignUp(usize, capacity_bytes, alignment) catch unreachable;
-            std.debug.assert(@sizeOf(Self) == aligned_capacity + @sizeOf(usize));
+            layout.assertLayout(Self, .{ .size = aligned_capacity + @sizeOf(usize) });
         }
     };
 }

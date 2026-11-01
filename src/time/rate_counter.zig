@@ -1,6 +1,7 @@
 //! fixed-rate time projection with wrap detection below 64 bits
 
 const std = @import("std");
+const layout = @import("layout");
 
 const debug = @import("core").debug;
 const monotonic = @import("monotonic.zig");
@@ -36,7 +37,7 @@ pub const RateCounter = struct {
     const Self = @This();
 
     comptime {
-        std.debug.assert(@sizeOf(Self) == 32);
+        layout.assertLayout(Self, .{ .size = 32 });
     }
 
     pub fn init(config: Config) Self {

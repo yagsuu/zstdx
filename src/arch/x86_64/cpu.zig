@@ -1,5 +1,5 @@
-const std = @import("std");
 const addr = @import("addr");
+const layout = @import("layout");
 
 const target = @import("target.zig");
 
@@ -63,10 +63,11 @@ pub const Tlb = struct {
         address: addr.VirtAddr,
 
         comptime {
-            std.debug.assert(@sizeOf(@This()) == 16);
-            std.debug.assert(@alignOf(@This()) == 8);
-            std.debug.assert(@offsetOf(@This(), "context") == 0);
-            std.debug.assert(@offsetOf(@This(), "address") == 8);
+            layout.assertLayout(@This(), .{
+                .size = 16,
+                .alignment = 8,
+                .offsets = .{ .context = 0, .address = 8 },
+            });
         }
     };
 

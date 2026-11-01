@@ -1,6 +1,7 @@
 //! signature-typed callbacks
 
 const std = @import("std");
+const layout = @import("layout");
 
 const Impl = @import("impl.zig");
 
@@ -82,7 +83,7 @@ pub fn Callback(comptime Fn: type) type {
         }
 
         comptime {
-            std.debug.assert(@sizeOf(Self) == 2 * @sizeOf(usize));
+            layout.assertLayout(Self, .{ .size = 2 * @sizeOf(usize) });
         }
     };
 }

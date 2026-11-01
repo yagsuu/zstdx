@@ -1,12 +1,15 @@
 //! Data-layout primitives. See `docs/specs/layout/` and `docs/specs/mem/`.
 
 pub const alignment = @import("alignment.zig");
+pub const assert = @import("assert.zig");
 pub const cache = @import("cache.zig");
 pub const endian = @import("endian.zig");
 
 pub const EndianInt = endian.EndianInt;
 pub const Le = endian.Le;
 pub const Be = endian.Be;
+
+pub const assertLayout = assert.assertLayout;
 
 pub const alignDown = alignment.alignDown;
 pub const alignDownDelta = alignment.alignDownDelta;

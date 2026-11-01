@@ -219,6 +219,30 @@ const fixtures = [_]CompileFixture{
         .name = "mem/alloc/page/static_extent",
         .path = "test/fixtures/mem/alloc/page/static_extent.zig",
         .target = "native",
+    .{
+        .name = "layout/success",
+        .path = "test/fixtures/layout/success.zig",
+        .target = "native",
+        .expected = .success,
+    },
+    .{
+        .name = "layout/size_mismatch",
+        .path = "test/fixtures/layout/size_mismatch.zig",
+        .target = "native",
+        .expected = .{ .failure = "expected size 3, found 4" },
+    },
+    .{
+        .name = "layout/alignment_mismatch",
+        .path = "test/fixtures/layout/alignment_mismatch.zig",
+        .target = "native",
+        .expected = .{ .failure = "expected alignment 3, found 1" },
+    },
+    .{
+        .name = "layout/offset_mismatch",
+        .path = "test/fixtures/layout/offset_mismatch.zig",
+        .target = "native",
+        .expected = .{ .failure = ".value: expected byte offset 1, found 0" },
+    },
         .expected = .{ .failure = "PageAllocator.Static extent overflows page address space" },
     },
     .{
