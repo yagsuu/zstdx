@@ -216,10 +216,6 @@ fn addCompileFixture(
 
 const fixtures = [_]CompileFixture{
     .{
-        .name = "mem/alloc/page/static_extent",
-        .path = "test/fixtures/mem/alloc/page/static_extent.zig",
-        .target = "native",
-    .{
         .name = "layout/success",
         .path = "test/fixtures/layout/success.zig",
         .target = "native",
@@ -243,6 +239,10 @@ const fixtures = [_]CompileFixture{
         .target = "native",
         .expected = .{ .failure = ".value: expected byte offset 1, found 0" },
     },
+    .{
+        .name = "mem/alloc/page/static_extent",
+        .path = "test/fixtures/mem/alloc/page/static_extent.zig",
+        .target = "native",
         .expected = .{ .failure = "PageAllocator.Static extent overflows page address space" },
     },
     .{

@@ -172,8 +172,8 @@ pub const Modules = struct {
 
         addImports(modules.sync, &.{
             .{ "core", modules.core },
-        });
             .{ "layout", modules.layout },
+        });
 
         addImports(modules.tags, &.{
             .{ "bits", modules.bits },
@@ -181,8 +181,8 @@ pub const Modules = struct {
 
         addImports(modules.time, &.{
             .{ "core", modules.core },
-        });
             .{ "layout", modules.layout },
+        });
 
         return modules;
     }
