@@ -5,4 +5,5 @@ pub const Mmio = mmio.Mmio;
 
 test {
     _ = mmio.unit;
+    _ = poll.unit;
 }

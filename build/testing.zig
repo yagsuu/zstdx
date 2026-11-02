@@ -123,6 +123,7 @@ pub fn addHostTests(
 
         if (std.mem.eql(u8, category, "io")) {
             addSuite(b, category_step, check_step, modules.io);
+            continue;
         }
 
         const root = b.createModule(.{

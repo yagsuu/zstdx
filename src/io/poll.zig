@@ -1,257 +1,235 @@
-//! Wait-for-value poll-loop composition. See `docs/specs/io/poll.md`.
-
 const std = @import("std");
+const time = @import("time");
 
-const debug = @import("core").debug;
-const monotonic = @import("time").monotonic;
-const deadline = @import("time").deadline;
-const backoff = @import("time").backoff;
+const Deadline = time.Deadline;
+const Backoff = time.Backoff;
 
-const Deadline = deadline.Deadline;
-const Backoff = backoff.Backoff;
-const Duration = monotonic.Duration;
-const Instant = monotonic.Instant;
+pub const until = Impl.until;
 
-/// Names `until`'s return type for `Predicate`.
-/// A `PredicateError!?T` predicate yields
-/// `(Deadline.TimeoutError || PredicateError)!T`.
-pub fn PollReturnType(comptime Predicate: type) type {
-    const shape = analyzePredicate(Predicate);
-    return (Deadline.TimeoutError || shape.error_set)!shape.payload;
-}
+pub const Result = Impl.Result;
 
-/// Polls `predicate` until it returns a payload or error, or `bo.next` times out.
-/// Ordering: The predicate runs before every backoff step. Only `null` invokes
-/// `bo.next`.
-/// Requirements: `clock`, `dl`, and `bo` must use one compatible monotonic clock.
-/// Concurrency: The caller retains exclusive access to `bo`.
-/// Deadline: `Backoff.next` performs deadline checks.
-/// Effects: Does not allocate or lock.
-pub fn until(
-    clock: anytype,
-    dl: Deadline,
-    bo: *Backoff,
-    predicate: anytype,
-) PollReturnType(@TypeOf(predicate)) {
-    comptime requireClock(@TypeOf(clock));
+const Impl = struct {
+    const ResultInfo = struct {
+        returns: type,
+        errors: type,
+        payload: type,
+    };
 
-    while (true) {
-        if (try callPredicate(predicate)) |payload| return payload;
+    fn until(
+        clock: anytype,
+        deadline: Deadline,
+        backoff: *Backoff,
+        predicate: anytype,
+    ) Impl.Result(@TypeOf(predicate)) {
+        while (true) {
+            if (try call(predicate)) |payload| {
+                return payload;
+            }
 
-        switch (bo.next(dl, clock)) {
-            .spin => std.atomic.spinLoopHint(),
-            .yield => {
-                if (debug.checksEnabled()) {
-                    std.debug.assert(bo.policy.yield != null);
-                }
-
-                bo.policy.yield.?.hook();
-            },
-            .sleep => |d| clock.sleep(d),
-            .timeout => return error.Timeout,
+            switch (backoff.next(deadline, clock)) {
+                .spin => std.atomic.spinLoopHint(),
+                .yield => backoff.policy.yield.?.hook(),
+                .sleep => |duration| clock.sleep(duration),
+                .timeout => return error.Timeout,
+            }
         }
     }
-}
 
-const PredicateShape = struct {
-    error_set: type,
-    payload: type,
+    fn Result(comptime Predicate: type) type {
+        const shape = analyze(Predicate);
+        return (Deadline.TimeoutError || shape.errors)!shape.payload;
+    }
+
+    fn analyze(comptime Predicate: type) ResultInfo {
+        const Base = switch (@typeInfo(Predicate)) {
+            .pointer => |pointer| pointer.child,
+            else => Predicate,
+        };
+
+        const Function = switch (@typeInfo(Base)) {
+            .@"fn" => Base,
+            .@"struct" => method: {
+                if (!@hasDecl(Base, "call")) {
+                    @compileError("poll predicate must expose call");
+                }
+
+                break :method @TypeOf(Base.call);
+            },
+            else => @compileError("poll predicate must be a function or a struct with call"),
+        };
+
+        const function = switch (@typeInfo(Function)) {
+            .@"fn" => |info| info,
+            else => @compileError("poll predicate call must be a function"),
+        };
+
+        const parameters: usize = switch (@typeInfo(Base)) {
+            .@"fn" => 0,
+            else => 1,
+        };
+
+        if (function.params.len != parameters) {
+            @compileError("poll predicate takes no arguments; call methods take only self");
+        }
+
+        const Return = function.return_type orelse
+            @compileError("poll predicate requires a concrete return type");
+
+        const errors = switch (@typeInfo(Return)) {
+            .error_union => |info| info,
+            else => @compileError("poll predicate must return E!?T"),
+        };
+
+        if (errors.error_set == anyerror) {
+            @compileError("poll predicate must not return anyerror");
+        }
+
+        const optional = switch (@typeInfo(errors.payload)) {
+            .optional => |info| info,
+            else => @compileError("poll predicate must return E!?T"),
+        };
+
+        return .{
+            .returns = Return,
+            .errors = errors.error_set,
+            .payload = optional.child,
+        };
+    }
+
+    inline fn call(predicate: anytype) analyze(@TypeOf(predicate)).returns {
+        switch (@typeInfo(@TypeOf(predicate))) {
+            .@"fn" => return predicate(),
+            .pointer => |pointer| switch (@typeInfo(pointer.child)) {
+                .@"fn" => return predicate(),
+                else => return predicate.call(),
+            },
+            else => return predicate.call(),
+        }
+    }
 };
 
-fn analyzePredicate(comptime Predicate: type) PredicateShape {
-    switch (@typeInfo(Predicate)) {
-        .@"fn" => return analyzeCallable(Predicate, 0),
-        .pointer => |ptr| switch (@typeInfo(ptr.child)) {
-            .@"fn" => return analyzeCallable(ptr.child, 0),
-            .@"struct" => return analyzeCallStruct(ptr.child),
-            else => @compileError(
-                "poll.until: predicate must be a callable function or a struct exposing " ++
-                    "`pub fn call(...)`; got " ++ @typeName(Predicate),
-            ),
-        },
-        .@"struct" => return analyzeCallStruct(Predicate),
-        else => @compileError(
-            "poll.until: predicate must be a callable function or a struct exposing " ++
-                "`pub fn call(...)`; got " ++ @typeName(Predicate),
-        ),
-    }
-}
+pub const unit = struct {
+    const testing = std.testing;
 
-fn analyzeCallStruct(comptime T: type) PredicateShape {
-    if (!@hasDecl(T, "call")) {
-        @compileError(
-            "poll.until: predicate " ++ @typeName(T) ++
-                " has no `call` method and is not a callable function",
-        );
-    }
-    const CallFn = @TypeOf(@field(T, "call"));
-    return analyzeCallable(CallFn, 1);
-}
+    const Duration = time.Duration;
+    const Instant = time.Instant;
 
-fn analyzeCallable(comptime F: type, comptime expected_params: usize) PredicateShape {
-    const info = switch (@typeInfo(F)) {
-        .@"fn" => |f| f,
-        else => @compileError(
-            "poll.until: expected function type, got " ++ @typeName(F),
-        ),
+    test "ready values and predicate errors precede an expired deadline" {
+        var clock: Clock = .{ .current = .fromNanos(10) };
+        const deadline = Deadline.from(clock.current);
+        var backoff = Backoff.init(policy);
+        var ready: Predicate = .{ .ready_after = 1, .value = 0 };
+        var failure: Predicate = .{ .ready_after = 1, .fail = true };
+
+        const value = try Impl.until(&clock, deadline, &backoff, &ready);
+        const failed = Impl.until(&clock, deadline, &backoff, &failure);
+
+        try testing.expectEqual(@as(u32, 0), value);
+        try testing.expectError(error.DeviceFault, failed);
+        try testing.expectEqual(@as(usize, 1), ready.calls);
+        try testing.expectEqual(@as(usize, 1), failure.calls);
+        try testing.expectEqual(@as(usize, 0), clock.reads);
+        try testing.expectEqual(@as(u32, 0), backoff.attempts());
+
+        var pending: Predicate = .{};
+        const expired = Impl.until(&clock, deadline, &backoff, &pending);
+
+        try testing.expectError(error.Timeout, expired);
+        try testing.expectEqual(@as(usize, 1), pending.calls);
+        try testing.expectEqual(@as(u32, 0), backoff.attempts());
+        try testing.expectEqual(@as(usize, 0), clock.count);
+    }
+
+    test "spin and yield dispatch lead to sleeps clipped by the deadline" {
+        yields = 0;
+        var clock: Clock = .{};
+        var backoff = Backoff.init(.{
+            .spin = .{ .iterations = 2 },
+            .yield = .{ .iterations = 1, .hook = &yieldHook },
+            .wait = .{ .initial = .fromNanos(4), .max = .fromNanos(8), .growth_shift = 1 },
+        });
+        var predicate: Predicate = .{};
+        const deadline = Deadline.from(.fromNanos(9));
+
+        const result = Impl.until(&clock, deadline, &backoff, &predicate);
+
+        try testing.expectError(error.Timeout, result);
+        try testing.expectEqual(@as(usize, 6), predicate.calls);
+        try testing.expectEqual(@as(u32, 5), backoff.attempts());
+        try testing.expectEqual(@as(usize, 1), yields);
+        try testing.expectEqual(@as(usize, 2), clock.count);
+        try testing.expectEqual(Duration.fromNanos(4), clock.sleeps[0]);
+        try testing.expectEqual(Duration.fromNanos(5), clock.sleeps[1]);
+        try testing.expectEqual(Instant.fromNanos(9), clock.current);
+    }
+
+    test "predicate failure after waits returns without another backoff step" {
+        var clock: Clock = .{};
+        var backoff = Backoff.init(policy);
+        var predicate: Predicate = .{ .ready_after = 3, .fail = true };
+
+        const result = Impl.until(&clock, Deadline.never, &backoff, &predicate);
+
+        try testing.expectError(error.DeviceFault, result);
+        try testing.expectEqual(@as(usize, 3), predicate.calls);
+        try testing.expectEqual(@as(u32, 2), backoff.attempts());
+        try testing.expectEqual(@as(usize, 2), clock.count);
+        try testing.expectEqual(Instant.fromNanos(2), clock.current);
+    }
+
+    const policy: Backoff.Policy = .{
+        .spin = .{ .iterations = 0 },
+        .yield = null,
+        .wait = .{ .initial = .fromNanos(1), .max = .fromNanos(1), .growth_shift = 0 },
     };
-    if (info.params.len != expected_params) {
-        const arity_msg = if (expected_params == 0)
-            "callable function must take no parameters"
-        else
-            "predicate `call` must take exactly one parameter (the receiver)";
-        @compileError("poll.until: " ++ arity_msg ++ "; got " ++ @typeName(F));
-    }
-    const Ret = info.return_type orelse @compileError(
-        "poll.until: predicate return type is not known (generic return); got " ++
-            @typeName(F),
-    );
-    return analyzeReturn(Ret, F);
-}
 
-fn analyzeReturn(comptime Ret: type, comptime Owner: type) PredicateShape {
-    switch (@typeInfo(Ret)) {
-        .error_union => |eu| {
-            if (eu.error_set == anyerror) {
-                @compileError(
-                    "poll.until: predicate must declare an explicit error set, not `anyerror`; " ++
-                        "on " ++ @typeName(Owner),
-                );
+    var yields: usize = 0;
+
+    fn yieldHook() void {
+        yields += 1;
+    }
+
+    const Clock = struct {
+        current: Instant = .zero,
+        reads: usize = 0,
+        sleeps: [2]Duration = undefined,
+        count: usize = 0,
+
+        const Self = @This();
+
+        pub fn now(self: *Self) Instant {
+            self.reads += 1;
+            return self.current;
+        }
+
+        pub fn sleep(self: *Self, duration: Duration) void {
+            self.sleeps[self.count] = duration;
+            self.count += 1;
+
+            self.current = self.current.add(duration) catch unreachable;
+        }
+    };
+
+    const Predicate = struct {
+        calls: usize = 0,
+        ready_after: usize = std.math.maxInt(usize),
+        fail: bool = false,
+        value: u32 = 0,
+
+        const Self = @This();
+
+        pub fn call(self: *Self) error{DeviceFault}!?u32 {
+            self.calls += 1;
+
+            if (self.calls < self.ready_after) {
+                return null;
             }
-            const payload_info = @typeInfo(eu.payload);
-            if (payload_info != .optional) {
-                @compileError(
-                    "poll.until: predicate payload must be optional (E!?T); " ++
-                        "got non-optional payload in " ++ @typeName(Ret),
-                );
+
+            if (self.fail) {
+                return error.DeviceFault;
             }
-            return .{
-                .error_set = eu.error_set,
-                .payload = payload_info.optional.child,
-            };
-        },
-        .optional => @compileError(
-            "poll.until: predicate must return an error union (E!?T); got bare optional " ++
-                @typeName(Ret),
-        ),
-        else => @compileError(
-            "poll.until: predicate must return E!?T with optional payload; got " ++
-                @typeName(Ret),
-        ),
-    }
-}
 
-fn CallReturn(comptime Predicate: type) type {
-    const shape = analyzePredicate(Predicate);
-    return shape.error_set!?shape.payload;
-}
-
-inline fn callPredicate(predicate: anytype) CallReturn(@TypeOf(predicate)) {
-    const Predicate = @TypeOf(predicate);
-    switch (@typeInfo(Predicate)) {
-        .@"fn" => return predicate(),
-        .pointer => |ptr| switch (@typeInfo(ptr.child)) {
-            .@"fn" => return predicate(),
-            else => return predicate.call(),
-        },
-        else => return predicate.call(),
-    }
-}
-
-fn requireClock(comptime C: type) void {
-    const T = switch (@typeInfo(C)) {
-        .pointer => |ptr| ptr.child,
-        else => C,
+            return self.value;
+        }
     };
-    requireClockNow(C, T);
-    requireClockSleep(C, T);
-}
-
-fn requireClockNow(comptime C: type, comptime T: type) void {
-    if (!@hasDecl(T, "now")) {
-        @compileError(
-            "poll.until: clock type " ++ @typeName(C) ++
-                " is missing pub fn now(*Self) Instant",
-        );
-    }
-    const info = switch (@typeInfo(@TypeOf(@field(T, "now")))) {
-        .@"fn" => |f| f,
-        else => @compileError(
-            "poll.until: " ++ @typeName(T) ++ ".now must be a function",
-        ),
-    };
-    if (info.params.len != 1) {
-        @compileError(
-            "poll.until: " ++ @typeName(T) ++
-                ".now must take exactly one argument (*Self)",
-        );
-    }
-    const P0 = info.params[0].type orelse @compileError(
-        "poll.until: " ++ @typeName(T) ++ ".now must take (*Self), not anytype",
-    );
-    if (P0 != *T) {
-        @compileError(
-            "poll.until: " ++ @typeName(T) ++ ".now must take *" ++ @typeName(T) ++
-                ", got " ++ @typeName(P0),
-        );
-    }
-    const Ret = info.return_type orelse @compileError(
-        "poll.until: " ++ @typeName(T) ++ ".now must return Instant",
-    );
-    if (Ret != Instant) {
-        @compileError(
-            "poll.until: " ++ @typeName(T) ++
-                ".now must return Instant, not an error union or anyerror; got " ++
-                @typeName(Ret),
-        );
-    }
-}
-
-fn requireClockSleep(comptime C: type, comptime T: type) void {
-    if (!@hasDecl(T, "sleep")) {
-        @compileError(
-            "poll.until: clock type " ++ @typeName(C) ++
-                " is missing pub fn sleep(*Self, Duration) void",
-        );
-    }
-    const info = switch (@typeInfo(@TypeOf(@field(T, "sleep")))) {
-        .@"fn" => |f| f,
-        else => @compileError(
-            "poll.until: " ++ @typeName(T) ++ ".sleep must be a function",
-        ),
-    };
-    if (info.params.len != 2) {
-        @compileError(
-            "poll.until: " ++ @typeName(T) ++
-                ".sleep must take exactly two arguments (*Self, Duration)",
-        );
-    }
-    const P0 = info.params[0].type orelse @compileError(
-        "poll.until: " ++ @typeName(T) ++ ".sleep must take (*Self, Duration)",
-    );
-    if (P0 != *T) {
-        @compileError(
-            "poll.until: " ++ @typeName(T) ++ ".sleep must take *" ++ @typeName(T) ++
-                " as first parameter, got " ++ @typeName(P0),
-        );
-    }
-    const P1 = info.params[1].type orelse @compileError(
-        "poll.until: " ++ @typeName(T) ++ ".sleep must take Duration as second parameter",
-    );
-    if (P1 != Duration) {
-        @compileError(
-            "poll.until: " ++ @typeName(T) ++
-                ".sleep must take Duration as second parameter, got " ++ @typeName(P1),
-        );
-    }
-    const Ret = info.return_type orelse @compileError(
-        "poll.until: " ++ @typeName(T) ++ ".sleep must return void",
-    );
-    if (Ret != void) {
-        @compileError(
-            "poll.until: " ++ @typeName(T) ++
-                ".sleep must return void, not an error union or anyerror; got " ++
-                @typeName(Ret),
-        );
-    }
-}
+};
