@@ -10,6 +10,7 @@ pub const Le = endian.Le;
 pub const Be = endian.Be;
 
 pub const assertLayout = assert.assertLayout;
+pub const Struct = @import("struct.zig").Struct;
 
 pub const alignDown = alignment.alignDown;
 pub const alignDownDelta = alignment.alignDownDelta;
@@ -24,4 +25,5 @@ test {
     _ = alignment.unit;
     _ = cache.unit;
     _ = endian.unit;
+    _ = @import("struct.zig").unit;
 }
