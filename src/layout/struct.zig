@@ -8,7 +8,7 @@ const assertLayout = @import("assert.zig").assertLayout;
 /// Fields: `T` or `{ type, offset? }`; nonzero-sized, extern-compatible.
 /// Aggregate alignment defaults to 1. Gaps have no default initialization.
 pub fn Struct(comptime options: Options, comptime fields: anytype) type {
-    return Impl.build(options, fields);
+    return Impl.Build(options, fields);
 }
 
 const Options = struct {
@@ -23,7 +23,7 @@ const Field = struct {
 };
 
 const Impl = struct {
-    fn build(comptime options: Options, comptime fields: anytype) type {
+    fn Build(comptime options: Options, comptime fields: anytype) type {
         const resolved = resolve(options, fields);
         const members = layoutMembers(options, &resolved);
 
@@ -112,19 +112,6 @@ const Impl = struct {
         };
     }
 
-    fn entries(comptime fields: anytype) []const std.builtin.Type.StructField {
-        const info = @typeInfo(@TypeOf(fields));
-        if (info != .@"struct") {
-            @compileError("Struct: fields must be a named-field record");
-        }
-
-        if (info.@"struct".is_tuple and info.@"struct".fields.len != 0) {
-            @compileError("Struct: fields must be a named-field record");
-        }
-
-        return info.@"struct".fields;
-    }
-
     fn resolve(comptime options: Options, comptime fields: anytype) [entries(fields).len]Field {
         if (options.alignment == 0 or !std.math.isPowerOfTwo(options.alignment)) {
             @compileError("Struct: alignment must be a nonzero power of two");
@@ -140,22 +127,13 @@ const Impl = struct {
 
         for (entries(fields), 0..) |entry, field_index| {
             const declaration = @field(fields, entry.name);
-            const T = fieldType(declaration);
+            const Resolved = ResolveField(entry.name, declaration, offset);
 
             const field: Field = .{
                 .name = entry.name,
-                .offset = fieldOffset(declaration, T, offset, entry.name),
-                .type = T,
+                .offset = Resolved.offset,
+                .type = Resolved.Type,
             };
-
-            if (std.mem.startsWith(u8, field.name, "$pad")) {
-                @compileError(std.fmt.comptimePrint("Struct: field '{s}' uses reserved prefix '$pad'", .{field.name}));
-            }
-
-            const size = @sizeOf(T);
-            if (size == 0) {
-                @compileError(std.fmt.comptimePrint("Struct: field '{s}' has zero size", .{field.name}));
-            }
 
             if (field.offset < prev_offset) {
                 @compileError(std.fmt.comptimePrint("Struct: field '{s}' is out of offset order", .{field.name}));
@@ -165,45 +143,68 @@ const Impl = struct {
                 @compileError(std.fmt.comptimePrint("Struct: field '{s}' overlaps the previous field", .{field.name}));
             }
 
-            if (field.offset > options.size or size > options.size - field.offset) {
+            if (field.offset > options.size or Resolved.size > options.size - field.offset) {
                 @compileError(std.fmt.comptimePrint("Struct: field '{s}' exceeds size", .{field.name}));
             }
 
             resolved[field_index] = field;
-            offset = field.offset + size;
+            offset = field.offset + Resolved.size;
             prev_offset = field.offset;
         }
 
         return resolved;
     }
 
-    fn fieldOffset(
+    fn ResolveField(
+        comptime name: [:0]const u8,
         comptime declaration: anytype,
-        comptime T: type,
-        comptime offset: usize,
-        comptime name: []const u8,
-    ) usize {
-        if (@TypeOf(declaration) != type) {
-            if (@hasField(@TypeOf(declaration), "offset")) return declaration.offset;
-        }
+        comptime cursor: usize,
+    ) type {
+        const bare = @TypeOf(declaration) == type;
 
-        return alignment.alignUp(usize, offset, @alignOf(T)) catch {
-            @compileError(std.fmt.comptimePrint("Struct: field '{s}' exceeds size", .{name}));
-        };
-    }
-
-    fn fieldType(comptime value: anytype) type {
-        if (@TypeOf(value) == type) {
-            return value;
-        }
-
-        for (std.meta.fields(@TypeOf(value))) |property| {
-            if (!std.mem.eql(u8, property.name, "offset") and !std.mem.eql(u8, property.name, "type")) {
-                @compileError(std.fmt.comptimePrint("Struct: unknown field property '{s}'", .{property.name}));
+        if (!bare) {
+            for (std.meta.fields(@TypeOf(declaration))) |property| {
+                if (!std.mem.eql(u8, property.name, "offset") and !std.mem.eql(u8, property.name, "type")) {
+                    @compileError(std.fmt.comptimePrint("Struct: unknown field property '{s}'", .{property.name}));
+                }
             }
         }
 
-        return value.type;
+        if (std.mem.startsWith(u8, name, "$pad")) {
+            @compileError(std.fmt.comptimePrint("Struct: field '{s}' uses reserved prefix '$pad'", .{name}));
+        }
+
+        const T = if (bare) declaration else declaration.type;
+        if (@sizeOf(T) == 0) {
+            @compileError(std.fmt.comptimePrint("Struct: field '{s}' has zero size", .{name}));
+        }
+
+        return struct {
+            pub const Type = T;
+            pub const size = @sizeOf(Type);
+            pub const offset = blk: {
+                if (!bare and @hasField(@TypeOf(declaration), "offset")) {
+                    break :blk declaration.offset;
+                }
+
+                break :blk alignment.alignUp(usize, cursor, @alignOf(Type)) catch {
+                    @compileError(std.fmt.comptimePrint("Struct: field '{s}' exceeds size", .{name}));
+                };
+            };
+        };
+    }
+
+    fn entries(comptime fields: anytype) []const std.builtin.Type.StructField {
+        const info = @typeInfo(@TypeOf(fields));
+        if (info != .@"struct") {
+            @compileError("Struct: fields must be a named-field record");
+        }
+
+        if (info.@"struct".is_tuple and info.@"struct".fields.len != 0) {
+            @compileError("Struct: fields must be a named-field record");
+        }
+
+        return info.@"struct".fields;
     }
 };
 
@@ -211,7 +212,7 @@ pub const unit = struct {
     const testing = std.testing;
 
     test "implicit fields use natural offsets after an unaligned explicit anchor" {
-        const T = Impl.build(.{ .size = 19 }, .{
+        const T = Impl.Build(.{ .size = 19 }, .{
             .tag = u8,
             .anchor = .{ .offset = 3, .type = u16 },
             .count = .{ .type = u32 },
@@ -255,7 +256,7 @@ pub const unit = struct {
     }
 
     test "fully implicit fields preserve exact size and byte access" {
-        const T = Impl.build(.{ .size = 9 }, .{
+        const T = Impl.Build(.{ .size = 9 }, .{
             .tag = u8,
             .count = .{ .type = u32 },
             .tail = u8,
@@ -278,7 +279,7 @@ pub const unit = struct {
     }
 
     test "explicit offsets preserve unknown bytes" {
-        const T = Impl.build(.{ .size = 32, .alignment = 8 }, .{
+        const T = Impl.Build(.{ .size = 32, .alignment = 8 }, .{
             .tag = .{ .offset = 0, .type = u8 },
             .count = .{ .offset = 3, .type = u32 },
             .owner = .{ .offset = 16, .type = u64 },
@@ -312,10 +313,10 @@ pub const unit = struct {
     }
 
     test "unaligned nested fields preserve aligned array stride" {
-        const Inner = Impl.build(.{ .size = 8 }, .{
+        const Inner = Impl.Build(.{ .size = 8 }, .{
             .value = .{ .offset = 1, .type = u32 },
         });
-        const Outer = Impl.build(.{ .size = 32, .alignment = 16 }, .{
+        const Outer = Impl.Build(.{ .size = 32, .alignment = 16 }, .{
             .inner = .{ .offset = 3, .type = Inner },
         });
 
@@ -334,7 +335,7 @@ pub const unit = struct {
     }
 
     test "extern union payload follows an unaligned record" {
-        const Record = Impl.build(.{ .size = 12, .alignment = 4 }, .{
+        const Record = Impl.Build(.{ .size = 12, .alignment = 4 }, .{
             .first = .{ .offset = 1, .type = u32 },
             .second = .{ .offset = 6, .type = u16 },
         });
@@ -342,7 +343,7 @@ pub const unit = struct {
             integer: u64,
             bytes: [8]u8,
         };
-        const T = Impl.build(.{ .size = 24, .alignment = 8 }, .{
+        const T = Impl.Build(.{ .size = 24, .alignment = 8 }, .{
             .record = .{ .offset = 0, .type = Record },
             .payload = .{ .offset = 16, .type = Payload },
         });
@@ -374,7 +375,7 @@ pub const unit = struct {
     }
 
     test "adjacent fields fill the declared record" {
-        const T = Impl.build(.{ .size = 8 }, .{
+        const T = Impl.Build(.{ .size = 8 }, .{
             .first = .{ .offset = 0, .type = u32 },
             .second = .{ .offset = 4, .type = u32 },
         });
@@ -392,9 +393,9 @@ pub const unit = struct {
     }
 
     test "empty records preserve reserved storage and zero size" {
-        const Empty = Impl.build(.{ .size = 8, .alignment = 4 }, .{});
-        const Zero = Impl.build(.{ .size = 0 }, .{});
-        const AlignedZero = Impl.build(.{ .size = 0, .alignment = 8 }, .{});
+        const Empty = Impl.Build(.{ .size = 8, .alignment = 4 }, .{});
+        const Zero = Impl.Build(.{ .size = 0 }, .{});
+        const AlignedZero = Impl.Build(.{ .size = 0, .alignment = 8 }, .{});
 
         var records: [2]Empty = undefined;
         @memset(std.mem.asBytes(&records), 0xa5);
