@@ -175,7 +175,7 @@ pub const Port = enum(u16) {
 
 /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
 /// Effects: Writes zero to port 0x80; any delay is platform-dependent.
-pub fn ioWait() void {
+pub fn wait() void {
     comptime target.require();
 
     asm volatile ("outb %[v], $0x80"

@@ -7,6 +7,7 @@ test {
     _ = @import("x86_64/cpuid.zig").unit;
     _ = @import("x86_64/cache.zig").unit;
     _ = @import("x86_64/descriptors.zig").unit;
+    _ = @import("x86_64/irq.zig").unit;
     _ = @import("x86_64/register/control.zig").unit;
     _ = @import("x86_64/register/debug.zig").unit;
     _ = @import("x86_64/register/descriptor.zig").unit;
