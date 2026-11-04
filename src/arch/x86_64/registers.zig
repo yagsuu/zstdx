@@ -1,3 +1,5 @@
+//! Bit-field registers expose namespace operations on generated `Word` values.
+
 const control = @import("register/control.zig");
 const segment = @import("register/segment.zig");
 const descriptor = @import("register/descriptor.zig");
@@ -35,3 +37,6 @@ pub const DR4 = debug.DR4;
 pub const DR5 = debug.DR5;
 pub const DR6 = debug.DR6;
 pub const DR7 = debug.DR7;
+
+pub const Breakpoint = debug.Breakpoint;
+pub const DebugStatus = debug.DebugStatus;

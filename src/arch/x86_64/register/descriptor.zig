@@ -1,6 +1,9 @@
 const std = @import("std");
+
+const bits = @import("bits");
 const layout = @import("layout");
 const target = @import("../target.zig");
+
 const Table = @import("segment.zig").Table;
 
 pub const GDTR = extern struct {
@@ -91,27 +94,27 @@ pub const TR = Selector("tr");
 pub const LDTR = Selector("ldt");
 
 fn Selector(comptime register: []const u8) type {
-    return packed struct(u16) {
-        rpl: u2,
-        table: Table,
-        index: u13,
+    return struct {
+        const Fields = bits.BitField(u16, .{
+            .rpl = u2,
+            .table = Table,
+            .index = u13,
+        });
 
-        const Self = @This();
+        pub const __StdxBitField = Fields.Metadata;
+        pub const Int = Fields.Int;
+        pub const Word = Fields.Word;
+        pub const masks = Fields.masks;
 
-        pub fn init() Self {
-            return from(0);
-        }
-
-        pub fn from(value: u16) Self {
-            return @bitCast(value);
-        }
-
-        pub fn raw(self: Self) u16 {
-            return @bitCast(self);
-        }
+        pub const init = Fields.init;
+        pub const from = Fields.from;
+        pub const raw = Fields.raw;
+        pub const replace = Fields.replace;
+        pub const encode = Fields.encode;
+        pub const mask = Fields.mask;
 
         /// Privilege: CPL 0 when CR4.UMIP = 1.
-        pub fn read() Self {
+        pub fn read() Word {
             comptime target.require();
             return from(asm volatile ("s" ++ register ++ " %[ret]"
                 : [ret] "=r" (-> u16),
@@ -120,11 +123,11 @@ fn Selector(comptime register: []const u8) type {
 
         /// Privilege: CPL 0.
         /// Inputs: Valid descriptor for the register.
-        pub fn write(self: Self) void {
+        pub fn write(word: Word) void {
             comptime target.require();
             asm volatile ("l" ++ register ++ " %[sel]"
                 :
-                : [sel] "r" (self.raw()),
+                : [sel] "r" (raw(word)),
                 : .{ .memory = true });
         }
     };
@@ -138,5 +141,12 @@ pub const unit = struct {
         try testing.expectEqual(@as(u2, 3), value.rpl);
         try testing.expectEqual(.ldt, value.table);
         try testing.expectEqual(@as(u13, 0x14be), value.index);
+        try testing.expectEqual(@as(u16, 0xa5f7), TR.raw(value));
+        const selector = LDTR.replace(LDTR.init(), .{
+            .rpl = 3,
+            .table = .ldt,
+            .index = 0x14be,
+        });
+        try testing.expectEqual(@as(u16, 0xa5f7), LDTR.raw(selector));
     }
 };

@@ -190,21 +190,21 @@ pub fn Walker(comptime Reader: type) type {
             try Impl.requireSupportedControls(cr3, cr4);
 
             const physical_width = try PhysWidth.from(sizes.physical_bits);
-            const level5 = try cr4.level5Enabled(features.structured.ecx.la57);
+            const level5 = try registers.CR4.level5Enabled(cr4, features.structured.ecx.la57);
             const mode: Mode = if (level5) .level5 else .level4;
 
             if (sizes.linear_bits < mode.linearBits()) {
                 return error.InvalidLinearWidth;
             }
 
-            const pcid = try cr4.pcidEnabled(features.basic.ecx.pcid);
-            _ = try cr3.low(pcid);
+            const pcid = try registers.CR4.pcidEnabled(cr4, features.basic.ecx.pcid);
+            _ = try registers.CR3.low(cr3, pcid);
 
             if (cr3.no_flush and !pcid) {
                 return error.InvalidNoFlush;
             }
 
-            const root = cr3.base(physical_width.bits()) catch |err| {
+            const root = registers.CR3.base(cr3, physical_width.bits()) catch |err| {
                 return switch (err) {
                     error.InvalidPhysicalAddressWidth => unreachable,
                     error.PhysicalAddressTooWide => error.PhysicalAddressTooWide,
@@ -218,7 +218,7 @@ pub fn Walker(comptime Reader: type) type {
                 .physical_width = physical_width,
                 .allow_1gib = features.extended.edx.pdpe1gb,
                 .write_protect = cr0.write_protect,
-                .nxe = try efer.executeDisableEnabled(features.extended.edx.nx),
+                .nxe = try registers.EFER.executeDisableEnabled(efer, features.extended.edx.nx),
             }, reader);
         }
 
@@ -327,7 +327,7 @@ const Impl = struct {
         return base;
     }
 
-    fn requireSupportedControls(cr3: registers.CR3, cr4: registers.CR4) ControlError!void {
+    fn requireSupportedControls(cr3: registers.CR3.Word, cr4: registers.CR4.Word) ControlError!void {
         if (cr4.smep) {
             return error.UnsupportedSMEP;
         }
@@ -341,7 +341,7 @@ const Impl = struct {
         }
 
         // the CR4 type has no named field for PKS, bit 24.
-        if (cr4.raw() & (@as(u64, 1) << 24) != 0) {
+        if (registers.CR4.raw(cr4) & (@as(u64, 1) << 24) != 0) {
             return error.UnsupportedPKS;
         }
 
@@ -552,13 +552,13 @@ pub const unit = struct {
         };
         inline for (cases) |case| {
             const cr4 = registers.CR4.from(@as(u64, 1) << case[0]);
-            try testing.expectError(case[1], Impl.requireSupportedControls(.from(0), cr4));
+            try testing.expectError(case[1], Impl.requireSupportedControls(registers.CR3.from(0), cr4));
         }
         for ([_]u6{ 61, 62 }) |bit| {
             const cr3 = registers.CR3.from(@as(u64, 1) << bit);
-            try testing.expectError(error.UnsupportedLAM, Impl.requireSupportedControls(cr3, .from(0)));
+            try testing.expectError(error.UnsupportedLAM, Impl.requireSupportedControls(cr3, registers.CR4.from(0)));
         }
-        try Impl.requireSupportedControls(.from(0), .from(0));
+        try Impl.requireSupportedControls(registers.CR3.from(0), registers.CR4.from(0));
         comptime {
             _ = &Walker(Fixture).initCurrent;
         }

@@ -3,13 +3,13 @@ const registers = @import("stdx").arch.x86_64.registers;
 export fn descriptorWrites(
     gdtr: *const registers.GDTR,
     idtr: *const registers.IDTR,
-    tr: registers.TR,
-    ldtr: registers.LDTR,
+    tr: registers.TR.Word,
+    ldtr: registers.LDTR.Word,
 ) void {
     gdtr.write();
     idtr.write();
-    tr.write();
-    ldtr.write();
+    registers.TR.write(tr);
+    registers.LDTR.write(ldtr);
 }
 
 export fn descriptorReads() void {

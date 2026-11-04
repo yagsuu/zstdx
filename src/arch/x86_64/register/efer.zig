@@ -1,56 +1,57 @@
 const std = @import("std");
+const bits = @import("bits");
 
 const msr = @import("../msr.zig");
 
-pub const EFER = packed struct(u64) {
-    syscall_enable: bool,
-    _reserved_1: u7,
-    long_mode_enable: bool,
-    _reserved_9: bool,
-    long_mode_active: bool,
-    execute_disable_enable: bool,
-    secure_virtual_machine_enable: bool,
-    long_mode_segment_limit_enable: bool,
-    fast_fxsave_fxrstor: bool,
-    translation_cache_extension: bool,
-    _reserved_16: bool,
-    _unknown_17: u2,
-    _reserved_19: bool,
-    _unknown_20: u2,
-    _reserved_22: u42,
+pub const EFER = struct {
+    const Fields = bits.BitField(u64, .{
+        .syscall_enable = bool,
+        ._reserved_1 = .{ .type = u7, .access = .reserved },
+        .long_mode_enable = bool,
+        ._reserved_9 = .{ .type = bool, .access = .reserved },
+        .long_mode_active = .{ .type = bool, .access = .ro },
+        .execute_disable_enable = bool,
+        .secure_virtual_machine_enable = bool,
+        .long_mode_segment_limit_enable = bool,
+        .fast_fxsave_fxrstor = bool,
+        .translation_cache_extension = bool,
+        ._reserved_16 = .{ .type = bool, .access = .reserved },
+        ._reserved_19 = .{ .offset = 19, .type = bool, .access = .reserved },
+        ._reserved_22 = .{ .offset = 22, .type = u42, .access = .reserved },
+    });
 
-    const Self = @This();
+    pub const __StdxBitField = Fields.Metadata;
+
+    pub const Int = Fields.Int;
+    pub const Word = Fields.Word;
+
+    pub const masks = Fields.masks;
+
+    pub const init = Fields.init;
+    pub const from = Fields.from;
+    pub const raw = Fields.raw;
+    pub const encode = Fields.encode;
+    pub const replace = Fields.replace;
+    pub const mask = Fields.mask;
 
     pub const Error = error{UnsupportedExecuteDisable};
 
-    pub fn init() Self {
-        return Self.from(0);
-    }
-
-    pub fn from(value: u64) Self {
-        return @bitCast(value);
-    }
-
-    pub fn raw(self: Self) u64 {
-        return @bitCast(self);
-    }
-
     /// Privilege: CPL 0.
-    pub fn read() Self {
-        return Self.from(msr.read(.IA32_EFER));
+    pub fn read() Word {
+        return from(msr.read(.IA32_EFER));
     }
 
     /// Privilege: CPL 0.
     /// Ordering: Compiler memory barrier.
-    pub fn write(self: Self) void {
-        msr.write(.IA32_EFER, self.raw());
+    pub fn write(word: Word) void {
+        msr.write(.IA32_EFER, raw(word));
     }
 
-    pub fn executeDisableEnabled(self: Self, supported: bool) Error!bool {
-        if (self.execute_disable_enable and !supported) {
+    pub fn executeDisableEnabled(word: Word, supported: bool) Error!bool {
+        if (word.execute_disable_enable and !supported) {
             return error.UnsupportedExecuteDisable;
         }
-        return self.execute_disable_enable;
+        return word.execute_disable_enable;
     }
 };
 
@@ -61,9 +62,25 @@ pub const unit = struct {
         const value = EFER.from(0xa5f3_5ca9_3d7e_1c42 | (1 << 11));
         const disabled = EFER.init();
 
-        try testing.expectEqual(@as(u64, 0xa5f3_5ca9_3d7e_1c42 | (1 << 11)), value.raw());
-        try testing.expect(try value.executeDisableEnabled(true));
-        try testing.expectError(error.UnsupportedExecuteDisable, value.executeDisableEnabled(false));
-        try testing.expect(!try disabled.executeDisableEnabled(false));
+        try testing.expectEqual(@as(u64, 0xa5f3_5ca9_3d7e_1c42 | (1 << 11)), EFER.raw(value));
+        try testing.expect(try EFER.executeDisableEnabled(value, true));
+        try testing.expectError(error.UnsupportedExecuteDisable, EFER.executeDisableEnabled(value, false));
+        try testing.expect(!try EFER.executeDisableEnabled(disabled, false));
+    }
+
+    test "EFER defaults and policies preserve read-only reserved and unknown bits" {
+        const unknown: u64 = (3 << 17) | (3 << 20);
+        const snapshot = EFER.from(0xa5f3_5ca9_3d7e_1c42);
+        const changed = EFER.replace(snapshot, .{ .execute_disable_enable = true });
+        const selected = EFER.mask(.execute_disable_enable);
+
+        try testing.expectEqual(@as(u64, 0), EFER.raw(EFER.init()));
+        try testing.expectEqual(@as(u64, 0), EFER.encode(.{}));
+        try testing.expectEqual(unknown, EFER.masks.unknown);
+        try testing.expectEqual(@as(u64, 1 << 10), EFER.masks.ro);
+        try testing.expectEqual(@as(u64, 0), EFER.masks.assign & (EFER.masks.ro | EFER.masks.reserved | unknown));
+        try testing.expectEqual(EFER.raw(snapshot) & ~selected, EFER.raw(changed) & ~selected);
+        try testing.expect(changed.execute_disable_enable);
+        try testing.expectEqual(snapshot.long_mode_active, changed.long_mode_active);
     }
 };

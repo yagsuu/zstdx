@@ -303,7 +303,7 @@ pub fn invvpid(scope: Invvpid.Scope, descriptor: *const Invvpid.Descriptor) Erro
 }
 
 const Impl = struct {
-    fn checkStatus(flags: registers.RFLAGS) Error!void {
+    fn checkStatus(flags: registers.RFLAGS.Word) Error!void {
         if (flags.carry) {
             return error.VMfailInvalid;
         }

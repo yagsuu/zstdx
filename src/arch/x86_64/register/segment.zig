@@ -1,28 +1,31 @@
 const std = @import("std");
+const bits = @import("bits");
 const target = @import("../target.zig");
 
 pub const Table = enum(u1) { gdt, ldt };
 
-pub const CS = packed struct(u16) {
-    rpl: u2,
-    table: Table,
-    index: u13,
+pub const CS = struct {
+    const Fields = bits.BitField(u16, .{
+        .rpl = u2,
+        .table = Table,
+        .index = u13,
+    });
 
-    const Self = @This();
+    pub const __StdxBitField = Fields.Metadata;
 
-    pub fn init() Self {
-        return from(0);
-    }
+    pub const Int = Fields.Int;
+    pub const Word = Fields.Word;
 
-    pub fn from(value: u16) Self {
-        return @bitCast(value);
-    }
+    pub const masks = Fields.masks;
 
-    pub fn raw(self: Self) u16 {
-        return @bitCast(self);
-    }
+    pub const init = Fields.init;
+    pub const from = Fields.from;
+    pub const raw = Fields.raw;
+    pub const replace = Fields.replace;
+    pub const encode = Fields.encode;
+    pub const mask = Fields.mask;
 
-    pub fn read() Self {
+    pub fn read() Word {
         comptime target.require();
         return from(asm volatile ("mov %%cs, %[ret]"
             : [ret] "=r" (-> u16),
@@ -30,7 +33,7 @@ pub const CS = packed struct(u16) {
     }
 
     /// Inputs: Selector must reference a valid code segment for the far return.
-    pub fn writeFarReturn(self: Self) void {
+    pub fn writeFarReturn(word: Word) void {
         comptime target.require();
         _ = asm volatile (
             \\pushq %[sel]
@@ -39,7 +42,7 @@ pub const CS = packed struct(u16) {
             \\lretq
             \\1:
             : [tmp] "=&r" (-> u64),
-            : [sel] "r" (@as(u64, self.raw())),
+            : [sel] "r" (@as(u64, raw(word))),
             : .{ .memory = true });
     }
 };
@@ -126,26 +129,26 @@ pub const GsBase = enum(u64) {
 };
 
 fn Selector(comptime register: []const u8) type {
-    return packed struct(u16) {
-        rpl: u2,
-        table: Table,
-        index: u13,
+    return struct {
+        const Fields = bits.BitField(u16, .{
+            .rpl = u2,
+            .table = Table,
+            .index = u13,
+        });
 
-        const Self = @This();
+        pub const __StdxBitField = Fields.Metadata;
+        pub const Int = Fields.Int;
+        pub const Word = Fields.Word;
+        pub const masks = Fields.masks;
 
-        pub fn init() Self {
-            return from(0);
-        }
+        pub const init = Fields.init;
+        pub const from = Fields.from;
+        pub const raw = Fields.raw;
+        pub const replace = Fields.replace;
+        pub const encode = Fields.encode;
+        pub const mask = Fields.mask;
 
-        pub fn from(value: u16) Self {
-            return @bitCast(value);
-        }
-
-        pub fn raw(self: Self) u16 {
-            return @bitCast(self);
-        }
-
-        pub fn read() Self {
+        pub fn read() Word {
             comptime target.require();
             return from(asm volatile ("mov %%" ++ register ++ ", %[ret]"
                 : [ret] "=r" (-> u16),
@@ -153,11 +156,11 @@ fn Selector(comptime register: []const u8) type {
         }
 
         /// Inputs: Selector must satisfy the segment's architectural access rules.
-        pub fn write(self: Self) void {
+        pub fn write(word: Word) void {
             comptime target.require();
             asm volatile ("mov %[v], %%" ++ register
                 :
-                : [v] "r" (self.raw()),
+                : [v] "r" (raw(word)),
                 : .{ .memory = true });
         }
     };
@@ -167,14 +170,15 @@ pub const unit = struct {
     test "segment selectors decode fields and encode an LDT selector" {
         const testing = std.testing;
         const code = CS.from(0xa5f3);
-        var data = DS.from(0);
-        data.rpl = 3;
-        data.table = .ldt;
-        data.index = 0x1fff;
+        const data = DS.replace(DS.init(), .{
+            .rpl = 3,
+            .table = .ldt,
+            .index = 0x1fff,
+        });
 
         try testing.expectEqual(@as(u2, 3), code.rpl);
         try testing.expectEqual(.gdt, code.table);
         try testing.expectEqual(@as(u13, 0x14be), code.index);
-        try testing.expectEqual(@as(u16, 0xffff), data.raw());
+        try testing.expectEqual(@as(u16, 0xffff), DS.raw(data));
     }
 };
