@@ -9,12 +9,15 @@ pub const Leaf = enum(u32) {
     basic_features = 0x0000_0001,
     cache_parameters = 0x0000_0004,
     structured_features = 0x0000_0007,
+    extended_topology = 0x0000_000b,
+    v2_extended_topology = 0x0000_001f,
     max_extended = 0x8000_0000,
     extended_features = 0x8000_0001,
     brand_1 = 0x8000_0002,
     brand_2 = 0x8000_0003,
     brand_3 = 0x8000_0004,
     address_sizes = 0x8000_0008,
+    amd_extended_topology = 0x8000_001e,
     _,
 
     const Self = @This();
