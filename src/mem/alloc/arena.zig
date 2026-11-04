@@ -176,6 +176,10 @@ const Impl = struct {
     };
 
     fn allocBytes(items: []u8, index: *usize, len: usize, alignment: usize) Error.All![]u8 {
+        if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) {
+            return error.InvalidAlignment;
+        }
+
         const absolute = @intFromPtr(items.ptr) + index.*;
         const aligned = try alignUp(usize, absolute, alignment);
 

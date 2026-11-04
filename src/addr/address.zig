@@ -29,8 +29,6 @@ pub fn Address(comptime DomainT: type, comptime IntT: type) type {
         pub const Range = ranges.Range(Self);
 
         pub const OverflowError = error{Overflow};
-        pub const AlignError = error{InvalidAlignment};
-        pub const Error = OverflowError || AlignError;
 
         pub fn from(value: Int) Self {
             return @enumFromInt(value);
@@ -68,12 +66,14 @@ pub fn Address(comptime DomainT: type, comptime IntT: type) type {
             return std.math.sub(Int, self.raw(), base.raw()) catch return error.Overflow;
         }
 
-        pub fn alignUp(self: Self, alignment: Int) Error!Self {
+        /// Asserts that `alignment` is non-zero and a power of two.
+        pub fn alignUp(self: Self, alignment: Int) OverflowError!Self {
             return from(try layout.alignUp(Int, self.raw(), alignment));
         }
 
-        pub fn alignDown(self: Self, alignment: Int) AlignError!Self {
-            return from(try layout.alignDown(Int, self.raw(), alignment));
+        /// Asserts that `alignment` is non-zero and a power of two.
+        pub fn alignDown(self: Self, alignment: Int) Self {
+            return from(layout.alignDown(Int, self.raw(), alignment));
         }
 
         pub fn isAligned(self: Self, alignment: Int) bool {
@@ -248,14 +248,15 @@ pub const unit = struct {
     test "address alignment preserves rounding and errors" {
         const a = A.from(10);
         const up = try a.alignUp(8);
-        const down = try a.alignDown(8);
+        const down = a.alignDown(8);
 
         try testing.expectEqual(@as(u8, 16), up.raw());
         try testing.expectEqual(@as(u8, 8), down.raw());
         try testing.expect(!a.isAligned(8));
         try testing.expect(up.isAligned(8));
-        try testing.expectError(error.InvalidAlignment, a.alignUp(3));
-        try testing.expectError(error.InvalidAlignment, a.alignDown(0));
+        try testing.expectEqual(A.zero(), A.from(7).alignDown(8));
+        try testing.expectEqual(A.from(248), A.max().alignDown(8));
+        try testing.expectEqual(A.max(), A.max().alignDown(1));
         try testing.expectError(error.Overflow, A.max().alignUp(8));
     }
 
