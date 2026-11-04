@@ -4,15 +4,15 @@
 pub const mask = @import("mask.zig");
 pub const set = @import("set.zig");
 const word = @import("word.zig");
-const fields = @import("fields.zig");
+const field = @import("field.zig");
 
 pub const Set = set.Set;
 pub const Word = word.Word;
-pub const Fields = fields.Fields;
+pub const BitField = field.BitField;
 
 test {
     _ = word.unit;
     _ = mask.unit;
     _ = set.unit;
-    _ = fields.unit;
+    _ = field.unit;
 }
