@@ -280,10 +280,4 @@ const fixtures = [_]CompileFixture{
         .target = "native",
         .expected = .{ .failure = "InclusiveRange requires a non-zero-width unsigned integer type" },
     },
-    .{
-        .name = "ranges/range/inclusive_full_domain",
-        .path = "test/fixtures/ranges/range/inclusive_full_domain.zig",
-        .target = "native",
-        .expected = .{ .failure = "InclusiveRange.of excludes [0, maxInt(T)]" },
-    },
 };

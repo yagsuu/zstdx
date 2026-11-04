@@ -4,6 +4,7 @@ const std = @import("std");
 
 pub fn Range(comptime T: type) type {
     const Value = RangeEndpoint(T);
+
     return struct {
         start: T,
         end: T,
@@ -181,10 +182,6 @@ pub fn InclusiveRange(comptime T: type) type {
                 @compileError("InclusiveRange.of requires start <= end");
             }
 
-            if (start == 0 and end == std.math.maxInt(T)) {
-                @compileError("InclusiveRange.of excludes [0, maxInt(T)]");
-            }
-
             return .{ .start = start, .end = end };
         }
 
@@ -218,13 +215,7 @@ pub fn InclusiveRange(comptime T: type) type {
         }
 
         pub fn isValid(self: Self) bool {
-            return self.start <= self.end and
-                !(self.start == 0 and self.end == std.math.maxInt(T));
-        }
-
-        pub fn len(self: Self) T {
-            self.assertValid();
-            return self.end - self.start + 1;
+            return self.start <= self.end;
         }
 
         pub fn isSingleton(self: Self) bool {
@@ -270,16 +261,12 @@ pub fn InclusiveRange(comptime T: type) type {
             return .{ .start = start, .end = end };
         }
 
-        pub fn span(self: Self, other: Self) OverflowError!Self {
+        pub fn span(self: Self, other: Self) Self {
             self.assertValid();
             other.assertValid();
 
             const start = @min(self.start, other.start);
             const end = @max(self.end, other.end);
-            if (start == 0 and end == std.math.maxInt(T)) {
-                return error.Overflow;
-            }
-
             return .{ .start = start, .end = end };
         }
 
@@ -439,29 +426,45 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, high.shiftForward(2));
     }
 
-    test "inclusive construction rejects inverted bounds and unrepresentable cardinality" {
+    test "inclusive construction accepts the full domain and rejects inverted bounds" {
         const R = InclusiveRange(u8);
         const literal = comptime R.of(5, 9);
 
         try testing.expectEqual(literal, try R.init(5, 9));
         try testing.expect(R.single(7).isSingleton());
         try testing.expectError(error.InvalidRange, R.init(9, 5));
-        try testing.expectError(error.InvalidRange, R.init(0, std.math.maxInt(u8)));
-        try testing.expect(!(R{ .start = 0, .end = std.math.maxInt(u8) }).isValid());
+        try testing.expectEqual(R.of(0, 255), try R.init(0, 255));
+        try testing.expect((R{ .start = 0, .end = 255 }).isValid());
         try testing.expectEqual(R.of(10, 14), try R.fromStartLen(10, 5));
         try testing.expectError(error.InvalidRange, R.fromStartLen(10, 0));
         try testing.expectError(error.Overflow, R.fromStartLen(250, 7));
     }
 
-    test "inclusive length covers singleton and maximum representable cardinalities" {
-        const R = InclusiveRange(u8);
-        const U16Domain = InclusiveRange(u32);
-        const all_u16 = comptime U16Domain.of(0, std.math.maxInt(u16));
+    test "inclusive full-domain operations preserve both numeric boundaries" {
+        inline for (.{ u1, u8, usize }) |T| {
+            const R = InclusiveRange(T);
+            const max = std.math.maxInt(T);
+            const full = comptime R.of(0, max);
 
-        try testing.expectEqual(@as(u8, 1), R.single(0).len());
-        try testing.expectEqual(@as(u8, 255), R.of(0, 254).len());
-        try testing.expectEqual(@as(u8, 255), R.of(1, 255).len());
-        try testing.expectEqual(@as(u32, 65_536), all_u16.len());
+            try testing.expectEqual(full, try R.init(0, max));
+            try testing.expect(full.contains(0));
+            try testing.expect(full.contains(max));
+            try testing.expect(!full.isSingleton());
+            try testing.expect(full.containsRange(R.single(max)));
+            try testing.expectEqual(R.single(max), full.intersection(R.single(max)).?);
+            try testing.expectEqual(full, R.single(0).span(R.single(max)));
+            try testing.expectEqual(@as(?T, max), full.offsetOf(max));
+            try testing.expectEqual(@as(?T, max), full.atOffset(max));
+            try testing.expectEqual(full, try full.prefix(max));
+            try testing.expectEqual(full, try full.suffix(0));
+            try testing.expectEqual(R.single(0), try full.prefix(0));
+            try testing.expectEqual(R.single(max), try full.suffix(max));
+            try testing.expectEqual(full, try full.shiftForward(0));
+            try testing.expectEqual(full, try full.shiftBackward(0));
+            try testing.expectError(error.Overflow, full.shiftForward(1));
+            try testing.expectError(error.Overflow, full.shiftBackward(1));
+            try testing.expectError(error.Overflow, full.toRange());
+        }
     }
 
     test "inclusive containment and intersection include shared endpoints" {
@@ -481,8 +484,7 @@ pub const unit = struct {
         try testing.expect(R.single(255).isAdjacent(R.single(254)));
         try testing.expectEqual(R.single(20), range.intersection(R.of(20, 25)).?);
         try testing.expectEqual(@as(?R, null), range.intersection(R.of(21, 25)));
-        try testing.expectEqual(R.of(10, 25), try range.span(R.of(21, 25)));
-        try testing.expectError(error.Overflow, R.single(0).span(R.single(255)));
+        try testing.expectEqual(R.of(10, 25), range.span(R.of(21, 25)));
     }
 
     test "inclusive splits share the split point and offsets include the end" {
