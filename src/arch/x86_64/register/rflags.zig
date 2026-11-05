@@ -35,6 +35,7 @@ pub const RFLAGS = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -78,7 +79,7 @@ pub const unit = struct {
     test "RFLAGS defaults and replacement preserve fixed and reserved bits" {
         const testing = std.testing;
 
-        const initial = RFLAGS.init();
+        const initial = RFLAGS.default();
         const snapshot = RFLAGS.from(0xa5f3_5ca9_3d7e_1c40);
         const changed = RFLAGS.replace(snapshot, .{ .interrupt_enable = true, .iopl = 3 });
         const selected = RFLAGS.mask(.{ .interrupt_enable, .iopl });

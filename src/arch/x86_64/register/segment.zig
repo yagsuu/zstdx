@@ -18,6 +18,7 @@ pub const CS = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -141,6 +142,7 @@ fn Selector(comptime register: []const u8) type {
         pub const Word = Fields.Word;
         pub const masks = Fields.masks;
 
+        pub const default = Fields.default;
         pub const init = Fields.init;
         pub const from = Fields.from;
         pub const raw = Fields.raw;
@@ -170,7 +172,7 @@ pub const unit = struct {
     test "segment selectors decode fields and encode an LDT selector" {
         const testing = std.testing;
         const code = CS.from(0xa5f3);
-        const data = DS.replace(DS.init(), .{
+        const data = DS.replace(DS.default(), .{
             .rpl = 3,
             .table = .ldt,
             .index = 0x1fff,

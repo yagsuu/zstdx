@@ -48,6 +48,7 @@ const Impl = struct {
             pub const init = Ops.init;
             pub const from = Ops.from;
             pub const raw = Ops.raw;
+            pub const default = Ops.default;
 
             pub const encode = Ops.encode;
             pub const replace = Ops.replace;
@@ -68,6 +69,7 @@ const Impl = struct {
             pub const init = Ops.init;
             pub const from = Ops.from;
             pub const raw = Ops.raw;
+            pub const default = Ops.default;
 
             pub const encode = Ops.encode;
             pub const replace = Ops.replace;
@@ -93,6 +95,7 @@ const Impl = struct {
             pub const init = Ops.init;
             pub const from = Ops.from;
             pub const raw = Ops.raw;
+            pub const default = Ops.default;
 
             pub const encode = Ops.encode;
             pub const replace = Ops.replace;
@@ -117,6 +120,7 @@ const Impl = struct {
             pub const init = Ops.init;
             pub const from = Ops.from;
             pub const raw = Ops.raw;
+            pub const default = Ops.default;
 
             pub const encode = Ops.encode;
             pub const replace = Ops.replace;
@@ -141,8 +145,12 @@ const Impl = struct {
 
             pub const masks = Meta.masks;
 
-            pub fn init() Word {
-                return from(encode(.{}));
+            pub fn default() Word {
+                return init(.{});
+            }
+
+            pub fn init(values: AllValues) Word {
+                return from(encode(values));
             }
 
             pub fn from(value: T) Word {
@@ -782,7 +790,7 @@ pub const unit = struct {
         };
 
         try testing.expectEqual(@as(u16, 0x169), S.raw(initial));
-        try testing.expectEqual(S.raw(S.init()), S.raw(initial));
+        try testing.expectEqual(S.raw(S.default()), S.raw(initial));
         try testing.expectEqual(@as(u16, 0x170), S.raw(partial));
         try testing.expectEqual(Mode.transmit, partial.mode);
         try testing.expectEqual(@as(u16, 0), S.raw(partial) & S.masks.unknown);
@@ -799,7 +807,14 @@ pub const unit = struct {
             .reserved = .{ .type = u2, .access = .reserved, .default = 2 },
         });
 
-        const initial = comptime S.init();
+        const initial = comptime S.default();
+        const configured = comptime S.init(.{
+            .enabled = false,
+            .mode = 1,
+            .ready = false,
+            .pending = true,
+            .quiet = false,
+        });
 
         try testing.expectEqual(@as(u8, 0xad), S.raw(initial));
         try testing.expect(initial.enabled);
@@ -809,13 +824,7 @@ pub const unit = struct {
 
         try testing.expect(initial.ready);
         try testing.expectEqual(@as(u8, 0xc0), S.mask(.reserved));
-        try testing.expectEqual(@as(u8, 0x92), S.encode(.{
-            .enabled = false,
-            .mode = 1,
-            .ready = false,
-            .pending = true,
-            .quiet = false,
-        }));
+        try testing.expectEqual(@as(u8, 0x92), S.raw(configured));
 
         const snapshot = S.from(0xff);
         const updated = S.replace(snapshot, .{ .enabled = false, .mode = 0 });
@@ -835,7 +844,7 @@ pub const unit = struct {
         });
 
         try testing.expectEqual(@as(u8, 1), S.encode(.{}));
-        try testing.expectEqual(@as(u8, 1), S.raw(S.init()));
+        try testing.expectEqual(@as(u8, 1), S.raw(S.default()));
         try testing.expectEqual(@as(u8, 0x80), S.raw(S.replace(S.from(0x80), .{})));
         try testing.expectEqual(@as(u8, 1), S.mask(.reserved));
         try testing.expectEqual(@as(u8, 0), S.masks.rw | S.masks.assign | S.masks.clear);
@@ -855,7 +864,7 @@ pub const unit = struct {
         const replaced = [_]u8{ 0xfb, 0xf8, 0xf9, 0xfa, 0xfb };
 
         for (inputs, encoded, replaced) |value, payload, result| {
-            try testing.expectEqual(payload, S.encode(.{ .value = value }));
+            try testing.expectEqual(payload, S.raw(S.init(.{ .value = value })));
             try testing.expectEqual(result, S.raw(S.replace(S.from(0xfb), .{ .value = value })));
         }
     }
@@ -876,8 +885,8 @@ pub const unit = struct {
             try testing.expectEqual(result, S.raw(S.replace(S.from(0x80), .{ .enabled = value })));
         }
 
-        try testing.expect(!S.init().live);
-        try testing.expectEqual(@as(u8, 7), S.raw(S.replace(S.init(), .{ .live = true })));
+        try testing.expect(!S.default().live);
+        try testing.expectEqual(@as(u8, 7), S.raw(S.replace(S.default(), .{ .live = true })));
     }
 
     test "enum fields preserve named and unknown values across conversion" {
@@ -888,7 +897,7 @@ pub const unit = struct {
             .fallback = Mode,
         });
 
-        const initial = comptime S.init();
+        const initial = comptime S.default();
 
         try testing.expectEqual(@as(u16, 0x23), S.raw(initial));
         try testing.expectEqual(Mode.interrupt, initial.mode);
@@ -915,7 +924,7 @@ pub const unit = struct {
         const tags = [_]Tag{ .three, .one, .zero, .two };
         const values = [_]u8{ 3, 1, 0, 2 };
 
-        try testing.expectEqual(Tag.zero, S.init().value);
+        try testing.expectEqual(Tag.zero, S.default().value);
 
         for (tags, values) |tag, value| {
             try testing.expectEqual(value, S.encode(.{ .value = tag }));
@@ -961,7 +970,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(u1, 1), word.another);
         try testing.expectEqual(@as(u1, 1), word.something);
 
-        const constant = comptime S.replace(S.from(S.encode(.{ .thing = 3 })), .{ .another = 1 });
+        const constant = comptime S.replace(S.init(.{ .thing = 3 }), .{ .another = 1 });
         try testing.expectEqual(@as(u32, 0x0b), S.raw(constant));
         try testing.expectEqual(@as(u32, 0), S.encode(.{}));
     }
@@ -1052,7 +1061,7 @@ pub const unit = struct {
 
         const word = S.from(0xf6);
 
-        try testing.expectEqual(@as(u8, 0x0f), S.raw(S.init()));
+        try testing.expectEqual(@as(u8, 0x0f), S.raw(S.default()));
         try testing.expectEqual(@as(u8, 0x0d), S.ack(word, .first));
         try testing.expectEqual(@as(u8, 0x0b), S.ack(word, .second));
         try testing.expectEqual(@as(u8, 0x09), S.ack(word, .{ .first, .second }));
@@ -1101,7 +1110,7 @@ pub const unit = struct {
             const max = std.math.maxInt(T);
             const top: T = @as(T, 1) << (@bitSizeOf(T) - 1);
 
-            try testing.expectEqual(max, S.raw(S.init()));
+            try testing.expectEqual(max, S.raw(S.default()));
             try testing.expectEqual(@as(T, 0), S.ackAll(S.from(max)));
             try testing.expectEqual(max, S.ackAll(S.from(0)));
             try testing.expectEqual(max & ~top, S.ackAll(S.from(top)));
@@ -1109,7 +1118,7 @@ pub const unit = struct {
 
         const Bool = BitField(u1, .{ .flag = .{ .type = bool, .write = .w0c, .default = true } });
 
-        try testing.expect(Bool.init().flag);
+        try testing.expect(Bool.default().flag);
         try testing.expectEqual(@as(u1, 0), Bool.ackAll(Bool.from(1)));
         try testing.expectEqual(@as(u1, 1), Bool.ackAll(Bool.from(0)));
     }
@@ -1121,7 +1130,7 @@ pub const unit = struct {
             .zero = .{ .offset = 4, .type = Flags, .write = .w0c },
         });
 
-        const initial = comptime S.init();
+        const initial = comptime S.default();
 
         try testing.expectEqual(@as(u8, 0x30), S.raw(initial));
         try testing.expectEqual(@as(u2, 0), @intFromEnum(initial.one));
@@ -1164,7 +1173,7 @@ pub const unit = struct {
         const action: Control.TriggerField = .retrain;
         const selected = comptime Control.trigger(.{ .retrain, .actions });
 
-        try testing.expectEqual(@as(u16, 1), Control.raw(Control.init()));
+        try testing.expectEqual(@as(u16, 1), Control.raw(Control.default()));
         try testing.expectEqual(@as(u16, 2), Control.trigger(action));
         try testing.expectEqual(@as(u16, 0x700), Control.trigger(.actions));
         try testing.expectEqual(@as(u16, 0x702), selected);
@@ -1191,7 +1200,7 @@ pub const unit = struct {
             .quiet = .{ .type = bool, .write = .w0c },
         });
 
-        try testing.expectEqual(@as(u8, 8), Control.raw(Control.init()));
+        try testing.expectEqual(@as(u8, 8), Control.raw(Control.default()));
         try testing.expectEqual(@as(u8, 2), Control.trigger(.retrain));
         try testing.expectEqual(@as(u8, 4), Control.ackAll(Control.from(0xff)));
         try testing.expectEqual(@as(u8, 12), Control.ack(Control.from(0xff), .done));
@@ -1206,7 +1215,7 @@ pub const unit = struct {
             .enabled = bool,
         });
 
-        try testing.expectEqual(@as(u8, 0), Control.raw(Control.init()));
+        try testing.expectEqual(@as(u8, 0), Control.raw(Control.default()));
         try testing.expectEqual(@as(u8, 3), Control.trigger(.actions));
         try testing.expectEqual(@as(u8, 2), Control.encode(.{ .actions = .second }));
         try testing.expectEqual(Flags.both, Control.from(3).actions);
@@ -1276,11 +1285,11 @@ pub const unit = struct {
         });
         const Device = BitField(u16, .{
             .prefix = u2,
-            .control = .{ .offset = 4, .type = Control, .default = Control.init() },
+            .control = .{ .offset = 4, .type = Control, .default = Control.default() },
             .channel = u3,
         });
 
-        const initial = comptime Device.init();
+        const initial = comptime Device.default();
         const control: Control.Word = initial.control;
 
         try testing.expectEqual(@as(u16, 0x220), Device.raw(initial));
@@ -1297,7 +1306,40 @@ pub const unit = struct {
         try testing.expectEqual(@as(u16, 0xffff), Device.raw(snapshot));
 
         const WithoutDefault = BitField(u16, .{ .control = Control });
-        try testing.expectEqual(@as(u8, 0), Control.raw(WithoutDefault.init().control));
+        try testing.expectEqual(@as(u8, 0), Control.raw(WithoutDefault.default().control));
+    }
+
+    test "initialization composes typed child values with parent defaults" {
+        const Mode = enum(u2) { idle, receive, transmit, loopback };
+        const Child = BitField(u8, .{
+            .enabled = .{ .type = bool, .default = true },
+            .mode = .{ .type = Mode, .default = .receive },
+            .fixed = .{ .type = bool, .access = .reserved, .default = true },
+            .ready = .{ .type = bool, .access = .ro },
+            .done = .{ .type = bool, .write = .w1c },
+            .quiet = .{ .type = bool, .write = .w0c },
+            .go = .{ .type = bool, .write = .trigger },
+        });
+        const Parent = BitField(u32, .{
+            .prefix = .{ .type = u4, .default = 3 },
+            .child = .{ .type = Child, .default = Child.default() },
+            .tail = .{ .offset = 24, .type = u8, .default = 0x5a },
+        });
+
+        const configured = comptime Parent.init(.{
+            .child = Child.init(.{
+                .enabled = false,
+                .mode = .transmit,
+                .ready = true,
+                .done = true,
+                .quiet = false,
+                .go = true,
+            }),
+        });
+
+        try testing.expectEqual(@as(u32, 0x5a0004b3), Parent.raw(Parent.default()));
+        try testing.expectEqual(@as(u32, 0x5a000bc3), Parent.raw(configured));
+        try testing.expectEqual(Mode.transmit, configured.child.mode);
     }
 
     test "nested literals distinguish omitted groups from explicit child construction" {
@@ -1322,7 +1364,7 @@ pub const unit = struct {
         const changed = Parent.replace(Parent.from(0xfe18), .{ .child = .{ .enabled = false } });
 
         try testing.expectEqual(@as(u16, 0x180), Parent.raw(omitted));
-        try testing.expectEqual(Parent.raw(Parent.init()), Parent.raw(omitted));
+        try testing.expectEqual(Parent.raw(Parent.default()), Parent.raw(omitted));
         try testing.expectEqual(@as(u16, 0x588), Parent.raw(explicit));
         try testing.expectEqual(@as(u16, 0x580), Parent.raw(partial));
         try testing.expectEqual(@as(u32, 0x3000), Outer.raw(outer));
@@ -1347,10 +1389,10 @@ pub const unit = struct {
             .child = .{ .offset = 3, .type = Child, .default = Child.from(0xb1) },
         });
 
-        const initial = comptime Parent.init();
-        const outer = comptime Outer.init();
+        const initial = comptime Parent.default();
+        const outer = comptime Outer.default();
 
-        try testing.expectEqual(@as(u8, 0xb1), Child.raw(Child.init()));
+        try testing.expectEqual(@as(u8, 0xb1), Child.raw(Child.default()));
         try testing.expectEqual(@as(u16, 0x180), Parent.raw(initial));
         try testing.expectEqual(@as(u2, 3), initial.child.quiet);
         try testing.expectEqual(@as(u2, 0), initial.child.done);
@@ -1358,7 +1400,7 @@ pub const unit = struct {
         try testing.expect(!initial.child.enabled);
         try testing.expect(!initial.child.reserved);
         try testing.expectEqual(@as(u32, 0x3000), Outer.raw(outer));
-        try testing.expectEqual(@as(u16, 0x588), Explicit.raw(Explicit.init()));
+        try testing.expectEqual(@as(u16, 0x588), Explicit.raw(Explicit.default()));
 
         try testing.expectEqual(@as(u16, 0x230), Parent.encode(.{ .child = Child.from(0x46) }));
     }
@@ -1372,7 +1414,7 @@ pub const unit = struct {
             .reserved = .{ .offset = 5, .type = bool, .access = .reserved },
         });
         const Parent = BitField(u16, .{
-            .child = .{ .offset = 4, .type = Child, .default = Child.init() },
+            .child = .{ .offset = 4, .type = Child, .default = Child.default() },
             .other = .{ .offset = 12, .type = bool, .write = .w0c },
         });
 
@@ -1385,7 +1427,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(u16, 0x12f0), Parent.masks.declared);
         try testing.expectEqual(@as(u16, 0xed0f), Parent.masks.unknown);
         try testing.expectEqual(@as(u16, 0x0ff0), Parent.mask(.child));
-        try testing.expectEqual(@as(u16, 0x1080), Parent.raw(Parent.init()));
+        try testing.expectEqual(@as(u16, 0x1080), Parent.raw(Parent.default()));
         try testing.expectEqual(@as(u16, 0xffef), Parent.raw(Parent.replace(Parent.from(0xffff), .{ .child = Child.from(0) })));
 
         for (0..256) |input| {
@@ -1410,18 +1452,18 @@ pub const unit = struct {
             .quiet = .{ .type = bool, .write = .w0c },
         });
         const Middle = BitField(u8, .{
-            .leaf = .{ .offset = 2, .type = Leaf, .default = Leaf.init() },
+            .leaf = .{ .offset = 2, .type = Leaf, .default = Leaf.default() },
             .tail = bool,
         });
         const Parent = BitField(u32, .{
-            .middle = .{ .offset = 8, .type = Middle, .default = Middle.init() },
+            .middle = .{ .offset = 8, .type = Middle, .default = Middle.default() },
             .outside = .{ .offset = 24, .type = bool, .write = .w0c },
         });
 
         const selected = comptime Parent.mask(.{ .middle = .{ .leaf = .{ .enabled, .pending } } });
         try testing.expectEqual(@as(u32, 0x1400), selected);
         try testing.expectEqual(@as(u32, 0x01004000), Parent.mask(.{ .{ .middle = .tail }, .outside }));
-        try testing.expectEqual(@as(u32, 0x01002000), Parent.raw(Parent.init()));
+        try testing.expectEqual(@as(u32, 0x01002000), Parent.raw(Parent.default()));
         try testing.expectEqual(@as(u32, 0x0800), Parent.masks.ro);
         try testing.expectEqual(@as(u32, 0x4400), Parent.masks.assign);
 
@@ -1433,7 +1475,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(u32, 0xffffbbff), Parent.raw(Parent.replace(word, .{ .middle = Middle.from(0) })));
 
         const WithoutDefault = BitField(u16, .{ .middle = Middle });
-        try testing.expectEqual(@as(u16, 0x20), WithoutDefault.raw(WithoutDefault.init()));
+        try testing.expectEqual(@as(u16, 0x20), WithoutDefault.raw(WithoutDefault.default()));
     }
 
     test "nested acknowledgements retain W0C neutral bits across sibling groups" {
@@ -1487,8 +1529,8 @@ pub const unit = struct {
         });
         const Empty = BitField(u2, .{});
         const Parent = BitField(u16, .{
-            .status = .{ .type = ReadOnly, .default = ReadOnly.init() },
-            .reserved = .{ .type = Reserved, .default = Reserved.init() },
+            .status = .{ .type = ReadOnly, .default = ReadOnly.default() },
+            .reserved = .{ .type = Reserved, .default = Reserved.default() },
             .empty = Empty,
         });
 
@@ -1535,12 +1577,12 @@ pub const unit = struct {
         });
 
         const Middle = BitField(u16, .{
-            .leaf = .{ .offset = 4, .type = Leaf, .default = Leaf.init() },
+            .leaf = .{ .offset = 4, .type = Leaf, .default = Leaf.default() },
             .flush = .{ .offset = 12, .type = bool, .write = .trigger },
         });
 
         const Parent = BitField(u32, .{
-            .middle = .{ .offset = 8, .type = Middle, .default = Middle.init() },
+            .middle = .{ .offset = 8, .type = Middle, .default = Middle.default() },
             .outside = .{ .offset = 28, .type = bool, .write = .w0c },
         });
 
@@ -1552,7 +1594,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(u32, 0x00102000), Parent.masks.trigger);
         try testing.expectEqual(@as(u32, 0x10018000), Parent.masks.clear);
         try testing.expectEqual(@as(u32, 0x1000), Parent.masks.assign);
-        try testing.expectEqual(@as(u32, 0x10010000), Parent.raw(Parent.init()));
+        try testing.expectEqual(@as(u32, 0x10010000), Parent.raw(Parent.default()));
 
         const observed = Parent.from(0xffffffff);
         const updated = Parent.replace(observed, .{ .middle = Middle.from(0) });
@@ -1576,7 +1618,7 @@ pub const unit = struct {
             try testing.expectEqual(top, Parent.masks.trigger);
             try testing.expectEqual(top, Parent.trigger(.child));
             try testing.expectEqual(top, Parent.trigger(.{ .child = .action }));
-            try testing.expectEqual(@as(T, 0), Parent.raw(Parent.init()));
+            try testing.expectEqual(@as(T, 0), Parent.raw(Parent.default()));
             try testing.expectEqual(max, Parent.raw(Parent.replace(Parent.from(max), .{})));
             try testing.expect(!@hasDecl(Parent, "ack"));
         }

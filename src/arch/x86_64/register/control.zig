@@ -30,6 +30,7 @@ pub const CR0 = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -102,6 +103,7 @@ pub const CR3 = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -234,6 +236,7 @@ pub const CR4 = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -297,6 +300,7 @@ pub const CR8 = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -341,6 +345,7 @@ pub const XCR0 = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -432,7 +437,7 @@ pub const unit = struct {
 
     test "CR4 validates paging controls against capabilities" {
         const value = CR4.from((1 << 12) | (1 << 17) | (1 << 28));
-        const disabled = CR4.init();
+        const disabled = CR4.default();
         const four_level_lam = CR4.from(1 << 28);
 
         try testing.expect(try CR4.pcidEnabled(value, true));
@@ -448,11 +453,11 @@ pub const unit = struct {
     }
 
     test "control replacement preserves fixed, reserved, and unknown snapshot bits" {
-        const cr0 = CR0.replace(CR0.init(), .{ .paging = true });
+        const cr0 = CR0.replace(CR0.default(), .{ .paging = true });
         try testing.expectEqual(@as(u64, (1 << 31) | (1 << 4)), CR0.raw(cr0));
         const cr4 = CR4.replace(CR4.from((1 << 19) | (1 << 26)), .{ .smep = true });
         try testing.expectEqual(@as(u64, (1 << 19) | (1 << 20) | (1 << 26)), CR4.raw(cr4));
-        const xcr0 = XCR0.replace(XCR0.init(), .{ .sse = true });
+        const xcr0 = XCR0.replace(XCR0.default(), .{ .sse = true });
         try testing.expectEqual(@as(u64, 3), XCR0.raw(xcr0));
         const snapshot = XCR0.replace(XCR0.from(1 << 10), .{ .avx = true });
         try testing.expectEqual(@as(u64, (1 << 10) | (1 << 2)), XCR0.raw(snapshot));

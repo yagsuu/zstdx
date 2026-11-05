@@ -106,6 +106,7 @@ fn Selector(comptime register: []const u8) type {
         pub const Word = Fields.Word;
         pub const masks = Fields.masks;
 
+        pub const default = Fields.default;
         pub const init = Fields.init;
         pub const from = Fields.from;
         pub const raw = Fields.raw;
@@ -142,7 +143,7 @@ pub const unit = struct {
         try testing.expectEqual(.ldt, value.table);
         try testing.expectEqual(@as(u13, 0x14be), value.index);
         try testing.expectEqual(@as(u16, 0xa5f7), TR.raw(value));
-        const selector = LDTR.replace(LDTR.init(), .{
+        const selector = LDTR.replace(LDTR.default(), .{
             .rpl = 3,
             .table = .ldt,
             .index = 0x14be,

@@ -191,10 +191,13 @@ pub const DebugStatus = struct {
     });
 
     pub const __StdxBitField = Fields.Metadata;
+
     pub const Int = Fields.Int;
     pub const Word = Fields.Word;
+
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -233,6 +236,7 @@ pub const DR7 = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -262,6 +266,7 @@ pub const Breakpoint = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -299,11 +304,11 @@ pub const unit = struct {
     const testing = std.testing;
 
     test "debug register defaults and policies preserve raw status and nested fields" {
-        try testing.expectEqual(@as(u64, 0), DebugStatus.raw(DebugStatus.init()));
+        try testing.expectEqual(@as(u64, 0), DebugStatus.raw(DebugStatus.default()));
         try testing.expectEqual(@as(u64, 0), DebugStatus.masks.assign);
         try testing.expectEqual(@as(u64, 0), DebugStatus.masks.clear);
         try testing.expectEqual(@as(u64, 0), DebugStatus.masks.unknown);
-        try testing.expectEqual(@as(u64, 1 << 10), DR7.raw(DR7.init()));
+        try testing.expectEqual(@as(u64, 1 << 10), DR7.raw(DR7.default()));
         try testing.expectEqual(@as(u64, 1 << 11), DR7.masks.unknown);
         try testing.expectEqual(@as(u4, 0xf), Breakpoint.masks.assign);
         try testing.expectEqual(@as(u64, 0xffff0000), DR7.masks.assign & DR7.mask(.{ .br0, .br1, .br2, .br3 }));
@@ -312,7 +317,7 @@ pub const unit = struct {
         try testing.expectEqual(DebugStatus.raw(status), DebugStatus.raw(DebugStatus.replace(status, .{})));
 
         const snapshot = DR7.from(std.math.maxInt(u64));
-        const updated = DR7.replace(snapshot, .{ .br0 = Breakpoint.init(), .general_detect = false });
+        const updated = DR7.replace(snapshot, .{ .br0 = Breakpoint.default(), .general_detect = false });
         try testing.expectEqual(DR7.raw(snapshot) & ~DR7.masks.assign, DR7.raw(updated) & ~DR7.masks.assign);
         try testing.expectEqual(@as(u4, 0), Breakpoint.raw(updated.br0));
         try testing.expect(!updated.general_detect);
@@ -321,7 +326,7 @@ pub const unit = struct {
     test "debug status and breakpoint fields retain architectural encodings" {
         const status = DebugStatus.from((1 << 3) | (1 << 13) | (1 << 14) | (1 << 15));
 
-        var control = DR7.init();
+        var control = DR7.default();
         control.br0 = .{ .condition = .read_write, .length = 2 };
         control.br3 = Breakpoint.from(0b0110);
         control.general_detect = true;

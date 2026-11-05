@@ -27,6 +27,7 @@ pub const EFER = struct {
 
     pub const masks = Fields.masks;
 
+    pub const default = Fields.default;
     pub const init = Fields.init;
     pub const from = Fields.from;
     pub const raw = Fields.raw;
@@ -60,7 +61,7 @@ pub const unit = struct {
 
     test "execute-disable capability validation preserves raw bits" {
         const value = EFER.from(0xa5f3_5ca9_3d7e_1c42 | (1 << 11));
-        const disabled = EFER.init();
+        const disabled = EFER.default();
 
         try testing.expectEqual(@as(u64, 0xa5f3_5ca9_3d7e_1c42 | (1 << 11)), EFER.raw(value));
         try testing.expect(try EFER.executeDisableEnabled(value, true));
@@ -74,7 +75,7 @@ pub const unit = struct {
         const changed = EFER.replace(snapshot, .{ .execute_disable_enable = true });
         const selected = EFER.mask(.execute_disable_enable);
 
-        try testing.expectEqual(@as(u64, 0), EFER.raw(EFER.init()));
+        try testing.expectEqual(@as(u64, 0), EFER.raw(EFER.default()));
         try testing.expectEqual(@as(u64, 0), EFER.encode(.{}));
         try testing.expectEqual(unknown, EFER.masks.unknown);
         try testing.expectEqual(@as(u64, 1 << 10), EFER.masks.ro);
