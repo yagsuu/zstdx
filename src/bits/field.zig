@@ -41,6 +41,10 @@ const Impl = struct {
             pub const Word = Ops.Word;
             pub const Metadata = Ops.Metadata;
             pub const Name = Ops.Name;
+            /// Readable field inputs; null uses the schema default.
+            pub const Args = Ops.Args;
+            /// Assignable field inputs; null preserves existing bits.
+            pub const AssignArgs = Ops.AssignArgs;
             pub const TriggerField = Ops.TriggerField;
 
             pub const masks = Ops.masks;
@@ -63,6 +67,10 @@ const Impl = struct {
             pub const Word = Ops.Word;
             pub const Metadata = Ops.Metadata;
             pub const Name = Ops.Name;
+            /// Readable field inputs; null uses the schema default.
+            pub const Args = Ops.Args;
+            /// Assignable field inputs; null preserves existing bits.
+            pub const AssignArgs = Ops.AssignArgs;
 
             pub const masks = Ops.masks;
 
@@ -87,6 +95,10 @@ const Impl = struct {
             pub const Word = Ops.Word;
             pub const Metadata = Ops.Metadata;
             pub const Name = Ops.Name;
+            /// Readable field inputs; null uses the schema default.
+            pub const Args = Ops.Args;
+            /// Assignable field inputs; null preserves existing bits.
+            pub const AssignArgs = Ops.AssignArgs;
             pub const AckField = Ops.AckField;
             pub const TriggerField = Ops.TriggerField;
 
@@ -113,6 +125,10 @@ const Impl = struct {
             pub const Word = Ops.Word;
             pub const Metadata = Ops.Metadata;
             pub const Name = Ops.Name;
+            /// Readable field inputs; null uses the schema default.
+            pub const Args = Ops.Args;
+            /// Assignable field inputs; null preserves existing bits.
+            pub const AssignArgs = Ops.AssignArgs;
             pub const AckField = Ops.AckField;
 
             pub const masks = Ops.masks;
@@ -134,8 +150,8 @@ const Impl = struct {
     fn Operations(comptime T: type, comptime schema: []const Field) type {
         return struct {
             const Meta = Impl.Metadata(T, schema);
-            const AllValues = Values(schema, .readable);
-            const AssignValues = Values(schema, .assignable);
+            pub const Args = Values(schema, .readable);
+            pub const AssignArgs = Values(schema, .assignable);
 
             pub const Word = PackedWord(T, schema);
             pub const Name = Names(schema, .all);
@@ -149,7 +165,7 @@ const Impl = struct {
                 return init(.{});
             }
 
-            pub fn init(values: AllValues) Word {
+            pub fn init(values: Args) Word {
                 return from(encode(values));
             }
 
@@ -161,11 +177,11 @@ const Impl = struct {
                 return @bitCast(word);
             }
 
-            pub fn encode(values: AllValues) T {
+            pub fn encode(values: Args) T {
                 return encodeValues(T, schema, values);
             }
 
-            pub fn replace(word: Word, values: AssignValues) Word {
+            pub fn replace(word: Word, values: AssignArgs) Word {
                 return from(replaceValues(T, schema, raw(word), values));
             }
 
