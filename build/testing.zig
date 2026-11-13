@@ -146,6 +146,7 @@ pub fn addCompileFixtureTests(
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Step {
     const fixture_step = b.step("test-compile", "Run compile fixtures");
+    const func_fixture_step = b.step("test-func-compile", "Run func compile fixtures");
 
     var private_modules: [fixtures.len]Modules = undefined;
     var private_count: usize = 0;
@@ -175,6 +176,9 @@ pub fn addCompileFixtureTests(
 
         const compile = addCompileFixture(b, fixture, fixture_modules);
         fixture_step.dependOn(&compile.step);
+        if (std.mem.startsWith(u8, fixture.name, "func/")) {
+            func_fixture_step.dependOn(&compile.step);
+        }
     }
 
     return fixture_step;
@@ -220,6 +224,48 @@ fn addCompileFixture(
 }
 
 const fixtures = [_]CompileFixture{
+    .{
+        .name = "func/interface/missing_method",
+        .path = "test/fixtures/func/interface/missing_method.zig",
+        .target = "native",
+        .expected = .{ .failure = "has no matching method" },
+    },
+    .{
+        .name = "func/interface/wrong_parameter",
+        .path = "test/fixtures/func/interface/wrong_parameter.zig",
+        .target = "native",
+        .expected = .{ .failure = "provider parameter type does not match the contract" },
+    },
+    .{
+        .name = "func/interface/wrong_return",
+        .path = "test/fixtures/func/interface/wrong_return.zig",
+        .target = "native",
+        .expected = .{ .failure = "provider return type does not match the contract" },
+    },
+    .{
+        .name = "func/interface/const_provider",
+        .path = "test/fixtures/func/interface/const_provider.zig",
+        .target = "native",
+        .expected = .{ .failure = "Interface.bind: const provider cannot implement a mutable contract" },
+    },
+    .{
+        .name = "func/interface/mutable_readonly_receiver",
+        .path = "test/fixtures/func/interface/mutable_readonly_receiver.zig",
+        .target = "native",
+        .expected = .{ .failure = "a read-only operation requires a const provider receiver" },
+    },
+    .{
+        .name = "func/interface/unsupported_calling_convention",
+        .path = "test/fixtures/func/interface/unsupported_calling_convention.zig",
+        .target = "native",
+        .expected = .{ .failure = "expected the default Zig calling convention" },
+    },
+    .{
+        .name = "func/interface/excess_arguments",
+        .path = "test/fixtures/func/interface/excess_arguments.zig",
+        .target = "native",
+        .expected = .{ .failure = "expected a receiver and zero through three arguments" },
+    },
     .{
         .name = "layout/success",
         .path = "test/fixtures/layout/success.zig",

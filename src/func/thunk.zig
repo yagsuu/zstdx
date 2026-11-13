@@ -3,22 +3,22 @@
 const std = @import("std");
 
 pub fn Thunk(
-    comptime CB: type,
+    comptime DelegateType: type,
     comptime Context: type,
     comptime function: anytype,
     comptime label: []const u8,
 ) type {
-    comptime requireBound(CB.Signature, Context, @TypeOf(function), label);
+    comptime requireBound(DelegateType.Signature, Context, @TypeOf(function), label);
 
     return struct {
-        pub fn invoke(erased: ?*anyopaque, args: CB.Args) CB.Return {
+        pub fn invoke(erased: ?*anyopaque, args: DelegateType.Args) DelegateType.Return {
             const context: *Context = @ptrCast(@alignCast(erased.?));
             return @call(.auto, function, .{context} ++ args);
         }
     };
 }
 
-pub fn requireSignature(comptime Fn: type, comptime label: []const u8) void {
+pub fn functionInfo(comptime Fn: type, comptime label: []const u8) std.builtin.Type.Fn {
     const info = switch (@typeInfo(Fn)) {
         .@"fn" => |f| f,
         else => @compileError(
@@ -55,6 +55,8 @@ pub fn requireSignature(comptime Fn: type, comptime label: []const u8) void {
             ));
         }
     }
+
+    return info;
 }
 
 fn requireBound(
@@ -72,25 +74,8 @@ fn requireBound(
 
     const Callee = ptr_info.child;
 
-    const callee_info = switch (@typeInfo(Callee)) {
-        .@"fn" => |f| f,
-        else => @compileError(
-            label ++ ": " ++ @typeName(Ptr) ++ " does not point to a function",
-        ),
-    };
-    const fn_info = @typeInfo(Fn).@"fn";
-
-    if (callee_info.is_generic) {
-        @compileError(
-            label ++ ": " ++ @typeName(Callee) ++ " is generic; concrete signature required",
-        );
-    }
-
-    if (callee_info.is_var_args) {
-        @compileError(
-            label ++ ": " ++ @typeName(Callee) ++ " is variadic; not supported",
-        );
-    }
+    const callee_info = functionInfo(Callee, label);
+    const fn_info = functionInfo(Fn, label);
 
     if (callee_info.params.len != fn_info.params.len + 1) {
         @compileError(std.fmt.comptimePrint(
@@ -99,8 +84,7 @@ fn requireBound(
         ));
     }
 
-    const first = callee_info.params[0].type orelse
-        @compileError(label ++ ": " ++ @typeName(Callee) ++ " first parameter has no concrete type");
+    const first = callee_info.params[0].type.?;
 
     if (first != *Context) {
         @compileError(
@@ -111,11 +95,7 @@ fn requireBound(
 
     inline for (fn_info.params, 0..) |p, i| {
         const expected = p.type.?;
-        const got = callee_info.params[i + 1].type orelse
-            @compileError(std.fmt.comptimePrint(
-                "{s}: {s} parameter {d} has no concrete type",
-                .{ label, @typeName(Callee), i + 1 },
-            ));
+        const got = callee_info.params[i + 1].type.?;
 
         if (expected != got) {
             @compileError(std.fmt.comptimePrint(
@@ -126,8 +106,7 @@ fn requireBound(
     }
 
     const expected_ret = fn_info.return_type.?;
-    const got_ret = callee_info.return_type orelse
-        @compileError(label ++ ": " ++ @typeName(Callee) ++ " has no return type");
+    const got_ret = callee_info.return_type.?;
 
     if (got_ret != expected_ret) {
         @compileError(
@@ -140,7 +119,7 @@ fn requireBound(
 pub const unit = struct {
     const testing = std.testing;
 
-    const Callback = @import("callback.zig").Callback;
+    const Delegate = @import("delegate.zig").Delegate;
 
     test "bound invocation preserves argument order and isolates contexts" {
         const State = struct {
@@ -152,8 +131,8 @@ pub const unit = struct {
             }
         };
 
-        const CB = Callback(fn (u32, u32) u32);
-        const Bound = Thunk(CB, State, &State.update, "unit");
+        const UpdateDelegate = Delegate(fn (u32, u32) u32);
+        const Bound = Thunk(UpdateDelegate, State, &State.update, "unit");
 
         var a: State = .{ .value = 2 };
         var b: State = .{ .value = 9 };
@@ -183,8 +162,8 @@ pub const unit = struct {
             }
         };
 
-        const CB = Callback(fn (u32) error{Insufficient}!u32);
-        const Bound = Thunk(CB, State, &State.spend, "unit");
+        const SpendDelegate = Delegate(fn (u32) error{Insufficient}!u32);
+        const Bound = Thunk(SpendDelegate, State, &State.spend, "unit");
 
         var state: State = .{ .remaining = 9, .attempts = 0 };
 
@@ -204,8 +183,8 @@ pub const unit = struct {
             }
         };
 
-        const CB = Callback(fn () void);
-        const Bound = Thunk(CB, State, &State.tick, "unit");
+        const TickDelegate = Delegate(fn () void);
+        const Bound = Thunk(TickDelegate, State, &State.tick, "unit");
 
         var state: State = .{ .calls = 0 };
 

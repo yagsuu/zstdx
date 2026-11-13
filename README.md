@@ -83,6 +83,94 @@ lock.acquire();
 defer lock.release();
 ```
 
+### Delegates, closures, and interfaces
+
+`stdx.func.Delegate(Fn)` borrows a context and calls a function with signature
+`Fn`. Use `wrap(&function)` for a free function, `bind(State, &state, &State.run)`
+for a context function, or `bindMethod(State, &state, "run")` for a public method.
+The bound function takes `*State` before the exact parameters of `Fn` and returns
+the exact return type of `Fn`.
+
+Use `call()` for no arguments, `call(value)` for one argument, and
+`call(.{ first, second })` for multiple arguments. `callArgs(tuple)` always takes
+an argument tuple. Keep the borrowed context alive while a delegate uses it.
+
+`stdx.func.Closure(Fn, capacity_bytes)` stores a copy of its state inline:
+
+```zig
+const stdx = @import("stdx");
+
+const Counter = struct {
+    value: usize,
+
+    pub fn add(self: *@This(), amount: usize) usize {
+        self.value += amount;
+        return self.value;
+    }
+};
+
+test "delegate and closure" {
+    var counter: Counter = .{ .value = 0 };
+    const delegate = stdx.func.Delegate(fn (usize) usize)
+        .bind(Counter, &counter, &Counter.add);
+    _ = delegate.call(1);
+
+    var closure = stdx.func.Closure(fn (usize) usize, @sizeOf(Counter))
+        .init(Counter, counter, &Counter.add);
+    _ = closure.delegateMut().call(2);
+}
+```
+
+Closure state must fit the capacity and must not require alignment greater than
+`@alignOf(usize)`. Keep the closure alive and at a fixed address while a delegate
+borrows its state. Resources referenced by the stored state remain caller-managed.
+
+`stdx.func.Interface(Contract).bind(&provider)` constructs a borrowed contract
+without allocation. The contract declares `instance: *anyopaque` or
+`instance: *const anyopaque`, `vtable: *const Vtable`, and a public `Vtable` struct.
+Each vtable field is a required function pointer. Its first parameter is an
+erased receiver; zero through three explicit operation arguments follow.
+The provider supplies a public method with the same name as each vtable field.
+Trailing parameter types and return types must match exactly. Operations use the
+default Zig calling convention.
+
+```zig
+const stdx = @import("stdx");
+
+const Reader = struct {
+    instance: *const anyopaque,
+    vtable: *const Vtable,
+
+    pub const Vtable = struct {
+        read: *const fn (*const anyopaque) usize,
+    };
+
+    pub fn read(self: @This()) usize {
+        return self.vtable.read(self.instance);
+    }
+};
+
+const Value = struct {
+    value: usize,
+
+    pub fn read(self: *const @This()) usize {
+        return self.value;
+    }
+};
+
+test "const interface" {
+    const value: Value = .{ .value = 42 };
+    const reader = stdx.func.Interface(Reader).bind(&value);
+    _ = reader.read();
+}
+```
+
+A const contract requires const erased receivers and const provider receivers.
+A mutable contract accepts only a mutable provider pointer. Its operations may
+use mutable or const erased receivers; a const erased receiver requires a const
+provider receiver. Keep the provider alive and at a fixed address while a
+contract borrows it.
+
 ## Public API
 
 The public facade is `src/stdx.zig`. It re-exports these namespaces:
@@ -95,7 +183,7 @@ The public facade is `src/stdx.zig`. It re-exports these namespaces:
 | `stdx.mem`, `stdx.collections`, `stdx.intrusive`, `stdx.algo` | Memory mechanisms, collections, intrusive structures, and algorithms |
 | `stdx.sync`, `stdx.concurrent`, `stdx.barrier` | Synchronization, concurrent structures, and ordering primitives |
 | `stdx.arch`, `stdx.io`, `stdx.dma`, `stdx.cpu` | Target wrappers, MMIO, DMA data structures, and per-CPU substrate |
-| `stdx.time`, `stdx.tags`, `stdx.func`, `stdx.diag` | Time, tag allocation, callbacks, and diagnostics |
+| `stdx.time`, `stdx.tags`, `stdx.func`, `stdx.diag` | Time, tag allocation, delegates and interfaces, and diagnostics |
 
 ## Build and test
 

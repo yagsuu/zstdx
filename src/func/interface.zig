@@ -1,0 +1,336 @@
+//! borrowed instance/vtable bindings
+
+const std = @import("std");
+
+const thunk = @import("thunk.zig");
+
+pub fn Interface(comptime Contract: type) type {
+    comptime Impl.requireContract(Contract);
+
+    return struct {
+        pub fn bind(provider: anytype) Contract {
+            const Binding = Impl.Binding(Contract, @TypeOf(provider));
+
+            return .{
+                .instance = @ptrCast(provider),
+                .vtable = &Binding.vtable,
+            };
+        }
+    };
+}
+
+const Impl = struct {
+    fn requireContract(comptime Contract: type) void {
+        if (@typeInfo(Contract) != .@"struct") {
+            @compileError("Interface: contract must be a struct");
+        }
+
+        if (!@hasField(Contract, "instance") or
+            !@hasField(Contract, "vtable") or
+            !@hasDecl(Contract, "Vtable"))
+        {
+            @compileError("Interface: contract must declare instance, vtable, and Vtable");
+        }
+
+        const Instance = @FieldType(Contract, "instance");
+        if (Instance != *anyopaque and Instance != *const anyopaque) {
+            @compileError("Interface: instance must be *anyopaque or *const anyopaque");
+        }
+
+        if (@TypeOf(Contract.Vtable) != type or @typeInfo(Contract.Vtable) != .@"struct") {
+            @compileError("Interface: Vtable must be a struct type");
+        }
+
+        if (@FieldType(Contract, "vtable") != *const Contract.Vtable) {
+            @compileError("Interface: vtable must be *const Vtable");
+        }
+
+        for (std.meta.fields(Contract.Vtable)) |field| {
+            requireOperation(Instance, field.name, field.type);
+        }
+    }
+
+    fn requireOperation(
+        comptime Instance: type,
+        comptime name: []const u8,
+        comptime Pointer: type,
+    ) void {
+        const label = "Interface: operation '" ++ name ++ "'";
+        const pointer = switch (@typeInfo(Pointer)) {
+            .pointer => |p| p,
+            else => @compileError(label ++ ": expected a const function pointer"),
+        };
+
+        if (pointer.size != .one or !pointer.is_const) {
+            @compileError(label ++ ": expected a const function pointer");
+        }
+
+        const signature = functionInfo(pointer.child, label);
+        if (signature.params.len == 0 or signature.params.len > 4) {
+            @compileError(label ++ ": expected a receiver and zero through three arguments");
+        }
+
+        const Receiver = signature.params[0].type.?;
+        if (Receiver != *anyopaque and Receiver != *const anyopaque) {
+            @compileError(label ++ ": receiver must be *anyopaque or *const anyopaque");
+        }
+
+        if (Instance == *const anyopaque and Receiver != *const anyopaque) {
+            @compileError(label ++ ": a read-only contract requires a const receiver");
+        }
+    }
+
+    fn Binding(comptime Contract: type, comptime Pointer: type) type {
+        const pointer = switch (@typeInfo(Pointer)) {
+            .pointer => |p| p,
+            else => @compileError("Interface.bind: provider must be a single-item pointer to a struct"),
+        };
+
+        if (pointer.size != .one or @typeInfo(pointer.child) != .@"struct") {
+            @compileError("Interface.bind: provider must be a single-item pointer to a struct");
+        }
+
+        if (Pointer != *pointer.child and Pointer != *const pointer.child) {
+            @compileError("Interface.bind: provider must be an unqualified mutable or const pointer");
+        }
+
+        if (pointer.is_const and @FieldType(Contract, "instance") == *anyopaque) {
+            @compileError("Interface.bind: const provider cannot implement a mutable contract");
+        }
+
+        const Provider = pointer.child;
+
+        return struct {
+            const vtable: Contract.Vtable = blk: {
+                var result: Contract.Vtable = undefined;
+
+                for (std.meta.fields(Contract.Vtable)) |field| {
+                    const Adapter = Impl.Method(Provider, field.name, field.type);
+                    @field(result, field.name) = &Adapter.call;
+                }
+
+                break :blk result;
+            };
+        };
+    }
+
+    fn functionInfo(comptime Function: type, comptime label: []const u8) std.builtin.Type.Fn {
+        const signature = thunk.functionInfo(Function, label);
+
+        if (signature.calling_convention != .auto) {
+            @compileError(label ++ ": expected the default Zig calling convention");
+        }
+
+        return signature;
+    }
+
+    fn methodInfo(
+        comptime Provider: type,
+        comptime name: []const u8,
+        comptime Signature: type,
+    ) std.builtin.Type.Fn {
+        const label = "Interface: operation '" ++ name ++ "'";
+        if (!@hasDecl(Provider, name)) {
+            @compileError(label ++ ": " ++ @typeName(Provider) ++ " has no matching method");
+        }
+
+        const operation = @field(Provider, name);
+        const actual = functionInfo(@TypeOf(operation), label);
+        const expected = @typeInfo(@typeInfo(Signature).pointer.child).@"fn";
+
+        if (actual.params.len != expected.params.len) {
+            @compileError(label ++ ": provider parameter count does not match the contract");
+        }
+
+        const Erased = expected.params[0].type.?;
+        const Receiver = actual.params[0].type.?;
+
+        if (Receiver != *Provider and Receiver != *const Provider) {
+            @compileError(label ++ ": provider receiver must point to its own type");
+        }
+
+        if (Erased == *const anyopaque and Receiver != *const Provider) {
+            @compileError(label ++ ": a read-only operation requires a const provider receiver");
+        }
+
+        for (expected.params[1..], actual.params[1..]) |expected_param, actual_param| {
+            if (expected_param.type.? != actual_param.type.?) {
+                @compileError(label ++ ": provider parameter type does not match the contract");
+            }
+        }
+
+        if (actual.return_type.? != expected.return_type.?) {
+            @compileError(label ++ ": provider return type does not match the contract");
+        }
+
+        return actual;
+    }
+
+    fn Method(
+        comptime Provider: type,
+        comptime name: []const u8,
+        comptime Signature: type,
+    ) type {
+        const method = methodInfo(Provider, name, Signature);
+        const operation = @field(Provider, name);
+        const params = @typeInfo(@typeInfo(Signature).pointer.child).@"fn".params;
+
+        const Erased = params[0].type.?;
+        const Receiver = method.params[0].type.?;
+        const Return = method.return_type.?;
+
+        const Adapter = struct {
+            inline fn invoke(instance: Erased, args: anytype) Return {
+                const receiver: Receiver = @ptrCast(@alignCast(instance));
+                return @call(.auto, operation, .{receiver} ++ args);
+            }
+        };
+
+        return switch (params.len) {
+            1 => struct {
+                fn call(instance: Erased) Return {
+                    return Adapter.invoke(instance, .{});
+                }
+            },
+            2 => struct {
+                fn call(instance: Erased, first: params[1].type.?) Return {
+                    return Adapter.invoke(instance, .{first});
+                }
+            },
+            3 => struct {
+                fn call(
+                    instance: Erased,
+                    first: params[1].type.?,
+                    second: params[2].type.?,
+                ) Return {
+                    return Adapter.invoke(instance, .{ first, second });
+                }
+            },
+            4 => struct {
+                fn call(
+                    instance: Erased,
+                    first: params[1].type.?,
+                    second: params[2].type.?,
+                    third: params[3].type.?,
+                ) Return {
+                    return Adapter.invoke(instance, .{ first, second, third });
+                }
+            },
+            else => unreachable,
+        };
+    }
+};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    test "unit: mixed receivers preserve instance state and error progress" {
+        const Account = struct {
+            credits: u32,
+            attempts: u32 = 0,
+
+            const Error = error{InsufficientCredits};
+
+            pub fn balance(self: *const @This()) u32 {
+                return self.credits;
+            }
+
+            pub fn take(self: *@This(), amount: u32) Error!u32 {
+                self.attempts += 1;
+
+                if (amount > self.credits) {
+                    return error.InsufficientCredits;
+                }
+
+                self.credits -= amount;
+                return self.credits;
+            }
+
+            pub fn transfer(self: *@This(), destination: *@This(), amount: u32) Error!void {
+                _ = try self.take(amount);
+                destination.credits += amount;
+            }
+
+            pub fn adjust(self: *@This(), factor: u32, add: u32, subtract: u32) u32 {
+                self.credits = self.credits * factor + add - subtract;
+                return self.credits;
+            }
+        };
+
+        const Contract = struct {
+            instance: *anyopaque,
+            vtable: *const Vtable,
+
+            pub const Vtable = struct {
+                balance: *const fn (*const anyopaque) u32,
+                take: *const fn (*anyopaque, u32) Account.Error!u32,
+                transfer: *const fn (*anyopaque, *Account, u32) Account.Error!void,
+                adjust: *const fn (*anyopaque, u32, u32, u32) u32,
+            };
+
+            pub const bind = Interface(@This()).bind;
+        };
+
+        var source: Account = .{ .credits = 10 };
+        var destination: Account = .{ .credits = 2 };
+        const first = Contract.bind(&source);
+        const second = Contract.bind(&destination);
+
+        try first.vtable.transfer(first.instance, &destination, 3);
+        try testing.expectEqual(@as(u32, 7), first.vtable.balance(first.instance));
+        try testing.expectEqual(@as(u32, 5), second.vtable.balance(second.instance));
+
+        try testing.expectError(error.InsufficientCredits, second.vtable.take(second.instance, 6));
+        try testing.expectEqual(@as(u32, 3), try second.vtable.take(second.instance, 2));
+        try testing.expectEqual(@as(u32, 2), destination.attempts);
+
+        try testing.expectEqual(@as(u32, 24), first.vtable.adjust(first.instance, 3, 5, 2));
+        try testing.expectEqual(@as(u32, 3), destination.credits);
+    }
+
+    test "unit: read-only contracts bind const and mutable providers of different types" {
+        const Contract = struct {
+            instance: *const anyopaque,
+            vtable: *const Vtable,
+
+            pub const Vtable = struct {
+                value: *const fn (*const anyopaque) u32,
+            };
+
+            fn value(self: @This()) u32 {
+                return self.vtable.value(self.instance);
+            }
+        };
+
+        const Direct = struct {
+            stored: u32,
+
+            pub fn value(self: *const @This()) u32 {
+                return self.stored;
+            }
+        };
+
+        const Product = struct {
+            left: u32,
+            right: u32,
+
+            pub fn value(self: *const @This()) u32 {
+                return self.left * self.right;
+            }
+        };
+
+        const direct: Direct = .{ .stored = 17 };
+        var product: Product = .{ .left = 3, .right = 7 };
+
+        const bindings = [_]Contract{
+            Interface(Contract).bind(&direct),
+            Interface(Contract).bind(&product),
+        };
+
+        try testing.expectEqual(@as(u32, 17), bindings[0].value());
+        try testing.expectEqual(@as(u32, 21), bindings[1].value());
+
+        product.right = 9;
+        try testing.expectEqual(@as(u32, 27), bindings[1].value());
+    }
+};

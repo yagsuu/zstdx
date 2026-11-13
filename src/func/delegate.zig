@@ -1,12 +1,12 @@
-//! signature-typed callbacks
+//! signature-typed delegates
 
 const std = @import("std");
 const layout = @import("layout");
 
-const Impl = @import("impl.zig");
+const Impl = @import("thunk.zig");
 
-pub fn Callback(comptime Fn: type) type {
-    comptime Impl.requireSignature(Fn, "Callback(Fn)");
+pub fn Delegate(comptime Fn: type) type {
+    const signature = Impl.functionInfo(Fn, "Delegate(Fn)");
 
     return struct {
         context: ?*anyopaque,
@@ -14,12 +14,12 @@ pub fn Callback(comptime Fn: type) type {
 
         pub const Signature: type = Fn;
         pub const Args: type = std.meta.ArgsTuple(Fn);
-        pub const Return: type = @typeInfo(Fn).@"fn".return_type.?;
+        pub const Return: type = signature.return_type.?;
         pub const Invoke: type = fn (?*anyopaque, Args) Return;
 
         const Self = @This();
 
-        /// the borrowed context must outlive the callback
+        /// the borrowed context must outlive the delegate
         pub fn init(context: ?*anyopaque, invoke: *const Invoke) Self {
             return .{ .context = context, .invoke = invoke };
         }
@@ -38,7 +38,7 @@ pub fn Callback(comptime Fn: type) type {
             context: *Context,
             comptime function: anytype,
         ) Self {
-            const Thunk = Impl.Thunk(Self, Context, function, "Callback.bind");
+            const Thunk = Impl.Thunk(Self, Context, function, "Delegate.bind");
             return .{
                 .context = @ptrCast(context),
                 .invoke = &Thunk.invoke,
@@ -52,7 +52,7 @@ pub fn Callback(comptime Fn: type) type {
         ) Self {
             if (!@hasDecl(Context, method)) {
                 @compileError(
-                    "Callback.bindMethod: " ++ @typeName(Context) ++
+                    "Delegate.bindMethod: " ++ @typeName(Context) ++
                         " has no pub decl named '" ++ method ++ "'",
                 );
             }
@@ -60,14 +60,14 @@ pub fn Callback(comptime Fn: type) type {
             return bind(Context, context, &@field(Context, method));
         }
 
-        pub const call = switch (@typeInfo(Fn).@"fn".params.len) {
+        pub const call = switch (signature.params.len) {
             0 => struct {
                 fn call(self: Self) Return {
                     return self.invoke(self.context, .{});
                 }
             }.call,
             1 => struct {
-                fn call(self: Self, value: @typeInfo(Fn).@"fn".params[0].type.?) Return {
+                fn call(self: Self, value: signature.params[0].type.?) Return {
                     return self.invoke(self.context, .{value});
                 }
             }.call,
@@ -101,11 +101,11 @@ pub const unit = struct {
         };
 
         var state: State = .{ .calls = 0 };
-        const callback = Callback(fn () void).bind(State, &state, &State.tick);
+        const delegate = Delegate(fn () void).bind(State, &state, &State.tick);
 
-        callback.call();
-        callback.callArgs(.{});
-        callback.call();
+        delegate.call();
+        delegate.callArgs(.{});
+        delegate.call();
 
         try testing.expectEqual(@as(u32, 3), state.calls);
     }
@@ -129,8 +129,8 @@ pub const unit = struct {
         var a: State = .{ .value = 1 };
         var b: State = .{ .value = 10 };
 
-        const pair = Callback(fn (Pair) u32).bind(State, &a, &State.pair);
-        const many = Callback(fn (u32, u32) u32).bind(State, &b, &State.parts);
+        const pair = Delegate(fn (Pair) u32).bind(State, &a, &State.pair);
+        const many = Delegate(fn (u32, u32) u32).bind(State, &b, &State.parts);
 
         const pair_first = pair.call(.{ 2, 3 });
         const many_first = many.call(.{ 3, 4 });
@@ -143,7 +143,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(u32, 73), many_next);
     }
 
-    test "callback identity includes both context and function" {
+    test "delegate identity includes both context and function" {
         const State = struct {
             value: u32,
 
@@ -162,18 +162,18 @@ pub const unit = struct {
             }
         };
 
-        const CB = Callback(fn (u32) u32);
+        const AddDelegate = Delegate(fn (u32) u32);
 
         var a: State = .{ .value = 1 };
         var b: State = .{ .value = 1 };
 
-        const bound = CB.bind(State, &a, &State.add);
-        const repeated = CB.bind(State, &a, &State.add);
-        const method = CB.bindMethod(State, &a, "add");
-        const other_context = CB.bind(State, &b, &State.add);
-        const other_function = CB.bind(State, &a, &State.replace);
-        const free = CB.wrap(&State.increment);
-        const same_free = CB.wrap(&State.increment);
+        const bound = AddDelegate.bind(State, &a, &State.add);
+        const repeated = AddDelegate.bind(State, &a, &State.add);
+        const method = AddDelegate.bindMethod(State, &a, "add");
+        const other_context = AddDelegate.bind(State, &b, &State.add);
+        const other_function = AddDelegate.bind(State, &a, &State.replace);
+        const free = AddDelegate.wrap(&State.increment);
+        const same_free = AddDelegate.wrap(&State.increment);
 
         try testing.expect(bound.eql(repeated));
         try testing.expect(bound.eql(method));

@@ -1,23 +1,21 @@
-//! callbacks with inline state
+//! delegates with inline state
 
 const std = @import("std");
 const layout = @import("layout");
 
-const callback = @import("callback.zig");
+const delegate = @import("delegate.zig");
 
-const Impl = @import("impl.zig");
-const Callback = callback.Callback;
+const Impl = @import("thunk.zig");
+const Delegate = delegate.Delegate;
 
 const alignUp = @import("layout").alignment.alignUp;
 
-/// referenced resources remain caller-managed
-/// keep the closure alive and at a fixed address while callbacks borrow its state
 pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
-    const CB = Callback(Fn);
+    const DelegateType = Delegate(Fn);
 
     return struct {
         bytes: [capacity_bytes]u8 align(alignment),
-        invoke: *const CB.Invoke,
+        invoke: *const DelegateType.Invoke,
 
         pub const Signature: type = Fn;
 
@@ -45,7 +43,7 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
                 ));
             }
 
-            const Thunk = Impl.Thunk(CB, State, function, "Closure.init");
+            const Thunk = Impl.Thunk(DelegateType, State, function, "Closure.init");
             var self: Self = .{
                 .bytes = undefined,
                 .invoke = &Thunk.invoke,
@@ -56,7 +54,7 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
             return self;
         }
 
-        pub fn callbackMut(self: *Self) CB {
+        pub fn delegateMut(self: *Self) DelegateType {
             return .{
                 .context = @ptrCast(&self.bytes),
                 .invoke = self.invoke,
@@ -73,7 +71,7 @@ pub fn Closure(comptime Fn: type, comptime capacity_bytes: usize) type {
 pub const unit = struct {
     const testing = std.testing;
 
-    test "borrowed callbacks share owned state without aliasing the seed" {
+    test "borrowed delegates share owned state without aliasing the seed" {
         const State = struct {
             value: usize,
 
@@ -88,8 +86,8 @@ pub const unit = struct {
         var seed: State = .{ .value = 4 };
         var owner = C.init(State, seed, &State.add);
 
-        const borrowed = owner.callbackMut();
-        const other_view = owner.callbackMut();
+        const borrowed = owner.delegateMut();
+        const other_view = owner.delegateMut();
 
         seed.value = 100;
 
