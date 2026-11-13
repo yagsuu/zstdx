@@ -87,7 +87,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(u64, 2), RFLAGS.raw(initial));
         try testing.expect(initial.fixed_one);
         try testing.expectEqual(@as(u64, 2), RFLAGS.encode(.{}));
-        try testing.expectEqual(@as(u64, 0), RFLAGS.masks.unknown);
+        try testing.expectEqual(@as(u64, 0), RFLAGS.masks.unnamed);
         try testing.expectEqual(RFLAGS.mask(.fixed_one), RFLAGS.masks.reserved & 2);
         try testing.expectEqual(RFLAGS.raw(snapshot) & ~selected, RFLAGS.raw(changed) & ~selected);
         try testing.expect(changed.interrupt_enable);

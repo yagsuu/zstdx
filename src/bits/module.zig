@@ -9,6 +9,7 @@ const field = @import("field.zig");
 pub const Set = set.Set;
 pub const Word = word.Word;
 pub const BitField = field.BitField;
+pub const BitFieldExt = field.BitFieldExt;
 
 test {
     _ = word.unit;

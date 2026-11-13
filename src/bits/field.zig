@@ -1,13 +1,21 @@
 const std = @import("std");
 
 pub fn BitField(comptime T: type, comptime declarations: anytype) type {
+    return BitFieldExt(T, declarations, .{});
+}
+
+pub fn BitFieldExt(comptime T: type, comptime declarations: anytype, comptime options: Options) type {
     const schema = Impl.normalize(T, declarations);
 
     return if (Impl.count(&schema, .clear) != 0)
-        Impl.AckApi(T, &schema)
+        Impl.AckApi(T, &schema, options)
     else
-        Impl.Api(T, &schema);
+        Impl.Api(T, &schema, options);
 }
+
+pub const Options = struct {
+    gaps: Access = .ro,
+};
 
 const Access = enum { rw, ro, reserved };
 const Write = enum { assign, w1c, w0c, trigger };
@@ -27,20 +35,23 @@ const Field = struct {
     name: [:0]const u8,
     offset: usize,
     type: type,
+    declared: comptime_int,
     policy: PolicyMasks,
     default: comptime_int,
 };
 
 const Impl = struct {
-    fn Api(comptime T: type, comptime schema: []const Field) type {
+    fn Api(comptime T: type, comptime schema: []const Field, comptime options: Options) type {
         return if (count(schema, .trigger) != 0) struct {
-            const Ops = Impl.Operations(T, schema);
+            const Ops = Impl.Operations(T, schema, options);
+
             const __StdxBitField = Ops.Metadata;
 
             pub const Int = T;
             pub const Word = Ops.Word;
             pub const Metadata = Ops.Metadata;
             pub const Name = Ops.Name;
+
             /// Readable field inputs; null uses the schema default.
             pub const Args = Ops.Args;
             /// Assignable field inputs; null preserves existing bits.
@@ -60,13 +71,15 @@ const Impl = struct {
             pub const mask = Ops.mask;
             pub const trigger = Ops.trigger;
         } else struct {
-            const Ops = Impl.Operations(T, schema);
+            const Ops = Impl.Operations(T, schema, options);
+
             const __StdxBitField = Ops.Metadata;
 
             pub const Int = T;
             pub const Word = Ops.Word;
             pub const Metadata = Ops.Metadata;
             pub const Name = Ops.Name;
+
             /// Readable field inputs; null uses the schema default.
             pub const Args = Ops.Args;
             /// Assignable field inputs; null preserves existing bits.
@@ -86,15 +99,17 @@ const Impl = struct {
         };
     }
 
-    fn AckApi(comptime T: type, comptime schema: []const Field) type {
+    fn AckApi(comptime T: type, comptime schema: []const Field, comptime options: Options) type {
         return if (count(schema, .trigger) != 0) struct {
-            const Ops = Impl.Operations(T, schema);
+            const Ops = Impl.Operations(T, schema, options);
+
             const __StdxBitField = Ops.Metadata;
 
             pub const Int = T;
             pub const Word = Ops.Word;
             pub const Metadata = Ops.Metadata;
             pub const Name = Ops.Name;
+
             /// Readable field inputs; null uses the schema default.
             pub const Args = Ops.Args;
             /// Assignable field inputs; null preserves existing bits.
@@ -118,13 +133,15 @@ const Impl = struct {
 
             pub const trigger = Ops.trigger;
         } else struct {
-            const Ops = Impl.Operations(T, schema);
+            const Ops = Impl.Operations(T, schema, options);
+
             const __StdxBitField = Ops.Metadata;
 
             pub const Int = T;
             pub const Word = Ops.Word;
             pub const Metadata = Ops.Metadata;
             pub const Name = Ops.Name;
+
             /// Readable field inputs; null uses the schema default.
             pub const Args = Ops.Args;
             /// Assignable field inputs; null preserves existing bits.
@@ -147,9 +164,10 @@ const Impl = struct {
         };
     }
 
-    fn Operations(comptime T: type, comptime schema: []const Field) type {
+    fn Operations(comptime T: type, comptime schema: []const Field, comptime options: Options) type {
         return struct {
-            const Meta = Impl.Metadata(T, schema);
+            const Meta = Impl.Metadata(T, schema, options);
+
             pub const Args = Values(schema, .readable);
             pub const AssignArgs = Values(schema, .assignable);
 
@@ -206,6 +224,7 @@ const Impl = struct {
 
     fn PackedWord(comptime T: type, comptime schema: []const Field) type {
         const len = memberCount(T, schema);
+
         var names: [len][:0]const u8 = undefined;
         var types: [len]type = undefined;
         var attributes: [len]std.builtin.Type.StructField.Attributes = undefined;
@@ -306,10 +325,12 @@ const Impl = struct {
         return @Struct(.auto, null, &names, &types, &attributes);
     }
 
-    fn Metadata(comptime T: type, comptime schema: []const Field) type {
+    fn Metadata(comptime T: type, comptime schema: []const Field, comptime options: Options) type {
         return struct {
             pub const Int = T;
-            pub const masks = Masks(T, schema);
+
+            pub const masks = Masks(T, schema, options);
+            pub const defaults: T = encodeValues(T, schema, @as(Values(schema, .readable), .{}));
 
             pub fn mask(comptime selection: anytype) T {
                 const Allowed = Names(schema, .all);
@@ -328,18 +349,35 @@ const Impl = struct {
         };
     }
 
-    fn Masks(comptime T: type, comptime schema: []const Field) type {
-        const bits = blk: {
-            var result: PolicyMasks = .{};
+    fn Masks(comptime T: type, comptime schema: []const Field, comptime options: Options) type {
+        const resolved = blk: {
+            var policy: PolicyMasks = .{};
+            var declared: T = 0;
+            var occupied: T = 0;
 
             for (schema) |field| {
                 for (std.meta.fields(PolicyMasks)) |category| {
-                    @field(result, category.name) |= @field(field.policy, category.name) << field.offset;
+                    @field(policy, category.name) |= @field(field.policy, category.name) << field.offset;
                 }
+
+                declared |= @as(T, field.declared) << field.offset;
+                occupied |= @as(T, std.math.maxInt(FieldInt(field.type))) << field.offset;
             }
 
-            break :blk result;
+            const gaps: comptime_int = ~occupied;
+            switch (options.gaps) {
+                .rw => {
+                    policy.rw |= gaps;
+                    policy.assign |= gaps;
+                },
+                .ro => policy.ro |= gaps,
+                .reserved => policy.reserved |= gaps,
+            }
+
+            break :blk .{ .policy = policy, .declared = declared };
         };
+
+        const bits = resolved.policy;
 
         std.debug.assert((bits.rw & (bits.ro | bits.reserved)) == 0);
         std.debug.assert((bits.assign | bits.w1c | bits.w0c | bits.trigger) == bits.rw);
@@ -349,7 +387,7 @@ const Impl = struct {
             pub const ro: T = bits.ro;
             pub const reserved: T = bits.reserved;
 
-            /// RW assignment fields only.
+            /// RW assignment bits, including writable gaps.
             pub const assign: T = bits.assign;
             pub const w1c: T = bits.w1c;
             pub const w0c: T = bits.w0c;
@@ -357,10 +395,10 @@ const Impl = struct {
 
             pub const readable: T = rw | ro;
             pub const clear: T = w1c | w0c;
-            pub const declared: T = readable | reserved;
+            pub const declared: T = resolved.declared;
 
-            /// Undeclared bits; explicit reserved fields remain declared.
-            pub const unknown: T = ~declared;
+            /// Undeclared bits.
+            pub const unnamed: T = ~declared;
         };
     }
 
@@ -381,6 +419,7 @@ const Impl = struct {
                 .name = entry.name,
                 .offset = Resolved.offset,
                 .type = Resolved.Type,
+                .declared = Resolved.declared,
                 .policy = Resolved.policy,
                 .default = Resolved.default,
             };
@@ -471,7 +510,12 @@ const Impl = struct {
         return struct {
             pub const Type = FieldType;
             pub const Int = FieldInt(Type);
+
             pub const offset = if (!bare and @hasField(@TypeOf(value), "offset")) value.offset else cursor;
+            pub const declared: comptime_int = if (nested(Type))
+                Type.__StdxBitField.masks.declared
+            else
+                std.math.maxInt(Int);
 
             pub const policy: PolicyMasks = blk: {
                 const full = std.math.maxInt(Int);
@@ -515,7 +559,8 @@ const Impl = struct {
             };
 
             pub const default: comptime_int = blk: {
-                var initial = fromBits(Type, @as(Int, policy.w0c));
+                const initial_bits: Int = if (nested(Type)) Type.__StdxBitField.defaults else policy.w0c;
+                var initial = fromBits(Type, initial_bits);
 
                 if (!bare and @hasField(@TypeOf(value), "default")) {
                     initial = value.default;
@@ -737,6 +782,44 @@ const Impl = struct {
 pub const unit = struct {
     const testing = std.testing;
 
+    test "gap access is independent of declared coverage" {
+        inline for (.{ Access.ro, Access.rw, Access.reserved }) |access| {
+            const S = BitFieldExt(u8, .{ .value = .{ .offset = 2, .type = u2 } }, .{ .gaps = access });
+
+            const field: u8 = 0x0c;
+            const gaps: u8 = 0xf3;
+            const changed = S.replace(S.from(gaps), .{ .value = 2 });
+
+            try testing.expectEqual(field, S.masks.declared);
+            try testing.expectEqual(gaps, S.masks.unnamed);
+            try testing.expectEqual(if (access == .rw) @as(u8, 0xff) else field, S.masks.assign);
+            try testing.expectEqual(if (access == .ro) gaps else @as(u8, 0), S.masks.ro);
+            try testing.expectEqual(if (access == .reserved) gaps else @as(u8, 0), S.masks.reserved);
+            try testing.expectEqual(@as(u8, 0), S.raw(S.default()));
+            try testing.expectEqual(@as(u8, 0xfb), S.raw(changed));
+        }
+    }
+
+    test "empty schemas apply gap access across narrow and wide backings" {
+        @setEvalBranchQuota(10_000);
+
+        inline for (.{ u1, u17, u128 }) |T| {
+            inline for (.{ Access.ro, Access.rw, Access.reserved }) |access| {
+                const S = BitFieldExt(T, .{}, .{ .gaps = access });
+
+                const full = std.math.maxInt(T);
+                const word: S.Word = .{};
+
+                try testing.expectEqual(@as(T, 0), S.masks.declared);
+                try testing.expectEqual(full, S.masks.unnamed);
+                try testing.expectEqual(if (access == .ro) full else @as(T, 0), S.masks.ro);
+                try testing.expectEqual(if (access == .rw) full else @as(T, 0), S.masks.assign);
+                try testing.expectEqual(if (access == .reserved) full else @as(T, 0), S.masks.reserved);
+                try testing.expectEqual(@as(T, 0), S.raw(word));
+            }
+        }
+    }
+
     test "full-width and highest-bit fields support narrow and wide backings" {
         @setEvalBranchQuota(10_000);
 
@@ -749,7 +832,7 @@ pub const unit = struct {
             try testing.expectEqual(max, Full.from(max).value);
             try testing.expectEqual(@as(T, 0), Full.raw(Full.replace(Full.from(max), .{ .value = 0 })));
             try testing.expectEqual(max, Full.masks.assign);
-            try testing.expectEqual(@as(T, 0), Full.masks.unknown);
+            try testing.expectEqual(@as(T, 0), Full.masks.unnamed);
 
             const Top = BitField(T, .{ .top = .{ .offset = @bitSizeOf(T) - 1, .write = .w1c } });
             const top: T = @as(T, 1) << (@bitSizeOf(T) - 1);
@@ -758,7 +841,7 @@ pub const unit = struct {
             try testing.expectEqual(top, Top.ackAll(Top.from(max)));
             try testing.expectEqual(@as(u1, 1), Top.from(top).top);
             try testing.expectEqual(top, Top.masks.clear);
-            try testing.expectEqual(max & ~top, Top.masks.unknown);
+            try testing.expectEqual(max & ~top, Top.masks.unnamed);
 
             const Tag = enum(T) { zero = 0, _ };
             const Typed = BitField(T, .{ .value = Tag });
@@ -779,11 +862,13 @@ pub const unit = struct {
         try testing.expectEqual(@as(u16, 0), S.raw(empty));
         try testing.expectEqual(@as(u16, 0xabcd), S.raw(S.replace(S.from(0xabcd), .{})));
         try testing.expectEqual(@as(u16, 0), S.masks.declared);
-        try testing.expectEqual(@as(u16, 0xffff), S.masks.unknown);
-        try testing.expectEqual(@as(u16, 0), S.masks.rw | S.masks.ro | S.masks.reserved);
+        try testing.expectEqual(@as(u16, 0xffff), S.masks.unnamed);
+        try testing.expectEqual(@as(u16, 0xffff), S.masks.ro);
+        try testing.expectEqual(@as(u16, 0xffff), S.masks.readable);
+        try testing.expectEqual(@as(u16, 0), S.masks.rw | S.masks.reserved);
     }
 
-    test "partial word literals preserve typed defaults and zero unknown bits" {
+    test "partial word literals preserve typed defaults and zero unnamed bits" {
         const Mode = enum(u2) { idle, receive, transmit, loopback };
         const S = BitField(u16, .{
             .enabled = .{ .type = bool, .default = true },
@@ -809,7 +894,7 @@ pub const unit = struct {
         try testing.expectEqual(S.raw(S.default()), S.raw(initial));
         try testing.expectEqual(@as(u16, 0x170), S.raw(partial));
         try testing.expectEqual(Mode.transmit, partial.mode);
-        try testing.expectEqual(@as(u16, 0), S.raw(partial) & S.masks.unknown);
+        try testing.expectEqual(@as(u16, 0), S.raw(partial) & S.masks.unnamed);
         try testing.expectEqual(@as(u16, 0x289), S.raw(unchecked));
     }
 
@@ -1001,25 +1086,25 @@ pub const unit = struct {
         });
 
         try testing.expectEqual(@as(u16, 0x703), S.masks.rw);
-        try testing.expectEqual(@as(u16, 0x008), S.masks.ro);
+        try testing.expectEqual(@as(u16, 0xf8cc), S.masks.ro);
         try testing.expectEqual(@as(u16, 0x030), S.masks.reserved);
         try testing.expectEqual(@as(u16, 0x003), S.masks.assign);
         try testing.expectEqual(@as(u16, 0x100), S.masks.w1c);
         try testing.expectEqual(@as(u16, 0x600), S.masks.w0c);
-        try testing.expectEqual(@as(u16, 0x70b), S.masks.readable);
+        try testing.expectEqual(@as(u16, 0xffcf), S.masks.readable);
         try testing.expectEqual(@as(u16, 0x700), S.masks.clear);
         try testing.expectEqual(@as(u16, 0x73b), S.masks.declared);
-        try testing.expectEqual(@as(u16, 0xf8c4), S.masks.unknown);
+        try testing.expectEqual(@as(u16, 0xf8c4), S.masks.unnamed);
 
         const non_mutable = comptime S.masks.ro | S.masks.reserved;
         const selected = comptime S.mask(.{ .control, .done }) & S.masks.clear;
-        try testing.expectEqual(@as(u16, 0x38), non_mutable);
+        try testing.expectEqual(@as(u16, 0xf8fc), non_mutable);
         try testing.expectEqual(@as(u16, 0x100), selected);
 
         try testing.expectEqual(@as(u16, 0), S.masks.assign & (S.masks.ro | S.masks.reserved));
     }
 
-    test "replacement preserves unselected fields and unknown bits without mutation" {
+    test "replacement preserves unselected fields and unnamed bits without mutation" {
         const S = BitField(u8, .{
             .mode = .{ .offset = 2, .type = u2 },
             .pending = .{ .offset = 6, .write = .w1c },
@@ -1322,7 +1407,34 @@ pub const unit = struct {
         try testing.expectEqual(@as(u16, 0xffff), Device.raw(snapshot));
 
         const WithoutDefault = BitField(u16, .{ .control = Control });
-        try testing.expectEqual(@as(u8, 0), Control.raw(WithoutDefault.default().control));
+        try testing.expectEqual(@as(u8, 0x22), Control.raw(WithoutDefault.default().control));
+    }
+
+    test "parent gap access preserves child policies during whole-group replacement" {
+        const fields = .{ .value = .{ .offset = 2, .type = u2 } };
+        const Writable = BitFieldExt(u8, fields, .{ .gaps = .rw });
+        const ReadOnly = BitField(u8, fields);
+        const Reserved = BitFieldExt(u8, fields, .{ .gaps = .reserved });
+        const Parent = BitFieldExt(u32, .{
+            .writable = Writable,
+            .readonly = ReadOnly,
+            .reserved = Reserved,
+        }, .{ .gaps = .reserved });
+        const changed = Parent.replace(Parent.from(0xffffffff), .{
+            .writable = Writable.from(0),
+            .readonly = ReadOnly.from(0),
+            .reserved = Reserved.from(0),
+        });
+
+        try testing.expectEqual(@as(u32, 0x000c0c0c), Parent.masks.declared);
+        try testing.expectEqual(@as(u32, 0xfff3f3f3), Parent.masks.unnamed);
+        try testing.expectEqual(@as(u32, 0x000c0cff), Parent.masks.assign);
+        try testing.expectEqual(@as(u32, 0x0000f300), Parent.masks.ro);
+        try testing.expectEqual(@as(u32, 0xfff30000), Parent.masks.reserved);
+        try testing.expectEqual(@as(u32, 0xfff3f300), Parent.raw(changed));
+        try testing.expectEqual(@as(u8, 0), Writable.raw(changed.writable));
+        try testing.expectEqual(@as(u8, 0xf3), ReadOnly.raw(changed.readonly));
+        try testing.expectEqual(@as(u8, 0xf3), Reserved.raw(changed.reserved));
     }
 
     test "initialization composes typed child values with parent defaults" {
@@ -1338,7 +1450,7 @@ pub const unit = struct {
         });
         const Parent = BitField(u32, .{
             .prefix = .{ .type = u4, .default = 3 },
-            .child = .{ .type = Child, .default = Child.default() },
+            .child = Child,
             .tail = .{ .offset = 24, .type = u8, .default = 0x5a },
         });
 
@@ -1358,7 +1470,7 @@ pub const unit = struct {
         try testing.expectEqual(Mode.transmit, configured.child.mode);
     }
 
-    test "nested literals distinguish omitted groups from explicit child construction" {
+    test "nested literals inherit child defaults unless the parent overrides them" {
         const Child = BitField(u8, .{
             .enabled = .{ .type = bool, .default = true },
             .done = .{ .type = u2, .write = .w1c },
@@ -1379,11 +1491,12 @@ pub const unit = struct {
         const supplied: WithDefault.Word = .{};
         const changed = Parent.replace(Parent.from(0xfe18), .{ .child = .{ .enabled = false } });
 
-        try testing.expectEqual(@as(u16, 0x180), Parent.raw(omitted));
+        try testing.expectEqual(@as(u16, 0x588), Parent.raw(omitted));
         try testing.expectEqual(Parent.raw(Parent.default()), Parent.raw(omitted));
         try testing.expectEqual(@as(u16, 0x588), Parent.raw(explicit));
+        try testing.expectEqual(Parent.raw(omitted), Parent.raw(explicit));
         try testing.expectEqual(@as(u16, 0x580), Parent.raw(partial));
-        try testing.expectEqual(@as(u32, 0x3000), Outer.raw(outer));
+        try testing.expectEqual(@as(u32, 0xb100), Outer.raw(outer));
         try testing.expectEqual(@as(u16, 0x580), WithDefault.raw(supplied));
         try testing.expectEqual(@as(u16, 0xfe10), Parent.raw(changed));
         try testing.expectEqual(@as(u2, 1), changed.child.done);
@@ -1391,7 +1504,7 @@ pub const unit = struct {
         try testing.expect(changed.child.go);
     }
 
-    test "nested defaults preserve neutral action bits without inheriting ordinary defaults" {
+    test "nested defaults inherit ordinary reserved and neutral action values" {
         const Child = BitField(u8, .{
             .enabled = .{ .type = bool, .default = true },
             .done = .{ .type = u2, .write = .w1c },
@@ -1409,13 +1522,13 @@ pub const unit = struct {
         const outer = comptime Outer.default();
 
         try testing.expectEqual(@as(u8, 0xb1), Child.raw(Child.default()));
-        try testing.expectEqual(@as(u16, 0x180), Parent.raw(initial));
+        try testing.expectEqual(@as(u16, 0x588), Parent.raw(initial));
         try testing.expectEqual(@as(u2, 3), initial.child.quiet);
         try testing.expectEqual(@as(u2, 0), initial.child.done);
         try testing.expect(!initial.child.action);
-        try testing.expect(!initial.child.enabled);
-        try testing.expect(!initial.child.reserved);
-        try testing.expectEqual(@as(u32, 0x3000), Outer.raw(outer));
+        try testing.expect(initial.child.enabled);
+        try testing.expect(initial.child.reserved);
+        try testing.expectEqual(@as(u32, 0xb100), Outer.raw(outer));
         try testing.expectEqual(@as(u16, 0x588), Explicit.raw(Explicit.default()));
 
         try testing.expectEqual(@as(u16, 0x230), Parent.encode(.{ .child = Child.from(0x46) }));
@@ -1435,13 +1548,13 @@ pub const unit = struct {
         });
 
         try testing.expectEqual(@as(u16, 0x10d0), Parent.masks.rw);
-        try testing.expectEqual(@as(u16, 0x0020), Parent.masks.ro);
+        try testing.expectEqual(@as(u16, 0xed2f), Parent.masks.ro);
         try testing.expectEqual(@as(u16, 0x0200), Parent.masks.reserved);
         try testing.expectEqual(@as(u16, 0x0010), Parent.masks.assign);
         try testing.expectEqual(@as(u16, 0x0040), Parent.masks.w1c);
         try testing.expectEqual(@as(u16, 0x1080), Parent.masks.w0c);
         try testing.expectEqual(@as(u16, 0x12f0), Parent.masks.declared);
-        try testing.expectEqual(@as(u16, 0xed0f), Parent.masks.unknown);
+        try testing.expectEqual(@as(u16, 0xed0f), Parent.masks.unnamed);
         try testing.expectEqual(@as(u16, 0x0ff0), Parent.mask(.child));
         try testing.expectEqual(@as(u16, 0x1080), Parent.raw(Parent.default()));
         try testing.expectEqual(@as(u16, 0xffef), Parent.raw(Parent.replace(Parent.from(0xffff), .{ .child = Child.from(0) })));
@@ -1480,7 +1593,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(u32, 0x1400), selected);
         try testing.expectEqual(@as(u32, 0x01004000), Parent.mask(.{ .{ .middle = .tail }, .outside }));
         try testing.expectEqual(@as(u32, 0x01002000), Parent.raw(Parent.default()));
-        try testing.expectEqual(@as(u32, 0x0800), Parent.masks.ro);
+        try testing.expectEqual(@as(u32, 0xfeff8bff), Parent.masks.ro);
         try testing.expectEqual(@as(u32, 0x4400), Parent.masks.assign);
 
         const word = Parent.from(0xffffffff);
@@ -1552,10 +1665,10 @@ pub const unit = struct {
 
         try testing.expectEqual(@as(u16, 0x42), Parent.encode(.{}));
         try testing.expectEqual(@as(u16, 0), Parent.masks.assign);
-        try testing.expectEqual(@as(u16, 1), Parent.masks.readable);
+        try testing.expectEqual(@as(u16, 0xffbd), Parent.masks.readable);
         try testing.expectEqual(@as(u16, 0x42), Parent.masks.reserved);
         try testing.expectEqual(@as(u16, 0x43), Parent.masks.declared);
-        try testing.expectEqual(@as(u16, 0xffbc), Parent.masks.unknown);
+        try testing.expectEqual(@as(u16, 0xffbc), Parent.masks.unnamed);
         try testing.expectEqual(@as(u16, 0x40), Parent.mask(.{ .reserved = .reserved }));
         try testing.expectEqual(@as(u16, 0x300), Parent.mask(.empty));
         try testing.expectEqual(@as(u16, 0), Parent.mask(.{ .empty = .{} }));
@@ -1574,7 +1687,7 @@ pub const unit = struct {
             const max = std.math.maxInt(T);
 
             try testing.expectEqual(top, Parent.masks.w0c);
-            try testing.expectEqual(max & ~top, Parent.masks.unknown);
+            try testing.expectEqual(max & ~top, Parent.masks.unnamed);
             try testing.expectEqual(max, Parent.mask(.child));
             try testing.expectEqual(top, Parent.mask(.{ .child = .pending }));
             try testing.expectEqual(@as(T, 0), Parent.ack(Parent.from(max), .child));

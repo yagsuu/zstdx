@@ -307,9 +307,9 @@ pub const unit = struct {
         try testing.expectEqual(@as(u64, 0), DebugStatus.raw(DebugStatus.default()));
         try testing.expectEqual(@as(u64, 0), DebugStatus.masks.assign);
         try testing.expectEqual(@as(u64, 0), DebugStatus.masks.clear);
-        try testing.expectEqual(@as(u64, 0), DebugStatus.masks.unknown);
+        try testing.expectEqual(@as(u64, 0), DebugStatus.masks.unnamed);
         try testing.expectEqual(@as(u64, 1 << 10), DR7.raw(DR7.default()));
-        try testing.expectEqual(@as(u64, 1 << 11), DR7.masks.unknown);
+        try testing.expectEqual(@as(u64, 1 << 11), DR7.masks.unnamed);
         try testing.expectEqual(@as(u4, 0xf), Breakpoint.masks.assign);
         try testing.expectEqual(@as(u64, 0xffff0000), DR7.masks.assign & DR7.mask(.{ .br0, .br1, .br2, .br3 }));
 

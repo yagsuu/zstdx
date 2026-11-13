@@ -70,16 +70,16 @@ pub const unit = struct {
     }
 
     test "EFER defaults and policies preserve read-only reserved and unknown bits" {
-        const unknown: u64 = (3 << 17) | (3 << 20);
+        const unnamed: u64 = (3 << 17) | (3 << 20);
         const snapshot = EFER.from(0xa5f3_5ca9_3d7e_1c42);
         const changed = EFER.replace(snapshot, .{ .execute_disable_enable = true });
         const selected = EFER.mask(.execute_disable_enable);
 
         try testing.expectEqual(@as(u64, 0), EFER.raw(EFER.default()));
         try testing.expectEqual(@as(u64, 0), EFER.encode(.{}));
-        try testing.expectEqual(unknown, EFER.masks.unknown);
-        try testing.expectEqual(@as(u64, 1 << 10), EFER.masks.ro);
-        try testing.expectEqual(@as(u64, 0), EFER.masks.assign & (EFER.masks.ro | EFER.masks.reserved | unknown));
+        try testing.expectEqual(unnamed, EFER.masks.unnamed);
+        try testing.expectEqual(@as(u64, 1 << 10) | unnamed, EFER.masks.ro);
+        try testing.expectEqual(@as(u64, 0), EFER.masks.assign & (EFER.masks.ro | EFER.masks.reserved | unnamed));
         try testing.expectEqual(EFER.raw(snapshot) & ~selected, EFER.raw(changed) & ~selected);
         try testing.expect(changed.execute_disable_enable);
         try testing.expectEqual(snapshot.long_mode_active, changed.long_mode_active);
