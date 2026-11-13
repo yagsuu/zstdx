@@ -27,7 +27,7 @@ test "region source composes with SlabCache over host memory" {
         pub fn acquire(self: *Self) Error!Region {
             const allocation = try self.pages.alloc(0);
             const range = allocation.range();
-            const offset = range.base.raw() - @intFromPtr(self.items.ptr);
+            const offset = range.first().raw() - @intFromPtr(self.items.ptr);
             std.debug.assert(offset <= self.items.len - page_size);
             self.allocations[offset / page_size] = allocation;
             return @ptrCast(@alignCast(self.items.ptr + offset));
@@ -78,8 +78,8 @@ test "page allocation with buddy backend matches allocation oracle" {
             const order = random.uintAtMost(u8, 3);
             const allocation = pages.alloc(order) catch continue;
             const range = allocation.range();
-            const offset: usize = @intCast((range.base.raw() - origin.raw()) >> Page.shift);
-            const size: usize = @intCast(range.count.raw());
+            const offset: usize = @intCast((range.first().raw() - origin.raw()) >> Page.shift);
+            const size: usize = @intCast(range.count().raw());
             for (allocated[offset..][0..size]) |bit| {
                 try testing.expect(!bit);
             }
@@ -105,8 +105,8 @@ test "page allocation with buddy backend matches allocation oracle" {
             const range = allocation.range();
             live[index] = null;
             count -= 1;
-            const offset: usize = @intCast((range.base.raw() - origin.raw()) >> Page.shift);
-            const size: usize = @intCast(range.count.raw());
+            const offset: usize = @intCast((range.first().raw() - origin.raw()) >> Page.shift);
+            const size: usize = @intCast(range.count().raw());
             for (allocated[offset..][0..size]) |bit| {
                 try testing.expect(bit);
             }

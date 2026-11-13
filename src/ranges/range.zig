@@ -40,10 +40,6 @@ pub fn Range(comptime T: type) type {
             return .{ .start = at, .end = at };
         }
 
-        pub fn assertValid(self: Self) void {
-            std.debug.assert(self.isValid());
-        }
-
         pub fn isValid(self: Self) bool {
             return Value.raw(self.start) <= Value.raw(self.end);
         }
@@ -56,6 +52,20 @@ pub fn Range(comptime T: type) type {
         pub fn isEmpty(self: Self) bool {
             self.assertValid();
             return self.start == self.end;
+        }
+
+        pub fn offsetOf(self: Self, value: T) ?Int {
+            if (!self.contains(value)) {
+                return null;
+            }
+            return Value.raw(value) - Value.raw(self.start);
+        }
+
+        pub fn atOffset(self: Self, offset: Int) ?T {
+            if (offset >= self.len()) {
+                return null;
+            }
+            return Value.from(Value.raw(self.start) + offset);
         }
 
         pub fn contains(self: Self, value: T) bool {
@@ -75,7 +85,7 @@ pub fn Range(comptime T: type) type {
             return @max(Value.raw(self.start), Value.raw(other.start)) < @min(Value.raw(self.end), Value.raw(other.end));
         }
 
-        pub fn isAdjacent(self: Self, other: Self) bool {
+        pub fn adjacent(self: Self, other: Self) bool {
             self.assertValid();
             other.assertValid();
             return self.end == other.start or other.end == self.start;
@@ -120,20 +130,6 @@ pub fn Range(comptime T: type) type {
             return .{ .start = point, .end = self.end };
         }
 
-        pub fn offsetOf(self: Self, value: T) ?Int {
-            if (!self.contains(value)) {
-                return null;
-            }
-            return Value.raw(value) - Value.raw(self.start);
-        }
-
-        pub fn atOffset(self: Self, offset: Int) ?T {
-            if (offset >= self.len()) {
-                return null;
-            }
-            return Value.from(Value.raw(self.start) + offset);
-        }
-
         pub fn shiftForward(self: Self, amount: Int) OverflowError!Self {
             self.assertValid();
 
@@ -152,6 +148,10 @@ pub fn Range(comptime T: type) type {
                 .end = Value.from(Value.raw(self.end) - amount),
             };
         }
+
+        pub fn assertValid(self: Self) void {
+            std.debug.assert(self.isValid());
+        }
     };
 }
 
@@ -162,7 +162,6 @@ pub fn InclusiveRange(comptime T: type) type {
         end: T,
 
         const Self = @This();
-        const HalfOpen = Range(T);
 
         pub const InvalidRangeError = error{InvalidRange};
         pub const OverflowError = error{Overflow};
@@ -201,19 +200,6 @@ pub fn InclusiveRange(comptime T: type) type {
             return .{ .start = at, .end = at };
         }
 
-        pub fn fromRange(range: HalfOpen) ?Self {
-            if (range.isEmpty()) {
-                return null;
-            }
-            return .{ .start = range.start, .end = range.end - 1 };
-        }
-
-        pub fn toRange(self: Self) OverflowError!HalfOpen {
-            self.assertValid();
-            const end = std.math.add(T, self.end, 1) catch return error.Overflow;
-            return .{ .start = self.start, .end = end };
-        }
-
         pub fn isValid(self: Self) bool {
             return self.start <= self.end;
         }
@@ -221,6 +207,21 @@ pub fn InclusiveRange(comptime T: type) type {
         pub fn isSingleton(self: Self) bool {
             self.assertValid();
             return self.start == self.end;
+        }
+
+        pub fn offsetOf(self: Self, value: T) ?T {
+            if (!self.contains(value)) {
+                return null;
+            }
+            return value - self.start;
+        }
+
+        pub fn atOffset(self: Self, offset: T) ?T {
+            self.assertValid();
+            if (offset > self.end - self.start) {
+                return null;
+            }
+            return self.start + offset;
         }
 
         pub fn contains(self: Self, value: T) bool {
@@ -240,7 +241,7 @@ pub fn InclusiveRange(comptime T: type) type {
             return @max(self.start, other.start) <= @min(self.end, other.end);
         }
 
-        pub fn isAdjacent(self: Self, other: Self) bool {
+        pub fn adjacent(self: Self, other: Self) bool {
             self.assertValid();
             other.assertValid();
             return (self.end < other.start and other.start - self.end == 1) or
@@ -282,21 +283,6 @@ pub fn InclusiveRange(comptime T: type) type {
                 return error.OutOfBounds;
             }
             return .{ .start = point, .end = self.end };
-        }
-
-        pub fn offsetOf(self: Self, value: T) ?T {
-            if (!self.contains(value)) {
-                return null;
-            }
-            return value - self.start;
-        }
-
-        pub fn atOffset(self: Self, offset: T) ?T {
-            self.assertValid();
-            if (offset > self.end - self.start) {
-                return null;
-            }
-            return self.start + offset;
         }
 
         pub fn shiftForward(self: Self, amount: T) OverflowError!Self {
@@ -394,7 +380,7 @@ pub const unit = struct {
         try testing.expect(!range.overlaps(empty));
         try testing.expect(!empty.overlaps(range));
         try testing.expectEqual(@as(?R, null), range.intersection(empty));
-        try testing.expect(range.isAdjacent(R.of(20, 25)));
+        try testing.expect(range.adjacent(R.of(20, 25)));
         try testing.expectEqual(R.of(15, 20), range.intersection(R.of(15, 25)).?);
         try testing.expectEqual(R.of(0, 20), range.span(R.of(0, 12)));
     }
@@ -463,7 +449,6 @@ pub const unit = struct {
             try testing.expectEqual(full, try full.shiftBackward(0));
             try testing.expectError(error.Overflow, full.shiftForward(1));
             try testing.expectError(error.Overflow, full.shiftBackward(1));
-            try testing.expectError(error.Overflow, full.toRange());
         }
     }
 
@@ -478,10 +463,10 @@ pub const unit = struct {
         try testing.expect(!range.containsRange(R.of(12, 21)));
         try testing.expect(range.overlaps(R.of(20, 25)));
         try testing.expect(!range.overlaps(R.of(21, 25)));
-        try testing.expect(range.isAdjacent(R.of(21, 25)));
-        try testing.expect(R.of(21, 25).isAdjacent(range));
-        try testing.expect(R.single(0).isAdjacent(R.single(1)));
-        try testing.expect(R.single(255).isAdjacent(R.single(254)));
+        try testing.expect(range.adjacent(R.of(21, 25)));
+        try testing.expect(R.of(21, 25).adjacent(range));
+        try testing.expect(R.single(0).adjacent(R.single(1)));
+        try testing.expect(R.single(255).adjacent(R.single(254)));
         try testing.expectEqual(R.single(20), range.intersection(R.of(20, 25)).?);
         try testing.expectEqual(@as(?R, null), range.intersection(R.of(21, 25)));
         try testing.expectEqual(R.of(10, 25), range.span(R.of(21, 25)));
@@ -515,17 +500,5 @@ pub const unit = struct {
         try testing.expectEqual(R.of(5, 15), try range.shiftBackward(5));
         try testing.expectError(error.Overflow, range.shiftBackward(11));
         try testing.expectError(error.Overflow, R.of(250, 255).shiftForward(1));
-    }
-
-    test "range conversions preserve bounds and reject an unrepresentable exclusive end" {
-        const R = Range(u8);
-        const I = InclusiveRange(u8);
-        const inclusive = I.fromRange(R.of(10, 20)).?;
-
-        try testing.expectEqual(I.of(10, 19), inclusive);
-        try testing.expectEqual(R.of(10, 20), try inclusive.toRange());
-        try testing.expectEqual(@as(?I, null), I.fromRange(R.empty(10)));
-        try testing.expectEqual(R.of(10, 11), try I.single(10).toRange());
-        try testing.expectError(error.Overflow, I.of(1, std.math.maxInt(u8)).toRange());
     }
 };

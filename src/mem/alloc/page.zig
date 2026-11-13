@@ -14,9 +14,11 @@ pub const PageAllocator = struct {
                 @compileError("PageAllocator.Static extent overflows page address space");
             };
 
-            _ = origin.add(Page.Count.from(count)) catch {
-                @compileError("PageAllocator.Static extent overflows page address space");
-            };
+            if (count != 0) {
+                _ = origin.add(Page.Count.from(count - 1)) catch {
+                    @compileError("PageAllocator.Static extent overflows page address space");
+                };
+            }
         }
 
         return struct {
@@ -93,7 +95,9 @@ pub const PageAllocator = struct {
 
             pub fn init(backend: Backend, origin: Page.Base) Error!Self {
                 const count = std.math.cast(Page.Int, backend.capacity()) orelse return error.Overflow;
-                _ = origin.add(Page.Count.from(count)) catch return error.Overflow;
+                if (count != 0) {
+                    _ = origin.add(Page.Count.from(count - 1)) catch return error.Overflow;
+                }
                 return .{ .backend = backend, .origin = origin };
             }
 
@@ -187,21 +191,14 @@ const Impl = struct {
         }
 
         const base_index = base.raw() >> Page.shift;
-        const start_index = range.base.raw() >> Page.shift;
+        const start_index = range.first().raw() >> Page.shift;
 
         if (start_index < base_index) {
             return error.OutOfBounds;
         }
 
         const start = start_index - base_index;
-        const count = range.count.raw();
-
-        if (count == 0) {
-            if (start > backend.capacity()) {
-                return error.OutOfBounds;
-            }
-            return;
-        }
+        const count = range.count().raw();
 
         const end = std.math.add(Page.Int, start, count) catch return error.Overflow;
         if (end > backend.capacity()) {
@@ -249,7 +246,9 @@ const Impl = struct {
         }
 
         const capacity = std.math.cast(Page.Int, backend.capacity()) orelse return false;
-        _ = base.add(Page.Count.from(capacity)) catch return false;
+        if (capacity != 0) {
+            _ = base.add(Page.Count.from(capacity - 1)) catch return false;
+        }
         return true;
     }
 
@@ -258,15 +257,15 @@ const Impl = struct {
         const size = buddy.blockSize(block.order) catch return error.Overflow;
         const count = std.math.cast(Page.Int, size) orelse return error.Overflow;
         const address = base.add(Page.Count.from(start)) catch return error.Overflow;
-        return Page.Range.init(address, Page.Count.from(count)) catch error.Overflow;
+        return (Page.Range.fromCount(address, Page.Count.from(count)) catch return error.Overflow).?;
     }
 
     fn blockFromRange(comptime Backend: type, comptime Page: type, backend: *const Backend, base: Page.Base, range: Page.Range) Error!Backend.Block {
-        if (!range.isValid() or range.isEmpty()) {
+        if (!range.isValid()) {
             return error.InvalidRequest;
         }
 
-        const count = range.count.raw();
+        const count = range.count().raw();
         const order = buddy.orderForLen(@intCast(count)) catch return error.InvalidRequest;
         const size = buddy.blockSize(order) catch return error.InvalidRequest;
 
@@ -275,7 +274,7 @@ const Impl = struct {
         }
 
         const base_index = base.raw() >> Page.shift;
-        const start_index = range.base.raw() >> Page.shift;
+        const start_index = range.first().raw() >> Page.shift;
 
         if (start_index < base_index) {
             return error.OutOfBounds;
@@ -349,23 +348,23 @@ pub const unit = struct {
         const allocation = try Impl.alloc(Backend, Page, &backend, origin, 2);
         const range = allocation.range();
 
-        try testing.expectEqual(origin, range.base);
-        try testing.expectEqual(@as(u64, 4), range.count.raw());
+        try testing.expectEqual(origin, range.first());
+        try testing.expectEqual(@as(u64, 4), range.count().raw());
         try testing.expect(!Impl.hasFreeBlock(Backend, Page, &backend, origin, range));
         try testing.expectEqual(@as(?u8, 3), Impl.largestFreeOrder(Backend, &backend));
 
         try Impl.free(Backend, Page, &backend, origin, allocation);
 
         try testing.expectEqual(@as(?u8, 4), Impl.largestFreeOrder(Backend, &backend));
-        try testing.expect(Impl.hasFreeBlock(Backend, Page, &backend, origin, try Page.Range.init(origin, Page.Count.from(16))));
+        try testing.expect(Impl.hasFreeBlock(Backend, Page, &backend, origin, try Page.Range.init(origin, try origin.add(Page.Count.from(15)))));
         try testing.expect(Impl.isValid(Backend, Page, &backend, origin));
     }
 
     test "free block query distinguishes a represented block from a splittable subrange" {
         var backend = Backend.init();
 
-        const whole = try Page.Range.init(origin, Page.Count.from(16));
-        const first = try Page.Range.init(origin, Page.Count.from(1));
+        const whole = try Page.Range.init(origin, try origin.add(Page.Count.from(15)));
+        const first = try Page.Range.init(origin, origin);
 
         try testing.expect(Impl.hasFreeBlock(Backend, Page, &backend, origin, whole));
         try testing.expect(!Impl.hasFreeBlock(Backend, Page, &backend, origin, first));
@@ -386,20 +385,19 @@ pub const unit = struct {
         var backend = Backend.init();
 
         const start = try origin.add(Page.Count.from(3));
-        const reserved = try Page.Range.init(start, Page.Count.from(2));
+        const reserved = try Page.Range.init(start, try start.add(Page.Count.from(1)));
         const end = try origin.add(Page.Count.from(16));
 
         try Impl.reserve(Backend, Page, &backend, origin, reserved);
-        try Impl.reserve(Backend, Page, &backend, origin, try Page.Range.init(end, Page.Count.from(0)));
 
         try testing.expectError(error.AlreadyAllocated, Impl.reserve(Backend, Page, &backend, origin, reserved));
-        try testing.expectError(error.OutOfBounds, Impl.reserve(Backend, Page, &backend, origin, try Page.Range.init(end, Page.Count.from(1))));
+        try testing.expectError(error.OutOfBounds, Impl.reserve(Backend, Page, &backend, origin, try Page.Range.init(end, end)));
         try testing.expectEqual(@as(usize, 14), backend.remaining());
 
         for (0..14) |_| {
             const allocation = try Impl.alloc(Backend, Page, &backend, origin, 0);
             const range = allocation.range();
-            const index = (range.base.raw() - origin.raw()) / Page.size;
+            const index = (range.first().raw() - origin.raw()) / Page.size;
             try testing.expect(index != 3 and index != 4);
         }
 
@@ -413,9 +411,8 @@ pub const unit = struct {
         const before = try origin.sub(Page.Count.from(1));
 
         const bad_ranges = [_]Page.Range{
-            try Page.Range.init(origin, Page.Count.from(0)),
-            try Page.Range.init(origin, Page.Count.from(3)),
-            try Page.Range.init(misaligned, Page.Count.from(2)),
+            try Page.Range.init(origin, try origin.add(Page.Count.from(2))),
+            try Page.Range.init(misaligned, try misaligned.add(Page.Count.from(1))),
         };
 
         try testing.expectError(error.InvalidOrder, Impl.alloc(Backend, Page, &backend, origin, 5));
@@ -425,7 +422,7 @@ pub const unit = struct {
             try testing.expect(!Impl.hasFreeBlock(Backend, Page, &backend, origin, range));
         }
 
-        try testing.expectError(error.OutOfBounds, Impl.blockFromRange(Backend, Page, &backend, origin, try Page.Range.init(before, Page.Count.from(1))));
+        try testing.expectError(error.OutOfBounds, Impl.blockFromRange(Backend, Page, &backend, origin, try Page.Range.init(before, before)));
         try testing.expectEqual(@as(usize, 0), backend.allocated());
     }
 
@@ -448,5 +445,57 @@ pub const unit = struct {
         const limit = try Page.Base.fromInt(std.math.maxInt(Page.Int) & ~Page.mask);
 
         try testing.expectError(error.Overflow, PageAllocator.Bounded(Backend, Page).init(Backend.init(), limit));
+    }
+
+    test "static and bounded extents include the final page" {
+        const SmallPage = @import("addr").Page(@import("addr").Address(opaque {}, u8), 2);
+        const first = comptime SmallPage.Base.fromInt(224) catch unreachable;
+        const last = try SmallPage.Base.fromInt(254);
+        const final = try SmallPage.Range.init(last, last);
+        const Fixed = PageAllocator.Static(Backend, SmallPage, first);
+        const Bounded = PageAllocator.Bounded(Backend, SmallPage);
+
+        inline for (.{ Fixed.init(), try Bounded.init(Backend.init(), first) }) |initial| {
+            var pages = initial;
+            try testing.expect(pages.isValid());
+            try pages.reserve(final);
+            try testing.expectEqual(@as(u8, 15), pages.remaining());
+            try testing.expectError(error.AlreadyAllocated, pages.reserve(final));
+            try pages.free(.{ .inner = final });
+            const allocation = try pages.alloc(4);
+            try testing.expectEqual(first, allocation.range().first());
+            try testing.expectEqual(last, allocation.range().last());
+            try pages.free(allocation);
+            try testing.expectEqual(@as(u8, 16), pages.remaining());
+            try testing.expect(pages.isValid());
+        }
+    }
+
+    test "static and bounded support a full address space extent" {
+        const SmallPage = @import("addr").Page(@import("addr").Address(opaque {}, u8), 2);
+        const FullBackend = @import("buddy.zig").BuddyAllocator.Static(128, 8);
+        const first = comptime SmallPage.Base.fromInt(0) catch unreachable;
+        const last = try SmallPage.Base.fromInt(254);
+        const final = try SmallPage.Range.init(last, last);
+        const Fixed = PageAllocator.Static(FullBackend, SmallPage, first);
+        const Bounded = PageAllocator.Bounded(FullBackend, SmallPage);
+
+        inline for (.{ Fixed.init(), try Bounded.init(FullBackend.init(), first) }) |initial| {
+            var pages = initial;
+            try testing.expect(pages.isValid());
+            try testing.expectError(error.Overflow, pages.remainingBytes());
+            try pages.reserve(final);
+            try pages.free(.{ .inner = final });
+            const allocation = try pages.alloc(7);
+            const range = allocation.range();
+            try testing.expectEqual(first, range.first());
+            try testing.expectEqual(last, range.last());
+            try testing.expectEqual(@as(u8, 128), range.count().raw());
+            try testing.expectError(error.Overflow, range.bytes());
+            try testing.expectEqual(@as(u8, 0), pages.remaining());
+            try pages.free(allocation);
+            try testing.expectEqual(@as(u8, 128), pages.remaining());
+            try testing.expect(pages.isValid());
+        }
     }
 };
