@@ -14,7 +14,7 @@ pub fn BitFieldExt(comptime T: type, comptime declarations: anytype, comptime op
 }
 
 pub const Options = struct {
-    gaps: Access = .ro,
+    unnamed: Access = .ro,
 };
 
 const Access = enum { rw, ro, reserved };
@@ -365,7 +365,7 @@ const Impl = struct {
             }
 
             const gaps: comptime_int = ~occupied;
-            switch (options.gaps) {
+            switch (options.unnamed) {
                 .rw => {
                     policy.rw |= gaps;
                     policy.assign |= gaps;
@@ -784,7 +784,7 @@ pub const unit = struct {
 
     test "gap access is independent of declared coverage" {
         inline for (.{ Access.ro, Access.rw, Access.reserved }) |access| {
-            const S = BitFieldExt(u8, .{ .value = .{ .offset = 2, .type = u2 } }, .{ .gaps = access });
+            const S = BitFieldExt(u8, .{ .value = .{ .offset = 2, .type = u2 } }, .{ .unnamed = access });
 
             const field: u8 = 0x0c;
             const gaps: u8 = 0xf3;
@@ -805,7 +805,7 @@ pub const unit = struct {
 
         inline for (.{ u1, u17, u128 }) |T| {
             inline for (.{ Access.ro, Access.rw, Access.reserved }) |access| {
-                const S = BitFieldExt(T, .{}, .{ .gaps = access });
+                const S = BitFieldExt(T, .{}, .{ .unnamed = access });
 
                 const full = std.math.maxInt(T);
                 const word: S.Word = .{};
@@ -1412,14 +1412,14 @@ pub const unit = struct {
 
     test "parent gap access preserves child policies during whole-group replacement" {
         const fields = .{ .value = .{ .offset = 2, .type = u2 } };
-        const Writable = BitFieldExt(u8, fields, .{ .gaps = .rw });
+        const Writable = BitFieldExt(u8, fields, .{ .unnamed = .rw });
         const ReadOnly = BitField(u8, fields);
-        const Reserved = BitFieldExt(u8, fields, .{ .gaps = .reserved });
+        const Reserved = BitFieldExt(u8, fields, .{ .unnamed = .reserved });
         const Parent = BitFieldExt(u32, .{
             .writable = Writable,
             .readonly = ReadOnly,
             .reserved = Reserved,
-        }, .{ .gaps = .reserved });
+        }, .{ .unnamed = .reserved });
         const changed = Parent.replace(Parent.from(0xffffffff), .{
             .writable = Writable.from(0),
             .readonly = ReadOnly.from(0),
