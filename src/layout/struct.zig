@@ -5,8 +5,8 @@ const alignment = @import("alignment.zig");
 const assertLayout = @import("assert.zig").assertLayout;
 
 /// Extern layout with exact byte size and explicit or naturally placed fields.
-/// Fields: `T` or `{ type, offset? }`; nonzero-sized, extern-compatible.
-/// Aggregate alignment defaults to 1. Gaps have no default initialization.
+/// Fields: `T` or `{ type, offset?, default? }`; nonzero-sized, extern-compatible.
+/// Gaps default to zero.
 pub fn Struct(comptime options: Options, comptime fields: anytype) type {
     return Impl.Build(options, fields);
 }
@@ -20,6 +20,7 @@ const Field = struct {
     name: [:0]const u8,
     offset: usize,
     type: type,
+    default: ?*const anyopaque,
 };
 
 const Impl = struct {
@@ -31,15 +32,19 @@ const Impl = struct {
         var types: [members.len]type = undefined;
         var attributes: [members.len]std.builtin.Type.StructField.Attributes = undefined;
 
-        for (members, 0..) |member, member_index| {
-            const field_align = if (member_index == 0)
+        for (members, 0..) |member, index| {
+            const field_align = if (index == 0)
                 options.alignment
             else
                 @min(@alignOf(member.type), std.math.gcd(options.alignment, member.offset));
 
-            names[member_index] = member.name;
-            types[member_index] = member.type;
-            attributes[member_index] = .{ .@"align" = field_align };
+            names[index] = member.name;
+            types[index] = member.type;
+
+            attributes[index] = .{
+                .@"align" = field_align,
+                .default_value_ptr = member.default,
+            };
         }
 
         const T = @Struct(.@"extern", null, &names, &types, &attributes);
@@ -105,10 +110,14 @@ const Impl = struct {
     fn padding(comptime start: usize, comptime end: usize) Field {
         std.debug.assert(start <= end);
 
+        const T = [end - start]u8;
+        const initial: T = @splat(0);
+
         return .{
             .name = std.fmt.comptimePrint("$pad[0x{x:0>4}..0x{x:0>4})", .{ start, end }),
             .offset = start,
-            .type = [end - start]u8,
+            .type = T,
+            .default = &initial,
         };
     }
 
@@ -133,6 +142,7 @@ const Impl = struct {
                 .name = entry.name,
                 .offset = Resolved.offset,
                 .type = Resolved.Type,
+                .default = Resolved.default,
             };
 
             if (field.offset < prev_offset) {
@@ -164,7 +174,11 @@ const Impl = struct {
 
         if (!bare) {
             for (std.meta.fields(@TypeOf(declaration))) |property| {
-                if (!std.mem.eql(u8, property.name, "offset") and !std.mem.eql(u8, property.name, "type")) {
+                const known = std.mem.eql(u8, property.name, "offset") or
+                    std.mem.eql(u8, property.name, "type") or
+                    std.mem.eql(u8, property.name, "default");
+
+                if (!known) {
                     @compileError(std.fmt.comptimePrint("Struct: unknown field property '{s}'", .{property.name}));
                 }
             }
@@ -191,6 +205,15 @@ const Impl = struct {
                     @compileError(std.fmt.comptimePrint("Struct: field '{s}' exceeds size", .{name}));
                 };
             };
+
+            pub const default: ?*const anyopaque = blk: {
+                if (!bare and @hasField(@TypeOf(declaration), "default")) {
+                    const value: Type = declaration.default;
+                    break :blk @ptrCast(&value);
+                }
+
+                break :blk null;
+            };
         };
     }
 
@@ -210,6 +233,72 @@ const Impl = struct {
 
 pub const unit = struct {
     const testing = std.testing;
+
+    test "partial literals apply typed defaults and zero every generated gap" {
+        const Mode = enum(u16) { idle, active = 3 };
+        const T = Struct(.{ .size = 32, .alignment = 8 }, .{
+            .required = .{ .offset = 2, .type = u8 },
+            .magic = .{ .offset = 5, .type = u32, .default = 0x12345678 },
+            .mode = .{ .type = Mode, .default = .active },
+            .bytes = .{ .offset = 16, .type = [3]u8, .default = .{ 1, 2, 3 } },
+            .tail = .{ .offset = 24, .type = u16, .default = 0xabcd },
+        });
+
+        const object: T = .{ .required = 0x7f };
+        const overridden: T = .{ .required = 1, .magic = 7, .mode = .idle };
+        const magic: u32 = 0x12345678;
+        const mode: Mode = .active;
+        const tail: u16 = 0xabcd;
+        var expected: [32]u8 = @splat(0);
+
+        expected[2] = 0x7f;
+        @memcpy(expected[5..9], std.mem.asBytes(&magic));
+        @memcpy(expected[10..12], std.mem.asBytes(&mode));
+        @memcpy(expected[16..19], &[_]u8{ 1, 2, 3 });
+        @memcpy(expected[24..26], std.mem.asBytes(&tail));
+
+        try testing.expectEqualSlices(u8, &expected, std.mem.asBytes(&object));
+        try testing.expectEqual(@as(u32, 7), overridden.magic);
+        try testing.expectEqual(Mode.idle, overridden.mode);
+        try testing.expectEqual(@as(u16, 0xabcd), overridden.tail);
+        try testing.expectEqual(*align(1) const u32, @TypeOf(&object.magic));
+    }
+
+    test "nested and nullable defaults remain typed values" {
+        const Target = struct {
+            const value: u32 = 42;
+        };
+
+        const Inner = Struct(.{ .size = 8 }, .{
+            .value = .{ .offset = 1, .type = u32, .default = 9 },
+        });
+
+        const Outer = Struct(.{ .size = 32, .alignment = 8 }, .{
+            .inner = .{ .offset = 3, .type = Inner, .default = Inner{} },
+            .required = .{ .offset = 16, .type = u32 },
+            .pointer = .{ .offset = 24, .type = ?*const u32, .default = null },
+        });
+
+        const object: Outer = .{ .required = 7 };
+        const overridden: Outer = .{
+            .inner = .{ .value = 99 },
+            .required = 8,
+            .pointer = &Target.value,
+        };
+
+        const bytes = std.mem.asBytes(&object);
+
+        try testing.expectEqual(@as(u32, 9), object.inner.value);
+        try testing.expectEqual(@as(u32, 99), overridden.inner.value);
+        try testing.expect(object.pointer == null);
+        try testing.expectEqual(@as(u32, 42), overridden.pointer.?.*);
+
+        for (bytes, 0..) |byte, offset| {
+            if (offset < 4 or (offset >= 8 and offset < 16) or (offset >= 20 and offset < 24)) {
+                try testing.expectEqual(@as(u8, 0), byte);
+            }
+        }
+    }
 
     test "implicit fields use natural offsets after an unaligned explicit anchor" {
         const T = Impl.Build(.{ .size = 19 }, .{
@@ -316,6 +405,7 @@ pub const unit = struct {
         const Inner = Impl.Build(.{ .size = 8 }, .{
             .value = .{ .offset = 1, .type = u32 },
         });
+
         const Outer = Impl.Build(.{ .size = 32, .alignment = 16 }, .{
             .inner = .{ .offset = 3, .type = Inner },
         });
@@ -339,10 +429,12 @@ pub const unit = struct {
             .first = .{ .offset = 1, .type = u32 },
             .second = .{ .offset = 6, .type = u16 },
         });
+
         const Payload = extern union {
             integer: u64,
             bytes: [8]u8,
         };
+
         const T = Impl.Build(.{ .size = 24, .alignment = 8 }, .{
             .record = .{ .offset = 0, .type = Record },
             .payload = .{ .offset = 16, .type = Payload },
@@ -397,10 +489,17 @@ pub const unit = struct {
         const Zero = Impl.Build(.{ .size = 0 }, .{});
         const AlignedZero = Impl.Build(.{ .size = 0, .alignment = 8 }, .{});
 
+        const initialized: Empty = .{};
+        const zero: Zero = .{};
+        const aligned_zero: AlignedZero = .{};
+
         var records: [2]Empty = undefined;
         @memset(std.mem.asBytes(&records), 0xa5);
         @memset(std.mem.asBytes(&records[1]), 0x5a);
 
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** 8), std.mem.asBytes(&initialized));
+        try testing.expectEqual(@as(usize, 0), std.mem.asBytes(&zero).len);
+        try testing.expectEqual(@as(usize, 0), std.mem.asBytes(&aligned_zero).len);
         try testing.expectEqualSlices(u8, &([_]u8{0xa5} ** 8), std.mem.asBytes(&records[0]));
         try testing.expectEqualSlices(u8, &([_]u8{0x5a} ** 8), std.mem.asBytes(&records[1]));
         try testing.expectEqual(@as(usize, 8), @intFromPtr(&records[1]) - @intFromPtr(&records[0]));
