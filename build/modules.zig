@@ -16,7 +16,7 @@ pub const Modules = struct {
     cpu: *std.Build.Module,
     diag: *std.Build.Module,
     dma: *std.Build.Module,
-    func: *std.Build.Module,
+    dispatch: *std.Build.Module,
     graph: *std.Build.Module,
     intrusive: *std.Build.Module,
     io: *std.Build.Module,
@@ -61,7 +61,7 @@ pub const Modules = struct {
             .cpu = addCategory(b, "cpu", target, optimize, visibility),
             .diag = addCategory(b, "diag", target, optimize, visibility),
             .dma = addCategory(b, "dma", target, optimize, visibility),
-            .func = addCategory(b, "func", target, optimize, visibility),
+            .dispatch = addCategory(b, "dispatch", target, optimize, visibility),
             .graph = addCategory(b, "graph", target, optimize, visibility),
             .intrusive = addCategory(b, "intrusive", target, optimize, visibility),
             .io = addCategory(b, "io", target, optimize, visibility),
@@ -86,7 +86,7 @@ pub const Modules = struct {
             .{ "cpu", modules.cpu },
             .{ "diag", modules.diag },
             .{ "dma", modules.dma },
-            .{ "func", modules.func },
+            .{ "dispatch", modules.dispatch },
             .{ "graph", modules.graph },
             .{ "intrusive", modules.intrusive },
             .{ "io", modules.io },
@@ -141,7 +141,7 @@ pub const Modules = struct {
             .{ "addr", modules.addr },
         });
 
-        addImports(modules.func, &.{
+        addImports(modules.dispatch, &.{
             .{ "layout", modules.layout },
         });
 

@@ -25,7 +25,7 @@ pub fn addHostTests(
     const categories = [_][]const u8{
         "core",        "bits",      "addr", "ranges", "graph", "layout", "bytes", "mem",
         "collections", "intrusive", "algo", "tags",   "arch",  "diag",   "sync",  "concurrent",
-        "io",          "barrier",   "time", "dma",    "cpu",   "func",
+        "io",          "barrier",   "time", "dma",    "cpu",   "dispatch",
     };
 
     for (categories) |category| {
@@ -81,8 +81,8 @@ pub fn addHostTests(
             continue;
         }
 
-        if (std.mem.eql(u8, category, "func")) {
-            addSuite(b, category_step, check_step, modules.func);
+        if (std.mem.eql(u8, category, "dispatch")) {
+            addSuite(b, category_step, check_step, modules.dispatch);
             continue;
         }
 
@@ -146,7 +146,7 @@ pub fn addCompileFixtureTests(
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Step {
     const fixture_step = b.step("test-compile", "Run compile fixtures");
-    const func_fixture_step = b.step("test-func-compile", "Run func compile fixtures");
+    const dispatch_fixture_step = b.step("test-dispatch-compile", "Run dispatch compile fixtures");
 
     var private_modules: [fixtures.len]Modules = undefined;
     var private_count: usize = 0;
@@ -176,8 +176,8 @@ pub fn addCompileFixtureTests(
 
         const compile = addCompileFixture(b, fixture, fixture_modules);
         fixture_step.dependOn(&compile.step);
-        if (std.mem.startsWith(u8, fixture.name, "func/")) {
-            func_fixture_step.dependOn(&compile.step);
+        if (std.mem.startsWith(u8, fixture.name, "dispatch/")) {
+            dispatch_fixture_step.dependOn(&compile.step);
         }
     }
 
@@ -225,44 +225,44 @@ fn addCompileFixture(
 
 const fixtures = [_]CompileFixture{
     .{
-        .name = "func/interface/missing_method",
-        .path = "test/fixtures/func/interface/missing_method.zig",
+        .name = "dispatch/interface/missing_method",
+        .path = "test/fixtures/dispatch/interface/missing_method.zig",
         .target = "native",
         .expected = .{ .failure = "has no matching method" },
     },
     .{
-        .name = "func/interface/wrong_parameter",
-        .path = "test/fixtures/func/interface/wrong_parameter.zig",
+        .name = "dispatch/interface/wrong_parameter",
+        .path = "test/fixtures/dispatch/interface/wrong_parameter.zig",
         .target = "native",
         .expected = .{ .failure = "provider parameter type does not match the contract" },
     },
     .{
-        .name = "func/interface/wrong_return",
-        .path = "test/fixtures/func/interface/wrong_return.zig",
+        .name = "dispatch/interface/wrong_return",
+        .path = "test/fixtures/dispatch/interface/wrong_return.zig",
         .target = "native",
         .expected = .{ .failure = "provider return type does not match the contract" },
     },
     .{
-        .name = "func/interface/const_provider",
-        .path = "test/fixtures/func/interface/const_provider.zig",
+        .name = "dispatch/interface/const_provider",
+        .path = "test/fixtures/dispatch/interface/const_provider.zig",
         .target = "native",
         .expected = .{ .failure = "Interface.bind: const provider cannot implement a mutable contract" },
     },
     .{
-        .name = "func/interface/mutable_readonly_receiver",
-        .path = "test/fixtures/func/interface/mutable_readonly_receiver.zig",
+        .name = "dispatch/interface/mutable_readonly_receiver",
+        .path = "test/fixtures/dispatch/interface/mutable_readonly_receiver.zig",
         .target = "native",
         .expected = .{ .failure = "a read-only operation requires a const provider receiver" },
     },
     .{
-        .name = "func/interface/unsupported_calling_convention",
-        .path = "test/fixtures/func/interface/unsupported_calling_convention.zig",
+        .name = "dispatch/interface/unsupported_calling_convention",
+        .path = "test/fixtures/dispatch/interface/unsupported_calling_convention.zig",
         .target = "native",
         .expected = .{ .failure = "expected the default Zig calling convention" },
     },
     .{
-        .name = "func/interface/excess_arguments",
-        .path = "test/fixtures/func/interface/excess_arguments.zig",
+        .name = "dispatch/interface/excess_arguments",
+        .path = "test/fixtures/dispatch/interface/excess_arguments.zig",
         .target = "native",
         .expected = .{ .failure = "expected a receiver and zero through three arguments" },
     },

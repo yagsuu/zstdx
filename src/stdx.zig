@@ -21,4 +21,4 @@ pub const barrier = @import("barrier");
 pub const time = @import("time");
 pub const dma = @import("dma");
 pub const cpu = @import("cpu");
-pub const func = @import("func");
+pub const dispatch = @import("dispatch");

@@ -1,4 +1,4 @@
-const Interface = @import("stdx").func.Interface;
+const Interface = @import("stdx").dispatch.Interface;
 
 const Contract = struct {
     instance: *anyopaque,
@@ -10,7 +10,7 @@ const Contract = struct {
 };
 
 const Provider = struct {
-    pub fn run(_: *Provider, _: u32) u64 {
+    pub fn run(_: *Provider, _: u64) u32 {
         return 0;
     }
 };

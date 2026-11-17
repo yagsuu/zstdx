@@ -1,16 +1,16 @@
-const Interface = @import("stdx").func.Interface;
+const Interface = @import("stdx").dispatch.Interface;
 
 const Contract = struct {
     instance: *anyopaque,
     vtable: *const Vtable,
 
     pub const Vtable = struct {
-        run: *const fn (*anyopaque, u32) callconv(.c) u32,
+        run: *const fn (*anyopaque, u32, u32, u32, u32) u32,
     };
 };
 
 const Provider = struct {
-    pub fn run(_: *Provider, _: u32) u32 {
+    pub fn run(_: *Provider, _: u32, _: u32, _: u32, _: u32) u32 {
         return 0;
     }
 };
