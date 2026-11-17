@@ -2,328 +2,74 @@ const std = @import("std");
 
 const Modules = @import("modules.zig").Modules;
 
-const CompileFixture = struct {
+const Suite = struct {
     name: []const u8,
-    path: []const u8,
-    target: []const u8,
-    expected: Expected,
-
-    const Expected = union(enum) {
-        success,
-        failure: []const u8,
-    };
+    module: *std.Build.Module,
 };
 
-pub fn addHostTests(
-    b: *std.Build,
-    modules: *const Modules,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    check_step: *std.Build.Step,
-) *std.Build.Step {
-    const host_step = b.step("test-host", "Run host-side tests");
-    const categories = [_][]const u8{
-        "core",        "bits",      "addr", "ranges", "graph", "layout", "bytes", "mem",
-        "collections", "intrusive", "algo", "tags",   "arch",  "diag",   "sync",  "concurrent",
-        "io",          "barrier",   "time", "dma",    "cpu",   "dispatch",
+pub fn addUnitTests(b: *std.Build, modules: *const Modules) *std.Build.Step {
+    const suites = [_]Suite{
+        .{ .name = "addr", .module = modules.addr },
+        .{ .name = "algo", .module = modules.algo },
+        .{ .name = "arch", .module = modules.arch },
+        .{ .name = "barrier", .module = modules.barrier },
+        .{ .name = "bits", .module = modules.bits },
+        .{ .name = "bytes", .module = modules.bytes },
+        .{ .name = "collections", .module = modules.collections },
+        .{ .name = "concurrent", .module = modules.concurrent },
+        .{ .name = "core", .module = modules.core },
+        .{ .name = "cpu", .module = modules.cpu },
+        .{ .name = "diag", .module = modules.diag },
+        .{ .name = "dispatch", .module = modules.dispatch },
+        .{ .name = "dma", .module = modules.dma },
+        .{ .name = "graph", .module = modules.graph },
+        .{ .name = "intrusive", .module = modules.intrusive },
+        .{ .name = "io", .module = modules.io },
+        .{ .name = "layout", .module = modules.layout },
+        .{ .name = "mem", .module = modules.mem },
+        .{ .name = "ranges", .module = modules.ranges },
+        .{ .name = "sync", .module = modules.sync },
+        .{ .name = "tags", .module = modules.tags },
+        .{ .name = "time", .module = modules.time },
     };
 
-    for (categories) |category| {
+    const unit_step = b.step("test-unit", "Run all unit tests");
+
+    for (suites) |suite| {
         const category_step = b.step(
-            b.fmt("test-{s}", .{category}),
-            b.fmt("Run {s} tests", .{category}),
+            b.fmt("test-{s}", .{suite.name}),
+            b.fmt("Run {s} unit tests", .{suite.name}),
         );
 
-        host_step.dependOn(category_step);
-
-        if (std.mem.eql(u8, category, "core")) {
-            addSuite(b, category_step, check_step, modules.core);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "addr")) {
-            addSuite(b, category_step, check_step, modules.addr);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "bytes")) {
-            addSuite(b, category_step, check_step, modules.bytes);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "collections")) {
-            addSuite(b, category_step, check_step, modules.collections);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "ranges")) {
-            addSuite(b, category_step, check_step, modules.ranges);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "graph")) {
-            addSuite(b, category_step, check_step, modules.graph);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "bits")) {
-            addSuite(b, category_step, check_step, modules.bits);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "tags")) {
-            addSuite(b, category_step, check_step, modules.tags);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "layout")) {
-            addSuite(b, category_step, check_step, modules.layout);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "dispatch")) {
-            addSuite(b, category_step, check_step, modules.dispatch);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "time")) {
-            addSuite(b, category_step, check_step, modules.time);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "sync")) {
-            addSuite(b, category_step, check_step, modules.sync);
-        }
-
-        if (std.mem.eql(u8, category, "mem")) {
-            addSuite(b, category_step, check_step, modules.mem);
-        }
-
-        if (std.mem.eql(u8, category, "algo")) {
-            addSuite(b, category_step, check_step, modules.algo);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "barrier")) {
-            addSuite(b, category_step, check_step, modules.barrier);
-            continue;
-        }
-
-        if (std.mem.eql(u8, category, "cpu")) {
-            addSuite(b, category_step, check_step, modules.cpu);
-        }
-
-        if (std.mem.eql(u8, category, "concurrent")) {
-            addSuite(b, category_step, check_step, modules.concurrent);
-        }
-
-        if (std.mem.eql(u8, category, "arch")) {
-            addSuite(b, category_step, check_step, modules.arch);
-        }
-
-        if (std.mem.eql(u8, category, "io")) {
-            addSuite(b, category_step, check_step, modules.io);
-            continue;
-        }
-
-        const root = b.createModule(.{
-            .root_source_file = b.path(b.fmt("test/{s}/all.zig", .{category})),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{.{ .name = "stdx", .module = modules.stdx }},
+        const tests = b.addTest(.{
+            .name = b.fmt("unit-{s}", .{suite.name}),
+            .root_module = suite.module,
         });
 
-        addSuite(b, category_step, check_step, root);
+        const run_tests = b.addRunArtifact(tests);
+        category_step.dependOn(&run_tests.step);
+        unit_step.dependOn(category_step);
     }
 
-    return host_step;
+    return unit_step;
 }
 
-pub fn addCompileFixtureTests(
-    b: *std.Build,
-    modules: *const Modules,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) *std.Build.Step {
-    const fixture_step = b.step("test-compile", "Run compile fixtures");
-    const dispatch_fixture_step = b.step("test-dispatch-compile", "Run dispatch compile fixtures");
-
-    var private_modules: [fixtures.len]Modules = undefined;
-    var private_count: usize = 0;
-
-    for (fixtures) |fixture| {
-        const fixture_target = b.resolveTargetQuery(
-            std.Target.Query.parse(.{ .arch_os_abi = fixture.target }) catch unreachable,
-        );
-
-        const fixture_modules = matching: {
-            if (target.query.eql(fixture_target.query) and modules.stdx.optimize == optimize) {
-                break :matching modules;
-            }
-
-            for (private_modules[0..private_count]) |*candidate| {
-                if (candidate.stdx.resolved_target.?.query.eql(fixture_target.query)) {
-                    break :matching candidate;
-                }
-            }
-
-            private_modules[private_count] = Modules.init(b, fixture_target, optimize, .private);
-
-            const candidate = &private_modules[private_count];
-            private_count += 1;
-            break :matching candidate;
-        };
-
-        const compile = addCompileFixture(b, fixture, fixture_modules);
-        fixture_step.dependOn(&compile.step);
-        if (std.mem.startsWith(u8, fixture.name, "dispatch/")) {
-            dispatch_fixture_step.dependOn(&compile.step);
-        }
-    }
-
-    return fixture_step;
-}
-
-fn addSuite(
-    b: *std.Build,
-    category_step: *std.Build.Step,
-    check_step: *std.Build.Step,
-    root_module: *std.Build.Module,
-) void {
-    const tests = b.addTest(.{ .root_module = root_module });
-    const run_tests = b.addRunArtifact(tests);
-    check_step.dependOn(&tests.step);
-    category_step.dependOn(&run_tests.step);
-}
-
-fn addCompileFixture(
-    b: *std.Build,
-    fixture: CompileFixture,
-    modules: *const Modules,
-) *std.Build.Step.Compile {
+pub fn addIntegrationTests(b: *std.Build, modules: *const Modules) *std.Build.Step {
     const root = b.createModule(.{
-        .root_source_file = b.path(fixture.path),
-        .target = modules.stdx.resolved_target.?,
+        .root_source_file = b.path("test/all.zig"),
+        .target = b.graph.host,
         .optimize = modules.stdx.optimize.?,
         .imports = &.{.{ .name = "stdx", .module = modules.stdx }},
     });
 
-    const compile = b.addObject(.{
-        .name = std.fs.path.stem(fixture.path),
+    const tests = b.addTest(.{
+        .name = "integration",
         .root_module = root,
     });
 
-    compile.step.name = b.fmt("compile fixture {s}", .{fixture.name});
+    const run_tests = b.addRunArtifact(tests);
+    const integration_step = b.step("test-integration", "Run cross-module integration tests");
+    integration_step.dependOn(&run_tests.step);
 
-    switch (fixture.expected) {
-        .success => {},
-        .failure => |message| compile.expect_errors = .{ .contains = message },
-    }
-
-    return compile;
+    return integration_step;
 }
-
-const fixtures = [_]CompileFixture{
-    .{
-        .name = "dispatch/interface/missing_method",
-        .path = "test/fixtures/dispatch/interface/missing_method.zig",
-        .target = "native",
-        .expected = .{ .failure = "has no matching method" },
-    },
-    .{
-        .name = "dispatch/interface/wrong_parameter",
-        .path = "test/fixtures/dispatch/interface/wrong_parameter.zig",
-        .target = "native",
-        .expected = .{ .failure = "provider parameter type does not match the contract" },
-    },
-    .{
-        .name = "dispatch/interface/wrong_return",
-        .path = "test/fixtures/dispatch/interface/wrong_return.zig",
-        .target = "native",
-        .expected = .{ .failure = "provider return type does not match the contract" },
-    },
-    .{
-        .name = "dispatch/interface/const_provider",
-        .path = "test/fixtures/dispatch/interface/const_provider.zig",
-        .target = "native",
-        .expected = .{ .failure = "Interface.bind: const provider cannot implement a mutable contract" },
-    },
-    .{
-        .name = "dispatch/interface/mutable_readonly_receiver",
-        .path = "test/fixtures/dispatch/interface/mutable_readonly_receiver.zig",
-        .target = "native",
-        .expected = .{ .failure = "a read-only operation requires a const provider receiver" },
-    },
-    .{
-        .name = "dispatch/interface/unsupported_calling_convention",
-        .path = "test/fixtures/dispatch/interface/unsupported_calling_convention.zig",
-        .target = "native",
-        .expected = .{ .failure = "expected the default Zig calling convention" },
-    },
-    .{
-        .name = "dispatch/interface/excess_arguments",
-        .path = "test/fixtures/dispatch/interface/excess_arguments.zig",
-        .target = "native",
-        .expected = .{ .failure = "expected a receiver and zero through three arguments" },
-    },
-    .{
-        .name = "layout/success",
-        .path = "test/fixtures/layout/success.zig",
-        .target = "native",
-        .expected = .success,
-    },
-    .{
-        .name = "layout/size_mismatch",
-        .path = "test/fixtures/layout/size_mismatch.zig",
-        .target = "native",
-        .expected = .{ .failure = "expected size 3, found 4" },
-    },
-    .{
-        .name = "layout/alignment_mismatch",
-        .path = "test/fixtures/layout/alignment_mismatch.zig",
-        .target = "native",
-        .expected = .{ .failure = "expected alignment 3, found 1" },
-    },
-    .{
-        .name = "layout/offset_mismatch",
-        .path = "test/fixtures/layout/offset_mismatch.zig",
-        .target = "native",
-        .expected = .{ .failure = ".value: expected byte offset 1, found 0" },
-    },
-    .{
-        .name = "mem/alloc/page/static_extent",
-        .path = "test/fixtures/mem/alloc/page/static_extent.zig",
-        .target = "native",
-        .expected = .{ .failure = "PageAllocator.Static extent overflows page address space" },
-    },
-    .{
-        .name = "arch/x86_64/paging/explicit_target",
-        .path = "test/fixtures/arch/x86_64/paging/explicit_target.zig",
-        .target = "aarch64-freestanding-none",
-        .expected = .success,
-    },
-    .{
-        .name = "arch/x86_64/paging/current_cpu_target",
-        .path = "test/fixtures/arch/x86_64/paging/current_cpu_target.zig",
-        .target = "aarch64-freestanding-none",
-        .expected = .{ .failure = "this operation requires an x86_64 target" },
-    },
-    .{
-        .name = "arch/x86_64/registers/descriptor_wrappers",
-        .path = "test/fixtures/arch/x86_64/registers/descriptor_wrappers.zig",
-        .target = "x86_64-freestanding-none",
-        .expected = .success,
-    },
-    .{
-        .name = "ranges/range/inclusive_signed_type",
-        .path = "test/fixtures/ranges/range/inclusive_signed_type.zig",
-        .target = "native",
-        .expected = .{ .failure = "InclusiveRange requires a non-zero-width unsigned integer type" },
-    },
-    .{
-        .name = "ranges/range/inclusive_zero_width_type",
-        .path = "test/fixtures/ranges/range/inclusive_zero_width_type.zig",
-        .target = "native",
-        .expected = .{ .failure = "InclusiveRange requires a non-zero-width unsigned integer type" },
-    },
-};

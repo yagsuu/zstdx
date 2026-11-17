@@ -10,3 +10,10 @@ pub const stack = @import("stack.zig");
 pub const List = list.List;
 pub const Queue = queue.Queue;
 pub const Stack = stack.Stack;
+
+test {
+    _ = @import("heap_test.zig");
+    _ = @import("list_test.zig");
+    _ = @import("queue_test.zig");
+    _ = @import("stack_test.zig");
+}

@@ -9,12 +9,15 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
     const modules = Modules.init(b, target, optimize, .public);
+    const host_modules = if (target.query.eql(b.graph.host.query))
+        modules
+    else
+        Modules.init(b, b.graph.host, optimize, .private);
 
-    const check_step = b.step("check", "Compile all host test suites");
-    const host_step = testing.addHostTests(b, &modules, target, optimize, check_step);
-    const fixture_step = testing.addCompileFixtureTests(b, &modules, target, optimize);
+    const unit_step = testing.addUnitTests(b, &host_modules);
+    const integration_step = testing.addIntegrationTests(b, &host_modules);
 
     const test_step = b.step("test", "Run all tests");
-    test_step.dependOn(host_step);
-    test_step.dependOn(fixture_step);
+    test_step.dependOn(unit_step);
+    test_step.dependOn(integration_step);
 }

@@ -187,10 +187,13 @@ The public facade is `src/stdx.zig`. It re-exports these namespaces:
 
 ## Build and test
 
-Run the default suite:
+Run all tests, one layer, or a focused unit category:
 
 ```sh
 zig build test
+zig build test-unit
+zig build test-integration
+zig build test-dispatch
 ```
 
 Check Zig source format:
@@ -199,8 +202,9 @@ Check Zig source format:
 zig fmt --check build.zig src test
 ```
 
-The default suite runs host tests, supported-target compile fixtures, and
-fixtures that reject selected invalid API uses. It requires no external tools.
+Unit tests live with their source modules. Integration tests in `test/` exercise
+cross-module workflows through the public `stdx` facade. Both run on the host with
+Zig's standard test runner and require no external tools.
 
 ## Documentation
 

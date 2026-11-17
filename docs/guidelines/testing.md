@@ -4,25 +4,31 @@ Test requirements for zstdx implementation work.
 
 ## Required commands
 
-- `zig build test` runs the default host suite once a build exists.
+- `zig build test` runs unit and integration tests on the host.
+- `zig build test-unit` runs every source module's unit suite.
+- `zig build test-<category>` runs one category's unit suite, such as `test-dispatch`.
+- `zig build test-integration` runs cross-module consumer workflows.
 - Pure primitive modules must not require target-specific checks.
 - External tools are not required by the default test command.
 - Architecture-specific tests are gated by target and feature checks.
 
 ## Test locations
 
-- In-source `test` blocks cover local pure logic.
-- `test/` contains multi-module tests, model comparisons, fixture-driven tests, stress tests, and integration-style tests.
+- Source modules own single-category behavioral, model, allocation, and stress tests.
+- Source-owned test sidecars are imported by their category's module test block.
+- `test/` contains integration workflows that exercise interactions across module categories.
+- Integration tests import the public `stdx` facade, not implementation files.
 - Benchmarks live outside the default correctness test path unless a spec says otherwise.
 
 ## Test aggregation
 
-- `test/all.zig` imports only domain `all.zig` facades.
-- Each `all.zig` imports only immediate child facades or leaf tests owned by its category.
-- Each leaf test has exactly one aggregation path from `test/all.zig`.
-- Aggregation facades contain imports only.
-- Leaf tests do not import other leaf tests.
-- Test directories mirror source domains and public namespaces. A test-only category can group root-owned declarations when the category has one explicit owner.
+- Each category module aggregates its unit tests once.
+- `test/all.zig` imports workflow leaves or immediate child facades.
+- Each integration leaf has exactly one aggregation path from that root.
+- Aggregation facades contain imports only; leaf tests do not import other leaf tests.
+- Integration files are grouped by workflow, not by source category.
+- A category target and `test-unit` share the same registered test artifact.
+- `test` depends on the unit and integration aggregates without registering more artifacts.
 
 ## Test naming
 
@@ -34,6 +40,7 @@ test "model: ring matches reference queue under random operations" { ... }
 test "contract: bounded list never touches allocator" { ... }
 test "ordering: spsc ring publishes item before tail" { ... }
 test "stress: mpsc queue preserves all produced items" { ... }
+test "integration: queued work invokes delegates in FIFO order" { ... }
 ```
 
 ## Required per-public-type test set
@@ -109,7 +116,6 @@ Barrier tests must not pretend to prove hardware ordering through ordinary unit 
 
 Required checks:
 
-- compile tests for supported targets;
 - emitted-instruction checks only when the build/test harness explicitly supports them;
 - feature-gated tests for optional instructions;
 - semantic documentation in specs for ordering guarantees and non-guarantees.

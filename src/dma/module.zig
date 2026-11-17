@@ -11,3 +11,8 @@ pub const ScatterGather = struct {
     pub const List = scatter_gather.List;
     pub const Builder = scatter_gather.Builder;
 };
+
+test {
+    _ = @import("buffer_test.zig");
+    _ = @import("scatter_gather_test.zig");
+}

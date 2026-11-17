@@ -3,6 +3,10 @@
 pub const x86_64 = @import("x86_64.zig");
 
 test {
+    _ = @import("x86_64/target_test.zig");
+    _ = @import("x86_64/privilege_test.zig");
+    _ = @import("x86_64/cpuid_test.zig");
+    _ = @import("x86_64/paging/walk_test.zig");
     _ = @import("x86_64/paging.zig");
     _ = @import("x86_64/cpuid.zig").unit;
     _ = @import("x86_64/cache.zig").unit;
