@@ -45,19 +45,70 @@ exe.root_module.addImport("stdx", zstdx.module("stdx"));
 const stdx = @import("stdx");
 ```
 
-## Common workflows
+## Public API
 
-### Caller-provided FIFO storage
+Import `stdx` to access the public namespaces.
 
-`stdx.collections.Ring.Bounded` is a FIFO around caller provided storage.
-Concurrent SPSC and MPSC queues are under `stdx.concurrent`.
+| Namespace | Provides |
+| --- | --- |
+| `stdx.core` | Debug checks, options, and type traits |
+| `stdx.addr` | Physical and virtual address types |
+| `stdx.bits` | Bit operations and bitfields |
+| `stdx.bytes` | Byte access and encoding |
+| `stdx.layout` | Binary layouts and layout assertions |
+| `stdx.ranges` | Range types and range-based structures |
+| `stdx.mem` | Memory operations and allocators |
+| `stdx.collections` | Non-intrusive collections |
+| `stdx.intrusive` | Intrusive lists, queues, stacks, and heaps |
+| `stdx.algo` | Algorithms over caller-provided storage |
+| `stdx.graph` | Forest structures |
+| `stdx.sync` | Locks and synchronization primitives |
+| `stdx.concurrent` | Concurrent queues and reclamation mechanisms |
+| `stdx.barrier` | Memory ordering and barriers |
+| `stdx.arch` | Architecture-specific instructions and hardware definitions |
+| `stdx.io` | Memory-mapped I/O |
+| `stdx.dma` | DMA buffers and scatter/gather structures |
+| `stdx.cpu` | Per-CPU storage and access |
+| `stdx.dispatch` | Delegates, closures, and vtable-based interfaces |
+| `stdx.time` | Time types and operations |
+| `stdx.tags` | Tag allocation |
+| `stdx.diag` | Diagnostics |
+
+## Build and test
+
+Run the default suite:
+
+```sh
+zig build test
+```
+
+## Usage examples
+
+### Arena-backed workspace
 
 ```zig
-const stdx = @import("stdx");
+const std = @import("std");
 
-var storage: [64]u32 = undefined;
-var queue = stdx.collections.Ring.Bounded(u32).wrap(&storage);
-try queue.pushBack(42);
+const stdx = @import("stdx");
+const Arena = stdx.mem.alloc.Arena.Bounded;
+
+fn checksumBatch(arena: *Arena, frames: []const []const u8) !u64 {
+    const checkpoint = arena.mark();
+    defer arena.restore(checkpoint);
+
+    var checksum: u64 = 0;
+    for (frames) |frame| {
+        const buffer = try arena.allocBytes(frame.len / 2);
+        const decoded = try std.fmt.hexToBytes(buffer, frame);
+        checksum = std.hash.Wyhash.hash(checksum, decoded);
+    }
+
+    return checksum;
+}
+
+var storage: [4096]u8 = undefined;
+var arena = Arena.wrap(&storage);
+const checksum = try checksumBatch(&arena, &.{ "48656c6c6f", "20776f726c64" });
 ```
 
 ### Strong address types
@@ -70,49 +121,96 @@ const aligned = try base.alignUp(4096);
 _ = aligned;
 ```
 
-### Spin locks
-
-`RawSpinLock` provides mutual exclusion by spinning. It does not yield, sleep,
-or allocate.
+### Typed register update
 
 ```zig
 const stdx = @import("stdx");
 
-var lock = stdx.sync.RawSpinLock.init();
-lock.acquire();
-defer lock.release();
+const Mode = enum(u2) { polling, interrupt, _ };
+const Control = stdx.bits.BitField(u32, .{
+    .enabled = bool,
+    .mode = Mode,
+    .burst = .{ .offset = 8, .type = u4 },
+});
+
+fn configureDevice(registers: stdx.io.Mmio.Window) !void {
+    // Ordinary read/write configuration register.
+    const control = try registers.regMut(Control.Word, 0x10);
+    const updated = Control.replace(control.load(), .{
+        .enabled = true,
+        .mode = .interrupt,
+        .burst = 8,
+    });
+    control.store(updated);
+}
 ```
 
-## Public API
+### Dispatch
 
-The public facade is `src/stdx.zig`. It re-exports these namespaces:
+`stdx.dispatch` provides callbacks and interfaces for caller-defined types.
 
-| Namespace | Purpose |
-| --- | --- |
-| `stdx.core` | Debug checks, options, traits, and shared range primitives |
-| `stdx.bits`, `stdx.layout`, `stdx.bytes` | Bit operations, layout helpers, and byte access |
-| `stdx.addr`, `stdx.ranges`, `stdx.graph` | Strong address types, range structures, and forests |
-| `stdx.mem`, `stdx.collections`, `stdx.intrusive`, `stdx.algo` | Memory mechanisms, collections, intrusive structures, and algorithms |
-| `stdx.sync`, `stdx.concurrent`, `stdx.barrier` | Synchronization, concurrent structures, and ordering primitives |
-| `stdx.arch`, `stdx.io`, `stdx.dma`, `stdx.cpu` | Target wrappers, MMIO, DMA data structures, and per-CPU substrate |
-| `stdx.time`, `stdx.tags`, `stdx.func`, `stdx.diag` | Time, tag allocation, callbacks, and diagnostics |
+- **`Delegate(Fn)`** binds a callback to an existing instance.
+- **`Closure(Fn, capacity_bytes)`** stores a copy of the callback's state inline and exposes it through `delegateMut()`.
+- **`Interface(Contract)`** generates a vtable that binds a provider's methods to a caller-defined interface.
 
-## Build and test
+#### Queued jobs
 
-Run the default suite:
+```zig
+const std = @import("std");
 
-```sh
-zig build test
+const stdx = @import("stdx");
+
+const Worker = struct {
+    input: []const u8,
+    checksum: u64 = 0,
+
+    pub fn run(self: *Worker) void {
+        self.checksum = std.hash.Wyhash.hash(0, self.input);
+    }
+};
+
+const Run = stdx.dispatch.Delegate(fn () void);
+const Job = struct {
+    node: stdx.intrusive.List.SinglyLinkedNode = .{},
+    run: Run,
+};
+
+var worker: Worker = .{ .input = "payload" };
+var job: Job = .{ .run = Run.bind(Worker, &worker, &Worker.run) };
+var queue = stdx.intrusive.Queue(Job, "node").init();
+defer queue.clear();
+queue.pushBack(&job);
+while (queue.popFront()) |next| {
+    next.run.call();
+}
 ```
 
-Check Zig source format:
+#### Output backend
 
-```sh
-zig fmt --check build.zig src test
+```zig
+const Writer = struct {
+    instance: *anyopaque,
+    vtable: *const Vtable,
+
+    pub const Error = error{ NoSpace, WriteFailed };
+    pub const Vtable = struct {
+        write: *const fn (*anyopaque, []const u8) Error!void,
+        flush: *const fn (*anyopaque) Error!void,
+    };
+
+    pub fn write(self: Writer, bytes: []const u8) Error!void {
+        return self.vtable.write(self.instance, bytes);
+    }
+
+    pub fn flush(self: Writer) Error!void {
+        return self.vtable.flush(self.instance);
+    }
+};
+
+const writer = stdx.dispatch.Interface(Writer).bind(&buffered);
+try writer.write("ready\n");
+try writer.flush();
 ```
-
-The default suite runs host tests, supported-target compile fixtures, and
-fixtures that reject selected invalid API uses. It requires no external tools.
 
 ## Documentation
 
