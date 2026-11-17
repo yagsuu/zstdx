@@ -18,20 +18,15 @@
 - **Time:** monotonic clocks, deadlines, backoff, rate counters, deadline
   queues, and timer wheels.
 
-## Requirements and platform support
+## Requirements
 
-| Item | Support |
-| --- | --- |
-| Zig | `0.16.0` or later |
-| Package | `zstdx` |
-| Public module | `stdx` |
-| Dependencies | None |
-| Runtime | No OS services, heap, or threading runtime required. |
-| Architecture | Generic APIs are target-neutral. `stdx.arch` APIs are target-gated. |
+- Zig **0.16.0 or later**.
+- No external dependencies. Freestanding targets supported.
+- Hardware-specific APIs require a compatible target.
 
 ## Quick start
 
-Add `zstdx` to your build configuration, then import its module as `stdx`:
+Add `zstdx` to your build configuration, then import its module:
 
 ```zig
 const zstdx = b.dependency("zstdx", .{
@@ -90,6 +85,7 @@ zig build test
 const std = @import("std");
 
 const stdx = @import("stdx");
+
 const Arena = stdx.mem.alloc.Arena.Bounded;
 
 fn checksumBatch(arena: *Arena, frames: []const []const u8) !u64 {
@@ -109,16 +105,6 @@ fn checksumBatch(arena: *Arena, frames: []const []const u8) !u64 {
 var storage: [4096]u8 = undefined;
 var arena = Arena.wrap(&storage);
 const checksum = try checksumBatch(&arena, &.{ "48656c6c6f", "20776f726c64" });
-```
-
-### Strong address types
-
-```zig
-const stdx = @import("stdx");
-
-const base = stdx.addr.PhysAddr.fromInt(0x1000);
-const aligned = try base.alignUp(4096);
-_ = aligned;
 ```
 
 ### Typed register update
@@ -150,7 +136,7 @@ fn configureDevice(registers: stdx.io.Mmio.Window) !void {
 `stdx.dispatch` provides callbacks and interfaces for caller-defined types.
 
 - **`Delegate(Fn)`** binds a callback to an existing instance.
-- **`Closure(Fn, capacity_bytes)`** stores a copy of the callback's state inline and exposes it through `delegateMut()`.
+- **`Closure(Fn, capacity)`** stores a copy of the callback's state inline and exposes it through `delegateMut()`.
 - **`Interface(Contract)`** generates a vtable that binds a provider's methods to a caller-defined interface.
 
 #### Queued jobs
@@ -177,9 +163,12 @@ const Job = struct {
 
 var worker: Worker = .{ .input = "payload" };
 var job: Job = .{ .run = Run.bind(Worker, &worker, &Worker.run) };
+
 var queue = stdx.intrusive.Queue(Job, "node").init();
 defer queue.clear();
+
 queue.pushBack(&job);
+
 while (queue.popFront()) |next| {
     next.run.call();
 }
