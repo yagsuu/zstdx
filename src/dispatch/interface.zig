@@ -8,8 +8,14 @@ pub fn Interface(comptime Contract: type) type {
     comptime Impl.requireContract(Contract);
 
     return struct {
+        const Self = @This();
+
         pub fn bind(provider: anytype) Contract {
-            const Binding = Impl.Binding(Contract, @TypeOf(provider));
+            return Self.bindWith(provider, .{});
+        }
+
+        pub fn bindWith(provider: anytype, comptime overrides: anytype) Contract {
+            const Binding = Impl.Binding(Contract, @TypeOf(provider), overrides);
 
             return .{
                 .instance = @ptrCast(provider),
@@ -80,7 +86,11 @@ const Impl = struct {
         }
     }
 
-    fn Binding(comptime Contract: type, comptime Pointer: type) type {
+    fn Binding(
+        comptime Contract: type,
+        comptime Pointer: type,
+        comptime overrides: anytype,
+    ) type {
         const pointer = switch (@typeInfo(Pointer)) {
             .pointer => |p| p,
             else => @compileError("Interface.bind: provider must be a single-item pointer to a struct"),
@@ -99,6 +109,16 @@ const Impl = struct {
         }
 
         const Provider = pointer.child;
+
+        if (@typeInfo(@TypeOf(overrides)) != .@"struct") {
+            @compileError("Interface.bindWith: overrides must be a struct");
+        }
+
+        for (std.meta.fields(@TypeOf(overrides))) |field| {
+            if (!@hasField(Contract.Vtable, field.name)) {
+                @compileError("Interface.bindWith: unknown operation '" ++ field.name ++ "'");
+            }
+        }
 
         return struct {
             const vtable: Contract.Vtable = blk: {
@@ -128,14 +148,15 @@ const Impl = struct {
         comptime Provider: type,
         comptime name: []const u8,
         comptime Signature: type,
+        comptime operation: anytype,
     ) std.builtin.Type.Fn {
         const label = "Interface: operation '" ++ name ++ "'";
-        if (!@hasDecl(Provider, name)) {
-            @compileError(label ++ ": " ++ @typeName(Provider) ++ " has no matching method");
-        }
+        const Function = switch (@typeInfo(@TypeOf(operation))) {
+            .pointer => |pointer| pointer.child,
+            else => @TypeOf(operation),
+        };
 
-        const operation = @field(Provider, name);
-        const actual = functionInfo(@TypeOf(operation), label);
+        const actual = functionInfo(Function, label);
         const expected = @typeInfo(@typeInfo(Signature).pointer.child).@"fn";
 
         if (actual.params.len != expected.params.len) {
@@ -159,10 +180,6 @@ const Impl = struct {
             }
         }
 
-        if (actual.return_type.? != expected.return_type.?) {
-            @compileError(label ++ ": provider return type does not match the contract");
-        }
-
         return actual;
     }
 
@@ -170,14 +187,15 @@ const Impl = struct {
         comptime Provider: type,
         comptime name: []const u8,
         comptime Signature: type,
+        comptime operation: anytype,
     ) type {
-        const method = methodInfo(Provider, name, Signature);
-        const operation = @field(Provider, name);
-        const params = @typeInfo(@typeInfo(Signature).pointer.child).@"fn".params;
+        const method = methodInfo(Provider, name, Signature, operation);
+        const signature = @typeInfo(@typeInfo(Signature).pointer.child).@"fn";
+        const params = signature.params;
 
         const Erased = params[0].type.?;
         const Receiver = method.params[0].type.?;
-        const Return = method.return_type.?;
+        const Return = signature.return_type.?;
 
         const Adapter = struct {
             inline fn invoke(instance: Erased, args: anytype) Return {
@@ -223,6 +241,135 @@ const Impl = struct {
 
 pub const unit = struct {
     const testing = std.testing;
+
+    test "unit: optional operations and overrides retain independent dispatch" {
+        const Provider = struct {
+            value: u32 = 0,
+
+            pub fn add(self: *@This(), amount: u32) void {
+                self.value += amount;
+            }
+
+            pub fn reset(self: *@This()) void {
+                self.value = 0;
+            }
+        };
+        const Overrides = struct {
+            fn multiply(self: *Provider, amount: u32) void {
+                self.value *= amount;
+            }
+
+            fn read(self: *const Provider) u32 {
+                return self.value;
+            }
+        };
+        const Contract = struct {
+            instance: *anyopaque,
+            vtable: *const Vtable,
+
+            pub const Vtable = struct {
+                add: *const fn (*anyopaque, u32) void,
+                reset: ?*const fn (*anyopaque) void = null,
+                read: ?*const fn (*const anyopaque) u64 = null,
+            };
+        };
+
+        var provider: Provider = .{ .value = 2 };
+        const ordinary = Interface(Contract).bind(&provider);
+        const overridden = Interface(Contract).bindWith(&provider, .{
+            .add = &Overrides.multiply,
+            .reset = null,
+            .read = &Overrides.read,
+        });
+
+        ordinary.vtable.add(ordinary.instance, 3);
+        overridden.vtable.add(overridden.instance, 4);
+        try testing.expectEqual(@as(u64, 20), overridden.vtable.read.?(overridden.instance));
+        try testing.expect(ordinary.vtable.read == null);
+        try testing.expect(overridden.vtable.reset == null);
+
+        ordinary.vtable.reset.?(ordinary.instance);
+        try testing.expectEqual(@as(u64, 0), overridden.vtable.read.?(overridden.instance));
+    }
+
+    test "unit: overrides supply required operations for const providers" {
+        const Provider = struct {
+            value: u8,
+        };
+        const Overrides = struct {
+            fn read(self: *const Provider) u8 {
+                return self.value;
+            }
+
+            fn doubled(self: *const Provider) u16 {
+                return @as(u16, self.value) * 2;
+            }
+        };
+        const Contract = struct {
+            instance: *const anyopaque,
+            vtable: *const Vtable,
+
+            pub const Vtable = struct {
+                read: *const fn (*const anyopaque) u32,
+                reset: ?*const fn (*const anyopaque) void,
+            };
+        };
+
+        const provider: Provider = .{ .value = 7 };
+        const first = Interface(Contract).bindWith(&provider, .{ .read = &Overrides.read });
+        const second = Interface(Contract).bindWith(&provider, .{ .read = &Overrides.doubled });
+
+        try testing.expectEqual(@as(u32, 7), first.vtable.read(first.instance));
+        try testing.expectEqual(@as(u32, 14), second.vtable.read(second.instance));
+        try testing.expect(first.vtable.reset == null);
+    }
+
+    test "unit: contract return types coerce values pointers optionals and errors" {
+        const Provider = struct {
+            value: u8 = 9,
+
+            pub fn valuePtr(self: *@This()) *u8 {
+                return &self.value;
+            }
+
+            pub fn optional(self: *const @This()) u8 {
+                return self.value;
+            }
+
+            pub fn success(self: *const @This()) u8 {
+                return self.value;
+            }
+
+            pub fn checked(self: *const @This(), fail: bool) error{Denied}!u32 {
+                if (fail) return error.Denied;
+
+                return self.value;
+            }
+        };
+        const Contract = struct {
+            instance: *anyopaque,
+            vtable: *const Vtable,
+
+            pub const Vtable = struct {
+                valuePtr: *const fn (*anyopaque) *const u8,
+                optional: *const fn (*const anyopaque) ?u32,
+                success: *const fn (*const anyopaque) error{Denied}!u32,
+                checked: *const fn (*const anyopaque, bool) error{ Denied, Unavailable }!u32,
+            };
+        };
+
+        var provider: Provider = .{};
+        const binding = Interface(Contract).bind(&provider);
+
+        try testing.expectEqual(@as(u8, 9), binding.vtable.valuePtr(binding.instance).*);
+        try testing.expectEqual(@as(?u32, 9), binding.vtable.optional(binding.instance));
+        try testing.expectEqual(@as(u32, 9), try binding.vtable.success(binding.instance));
+        try testing.expectEqual(@as(u32, 9), try binding.vtable.checked(binding.instance, false));
+        try testing.expectError(error.Denied, binding.vtable.checked(binding.instance, true));
+
+        provider.value = 17;
+        try testing.expectEqual(@as(u8, 17), binding.vtable.valuePtr(binding.instance).*);
+    }
 
     test "unit: mixed receivers preserve instance state and error progress" {
         const Account = struct {
