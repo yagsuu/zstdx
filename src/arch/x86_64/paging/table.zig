@@ -23,18 +23,18 @@ pub const PhysWidth = enum(u6) {
 
     pub const Error = error{UnsupportedPhysicalAddressWidth};
 
-    pub const min: u6 = @intFromEnum(PhysWidth.bits_32);
-    pub const max: u6 = @intFromEnum(PhysWidth.bits_52);
+    pub const min: u6 = @backingInt(PhysWidth.bits_32);
+    pub const max: u6 = @backingInt(PhysWidth.bits_52);
 
     pub fn from(width: u8) Error!PhysWidth {
         if (width < min or width > max) {
             return error.UnsupportedPhysicalAddressWidth;
         }
-        return @enumFromInt(width);
+        return @fromBackingInt(@intCast(width));
     }
 
     pub fn bits(self: PhysWidth) u6 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn checkAddress(self: PhysWidth, address: u64) error{PhysicalAddressTooWide}!void {
@@ -95,11 +95,11 @@ pub const Index = enum(u9) {
     pub const count: usize = @as(usize, 1) << @bitSizeOf(Index);
 
     pub fn from(value: u9) Index {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Index) u9 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 };
 
@@ -279,11 +279,11 @@ pub const PML5 = enum(u64) {
 
     pub fn init(frame: Phys4K.Base) InitError!PML5 {
         try PhysWidth.bits_52.checkAddress(frame.raw());
-        return @enumFromInt(frame.raw());
+        return @fromBackingInt(frame.raw());
     }
 
     pub fn base(self: PML5) Phys4K.Base {
-        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
+        return Phys4K.Base.fromInt(@backingInt(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PML5, index: Index) PhysAddr {
@@ -295,7 +295,7 @@ pub const PML5 = enum(u64) {
         flags: TableFlags,
     ) PML5.Entry {
         const raw: u64 = @bitCast(TableEntry.init(child.base(), flags));
-        return @enumFromInt(raw);
+        return @fromBackingInt(raw);
     }
 };
 
@@ -308,11 +308,11 @@ pub const PML4 = enum(u64) {
 
     pub fn init(frame: Phys4K.Base) InitError!PML4 {
         try PhysWidth.bits_52.checkAddress(frame.raw());
-        return @enumFromInt(frame.raw());
+        return @fromBackingInt(frame.raw());
     }
 
     pub fn base(self: PML4) Phys4K.Base {
-        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
+        return Phys4K.Base.fromInt(@backingInt(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PML4, index: Index) PhysAddr {
@@ -324,7 +324,7 @@ pub const PML4 = enum(u64) {
         flags: TableFlags,
     ) PML4.Entry {
         const raw: u64 = @bitCast(TableEntry.init(child.base(), flags));
-        return @enumFromInt(raw);
+        return @fromBackingInt(raw);
     }
 };
 
@@ -338,11 +338,11 @@ pub const PDPT = enum(u64) {
 
     pub fn init(frame: Phys4K.Base) InitError!PDPT {
         try PhysWidth.bits_52.checkAddress(frame.raw());
-        return @enumFromInt(frame.raw());
+        return @fromBackingInt(frame.raw());
     }
 
     pub fn base(self: PDPT) Phys4K.Base {
-        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
+        return Phys4K.Base.fromInt(@backingInt(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PDPT, index: Index) PhysAddr {
@@ -354,7 +354,7 @@ pub const PDPT = enum(u64) {
         flags: TableFlags,
     ) PDPT.Entry {
         const raw: u64 = @bitCast(TableEntry.init(child.base(), flags));
-        return @enumFromInt(raw);
+        return @fromBackingInt(raw);
     }
 
     pub fn pageEntry(
@@ -363,7 +363,7 @@ pub const PDPT = enum(u64) {
     ) PageEntryError!PDPT.Entry {
         try PhysWidth.bits_52.checkAddress(frame.raw());
         const raw: u64 = @bitCast(PageEntry1G.init(frame, flags));
-        return @enumFromInt(raw);
+        return @fromBackingInt(raw);
     }
 };
 
@@ -377,11 +377,11 @@ pub const PD = enum(u64) {
 
     pub fn init(frame: Phys4K.Base) InitError!PD {
         try PhysWidth.bits_52.checkAddress(frame.raw());
-        return @enumFromInt(frame.raw());
+        return @fromBackingInt(frame.raw());
     }
 
     pub fn base(self: PD) Phys4K.Base {
-        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
+        return Phys4K.Base.fromInt(@backingInt(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PD, index: Index) PhysAddr {
@@ -393,7 +393,7 @@ pub const PD = enum(u64) {
         flags: TableFlags,
     ) PD.Entry {
         const raw: u64 = @bitCast(TableEntry.init(child.base(), flags));
-        return @enumFromInt(raw);
+        return @fromBackingInt(raw);
     }
 
     pub fn pageEntry(
@@ -402,7 +402,7 @@ pub const PD = enum(u64) {
     ) PageEntryError!PD.Entry {
         try PhysWidth.bits_52.checkAddress(frame.raw());
         const raw: u64 = @bitCast(PageEntry2M.init(frame, flags));
-        return @enumFromInt(raw);
+        return @fromBackingInt(raw);
     }
 };
 
@@ -416,11 +416,11 @@ pub const PT = enum(u64) {
 
     pub fn init(frame: Phys4K.Base) InitError!PT {
         try PhysWidth.bits_52.checkAddress(frame.raw());
-        return @enumFromInt(frame.raw());
+        return @fromBackingInt(frame.raw());
     }
 
     pub fn base(self: PT) Phys4K.Base {
-        return Phys4K.Base.fromInt(@intFromEnum(self)) catch unreachable;
+        return Phys4K.Base.fromInt(@backingInt(self)) catch unreachable;
     }
 
     pub fn entryAddress(self: PT, index: Index) PhysAddr {
@@ -433,7 +433,7 @@ pub const PT = enum(u64) {
     ) PageEntryError!PT.Entry {
         try PhysWidth.bits_52.checkAddress(frame.raw());
         const raw: u64 = @bitCast(PageEntry4K.init(frame, flags));
-        return @enumFromInt(raw);
+        return @fromBackingInt(raw);
     }
 };
 
@@ -493,18 +493,18 @@ fn TypedEntry(comptime Owner: type) type {
         pub const NonPresentError = error{Present};
 
         pub fn empty() Self {
-            return @enumFromInt(0);
+            return @fromBackingInt(0);
         }
 
         pub fn nonPresent(value: Raw) NonPresentError!Self {
             if ((value & 1) != 0) {
                 return error.Present;
             }
-            return @enumFromInt(value);
+            return @fromBackingInt(value);
         }
 
         pub fn raw(self: Self) Raw {
-            return @intFromEnum(self);
+            return @backingInt(self);
         }
     };
 }
@@ -519,7 +519,7 @@ fn TableStorage(comptime Item: type) type {
 
         pub fn init() Self {
             return .{
-                .entries = [_]Item{Item.empty()} ** Index.count,
+                .entries = @splat(Item.empty()),
             };
         }
 
@@ -731,6 +731,18 @@ const PageEntry1G = packed struct(u64) {
 };
 
 pub const unit = struct {
+    const LeafEntryCase = struct {
+        raw: u64,
+        level: Level,
+        base: u64,
+        flags: u64,
+    };
+
+    const ReservedEntryCase = struct {
+        raw: u64,
+        level: Level,
+    };
+
     test "physical width accepts the architectural interval" {
         for (32..53) |width| {
             const value: u8 = @intCast(width);
@@ -742,95 +754,96 @@ pub const unit = struct {
         try std.testing.expectError(error.UnsupportedPhysicalAddressWidth, PhysWidth.from(255));
     }
 
-    test "entry producers preserve flags and PAT across leaf sizes" {
+    test "leaf entry producers preserve flags and PAT across sizes" {
         const config: DecodeConfig = .{ .physical_width = .bits_52, .allow_1gib = true, .nxe = true };
 
-        {
-            const flags: PageFlags = .{
-                .writable = true,
-                .user = true,
-                .write_through = true,
-                .cache_disable = true,
+        const flags: PageFlags = .{
+            .writable = true,
+            .user = true,
+            .write_through = true,
+            .cache_disable = true,
+            .accessed = true,
+            .dirty = true,
+            .global = true,
+            .pat = true,
+            .available_low = 5,
+            .available_high = 0x155,
+            .no_execute = true,
+        };
+
+        const common: u64 = 0x17f | (@as(u64, 5) << 9) |
+            (@as(u64, 0x155) << 52) | (@as(u64, 1) << 63);
+
+        const cases = [_]LeafEntryCase{
+            .{
+                .raw = (try PT.pageEntry(try Phys4K.Base.fromInt(0x1234_5000), flags)).raw(),
+                .level = .pt,
+                .base = 0x1234_5000,
+                .flags = common | 0x80,
+            },
+            .{
+                .raw = (try PD.pageEntry(try Phys2M.Base.fromInt(0x1220_0000), flags)).raw(),
+                .level = .pd,
+                .base = 0x1220_0000,
+                .flags = common | 0x1080,
+            },
+            .{
+                .raw = (try PDPT.pageEntry(try Phys1G.Base.fromInt(0x8000_0000), flags)).raw(),
+                .level = .pdpt,
+                .base = 0x8000_0000,
+                .flags = common | 0x1080,
+            },
+        };
+
+        for (cases) |case| {
+            const entry = Entry.from(case.raw);
+            const leaf = entry.decode(case.level, config).page;
+
+            try std.testing.expectEqual(case.base | case.flags, case.raw);
+            try std.testing.expectEqual(case.raw, @as(u64, @bitCast(entry)));
+            try std.testing.expectEqual(case.base, leaf.frame.addressInt());
+            try std.testing.expectEqual(case.level, leaf.frame.level());
+            try std.testing.expectEqual(PageAttributes{
                 .accessed = true,
                 .dirty = true,
                 .global = true,
-                .pat = true,
-                .available_low = 5,
-                .available_high = 0x155,
-                .no_execute = true,
-            };
-
-            const common: u64 = 0x17f | (@as(u64, 5) << 9) |
-                (@as(u64, 0x155) << 52) | (@as(u64, 1) << 63);
-
-            const cases = [_]struct { raw: u64, level: Level, base: u64, flags: u64 }{
-                .{
-                    .raw = (try PT.pageEntry(try Phys4K.Base.fromInt(0x1234_5000), flags)).raw(),
-                    .level = .pt,
-                    .base = 0x1234_5000,
-                    .flags = common | 0x80,
-                },
-                .{
-                    .raw = (try PD.pageEntry(try Phys2M.Base.fromInt(0x1220_0000), flags)).raw(),
-                    .level = .pd,
-                    .base = 0x1220_0000,
-                    .flags = common | 0x1080,
-                },
-                .{
-                    .raw = (try PDPT.pageEntry(try Phys1G.Base.fromInt(0x8000_0000), flags)).raw(),
-                    .level = .pdpt,
-                    .base = 0x8000_0000,
-                    .flags = common | 0x1080,
-                },
-            };
-
-            for (cases) |case| {
-                const entry = Entry.from(case.raw);
-                const leaf = entry.decode(case.level, config).page;
-
-                try std.testing.expectEqual(case.base | case.flags, case.raw);
-                try std.testing.expectEqual(case.raw, @as(u64, @bitCast(entry)));
-                try std.testing.expectEqual(case.base, leaf.frame.addressInt());
-                try std.testing.expectEqual(case.level, leaf.frame.level());
-                try std.testing.expectEqual(PageAttributes{
-                    .accessed = true,
-                    .dirty = true,
-                    .global = true,
-                    .write_through = true,
-                    .cache_disable = true,
-                    .pat = true,
-                }, leaf.attributes);
-                try std.testing.expectEqual(leaf.frame.size() - 1, leaf.frame.offsetMask());
-            }
-        }
-
-        {
-            const child = try PDPT.init(try Phys4K.Base.fromInt(0x3000));
-            const table_entry = PML4.tableEntry(child, .{
-                .writable = true,
-                .user = true,
                 .write_through = true,
                 .cache_disable = true,
-                .accessed = true,
-                .available_low = 5,
-                .available_high = 0x155,
-                .no_execute = true,
-            });
-
-            const table_bits: u64 = 0x303f | (@as(u64, 5) << 9) |
-                (@as(u64, 0x155) << 52) | (@as(u64, 1) << 63);
-
-            const node = Entry.from(table_entry.raw()).decode(.pml4, config).table;
-
-            try std.testing.expectEqual(table_bits, table_entry.raw());
-            try std.testing.expectEqual(Level.pdpt, node.level);
-            try std.testing.expectEqual(@as(u64, 0x3ff8), node.entryAddress(.from(511)).raw());
+                .pat = true,
+            }, leaf.attributes);
+            try std.testing.expectEqual(leaf.frame.size() - 1, leaf.frame.offsetMask());
         }
+    }
+
+    test "table entry producer preserves flags and child address" {
+        const config: DecodeConfig = .{ .physical_width = .bits_52, .allow_1gib = true, .nxe = true };
+
+        const child = try PDPT.init(try Phys4K.Base.fromInt(0x3000));
+        const table_entry = PML4.tableEntry(child, .{
+            .writable = true,
+            .user = true,
+            .write_through = true,
+            .cache_disable = true,
+            .accessed = true,
+            .available_low = 5,
+            .available_high = 0x155,
+            .no_execute = true,
+        });
+
+        const table_bits: u64 = 0x303f | (@as(u64, 5) << 9) |
+            (@as(u64, 0x155) << 52) | (@as(u64, 1) << 63);
+
+        const node = Entry.from(table_entry.raw()).decode(.pml4, config).table;
+
+        try std.testing.expectEqual(table_bits, table_entry.raw());
+        try std.testing.expectEqual(Level.pdpt, node.level);
+        try std.testing.expectEqual(@as(u64, 0x3ff8), node.entryAddress(.from(511)).raw());
     }
 
     test "entry classification rejects reserved encodings before frame construction" {
         const config: DecodeConfig = .{ .physical_width = .bits_36, .allow_1gib = true, .nxe = true };
-        const cases = [_]struct { raw: u64, level: Level }{
+
+        const cases = [_]ReservedEntryCase{
             .{ .raw = 0x81, .level = .pml5 },
             .{ .raw = 0x81, .level = .pml4 },
             .{ .raw = 0x2081, .level = .pd },
@@ -858,7 +871,7 @@ pub const unit = struct {
 
         for ([_]u6{ 0, 31, 53, 63 }) |width| {
             const invalid = Entry.from(1).decode(.pt, .{
-                .physical_width = @enumFromInt(width),
+                .physical_width = @fromBackingInt(@intCast(width)),
             });
 
             try std.testing.expectEqual(@as(Edge, .reserved), invalid);

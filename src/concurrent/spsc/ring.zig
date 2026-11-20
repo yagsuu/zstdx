@@ -1,6 +1,7 @@
 //! bounded single-producer/single-consumer ring
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const cache = @import("layout").cache;
 
@@ -357,5 +358,79 @@ pub const unit = struct {
         try testing.expectEqual(@as(?u32, null), empty);
         try testing.expect(Impl.isEmpty(&ring));
         try testing.expect(Impl.isValid(&ring));
+    }
+
+    const items: u32 = 10_000;
+
+    // Capacity boundaries exercise repeated wraparound with a concurrent producer.
+    test "stress: Ring.Static transfers every sequence value between threads" {
+        if (builtin.single_threaded) {
+            return error.SkipZigTest;
+        }
+
+        inline for (.{ 2, 64 }) |count| {
+            var ring: Ring.Static(u32, count) = undefined;
+            ring.init();
+
+            try runThreaded(&ring);
+        }
+    }
+
+    // Caller-owned slots use the same transfer check at both capacity boundaries.
+    test "stress: Ring.Bounded transfers every sequence value between threads" {
+        if (builtin.single_threaded) {
+            return error.SkipZigTest;
+        }
+
+        const BoundedRing = Ring.Bounded(u32);
+        inline for (.{ 2, 64 }) |count| {
+            var slots: [count]BoundedRing.Slot = undefined;
+            var ring: BoundedRing = undefined;
+            ring.init(&slots);
+
+            try runThreaded(&ring);
+        }
+    }
+
+    fn runThreaded(ring: anytype) !void {
+        {
+            var stop = std.atomic.Value(bool).init(false);
+            const thread = try std.Thread.spawn(.{}, producerMain, .{ ring, &stop });
+            defer {
+                stop.store(true, .monotonic);
+                thread.join();
+            }
+
+            var expected: u32 = 0;
+            var polls: usize = 0;
+            while (expected < items) : (polls += 1) {
+                if (polls == 10_000_000) return error.TestUnexpectedResult;
+                if (ring.popFront()) |value| {
+                    try testing.expectEqual(expected, value);
+                    expected += 1;
+                } else {
+                    std.Thread.yield() catch {};
+                }
+            }
+        }
+
+        const remaining = ring.popFront();
+
+        try testing.expectEqual(@as(?u32, null), remaining);
+        try testing.expect(ring.isEmpty());
+        try testing.expect(ring.isValid());
+    }
+
+    fn producerMain(ring: anytype, stop: *std.atomic.Value(bool)) void {
+        var sequence: u32 = 0;
+        while (sequence < items and !stop.load(.monotonic)) {
+            ring.tryPushBack(sequence) catch |err| switch (err) {
+                error.Full => {
+                    std.Thread.yield() catch {};
+                    continue;
+                },
+            };
+            sequence += 1;
+        }
     }
 };

@@ -68,7 +68,7 @@ const Impl = struct {
             else => 1,
         };
 
-        if (function.params.len != parameters) {
+        if (function.param_types.len != parameters) {
             @compileError("poll predicate takes no arguments; call methods take only self");
         }
 

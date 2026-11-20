@@ -1,5 +1,3 @@
-//! one-shot initialization
-
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -100,7 +98,7 @@ pub fn Once(comptime Backend: type) type {
                 }
 
                 // rollback can restore idle after the failed claim
-                if (@as(Word, @bitCast(@intFromEnum(token))).phase == .idle) {
+                if (@as(Word, @bitCast(@backingInt(token))).phase == .idle) {
                     continue;
                 }
 
@@ -125,11 +123,11 @@ pub const State = struct {
     }
 
     pub fn observe(self: *const State) Token {
-        return @enumFromInt(@as(u32, @bitCast(self.word.load(.acquire))));
+        return @fromBackingInt(@as(u32, @bitCast(self.word.load(.acquire))));
     }
 
     pub fn changedSince(self: *const State, token: Token) bool {
-        return self.word.load(.acquire) != @as(Word, @bitCast(@intFromEnum(token)));
+        return self.word.load(.acquire) != @as(Word, @bitCast(@backingInt(token)));
     }
 };
 
@@ -137,7 +135,7 @@ pub const Token = enum(u32) {
     _,
 
     pub fn isDone(self: Token) bool {
-        return @as(Word, @bitCast(@intFromEnum(self))).phase == .done;
+        return @as(Word, @bitCast(@backingInt(self))).phase == .done;
     }
 };
 
@@ -364,5 +362,83 @@ pub const unit = struct {
         Impl.publish(&once.state, claim);
 
         try testing.expect(once.isDone());
+    }
+
+    const OnceRace = struct {
+        once: SpinOnce = .init(.{}),
+        gate: std.atomic.Value(enum(u8) { waiting, start, abort }) = .init(.waiting),
+        attempts: std.atomic.Value(u32) = .init(0),
+        successes: std.atomic.Value(u32) = .init(0),
+        payload: [2]u64 = .{ 0, 0 },
+
+        fn work(self: *@This()) void {
+            _ = self.attempts.fetchAdd(1, .monotonic);
+            self.publish();
+        }
+
+        fn checkedWork(self: *@This()) error{TransientFailure}!void {
+            if (self.attempts.fetchAdd(1, .monotonic) == 0) return error.TransientFailure;
+            self.publish();
+        }
+
+        fn publish(self: *@This()) void {
+            self.payload = .{ 0xC0FFEE, 0x12345678 };
+            _ = self.successes.fetchAdd(1, .monotonic);
+        }
+
+        fn run(self: *@This(), comptime checked: bool) void {
+            while (true) {
+                switch (self.gate.load(.acquire)) {
+                    .waiting => std.atomic.spinLoopHint(),
+                    .start => break,
+                    .abort => return,
+                }
+            }
+            if (checked) {
+                self.once.callChecked(*@This(), error{TransientFailure}, checkedWork, self) catch return;
+            } else {
+                self.once.call(*@This(), work, self) catch unreachable;
+            }
+            // No separate flag synchronizes the ordinary payload with returned callers.
+            std.debug.assert(self.payload[0] == 0xC0FFEE);
+            std.debug.assert(self.payload[1] == 0x12345678);
+        }
+    };
+
+    fn runOnceRace(comptime checked: bool) !void {
+        var race: OnceRace = .{};
+        var threads: [8]std.Thread = undefined;
+        var spawned: usize = 0;
+        errdefer {
+            race.gate.store(.abort, .release);
+            for (threads[0..spawned]) |thread| {
+                thread.join();
+            }
+        }
+        for (&threads) |*thread| {
+            thread.* = try std.Thread.spawn(.{}, OnceRace.run, .{ &race, checked });
+            spawned += 1;
+        }
+        race.gate.store(.start, .release);
+        for (threads) |thread| {
+            thread.join();
+        }
+        spawned = 0;
+
+        try testing.expect(race.once.isDone());
+        try testing.expectEqual(@as(u32, 1), race.successes.load(.monotonic));
+        try testing.expectEqual(@as(u32, if (checked) 2 else 1), race.attempts.load(.monotonic));
+    }
+
+    // A shared start gate races callers and checks publication through Once alone.
+    test "stress: competing callers execute work exactly once and observe its payload" {
+        if (builtin.single_threaded) return error.SkipZigTest;
+        try runOnceRace(false);
+    }
+
+    // One failed claim must allow a competing caller to retry and complete.
+    test "stress: checked rollback permits a competing caller to complete" {
+        if (builtin.single_threaded) return error.SkipZigTest;
+        try runOnceRace(true);
     }
 };

@@ -1,5 +1,3 @@
-//! synchronization primitives
-
 pub const latch = @import("latch.zig");
 pub const once = @import("once.zig");
 pub const raw_spin_lock = @import("raw_spin_lock.zig");
@@ -14,9 +12,6 @@ pub const Rendezvous = rendezvous.Rendezvous;
 pub const Signal = signal.Signal;
 
 test {
-    _ = @import("raw_spin_lock_test.zig");
-    _ = @import("once_test.zig");
-    _ = @import("rendezvous_test.zig");
     _ = signal.unit;
     _ = once.unit;
     _ = latch.unit;

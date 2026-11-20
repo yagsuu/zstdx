@@ -1,9 +1,7 @@
-//! DMA segment lists and aligned append builders.
-//! See `docs/specs/dma/scatter_gather.md`.
-
 const std = @import("std");
 
 const address = @import("addr").address;
+
 const buffer = @import("buffer.zig");
 
 const DmaAddr = address.DmaAddr;
@@ -407,3 +405,198 @@ fn sumSegmentLens(segments: []const Segment) error{Overflow}!DmaInt {
     }
     return total;
 }
+
+pub const unit = struct {
+    const Buffer = buffer.Buffer;
+
+    const AlignmentCase = struct {
+        base: u64,
+        len_bytes: u64,
+        alignment: u64,
+        expected: bool,
+    };
+
+    const testing = std.testing;
+
+    fn seg(base: u64, len_bytes: DmaAddr.Int) Segment {
+        return .{ .addr = DmaAddr.from(base), .len_bytes = len_bytes };
+    }
+
+    // Compare construction and accessors for empty and non-empty byte ranges.
+    test "segment construction and accessors" {
+        for ([_]u64{ 0, 1, 42, 128, 256 }) |len_bytes| {
+            const segment = try Segment.init(DmaAddr.from(0x1000), len_bytes);
+            try testing.expectEqual(len_bytes == 0, segment.isEmpty());
+            try testing.expectEqual(len_bytes, segment.byteLen());
+            try testing.expectEqual(@as(u64, 0x1000) + len_bytes, (try segment.endAddr()).raw());
+        }
+        const empty = try Segment.init(DmaAddr.from(0xDEAD), 0);
+        try testing.expect(empty.isEmpty());
+        try testing.expectEqual(@as(u64, 0xDEAD), (try empty.endAddr()).raw());
+    }
+
+    test "Segment.init returns Overflow when addr + len_bytes exceeds Address.Int" {
+        const near_max = DmaAddr.from(std.math.maxInt(u64) - 10);
+        try testing.expectError(error.Overflow, Segment.init(near_max, 20));
+        {
+            const bad = seg(std.math.maxInt(u64) - 1, 10);
+            try testing.expectError(error.Overflow, bad.endAddr());
+        }
+    }
+
+    test "Segment.fromBuffer matches buffer.dmaAddr and buffer.byteLen" {
+        var backing: [4]u32 = undefined;
+        const buf = try Buffer(u32).init(&backing, DmaAddr.from(0x1000));
+        const s = Segment.fromBuffer(u32, buf);
+        try testing.expectEqual(buf.dmaAddr().raw(), s.addr.raw());
+        try testing.expectEqual(buf.byteLen(), s.byteLen());
+    }
+
+    // Compare address and length alignment across valid and invalid requirements.
+    test "segment alignment validates address and byte length" {
+        const cases = [_]AlignmentCase{
+            .{ .base = 0, .len_bytes = 0, .alignment = 1, .expected = true },
+            .{ .base = 1, .len_bytes = 3, .alignment = 1, .expected = true },
+            .{ .base = 0xABCDEF, .len_bytes = 0xFEDCBA, .alignment = 1, .expected = true },
+            .{ .base = 0, .len_bytes = 0, .alignment = 0, .expected = false },
+            .{ .base = 0x1000, .len_bytes = 4096, .alignment = 0, .expected = false },
+            .{ .base = 0x1000, .len_bytes = 4096, .alignment = 3, .expected = false },
+            .{ .base = 0x1000, .len_bytes = 4096, .alignment = 4096, .expected = true },
+            .{ .base = 0x1001, .len_bytes = 4096, .alignment = 4096, .expected = false },
+            .{ .base = 0x1000, .len_bytes = 4097, .alignment = 4096, .expected = false },
+            .{ .base = 0x1000, .len_bytes = 512, .alignment = 512, .expected = true },
+        };
+
+        for (cases) |case| {
+            try testing.expectEqual(case.expected, seg(case.base, case.len_bytes).isAligned(case.alignment));
+        }
+    }
+
+    fn exerciseList(comptime L: type, list_ptr: *L) !void {
+        try testing.expect(list_ptr.isEmpty());
+        try testing.expectEqual(@as(usize, 3), list_ptr.capacity());
+
+        try list_ptr.append(seg(0x1000, 64));
+        try list_ptr.append(seg(0x2000, 128));
+        try list_ptr.append(seg(0x3000, 32));
+        try testing.expect(list_ptr.isFull());
+        try testing.expectEqual(@as(usize, 3), list_ptr.len());
+
+        try testing.expectError(error.Full, list_ptr.append(seg(0x4000, 8)));
+        try testing.expectEqual(@as(usize, 3), list_ptr.len());
+
+        try testing.expectEqual(@as(u64, 0x2000), (try list_ptr.at(1)).addr.raw());
+        try testing.expectEqual(@as(u64, 0x3000), (try list_ptr.constAt(2)).addr.raw());
+        try testing.expectError(error.OutOfBounds, list_ptr.at(3));
+
+        try testing.expectEqual(@as(u64, 64 + 128 + 32), try list_ptr.totalByteLen());
+
+        list_ptr.clearRetainingCapacity();
+        try testing.expect(list_ptr.isEmpty());
+        try testing.expectEqual(@as(usize, 3), list_ptr.capacity());
+    }
+
+    test "List.Static exercises append/at/totalByteLen/clear" {
+        var list = List.Static(3).init();
+        try exerciseList(@TypeOf(list), &list);
+    }
+
+    test "List.Bounded exercises the same sequence over borrowed storage" {
+        var storage: [3]Segment = undefined;
+        var list = List.Bounded.wrap(&storage);
+        try exerciseList(@TypeOf(list), &list);
+    }
+
+    test "List.Bounded with a zero-length backing slice is empty and full" {
+        var storage: [0]Segment = .{};
+        var list = List.Bounded.wrap(&storage);
+        try testing.expect(list.isEmpty());
+        try testing.expect(list.isFull());
+        try testing.expectError(error.Full, list.append(seg(0, 0)));
+    }
+
+    test "List.Static.appendBuffer combines fromBuffer and append" {
+        var backing: [4]u32 = undefined;
+        const buf = try Buffer(u32).init(&backing, DmaAddr.from(0x1000));
+        var list = List.Static(2).init();
+        try list.appendBuffer(u32, buf);
+        try testing.expectEqual(@as(usize, 1), list.len());
+        try testing.expectEqual(@as(u64, 16), (try list.constAt(0)).byteLen());
+        try testing.expectEqual(@as(u64, 0x1000), (try list.constAt(0)).addr.raw());
+    }
+
+    test "List.totalByteLen returns Overflow on sum wraparound" {
+        var storage: [2]Segment = undefined;
+        var list = List.Bounded.wrap(&storage);
+        try list.append(seg(0, std.math.maxInt(u64) - 3));
+        try list.append(seg(0x1000, 8));
+        try testing.expectError(error.Overflow, list.totalByteLen());
+    }
+
+    test "Builder.Static(alignment=1) accepts every segment" {
+        var b = Builder.Static(4, 1).init();
+        try b.append(seg(0x1001, 3));
+        try b.append(seg(0xABCDEF, 7));
+        try testing.expectEqual(@as(usize, 2), b.len());
+    }
+
+    // Inspect finished contents, clear the builder, and reuse its retained capacity.
+    test "aligned builder lifecycle preserves contents and capacity" {
+        var builder = Builder.Static(4, 512).init();
+        try testing.expect(builder.isEmpty());
+        try builder.append(seg(0x1000, 512));
+        try builder.append(seg(0x1200, 1024));
+        const list = builder.finish();
+        try testing.expectEqual(@as(usize, 2), list.len());
+        try testing.expectEqual(@as(u64, 0x1200), (try list.constAt(1)).addr.raw());
+        try testing.expectEqual(@as(u64, 1536), try list.totalByteLen());
+        builder.clearRetainingCapacity();
+        try testing.expect(builder.isEmpty());
+        try testing.expectEqual(@as(usize, 4), builder.capacity());
+        try builder.append(seg(0x1800, 512));
+        try testing.expectEqual(@as(usize, 1), builder.len());
+        try testing.expectEqual(@as(u64, 0x1800), (try builder.finish().constAt(0)).addr.raw());
+    }
+
+    test "Builder.Static returns Misaligned before Full" {
+        var b = Builder.Static(1, 4096).init();
+        try b.append(seg(0x1000, 4096));
+        try testing.expect(b.isFull());
+        try testing.expectError(error.Misaligned, b.append(seg(0x1001, 4096)));
+        try testing.expectError(error.Full, b.append(seg(0x2000, 4096)));
+        try testing.expectEqual(@as(usize, 1), b.len());
+    }
+
+    test "Builder.Static.append leaves the list unchanged on Misaligned" {
+        var b = Builder.Static(4, 4096).init();
+        try b.append(seg(0x1000, 4096));
+        try testing.expectError(error.Misaligned, b.append(seg(0x1001, 4096)));
+        try testing.expectError(error.Misaligned, b.append(seg(0x2000, 4097)));
+        try testing.expectEqual(@as(usize, 1), b.len());
+    }
+
+    test "Builder.Static.appendBuffer inherits Misaligned and Full" {
+        var page_backing: [4096]u8 align(4096) = undefined;
+        const buf = try Buffer(u8).initAligned(&page_backing, DmaAddr.from(0x1000), 4096);
+        var b = Builder.Static(1, 4096).init();
+        try b.appendBuffer(u8, buf);
+        try testing.expectError(error.Full, b.appendBuffer(u8, buf));
+
+        var small_backing: [8]u8 = undefined;
+        const small = try Buffer(u8).init(&small_backing, DmaAddr.from(0x2000));
+        var b2 = Builder.Static(1, 4096).init();
+        try testing.expectError(error.Misaligned, b2.appendBuffer(u8, small));
+    }
+
+    test "Builder.Bounded shares the same behavior over borrowed storage" {
+        var storage: [4]Segment = undefined;
+        var b = Builder.Bounded(4096).wrap(&storage);
+        try b.append(seg(0x1000, 4096));
+        try testing.expectError(error.Misaligned, b.append(seg(0x1001, 4096)));
+        try b.append(seg(0x2000, 8192));
+        try testing.expectEqual(@as(usize, 2), b.len());
+
+        const list = b.finish();
+        try testing.expectEqual(@as(u64, 0x2000), (try list.constAt(1)).addr.raw());
+    }
+};

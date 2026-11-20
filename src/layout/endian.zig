@@ -1,10 +1,5 @@
-//! Endian integer wrappers use exact-byte storage and host-independent conversion.
-//! See `docs/specs/layout/endian.md`.
-
 const std = @import("std");
 
-/// Stores fixed-width unsigned integers of 8–128 bits, divisible by 8.
-/// Storage has alignment 1 and excludes integer padding; usize/isize are rejected.
 pub fn EndianInt(comptime T: type, comptime endian: std.builtin.Endian) type {
     comptime requireEndianInt(T);
 
@@ -12,6 +7,7 @@ pub fn EndianInt(comptime T: type, comptime endian: std.builtin.Endian) type {
         bytes: [size]u8,
 
         pub const Int = T;
+
         pub const width = @bitSizeOf(T);
         pub const size = @divExact(width, 8);
         pub const order = endian;

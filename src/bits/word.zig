@@ -34,11 +34,11 @@ pub fn Word(comptime T: type) type {
         }
 
         pub fn from(value: T) Self {
-            return @enumFromInt(value);
+            return @fromBackingInt(value);
         }
 
         pub fn raw(self: Self) T {
-            return @intFromEnum(self);
+            return @backingInt(self);
         }
 
         pub fn isSet(self: Self, index: usize) bool {

@@ -34,11 +34,11 @@ pub const Vector = enum(u8) {
     const Self = @This();
 
     pub fn from(value: u8) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u8 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 };
 

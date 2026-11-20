@@ -12,8 +12,8 @@ pub const Queue = queue.Queue;
 pub const Stack = stack.Stack;
 
 test {
-    _ = @import("heap_test.zig");
-    _ = @import("list_test.zig");
-    _ = @import("queue_test.zig");
-    _ = @import("stack_test.zig");
+    _ = heap.unit;
+    _ = list.unit;
+    _ = queue.unit;
+    _ = stack.unit;
 }

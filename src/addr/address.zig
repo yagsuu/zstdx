@@ -19,7 +19,7 @@ pub fn Address(comptime DomainT: type, comptime IntT: type) type {
     return enum(IntT) {
         _,
 
-        const __StdxAddress = void;
+        pub const __StdxAddress = void;
 
         const Self = @This();
         const Offset = @Int(.signed, @bitSizeOf(IntT));
@@ -31,11 +31,11 @@ pub fn Address(comptime DomainT: type, comptime IntT: type) type {
         pub const OverflowError = error{Overflow};
 
         pub fn from(value: Int) Self {
-            return @enumFromInt(value);
+            return @fromBackingInt(value);
         }
 
         pub fn raw(self: Self) Int {
-            return @intFromEnum(self);
+            return @backingInt(self);
         }
 
         pub fn zero() Self {
@@ -115,7 +115,7 @@ pub fn castAligned(comptime Pointer: type, address: anytype) error{Misaligned}!P
 
     const value: usize = @intCast(address.raw());
     const pointer = @typeInfo(Pointer).pointer;
-    const alignment = pointer.alignment orelse @alignOf(pointer.child);
+    const alignment = pointer.attrs.@"align" orelse @alignOf(pointer.child);
 
     if (value % alignment != 0) {
         return error.Misaligned;

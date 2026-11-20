@@ -557,7 +557,14 @@ fn Magazine(comptime T: type, comptime capacity: usize) type {
 }
 
 pub const unit = struct {
+    const builtin = @import("builtin");
+
     const testing = std.testing;
+
+    const CachePayload = struct {
+        owner: usize,
+        sequence: usize,
+    };
 
     const Source = struct {
         bytes: [region_bytes]u8 align(region_align) = undefined,
@@ -616,11 +623,92 @@ pub const unit = struct {
         }
     };
 
+    fn RegionPool(comptime bytes: usize, comptime alignment: usize, comptime capacity: usize) type {
+        return struct {
+            regions: [capacity]Region = undefined,
+            used: [capacity]bool = @splat(false),
+
+            const Region = struct {
+                buffer: [bytes]u8 align(alignment),
+            };
+            const Self = @This();
+
+            pub const region_bytes = bytes;
+            pub const region_align = alignment;
+            pub const Error = error{OutOfRegions};
+
+            pub fn acquire(self: *Self) Error!*align(region_align) [region_bytes]u8 {
+                for (&self.used, 0..) |*used, i| {
+                    if (!used.*) {
+                        used.* = true;
+                        return &self.regions[i].buffer;
+                    }
+                }
+                return error.OutOfRegions;
+            }
+
+            pub fn release(self: *Self, region: *align(region_align) [region_bytes]u8) void {
+                const offset = @intFromPtr(region) - @intFromPtr(&self.regions);
+                const index = @divExact(offset, @sizeOf(Region));
+                std.debug.assert(index < capacity);
+                std.debug.assert(self.used[index]);
+                self.used[index] = false;
+            }
+
+            fn liveRegions(self: *const Self) usize {
+                var count: usize = 0;
+                for (self.used) |used| {
+                    if (used) {
+                        count += 1;
+                    }
+                }
+                return count;
+            }
+        };
+    }
+
+    fn CacheWorker(comptime Cache: type, comptime Payload: type) type {
+        return struct {
+            cache: *Cache,
+            start: *std.atomic.Value(bool),
+            cpu_index: usize,
+            failed: bool = false,
+
+            fn run(self: *@This()) void {
+                while (!self.start.load(.acquire)) {
+                    std.atomic.spinLoopHint();
+                }
+                for (0..256) |sequence| {
+                    var items: [8]*Payload = undefined;
+                    var acquired: usize = 0;
+                    for (&items) |*item| {
+                        item.* = self.cache.acquire(self.cpu_index) catch {
+                            self.failed = true;
+                            break;
+                        };
+                        item.*.* = .{ .owner = self.cpu_index, .sequence = sequence };
+                        acquired += 1;
+                    }
+                    for (items[0..acquired]) |item| {
+                        if (item.owner != self.cpu_index or item.sequence != sequence) {
+                            self.failed = true;
+                        }
+                        self.cache.release(self.cpu_index, item);
+                    }
+                    if (self.failed) {
+                        return;
+                    }
+                }
+            }
+        };
+    }
+
     test "region transitions preserve counts and drain only empty regions" {
         const Cache = SlabCache(u64, Regions);
         var source: Regions = .{};
         var cache = Cache.init(&source);
         var items: [Cache.slots_per_region]*u64 = undefined;
+
         try Cache.Impl.refill(&cache);
         for (&items) |*item| {
             item.* = try Cache.Impl.acquire(&cache);
@@ -636,6 +724,7 @@ pub const unit = struct {
 
         Cache.Impl.drain(&cache);
         try testing.expectEqual(@as(usize, 2), cache.regionCount());
+
         Cache.Impl.release(&cache, extra);
         Cache.Impl.drain(&cache);
 
@@ -664,6 +753,7 @@ pub const unit = struct {
         const Cache = SlabCache([4 * std.atomic.cache_line]u8, Regions);
         var source: Regions = .{};
         var cache = Cache.init(&source);
+
         try Cache.Impl.refill(&cache);
         const item = try Cache.Impl.acquire(&cache);
         const color = cache.next_color;
@@ -692,6 +782,7 @@ pub const unit = struct {
         var cache = Cache.init(&source);
         const other = Cache.init(&source);
         var local: Magazine(u64, 2) = .{};
+
         try cache.refill();
         const first = try cache.acquire();
         const second = try cache.acquire();
@@ -802,5 +893,116 @@ pub const unit = struct {
             try testing.expectError(error.OutOfMemory, header.pool.acquire());
             try testing.expect(header.isValid());
         }
+    }
+
+    test "unit: slab source preserves capacity and payload across colors and recovery" {
+        const Payload = [4 * std.atomic.cache_line]u8;
+        const bytes = 16 * std.atomic.cache_line;
+        const BackingSource = RegionPool(bytes, 2 * bytes, 1);
+        const Cache = SlabCache(Payload, BackingSource);
+        var source: BackingSource = .{};
+        var cache = Cache.init(&source);
+        var items: [Cache.slots_per_region]*Payload = undefined;
+        var first_offset: usize = undefined;
+
+        try testing.expect(Cache.color_count > 1);
+
+        for (0..Cache.color_count + 1) |cycle| {
+            try cache.refill();
+            try testing.expectEqual(Cache.slots_per_region, cache.capacity());
+            try testing.expectError(error.OutOfRegions, cache.refill());
+
+            var lowest_address: usize = std.math.maxInt(usize);
+            for (&items, 0..) |*item, i| {
+                item.* = try cache.acquire();
+                @memset(item.*, @intCast(i + 1));
+                lowest_address = @min(lowest_address, @intFromPtr(item.*));
+            }
+            const offset = lowest_address - @intFromPtr(&source.regions[0].buffer);
+            if (cycle == 0) {
+                first_offset = offset;
+            }
+
+            try testing.expectEqual(first_offset + (cycle % Cache.color_count) * Cache.color_stride, offset);
+            try testing.expectEqual(items.len, cache.len());
+            try testing.expectError(error.OutOfMemory, cache.acquire());
+            for (items, 0..) |item, i| {
+                try testing.expect(cache.contains(item));
+                for (item) |byte| {
+                    try testing.expectEqual(@as(u8, @intCast(i + 1)), byte);
+                }
+            }
+            try testing.expect(cache.isValid());
+
+            for (items[1..]) |item| {
+                cache.release(item);
+            }
+            cache.drain();
+
+            try testing.expectEqual(@as(usize, 1), source.liveRegions());
+            try testing.expectEqual(@as(usize, 1), cache.len());
+            for (items[0]) |byte| {
+                try testing.expectEqual(@as(u8, 1), byte);
+            }
+
+            cache.release(items[0]);
+            cache.drain();
+
+            try testing.expectEqual(@as(usize, 0), source.liveRegions());
+            try testing.expectEqual(@as(usize, 0), cache.regionCount());
+            try testing.expectEqual(@as(usize, 0), cache.capacity());
+            try testing.expect(cache.isValid());
+        }
+    }
+
+    test "unit: slab per-cpu workers preserve payloads and drain after joining" {
+        if (builtin.single_threaded) {
+            return error.SkipZigTest;
+        }
+        const BackingSource = RegionPool(1024, 1024, 4);
+        const Cache = SlabCache(CachePayload, BackingSource).PerCpu(4, 4);
+        const Worker = CacheWorker(Cache, CachePayload);
+        var source: BackingSource = .{};
+        var cache = Cache.init(&source);
+
+        for (0..4) |_| {
+            try cache.refill();
+        }
+
+        var start = std.atomic.Value(bool).init(false);
+        var workers: [4]Worker = undefined;
+        var threads: [4]std.Thread = undefined;
+        var started: usize = 0;
+        errdefer {
+            start.store(true, .release);
+            for (threads[0..started]) |thread| {
+                thread.join();
+            }
+            cache.drain();
+        }
+
+        for (&workers, 0..) |*worker, i| {
+            worker.* = .{ .cache = &cache, .start = &start, .cpu_index = i };
+            threads[i] = try std.Thread.spawn(.{}, Worker.run, .{worker});
+            started += 1;
+        }
+
+        start.store(true, .release);
+        for (threads) |thread| {
+            thread.join();
+        }
+        started = 0;
+
+        for (workers) |worker| {
+            try testing.expect(!worker.failed);
+        }
+        try testing.expectEqual(@as(usize, 0), cache.len());
+        try testing.expect(cache.isValid());
+
+        cache.drain();
+
+        try testing.expectEqual(@as(usize, 0), cache.regionCount());
+        try testing.expectEqual(@as(usize, 0), source.liveRegions());
+        try testing.expect(cache.isValid());
     }
 };

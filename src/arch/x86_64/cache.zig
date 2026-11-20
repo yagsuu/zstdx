@@ -110,12 +110,20 @@ const Impl = struct {
 };
 
 pub const unit = struct {
+    const RangeCase = struct {
+        start: usize,
+        len: usize,
+        line: usize,
+        expected: []const usize,
+    };
+
     var addresses: [4]usize = undefined;
     var count: usize = 0;
 
     test "range traversal visits exact intersecting lines without a final increment" {
         const max = std.math.maxInt(usize);
-        const cases = [_]struct { start: usize, len: usize, line: usize, expected: []const usize }{
+
+        const cases = [_]RangeCase{
             .{ .start = 63, .len = 66, .line = 64, .expected = &.{ 0, 64, 128 } },
             .{ .start = 65, .len = 1, .line = 64, .expected = &.{64} },
             .{ .start = 64, .len = 64, .line = 64, .expected = &.{64} },
@@ -129,6 +137,7 @@ pub const unit = struct {
 
         for (cases) |case| {
             count = 0;
+
             Impl.forEachLine(case.start, case.len, case.line, collect);
 
             try std.testing.expectEqualSlices(usize, case.expected, addresses[0..count]);

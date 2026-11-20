@@ -135,3 +135,117 @@ pub fn Buffer(comptime T: type) type {
         }
     };
 }
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    const WireEntry = extern struct {
+        a: u32,
+        b: u32,
+    };
+
+    test "construction and accessors preserve backing storage" {
+        var empty: [0]u8 = .{};
+        const empty_buf = try Buffer(u8).init(&empty, DmaAddr.from(0xDEAD));
+        try testing.expect(empty_buf.isEmpty());
+        try testing.expectEqual(@as(usize, 0), empty_buf.len());
+        try testing.expectEqual(@as(u64, 0), empty_buf.byteLen());
+        try testing.expectEqual(@as(u64, 0xDEAD), empty_buf.dmaAddr().raw());
+
+        var backing: [3]u16 = .{ 1, 2, 3 };
+        const buf = try Buffer(u16).init(&backing, DmaAddr.from(0x1000));
+
+        try testing.expect(!buf.isEmpty());
+        try testing.expectEqual(@as(usize, 3), buf.len());
+        try testing.expectEqual(@as(u64, 6), buf.byteLen());
+        try testing.expectEqual(@as(u64, 0x1000), buf.dmaAddr().raw());
+        try testing.expectEqualSlices(u16, &.{ 1, 2, 3 }, buf.constSlice());
+
+        buf.slice()[0] = 9;
+
+        try testing.expectEqual(@as(u16, 9), backing[0]);
+        try testing.expectEqual(buf.byteLen(), buf.bytes().len);
+        try testing.expectEqual(buf.byteLen(), buf.constBytes().len);
+        try testing.expectEqual(@intFromPtr(&backing), @intFromPtr(buf.bytes().ptr));
+        try testing.expectEqual(@intFromPtr(&backing), @intFromPtr(buf.constBytes().ptr));
+
+        var entries: [2]WireEntry = undefined;
+        const wire = try Buffer(WireEntry).init(&entries, DmaAddr.from(0x2000));
+
+        try testing.expectEqual(@as(usize, 2), wire.len());
+        try testing.expectEqual(@as(u64, 2 * @sizeOf(WireEntry)), wire.byteLen());
+        try testing.expectError(error.Misaligned, Buffer(WireEntry).init(&entries, DmaAddr.from(0x2001)));
+    }
+
+    test "alignment validates runtime and element requirements" {
+        var bytes: [8]u8 = undefined;
+        for ([_]u64{ 0, 3, 6 }) |alignment| {
+            try testing.expectError(error.Misaligned, Buffer(u8).initAligned(&bytes, DmaAddr.from(0x1000), alignment));
+        }
+
+        try testing.expectError(error.Misaligned, Buffer(u8).initAligned(&bytes, DmaAddr.from(0x1008), 16));
+        _ = try Buffer(u8).initAligned(&bytes, DmaAddr.from(0x1000), 16);
+
+        var backing: [4]u32 = undefined;
+
+        for ([_]u64{ 0x1001, 0x1002 }) |base| {
+            try testing.expectError(error.Misaligned, Buffer(u32).init(&backing, DmaAddr.from(base)));
+            try testing.expectError(error.Misaligned, Buffer(u32).initAligned(&backing, DmaAddr.from(base), 1));
+        }
+
+        const ordinary = try Buffer(u32).init(&backing, DmaAddr.from(0x1000));
+
+        for ([_]u64{ 1, @alignOf(u32) }) |alignment| {
+            const aligned = try Buffer(u32).initAligned(&backing, DmaAddr.from(0x1000), alignment);
+            try testing.expectEqual(ordinary.len(), aligned.len());
+            try testing.expectEqual(ordinary.dmaAddr().raw(), aligned.dmaAddr().raw());
+        }
+    }
+
+    test "construction rejects address overflow" {
+        var backing: [4]u8 = undefined;
+        const near_max = DmaAddr.from(std.math.maxInt(u64) - 2);
+        try testing.expectError(error.Overflow, Buffer(u8).init(&backing, near_max));
+    }
+
+    test "item addresses include the end cursor and reject larger offsets" {
+        var backing: [4]u32 = undefined;
+        const buf = try Buffer(u32).init(&backing, DmaAddr.from(0x1000));
+
+        for ([_]usize{ 0, 1, 2, 4 }) |offset| {
+            try testing.expectEqual(@as(u64, 0x1000 + offset * @sizeOf(u32)), (try buf.dmaAddrAt(offset)).raw());
+        }
+
+        try testing.expectError(error.OutOfBounds, buf.dmaAddrAt(5));
+        try testing.expectError(error.OutOfBounds, buf.dmaAddrAt(std.math.maxInt(usize)));
+    }
+
+    test "subranges preserve backing pointers and distinguish bounds from overflow" {
+        var backing: [8]u32 = undefined;
+        const buf = try Buffer(u32).init(&backing, DmaAddr.from(0x1000));
+        const full = try buf.sub(.{ .offset_items = 0, .count_items = buf.len() });
+
+        try testing.expectEqual(buf.len(), full.len());
+        try testing.expectEqual(buf.dmaAddr().raw(), full.dmaAddr().raw());
+        try testing.expectEqual(buf.byteLen(), full.byteLen());
+        try testing.expectEqual(buf.constSlice().ptr, full.constSlice().ptr);
+
+        const sub = try buf.sub(.{ .offset_items = 2, .count_items = 3 });
+
+        try testing.expectEqual(@as(usize, 3), sub.len());
+        try testing.expectEqual(@as(u64, 0x1008), sub.dmaAddr().raw());
+        try testing.expectEqual(&backing[2], &sub.constSlice()[0]);
+
+        const end = try buf.sub(.{ .offset_items = buf.len(), .count_items = 0 });
+
+        try testing.expect(end.isEmpty());
+        try testing.expectEqual(@as(u64, 0x1020), end.dmaAddr().raw());
+        try testing.expectEqual(backing[backing.len..].ptr, end.constSlice().ptr);
+        try testing.expectError(error.OutOfBounds, buf.sub(.{ .offset_items = 6, .count_items = 3 }));
+        try testing.expectError(error.OutOfBounds, buf.sub(.{ .offset_items = 9, .count_items = 0 }));
+        try testing.expectError(error.Overflow, buf.sub(.{
+            .offset_items = 1,
+            .count_items = std.math.maxInt(usize),
+        }));
+    }
+};

@@ -22,9 +22,9 @@ pub const GDTR = extern struct {
     pub fn read() Self {
         comptime target.require();
         var value: Self = undefined;
-        asm volatile ("sgdt %[ptr]"
-            : [ptr] "=m" (value),
+        asm volatile ("sgdt (%[ptr])"
             :
+            : [ptr] "r" (&value),
             : .{ .memory = true });
 
         return value;
@@ -64,9 +64,9 @@ pub const IDTR = extern struct {
     pub fn read() Self {
         comptime target.require();
         var value: Self = undefined;
-        asm volatile ("sidt %[ptr]"
-            : [ptr] "=m" (value),
+        asm volatile ("sidt (%[ptr])"
             :
+            : [ptr] "r" (&value),
             : .{ .memory = true });
 
         return value;

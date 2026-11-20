@@ -13,11 +13,11 @@ pub const DR0 = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn read() Self {
@@ -39,11 +39,11 @@ pub const DR1 = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn read() Self {
@@ -65,11 +65,11 @@ pub const DR2 = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn read() Self {
@@ -91,11 +91,11 @@ pub const DR3 = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn read() Self {
@@ -119,11 +119,11 @@ pub const DR4 = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn read() Self {
@@ -147,11 +147,11 @@ pub const DR5 = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn read() Self {
@@ -292,7 +292,7 @@ const Impl = struct {
 
     fn write(comptime name: []const u8, value: anytype) void {
         comptime target.require();
-        const raw: u64 = if (@typeInfo(@TypeOf(value)) == .@"enum") @intFromEnum(value) else @bitCast(value);
+        const raw: u64 = if (@typeInfo(@TypeOf(value)) == .@"enum") @backingInt(value) else @bitCast(value);
         asm volatile ("mov %[v], %%" ++ name
             :
             : [v] "r" (raw),

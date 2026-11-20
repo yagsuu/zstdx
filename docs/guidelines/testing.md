@@ -14,15 +14,17 @@ Test requirements for zstdx implementation work.
 
 ## Test locations
 
-- Source modules own single-category behavioral, model, allocation, and stress tests.
-- Source-owned test sidecars are imported by their category's module test block.
+- Source modules own single-category behavioral, model, allocation, and stress tests in a `pub const unit = struct`.
+- Keep test helpers inside the owning `unit` namespace. Do not create source test sidecars.
+- Define named test-case and substantial fixture types under `unit`, before the tests that use them.
+- Do not define struct types inside array initializers. Put each struct field on a separate line.
 - `test/` contains integration workflows that exercise interactions across module categories.
 - Integration tests import the public `stdx` facade, not implementation files.
 - Benchmarks live outside the default correctness test path unless a spec says otherwise.
 
 ## Test aggregation
 
-- Each category module aggregates its unit tests once.
+- Each category module aggregates its implementation files' `unit` namespaces once.
 - `test/all.zig` imports workflow leaves or immediate child facades.
 - Each integration leaf has exactly one aggregation path from that root.
 - Aggregation facades contain imports only; leaf tests do not import other leaf tests.
@@ -32,7 +34,7 @@ Test requirements for zstdx implementation work.
 
 ## Test naming
 
-Use category prefixes:
+Use category prefixes. Keep source tests in the owning `unit` namespace regardless of prefix.
 
 ```zig
 test "unit: static list rejects push when full" { ... }
@@ -98,7 +100,7 @@ Intrusive collections must cover:
 
 ## Ordering and concurrency tests
 
-Concurrent primitives require more than unit tests.
+Concurrent primitives require concurrent coverage in addition to single-thread contract tests.
 
 Required checks where applicable:
 

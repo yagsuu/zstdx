@@ -9,7 +9,7 @@ pub const Signal = struct {
         _,
 
         pub fn isSet(self: Token) bool {
-            const word: Word = @bitCast(@intFromEnum(self));
+            const word: Word = @bitCast(@backingInt(self));
             return word.status == .set;
         }
     };
@@ -29,11 +29,11 @@ pub const Signal = struct {
         }
 
         pub fn observe(self: *const State) Token {
-            return @enumFromInt(@as(usize, @bitCast(self.word.load(.acquire))));
+            return @fromBackingInt(@as(usize, @bitCast(self.word.load(.acquire))));
         }
 
         pub fn changedSince(self: *const State, token: Token) bool {
-            return @as(usize, @bitCast(self.word.load(.acquire))) != @intFromEnum(token);
+            return @as(usize, @bitCast(self.word.load(.acquire))) != @backingInt(token);
         }
     };
 
@@ -121,7 +121,7 @@ pub const Signal = struct {
 
     const Word = packed struct(usize) {
         status: Status,
-        generation: std.meta.Int(.unsigned, @bitSizeOf(usize) - 1),
+        generation: @Int(.unsigned, @bitSizeOf(usize) - 1),
 
         fn next(self: Word, status: Status) Word {
             return .{
@@ -222,7 +222,7 @@ pub const unit = struct {
     test "signal generation wraps without losing transition status" {
         var state: Signal.State = .{ .word = .init(.{
             .status = .set,
-            .generation = std.math.maxInt(std.meta.Int(.unsigned, @bitSizeOf(usize) - 1)),
+            .generation = std.math.maxInt(@Int(.unsigned, @bitSizeOf(usize) - 1)),
         }) };
 
         var backend: Backend = .{};

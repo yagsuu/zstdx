@@ -8,7 +8,7 @@ pub fn requireBackend(comptime Backend: type, comptime label: []const u8) void {
         @compileError(label ++ ": Backend.WaitError must be an error set");
     }
 
-    if (info.error_set == null) {
+    if (info.error_set.error_names == null) {
         @compileError(
             label ++ ": Backend.WaitError must be an explicit error set; " ++
                 "anyerror is not approved",

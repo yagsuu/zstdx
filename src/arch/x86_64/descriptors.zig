@@ -110,7 +110,7 @@ pub const Segment = packed struct(u64) {
         if (!self.descriptor_class) {
             return error.ReservedBits;
         }
-        const executable = (@intFromEnum(self.kind) & 0x8) != 0;
+        const executable = (@backingInt(self.kind) & 0x8) != 0;
         if (self.long_mode and (!executable or self.default_operand_size)) {
             return error.InvalidSegmentMode;
         }

@@ -898,7 +898,7 @@ pub const unit = struct {
         const Map = RangeMap.Unmanaged(u8, Kind);
         const Range = Map.Range;
 
-        var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1 });
+        var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1, .resize_fail_index = 0 });
         const allocator = failing.allocator();
 
         var map = Map.init();
@@ -921,7 +921,7 @@ pub const unit = struct {
         const Map = RangeMap.Unmanaged(u8, Kind);
         const Range = Map.Range;
 
-        var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1 });
+        var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1, .resize_fail_index = 0 });
         const allocator = failing.allocator();
 
         var map = Map.init();
@@ -944,7 +944,7 @@ pub const unit = struct {
         const Map = RangeMap.Unmanaged(u8, Kind);
         const Range = Map.Range;
 
-        var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1 });
+        var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1, .resize_fail_index = 0 });
         const allocator = failing.allocator();
 
         var map = Map.init();
@@ -1183,7 +1183,7 @@ pub const unit = struct {
         const Range = Map.Range;
 
         var map = Map.init();
-        var model = [_]?Kind{null} ** 32;
+        var model: [32]?Kind = @splat(null);
 
         var prng = std.Random.Xoshiro256.init(0x87654321);
         const random = prng.random();

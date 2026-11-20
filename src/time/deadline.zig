@@ -9,10 +9,8 @@ const Instant = monotonic.Instant;
 const ClockImpl = monotonic.Clock.Impl;
 
 pub const Deadline = enum(u64) {
+    never = std.math.maxInt(Int),
     _,
-
-    /// expires only when the clock reaches maxInt(u64)
-    pub const never: Self = @enumFromInt(std.math.maxInt(Int));
 
     pub const Int = u64;
     pub const OverflowError = error{Overflow};
@@ -21,21 +19,21 @@ pub const Deadline = enum(u64) {
     const Self = @This();
 
     pub fn from(value: Instant) Self {
-        return @enumFromInt(value.nanos());
+        return @fromBackingInt(value.nanos());
     }
 
     pub fn after(clock: anytype, delta: Duration) OverflowError!Self {
         comptime ClockImpl.requireClock(@TypeOf(clock), "Deadline");
         const target = try clock.now().add(delta);
-        return @enumFromInt(target.nanos());
+        return @fromBackingInt(target.nanos());
     }
 
     pub fn instant(self: Self) Instant {
-        return Instant.fromNanos(@intFromEnum(self));
+        return Instant.fromNanos(@backingInt(self));
     }
 
     pub fn isNever(self: Self) bool {
-        return @intFromEnum(self) == std.math.maxInt(Int);
+        return @backingInt(self) == std.math.maxInt(Int);
     }
 
     pub fn isExpired(self: Self, clock: anytype) bool {

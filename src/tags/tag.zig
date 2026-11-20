@@ -13,11 +13,11 @@ pub fn Tag(comptime DomainT: type, comptime IntT: type) type {
         pub const Int = IntT;
 
         pub fn from(value: IntT) Self {
-            return @enumFromInt(value);
+            return @fromBackingInt(value);
         }
 
         pub fn raw(self: Self) IntT {
-            return @intFromEnum(self);
+            return @backingInt(self);
         }
     };
 }

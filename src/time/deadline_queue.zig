@@ -268,11 +268,11 @@ const Impl = struct {
             fn init(index: usize, generation: u64) Self {
                 _ = Owner;
                 const encoded_index: u64 = @intCast(index);
-                return @enumFromInt((@as(u128, generation) << 64) | encoded_index);
+                return @fromBackingInt((@as(u128, generation) << 64) | encoded_index);
             }
 
             fn decode(self: Self) ?Parts {
-                const raw = @intFromEnum(self);
+                const raw = @backingInt(self);
                 const encoded_index: u64 = @truncate(raw);
                 return .{
                     .index = std.math.cast(usize, encoded_index) orelse return null,
@@ -693,8 +693,8 @@ pub const unit = struct {
 
         try testing.expect(queue.slots[0].generation != 0);
         try testing.expect(Impl.resolve(&queue, wrapping) == null);
-        const invalid: Queue.Handle = @enumFromInt(0);
-        const out_of_bounds: Queue.Handle = @enumFromInt((@as(u128, 1) << 64) | std.math.maxInt(u64));
+        const invalid: Queue.Handle = @fromBackingInt(0);
+        const out_of_bounds: Queue.Handle = @fromBackingInt((@as(u128, 1) << 64) | std.math.maxInt(u64));
 
         try testing.expect(!queue.contains(invalid));
         try testing.expect(!queue.contains(out_of_bounds));

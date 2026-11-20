@@ -23,7 +23,7 @@ pub fn FormattedDetail(comptime Args: type, comptime format: []const u8) type {
 
         const Self = @This();
 
-        fn materialize(self: Self, allocator: Allocator) ?[]const u8 {
+        pub fn materialize(self: Self, allocator: Allocator) ?[]const u8 {
             return std.fmt.allocPrint(allocator, format, self.args) catch null;
         }
     };
@@ -373,3 +373,281 @@ const Frame = struct {
 };
 
 const NoopDiagnostics = struct {};
+
+pub const unit = struct {
+    const testing = std.testing;
+
+    const ExplodingFormatter = struct {
+        pub fn format(_: @This(), _: *std.Io.Writer) std.Io.Writer.Error!void {
+            unreachable;
+        }
+    };
+
+    fn source(comptime file: [:0]const u8, line: u32) std.builtin.SourceLocation {
+        return .{
+            .module = "stdx-test",
+            .file = file,
+            .fn_name = "unit",
+            .line = line,
+            .column = 1,
+        };
+    }
+
+    fn expectRender(expected: []const u8, diag: anytype) !void {
+        var buffer: [2048]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        try diag.format(&writer);
+        try testing.expectEqualStrings(expected, writer.buffered());
+    }
+
+    fn failOne(diag: anytype) !void {
+        var frame = scope(diag, .{
+            .label = "open firmware",
+            .detail = "/boot/fw.bin",
+        });
+        defer frame.pop();
+
+        const err = error.FileNotFound;
+        frame.unwind(err);
+
+        return err;
+    }
+
+    fn failOneWithFormattedDetail(diag: anytype) !void {
+        var frame = scope(diag, .{
+            .label = "open firmware",
+            .detail = fmt("{s}", .{"/boot/fw.bin"}),
+        });
+        defer frame.pop();
+
+        const err = error.FileNotFound;
+        frame.unwind(err);
+
+        return err;
+    }
+
+    fn parseHeader(diag: anytype) !void {
+        var frame = scope(diag, .{ .label = "parse header" });
+        defer frame.pop();
+
+        const err = error.InvalidFirmware;
+        frame.unwind(err);
+
+        return err;
+    }
+
+    fn parseFirmware(diag: anytype) !void {
+        var frame = scope(diag, .{ .label = "parse firmware" });
+        defer frame.pop();
+
+        parseHeader(diag) catch |err| {
+            frame.unwind(err);
+            return err;
+        };
+    }
+
+    fn loadFirmware(diag: anytype) !void {
+        var frame = scope(diag, .{
+            .label = "load firmware",
+            .detail = "/boot/fw.bin",
+        });
+        defer frame.pop();
+
+        parseFirmware(diag) catch |err| {
+            frame.unwind(err);
+            return err;
+        };
+    }
+
+    fn successfulWithFormattedDetail(diag: anytype) !void {
+        var frame = scope(diag, .{
+            .label = "successful operation",
+            .detail = fmt("{f}", .{ExplodingFormatter{}}),
+        });
+        defer frame.pop();
+    }
+
+    test "scope null adapter is a safe no-op" {
+        var frame = scope(null, .{
+            .label = "ignored",
+            .detail = fmt("{f}", .{ExplodingFormatter{}}),
+        });
+
+        frame.detail(fmt("{f}", .{ExplodingFormatter{}}));
+        frame.unwind(error.Ignored);
+        frame.pop();
+    }
+
+    test "nested scoped unwinds render outer-to-inner chain" {
+        const Diag = Diagnostics.Static(.{ .frames = 3, .arena_bytes = 1 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        try testing.expectError(error.InvalidFirmware, loadFirmware(&diag));
+
+        try expectRender(
+            "  at load firmware: /boot/fw.bin -> InvalidFirmware\n" ++
+                "    at parse firmware -> InvalidFirmware\n" ++
+                "      at parse header -> InvalidFirmware",
+            &diag,
+        );
+    }
+
+    test "successful scoped call does not evaluate formatted detail" {
+        const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 64 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        try successfulWithFormattedDetail(&diag);
+        try testing.expectEqual(@as(usize, 0), diag.arena.used());
+
+        var frame = scope(&diag, .{ .label = "probe cache" });
+        frame.pop();
+
+        try testing.expect(diag.isEmpty());
+        try expectRender("", &diag);
+    }
+
+    test "frame capacity exhaustion preserves originating error and omits excess frames" {
+        const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        try testing.expectError(error.InvalidFirmware, loadFirmware(&diag));
+
+        try expectRender("  at load firmware: /boot/fw.bin -> InvalidFirmware", &diag);
+    }
+
+    test "formatted detail arena exhaustion preserves error and omits detail" {
+        const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        try testing.expectError(error.FileNotFound, failOneWithFormattedDetail(&diag));
+
+        try expectRender("  at open firmware -> FileNotFound", &diag);
+    }
+
+    test "detail replacement latest wins" {
+        const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        var frame = scope(&diag, .{ .label = "read config" });
+        frame.detail("first");
+        frame.detail("second");
+        frame.unwind(error.BadConfig);
+        frame.pop();
+
+        try expectRender("  at read config: second -> BadConfig", &diag);
+    }
+
+    test "fmt option detail renders on retained frame" {
+        const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 64 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        var frame = scope(&diag, .{
+            .label = "parse field",
+            .detail = fmt("index {d}", .{42}),
+        });
+
+        frame.unwind(error.InvalidField);
+        frame.pop();
+
+        try expectRender("  at parse field: index 42 -> InvalidField", &diag);
+    }
+
+    test "explicit formatted detail renders on retained frame" {
+        const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 64 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        var frame = scope(&diag, .{ .label = "parse field" });
+        frame.detail(fmt("index {d}", .{42}));
+        frame.unwind(error.InvalidField);
+        frame.pop();
+
+        try expectRender("  at parse field: index 42 -> InvalidField", &diag);
+    }
+
+    test "explicit detail overrides scope option detail" {
+        const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 64 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        var frame = scope(&diag, .{
+            .label = "parse field",
+            .detail = fmt("{f}", .{ExplodingFormatter{}}),
+        });
+
+        frame.detail("manual detail");
+        frame.unwind(error.InvalidField);
+        frame.pop();
+
+        try expectRender("  at parse field: manual detail -> InvalidField", &diag);
+    }
+
+    test "clear removes retained frames and resets arena usage" {
+        const Diag = Diagnostics.Static(.{ .frames = 3, .arena_bytes = 256 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        try testing.expect(diag.isEmpty());
+        try expectRender("", &diag);
+
+        try testing.expectError(error.FileNotFound, failOneWithFormattedDetail(&diag));
+        try testing.expect(!diag.isEmpty());
+        try testing.expect(diag.arena.used() > 0);
+        try expectRender("  at open firmware: /boot/fw.bin -> FileNotFound", &diag);
+
+        diag.clear();
+
+        try testing.expect(diag.isEmpty());
+        try testing.expectEqual(@as(usize, 0), diag.arena.used());
+        try expectRender("", &diag);
+
+        try testing.expectError(error.FileNotFound, failOne(&diag));
+        try expectRender("  at open firmware: /boot/fw.bin -> FileNotFound", &diag);
+    }
+
+    test "source location renders when present and is omitted when absent" {
+        const Diag = Diagnostics.Static(.{ .frames = 2, .arena_bytes = 1 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        var with_source = scope(&diag, .{
+            .label = "with source",
+            .source = source("test/source.zig", 9),
+        });
+
+        with_source.unwind(error.Boom);
+        with_source.pop();
+
+        var without_source = scope(&diag, .{ .label = "without source" });
+        without_source.unwind(error.Boom);
+        without_source.pop();
+
+        try expectRender(
+            "  at with source (test/source.zig:9) -> Boom\n" ++
+                "  at without source -> Boom",
+            &diag,
+        );
+    }
+
+    test "label and detail bytes are escaped for logs" {
+        const Diag = Diagnostics.Static(.{ .frames = 1, .arena_bytes = 1 });
+        var diag = Diag.init();
+        defer diag.deinit();
+
+        var frame = scope(&diag, .{
+            .label = "load\\firmware\ncode",
+            .detail = "path\twith\\slash",
+        });
+
+        frame.unwind(error.Bad);
+        frame.pop();
+
+        try expectRender("  at load\\\\firmware\\ncode: path\\twith\\\\slash -> Bad", &diag);
+    }
+};

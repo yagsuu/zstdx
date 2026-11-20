@@ -65,11 +65,11 @@ pub const FsBase = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn read() Self {
@@ -99,11 +99,11 @@ pub const GsBase = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn read() Self {

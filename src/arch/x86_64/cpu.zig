@@ -92,7 +92,7 @@ pub const Tlb = struct {
         comptime target.require();
         asm volatile ("invpcid (%%rdx), %%rax"
             :
-            : [scope] "{rax}" (@as(u64, @intFromEnum(scope))),
+            : [scope] "{rax}" (@as(u64, @backingInt(scope))),
               [descriptor] "{rdx}" (descriptor),
             : .{ .memory = true });
     }

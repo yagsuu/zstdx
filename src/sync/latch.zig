@@ -112,7 +112,7 @@ pub fn Latch(comptime Backend: type) type {
                         return;
                     }
 
-                    if (state.word.cmpxchgWeak(@intFromEnum(token), pending - 1, .acq_rel, .acquire)) |_| {
+                    if (state.word.cmpxchgWeak(@backingInt(token), pending - 1, .acq_rel, .acquire)) |_| {
                         continue;
                     }
                     if (pending == 1) {
@@ -148,12 +148,12 @@ pub const State = struct {
     }
 
     pub fn observe(self: *const Self) Token {
-        return @enumFromInt(self.word.load(.acquire));
+        return @fromBackingInt(self.word.load(.acquire));
     }
 
     pub fn changedSince(self: *const Self, token: Token) bool {
         const current = self.word.load(.acquire);
-        return current != @intFromEnum(token);
+        return current != @backingInt(token);
     }
 
     pub fn pending(self: *const Self) u32 {
@@ -171,11 +171,11 @@ pub const Token = enum(u32) {
     const Self = @This();
 
     pub fn pending(self: Self) u32 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn isReleased(self: Self) bool {
-        return @intFromEnum(self) == 0;
+        return @backingInt(self) == 0;
     }
 };
 

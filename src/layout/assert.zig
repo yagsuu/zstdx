@@ -31,12 +31,12 @@ const Impl = struct {
             equal(T, "alignment", alignment, @alignOf(T));
         }
 
-        for (std.meta.fields(Fields(T))) |field| {
-            if (@field(expected.offsets, field.name)) |offset| {
-                const actual = @offsetOf(T, field.name);
+        inline for (@typeInfo(Fields(T)).@"struct".field_names) |field| {
+            if (@field(expected.offsets, field)) |offset| {
+                const actual = @offsetOf(T, field);
                 if (offset != actual) {
                     @compileError(std.fmt.comptimePrint("{s}.{s}: expected byte offset {d}, found {d}", .{
-                        @typeName(T), field.name, offset, actual,
+                        @typeName(T), field, offset, actual,
                     }));
                 }
             }

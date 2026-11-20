@@ -129,11 +129,13 @@ const Impl = struct {
 pub const unit = struct {
     const testing = std.testing;
 
+    const PlacementCase = struct {
+        source: Range,
+        expected: ?Selection,
+    };
+
     test "aligned candidates partition their source including exact fits" {
-        const cases = [_]struct {
-            source: Range,
-            expected: ?Selection,
-        }{
+        const cases = [_]PlacementCase{
             .{
                 .source = .{ .start = 3, .end = 32 },
                 .expected = .{

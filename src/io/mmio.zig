@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const addr = @import("addr");
 const endian = @import("layout").endian;
 
@@ -9,7 +10,7 @@ pub const Mmio = struct {
 
             pub const size = @sizeOf(Int);
 
-            const __StdxMmioRegister = void;
+            pub const __StdxMmioRegister = void;
 
             const Self = @This();
 
@@ -33,7 +34,6 @@ pub const Mmio = struct {
             const Self = @This();
             const Pointer = *const volatile Impl.Word(T);
 
-            /// checks alignment only; the caller supplies a live mapping.
             pub fn from(address: addr.VirtAddr) error{Misaligned}!Self {
                 return .{ .ptr = try addr.castAligned(Pointer, address) };
             }
@@ -127,11 +127,25 @@ const Impl = struct {
         return Int;
     }
 
+    fn wrapper(comptime T: type) bool {
+        return switch (@typeInfo(T)) {
+            .@"struct" => |info| info.layout != .@"packed" and @hasDecl(T, "Int"),
+            else => false,
+        };
+    }
+
     fn load(comptime T: type, pointer: *const volatile Word(T)) T {
+        if (comptime wrapper(T)) {
+            return .{ .bytes = @bitCast(pointer.*) };
+        }
         return @bitCast(pointer.*);
     }
 
     fn store(comptime T: type, pointer: *volatile Word(T), value: T) void {
+        if (comptime wrapper(T)) {
+            pointer.* = @bitCast(value.bytes);
+            return;
+        }
         pointer.* = @bitCast(value);
     }
 

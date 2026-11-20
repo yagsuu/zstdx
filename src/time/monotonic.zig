@@ -6,9 +6,8 @@ const debug = @import("core").debug;
 
 /// nanoseconds since the backend epoch
 pub const Instant = enum(u64) {
+    zero = 0,
     _,
-
-    pub const zero: Self = @enumFromInt(0);
 
     pub const Int = u64;
     pub const Error = error{Overflow};
@@ -16,11 +15,11 @@ pub const Instant = enum(u64) {
     const Self = @This();
 
     pub fn fromNanos(ns: Int) Self {
-        return @enumFromInt(ns);
+        return @fromBackingInt(ns);
     }
 
     pub fn nanos(self: Self) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn add(self: Self, delta: Duration) Error!Self {
@@ -44,7 +43,7 @@ pub const Instant = enum(u64) {
 pub const Duration = enum(i64) {
     _,
 
-    pub const zero: Self = @enumFromInt(0);
+    pub const zero: Self = @fromBackingInt(0);
 
     pub const Int = i64;
     pub const Error = error{Overflow};
@@ -52,11 +51,11 @@ pub const Duration = enum(i64) {
     const Self = @This();
 
     pub fn fromNanos(ns: Int) Self {
-        return @enumFromInt(ns);
+        return @fromBackingInt(ns);
     }
 
     pub fn nanos(self: Self) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn fromMicros(us: Int) Error!Self {
@@ -150,11 +149,11 @@ pub const Clock = struct {
                 else => @compileError(kind ++ ": now must be a function"),
             };
 
-            if (info.params.len != 1) {
+            if (info.param_types.len != 1) {
                 @compileError(kind ++ ": now must take exactly one argument (*Self)");
             }
 
-            const receiver = info.params[0].type orelse
+            const receiver = info.param_types[0] orelse
                 @compileError(kind ++ ": now must take (*Self), not anytype");
 
             if (receiver != *T) {
@@ -176,12 +175,12 @@ pub const Clock = struct {
                 else => @compileError(message),
             };
 
-            if (info.params.len != 2) {
+            if (info.param_types.len != 2) {
                 @compileError(message);
             }
 
-            if (info.params[0].type != *Backend or
-                info.params[1].type != Duration or
+            if (info.param_types[0] != *Backend or
+                info.param_types[1] != Duration or
                 info.return_type != void)
             {
                 @compileError(message);

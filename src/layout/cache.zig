@@ -20,7 +20,7 @@ pub fn CachePad(comptime T: type) type {
 
     return struct {
         value: T align(cache_line),
-        _pad: [pad]u8 = [_]u8{0} ** pad,
+        _pad: [pad]u8 = @splat(0),
     };
 }
 

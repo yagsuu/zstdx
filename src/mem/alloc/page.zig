@@ -316,32 +316,74 @@ const Impl = struct {
             }
         }
 
-        const errors = @typeInfo(Backend.Error).error_set orelse {
+        const errors = @typeInfo(Backend.Error).error_set.error_names orelse {
             @compileError("PageAllocator backend Error must be a named error set");
         };
 
         for (errors) |err| {
             var found = false;
-            for (@typeInfo(Error).error_set.?) |expected| {
-                if (std.mem.eql(u8, err.name, expected.name)) {
+            for (@typeInfo(Error).error_set.error_names.?) |expected| {
+                if (std.mem.eql(u8, err, expected)) {
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                @compileError("PageAllocator backend Error contains variant not in PageAllocator.Error: " ++ err.name);
+                @compileError("PageAllocator backend Error contains variant not in PageAllocator.Error: " ++ err);
             }
         }
     }
 };
 
 pub const unit = struct {
+    const addr = @import("addr");
+
     const testing = std.testing;
 
-    const Page = @import("addr").Page(@import("addr").PhysAddr, 4096);
+    const Page = addr.Page(addr.PhysAddr, 4096);
     const Backend = @import("buddy.zig").BuddyAllocator.Static(16, 5);
 
     const origin = Page.Base.fromInt(0x100000) catch unreachable;
+
+    const PageRegionSource = struct {
+        pages: *Pages,
+        items: []align(page_size) u8,
+        allocations: [count]?Pages.Allocation = @splat(null),
+
+        const HostPage = addr.Page(addr.VirtAddr, page_size);
+        const HostBackend = @import("buddy.zig").BuddyAllocator.Static(count, 3);
+        const Pages = PageAllocator.Bounded(HostBackend, HostPage);
+        const Region = *align(page_size) [page_size]u8;
+
+        const page_size = addr.pages._4kib;
+        const count = 4;
+
+        pub const region_bytes = page_size;
+        pub const region_align = page_size;
+        pub const Error = Pages.Error;
+
+        const Self = @This();
+
+        pub fn acquire(self: *Self) Error!Region {
+            const allocation = try self.pages.alloc(0);
+            const range = allocation.range();
+            const offset = range.first().raw() - @intFromPtr(self.items.ptr);
+            std.debug.assert(offset <= self.items.len - page_size);
+
+            self.allocations[offset / page_size] = allocation;
+            return @ptrCast(@alignCast(self.items.ptr + offset));
+        }
+
+        pub fn release(self: *Self, region: Region) void {
+            const address = @intFromPtr(region);
+            const start = @intFromPtr(self.items.ptr);
+            std.debug.assert(address >= start and address - start <= self.items.len - page_size);
+
+            const index = (address - start) / page_size;
+            self.pages.free(self.allocations[index].?) catch unreachable;
+            self.allocations[index] = null;
+        }
+    };
 
     test "core allocation converts relative blocks and coalesces on free" {
         var backend = Backend.init();
@@ -356,7 +398,13 @@ pub const unit = struct {
         try Impl.free(Backend, Page, &backend, origin, allocation);
 
         try testing.expectEqual(@as(?u8, 4), Impl.largestFreeOrder(Backend, &backend));
-        try testing.expect(Impl.hasFreeBlock(Backend, Page, &backend, origin, try Page.Range.init(origin, try origin.add(Page.Count.from(15)))));
+        try testing.expect(Impl.hasFreeBlock(
+            Backend,
+            Page,
+            &backend,
+            origin,
+            try Page.Range.init(origin, try origin.add(Page.Count.from(15))),
+        ));
         try testing.expect(Impl.isValid(Backend, Page, &backend, origin));
     }
 
@@ -391,7 +439,10 @@ pub const unit = struct {
         try Impl.reserve(Backend, Page, &backend, origin, reserved);
 
         try testing.expectError(error.AlreadyAllocated, Impl.reserve(Backend, Page, &backend, origin, reserved));
-        try testing.expectError(error.OutOfBounds, Impl.reserve(Backend, Page, &backend, origin, try Page.Range.init(end, end)));
+        try testing.expectError(
+            error.OutOfBounds,
+            Impl.reserve(Backend, Page, &backend, origin, try Page.Range.init(end, end)),
+        );
         try testing.expectEqual(@as(usize, 14), backend.remaining());
 
         for (0..14) |_| {
@@ -422,7 +473,10 @@ pub const unit = struct {
             try testing.expect(!Impl.hasFreeBlock(Backend, Page, &backend, origin, range));
         }
 
-        try testing.expectError(error.OutOfBounds, Impl.blockFromRange(Backend, Page, &backend, origin, try Page.Range.init(before, before)));
+        try testing.expectError(
+            error.OutOfBounds,
+            Impl.blockFromRange(Backend, Page, &backend, origin, try Page.Range.init(before, before)),
+        );
         try testing.expectEqual(@as(usize, 0), backend.allocated());
     }
 
@@ -495,6 +549,99 @@ pub const unit = struct {
             try testing.expectEqual(@as(u8, 0), pages.remaining());
             try pages.free(allocation);
             try testing.expectEqual(@as(u8, 128), pages.remaining());
+            try testing.expect(pages.isValid());
+        }
+    }
+
+    test "unit: page-backed slab regions return all allocations after draining" {
+        const backing = try testing.allocator.alignedAlloc(
+            u8,
+            .fromByteUnits(PageRegionSource.page_size),
+            PageRegionSource.count * PageRegionSource.page_size,
+        );
+        defer testing.allocator.free(backing);
+
+        const region_origin = try PageRegionSource.HostPage.Base.fromInt(@intCast(@intFromPtr(backing.ptr)));
+        var pages = try PageRegionSource.Pages.init(PageRegionSource.HostBackend.init(), region_origin);
+        var source: PageRegionSource = .{ .pages = &pages, .items = backing };
+        const Cache = @import("slab/cache.zig").SlabCache(u64, PageRegionSource);
+        var cache = Cache.init(&source);
+
+        try cache.refill();
+        const item = try cache.acquire();
+        item.* = 0xDEAD_BEEF;
+
+        try testing.expectEqual(@as(u64, 0xDEAD_BEEF), item.*);
+        try testing.expect(cache.contains(item));
+
+        cache.release(item);
+        cache.drain();
+
+        try testing.expectEqual(@as(u64, 0), pages.allocated());
+        try testing.expect(cache.isValid());
+        try testing.expect(pages.isValid());
+    }
+
+    test "model: page allocation with buddy backend matches allocation oracle" {
+        const Pages = PageAllocator.Static(Backend, Page, origin);
+        var pages = Pages.init();
+        var allocated: [16]bool = @splat(false);
+        var live: [16]?Pages.Allocation = @splat(null);
+        var count: usize = 0;
+        var rng = std.Random.DefaultPrng.init(0xF00D);
+        const random = rng.random();
+
+        for (0..512) |_| {
+            if (random.boolean() and count < live.len) {
+                const order = random.uintAtMost(u8, 3);
+                const allocation = pages.alloc(order) catch |err| {
+                    try testing.expectEqual(error.OutOfMemory, err);
+                    continue;
+                };
+                const range = allocation.range();
+                const offset: usize = @intCast((range.first().raw() - origin.raw()) >> Page.shift);
+                const size: usize = @intCast(range.count().raw());
+                for (allocated[offset..][0..size]) |bit| {
+                    try testing.expect(!bit);
+                }
+                @memset(allocated[offset..][0..size], true);
+                for (&live) |*slot| {
+                    if (slot.* == null) {
+                        slot.* = allocation;
+                        count += 1;
+                        break;
+                    }
+                }
+            } else if (count > 0) {
+                var chosen: ?usize = null;
+                for (live, 0..) |slot, i| {
+                    if (slot != null) {
+                        if (chosen == null or random.boolean()) {
+                            chosen = i;
+                        }
+                    }
+                }
+                const index = chosen.?;
+                const allocation = live[index].?;
+                const range = allocation.range();
+                live[index] = null;
+                count -= 1;
+                const offset: usize = @intCast((range.first().raw() - origin.raw()) >> Page.shift);
+                const size: usize = @intCast(range.count().raw());
+                for (allocated[offset..][0..size]) |bit| {
+                    try testing.expect(bit);
+                }
+                @memset(allocated[offset..][0..size], false);
+                try pages.free(allocation);
+            }
+
+            var remaining: u64 = 0;
+            for (allocated) |bit| {
+                if (!bit) {
+                    remaining += 1;
+                }
+            }
+            try testing.expectEqual(remaining, pages.remaining());
             try testing.expect(pages.isValid());
         }
     }

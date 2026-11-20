@@ -8,5 +8,5 @@ pub const fmt = diagnostic.fmt;
 pub const scope = diagnostic.scope;
 
 test {
-    _ = @import("diagnostic_test.zig");
+    _ = diagnostic.unit;
 }

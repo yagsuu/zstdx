@@ -550,7 +550,7 @@ pub const unit = struct {
 
                 try testing.expectEqual(true, try I.unset(&words, 4 * width, index));
                 try testing.expectEqual(false, try I.unset(&words, 4 * width, index));
-                try testing.expectEqual([_]W{.zero} ** 4, words);
+                try testing.expectEqual(@as([4]W, @splat(.zero)), words);
             }
         }
 

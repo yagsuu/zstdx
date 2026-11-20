@@ -20,7 +20,7 @@
 
 ## Requirements
 
-- Zig **0.16.0 or later**.
+- Zig **0.17.0**.
 - No external dependencies. Freestanding targets supported.
 - Hardware-specific APIs require a compatible target.
 

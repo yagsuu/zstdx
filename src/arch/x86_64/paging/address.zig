@@ -37,11 +37,11 @@ pub const LinearAddr = enum(u64) {
     pub const Error = error{NonCanonical};
 
     pub fn from(value: u64) LinearAddr {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: LinearAddr) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn fromCanonical(value: u64, mode: Mode) Error!LinearAddr {
@@ -75,9 +75,17 @@ pub const LinearAddr = enum(u64) {
 };
 
 pub const unit = struct {
+    const testing = @import("std").testing;
+
+    const CanonicalAddressCase = struct {
+        mode: Mode,
+        low: u64,
+        high: u64,
+        invalid: u64,
+    };
+
     test "canonical addresses and indices distinguish four and five levels" {
-        const testing = @import("std").testing;
-        const cases = [_]struct { mode: Mode, low: u64, high: u64, invalid: u64 }{
+        const cases = [_]CanonicalAddressCase{
             .{
                 .mode = .level4,
                 .low = 0x0000_7fff_ffff_ffff,
@@ -105,6 +113,7 @@ pub const unit = struct {
         const levels = [_]Level{ .pt, .pd, .pdpt, .pml4, .pml5 };
         const expected = [_]u9{ 0x11, 0x22, 0x33, 0x44, 0x55 };
         var raw_address: u64 = 0xabc;
+
         for (levels, expected) |level, value| {
             raw_address |= @as(u64, value) << level.shift();
         }
@@ -114,6 +123,7 @@ pub const unit = struct {
         for (levels, expected) |level, value| {
             try testing.expectEqual(value, linear.index(level).raw());
         }
+
         try testing.expect(!linear.isCanonical(.level4));
     }
 };

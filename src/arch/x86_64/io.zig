@@ -6,11 +6,11 @@ pub const Port = enum(u16) {
     const Self = @This();
 
     pub fn from(value: u16) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u16 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     /// Privilege: CPL <= IOPL or TSS I/O bitmap permission.
@@ -19,7 +19,7 @@ pub const Port = enum(u16) {
 
         return asm volatile ("inb %[port], %[ret]"
             : [ret] "={al}" (-> u8),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
             : .{ .memory = true });
     }
 
@@ -29,7 +29,7 @@ pub const Port = enum(u16) {
 
         return asm volatile ("inw %[port], %[ret]"
             : [ret] "={ax}" (-> u16),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
             : .{ .memory = true });
     }
 
@@ -39,7 +39,7 @@ pub const Port = enum(u16) {
 
         return asm volatile ("inl %[port], %[ret]"
             : [ret] "={eax}" (-> u32),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
             : .{ .memory = true });
     }
 
@@ -49,7 +49,7 @@ pub const Port = enum(u16) {
 
         asm volatile ("outb %[value], %[port]"
             :
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [value] "{al}" (value),
             : .{ .memory = true });
     }
@@ -60,7 +60,7 @@ pub const Port = enum(u16) {
 
         asm volatile ("outw %[value], %[port]"
             :
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [value] "{ax}" (value),
             : .{ .memory = true });
     }
@@ -71,7 +71,7 @@ pub const Port = enum(u16) {
 
         asm volatile ("outl %[value], %[port]"
             :
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [value] "{eax}" (value),
             : .{ .memory = true });
     }
@@ -86,7 +86,7 @@ pub const Port = enum(u16) {
         asm volatile ("rep insb"
             : [dst] "={rdi}" (ptr),
               [count] "={rcx}" (count),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [initial_dst] "0" (ptr),
               [initial_count] "1" (count),
             : .{ .memory = true });
@@ -102,7 +102,7 @@ pub const Port = enum(u16) {
         asm volatile ("rep insw"
             : [dst] "={rdi}" (ptr),
               [count] "={rcx}" (count),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [initial_dst] "0" (ptr),
               [initial_count] "1" (count),
             : .{ .memory = true });
@@ -118,7 +118,7 @@ pub const Port = enum(u16) {
         asm volatile ("rep insl"
             : [dst] "={rdi}" (ptr),
               [count] "={rcx}" (count),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [initial_dst] "0" (ptr),
               [initial_count] "1" (count),
             : .{ .memory = true });
@@ -134,7 +134,7 @@ pub const Port = enum(u16) {
         asm volatile ("rep outsb"
             : [src] "={rsi}" (ptr),
               [count] "={rcx}" (count),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [initial_src] "0" (ptr),
               [initial_count] "1" (count),
             : .{ .memory = true });
@@ -150,7 +150,7 @@ pub const Port = enum(u16) {
         asm volatile ("rep outsw"
             : [src] "={rsi}" (ptr),
               [count] "={rcx}" (count),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [initial_src] "0" (ptr),
               [initial_count] "1" (count),
             : .{ .memory = true });
@@ -166,7 +166,7 @@ pub const Port = enum(u16) {
         asm volatile ("rep outsl"
             : [src] "={rsi}" (ptr),
               [count] "={rcx}" (count),
-            : [port] "{dx}" (@intFromEnum(self)),
+            : [port] "{dx}" (@backingInt(self)),
               [initial_src] "0" (ptr),
               [initial_count] "1" (count),
             : .{ .memory = true });

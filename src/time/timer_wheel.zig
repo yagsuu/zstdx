@@ -337,11 +337,11 @@ const Impl = struct {
             fn init(index: usize, generation: u64) Self {
                 _ = Owner;
                 const encoded_index: u64 = @intCast(index);
-                return @enumFromInt((@as(u128, generation) << 64) | encoded_index);
+                return @fromBackingInt((@as(u128, generation) << 64) | encoded_index);
             }
 
             fn decode(self: Self) ?Parts {
-                const raw = @intFromEnum(self);
+                const raw = @backingInt(self);
                 const encoded_index: u64 = @truncate(raw);
                 return .{
                     .index = std.math.cast(usize, encoded_index) orelse return null,
@@ -943,9 +943,9 @@ pub const unit = struct {
 
         {
             var wheel = Timers.init(instant(100));
-            const invalid: Timers.Handle = @enumFromInt((@as(u128, 1) << 64) | std.math.maxInt(u64));
+            const invalid: Timers.Handle = @fromBackingInt((@as(u128, 1) << 64) | std.math.maxInt(u64));
 
-            try testing.expect(!wheel.contains(@enumFromInt(0)));
+            try testing.expect(!wheel.contains(@fromBackingInt(0)));
             try testing.expect(!wheel.contains(invalid));
         }
     }
@@ -1095,7 +1095,7 @@ pub const unit = struct {
             item: u8 = 0,
         };
 
-        entries: [capacity]Entry = [_]Entry{.{}} ** capacity,
+        entries: [capacity]Entry = @splat(.{}),
         current_tick: u64 = 0,
         len: usize = 0,
 

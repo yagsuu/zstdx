@@ -51,8 +51,13 @@ const Impl = struct {
             @compileError("Interface: vtable must be *const Vtable");
         }
 
-        for (std.meta.fields(Contract.Vtable)) |field| {
-            requireOperation(Instance, field.name, field.type);
+        const vtable = @typeInfo(Contract.Vtable).@"struct";
+
+        for (vtable.field_names, vtable.field_types) |name, FieldType| {
+            requireOperation(Instance, name, if (@typeInfo(FieldType) == .optional)
+                @typeInfo(FieldType).optional.child
+            else
+                FieldType);
         }
     }
 
@@ -67,16 +72,16 @@ const Impl = struct {
             else => @compileError(label ++ ": expected a const function pointer"),
         };
 
-        if (pointer.size != .one or !pointer.is_const) {
+        if (pointer.size != .one or !pointer.attrs.@"const") {
             @compileError(label ++ ": expected a const function pointer");
         }
 
         const signature = functionInfo(pointer.child, label);
-        if (signature.params.len == 0 or signature.params.len > 4) {
+        if (signature.param_types.len == 0 or signature.param_types.len > 4) {
             @compileError(label ++ ": expected a receiver and zero through three arguments");
         }
 
-        const Receiver = signature.params[0].type.?;
+        const Receiver = signature.param_types[0].?;
         if (Receiver != *anyopaque and Receiver != *const anyopaque) {
             @compileError(label ++ ": receiver must be *anyopaque or *const anyopaque");
         }
@@ -104,7 +109,7 @@ const Impl = struct {
             @compileError("Interface.bind: provider must be an unqualified mutable or const pointer");
         }
 
-        if (pointer.is_const and @FieldType(Contract, "instance") == *anyopaque) {
+        if (pointer.attrs.@"const" and @FieldType(Contract, "instance") == *anyopaque) {
             @compileError("Interface.bind: const provider cannot implement a mutable contract");
         }
 
@@ -114,9 +119,9 @@ const Impl = struct {
             @compileError("Interface.bindWith: overrides must be a struct");
         }
 
-        for (std.meta.fields(@TypeOf(overrides))) |field| {
-            if (!@hasField(Contract.Vtable, field.name)) {
-                @compileError("Interface.bindWith: unknown operation '" ++ field.name ++ "'");
+        for (@typeInfo(@TypeOf(overrides)).@"struct".field_names) |name| {
+            if (!@hasField(Contract.Vtable, name)) {
+                @compileError("Interface.bindWith: unknown operation '" ++ name ++ "'");
             }
         }
 
@@ -124,9 +129,29 @@ const Impl = struct {
             const vtable: Contract.Vtable = blk: {
                 var result: Contract.Vtable = undefined;
 
-                for (std.meta.fields(Contract.Vtable)) |field| {
-                    const Adapter = Impl.Method(Provider, field.name, field.type);
-                    @field(result, field.name) = &Adapter.call;
+                const vtable_info = @typeInfo(Contract.Vtable).@"struct";
+                for (vtable_info.field_names, vtable_info.field_types) |name, FieldType| {
+                    const optional = @typeInfo(FieldType) == .optional;
+                    const Signature = if (optional) @typeInfo(FieldType).optional.child else FieldType;
+
+                    const operation = if (@hasField(@TypeOf(overrides), name))
+                        @field(overrides, name)
+                    else if (@hasDecl(Provider, name))
+                        @field(Provider, name)
+                    else if (optional)
+                        null
+                    else
+                        @compileError("Interface: operation '" ++ name ++ "': " ++ @typeName(Provider) ++ " has no matching method");
+
+                    if (@TypeOf(operation) == @TypeOf(null)) {
+                        if (!optional) {
+                            @compileError("Interface.bindWith: required operation '" ++ name ++ "' cannot be null");
+                        }
+                        @field(result, name) = null;
+                    } else {
+                        const Adapter = Impl.Method(Provider, name, Signature, operation);
+                        @field(result, name) = &Adapter.call;
+                    }
                 }
 
                 break :blk result;
@@ -137,7 +162,7 @@ const Impl = struct {
     fn functionInfo(comptime Function: type, comptime label: []const u8) std.builtin.Type.Fn {
         const signature = thunk.functionInfo(Function, label);
 
-        if (signature.calling_convention != .auto) {
+        if (signature.attrs.@"callconv" != .auto) {
             @compileError(label ++ ": expected the default Zig calling convention");
         }
 
@@ -159,12 +184,12 @@ const Impl = struct {
         const actual = functionInfo(Function, label);
         const expected = @typeInfo(@typeInfo(Signature).pointer.child).@"fn";
 
-        if (actual.params.len != expected.params.len) {
+        if (actual.param_types.len != expected.param_types.len) {
             @compileError(label ++ ": provider parameter count does not match the contract");
         }
 
-        const Erased = expected.params[0].type.?;
-        const Receiver = actual.params[0].type.?;
+        const Erased = expected.param_types[0].?;
+        const Receiver = actual.param_types[0].?;
 
         if (Receiver != *Provider and Receiver != *const Provider) {
             @compileError(label ++ ": provider receiver must point to its own type");
@@ -174,8 +199,8 @@ const Impl = struct {
             @compileError(label ++ ": a read-only operation requires a const provider receiver");
         }
 
-        for (expected.params[1..], actual.params[1..]) |expected_param, actual_param| {
-            if (expected_param.type.? != actual_param.type.?) {
+        for (expected.param_types[1..], actual.param_types[1..]) |expected_param, actual_param| {
+            if (expected_param.? != actual_param.?) {
                 @compileError(label ++ ": provider parameter type does not match the contract");
             }
         }
@@ -191,10 +216,10 @@ const Impl = struct {
     ) type {
         const method = methodInfo(Provider, name, Signature, operation);
         const signature = @typeInfo(@typeInfo(Signature).pointer.child).@"fn";
-        const params = signature.params;
+        const params = signature.param_types;
 
-        const Erased = params[0].type.?;
-        const Receiver = method.params[0].type.?;
+        const Erased = params[0].?;
+        const Receiver = method.param_types[0].?;
         const Return = signature.return_type.?;
 
         const Adapter = struct {
@@ -211,15 +236,15 @@ const Impl = struct {
                 }
             },
             2 => struct {
-                fn call(instance: Erased, first: params[1].type.?) Return {
+                fn call(instance: Erased, first: params[1].?) Return {
                     return Adapter.invoke(instance, .{first});
                 }
             },
             3 => struct {
                 fn call(
                     instance: Erased,
-                    first: params[1].type.?,
-                    second: params[2].type.?,
+                    first: params[1].?,
+                    second: params[2].?,
                 ) Return {
                     return Adapter.invoke(instance, .{ first, second });
                 }
@@ -227,9 +252,9 @@ const Impl = struct {
             4 => struct {
                 fn call(
                     instance: Erased,
-                    first: params[1].type.?,
-                    second: params[2].type.?,
-                    third: params[3].type.?,
+                    first: params[1].?,
+                    second: params[2].?,
+                    third: params[3].?,
                 ) Return {
                     return Adapter.invoke(instance, .{ first, second, third });
                 }

@@ -1,6 +1,3 @@
-//! Forest topology for dense node IDs and embedded linked nodes.
-//! See `docs/specs/graph/forest.md`.
-
 const std = @import("std");
 
 pub const Forest = struct {
@@ -52,11 +49,11 @@ pub const Forest = struct {
                 if (index >= self.links.len) {
                     return error.OutOfBounds;
                 }
-                return @enumFromInt(index);
+                return @fromBackingInt(index);
             }
 
             pub fn indexOf(node: NodeID) usize {
-                return @intFromEnum(node);
+                return @backingInt(node);
             }
 
             pub fn firstRoot(self: *const Self) ?NodeID {
@@ -147,11 +144,11 @@ pub const Forest = struct {
                 if (index >= self.links.len) {
                     return error.OutOfBounds;
                 }
-                return @enumFromInt(index);
+                return @fromBackingInt(index);
             }
 
             pub fn indexOf(node: NodeID) usize {
-                return @intFromEnum(node);
+                return @backingInt(node);
             }
 
             pub fn firstRoot(self: *const Self) ?NodeID {
@@ -248,7 +245,6 @@ pub const Forest = struct {
                 return self.roots.tail;
             }
 
-            /// Item must be detached from any root or child list.
             pub fn appendRoot(self: *Self, item: *T) void {
                 assertDetached(item);
 
@@ -258,34 +254,37 @@ pub const Forest = struct {
                 } else {
                     self.roots.head = item;
                 }
+
                 self.roots.tail = item;
             }
 
-            /// Child must be detached and distinct from parent.
             pub fn appendChild(parent_item: *T, child_item: *T) void {
                 std.debug.assert(parent_item != child_item);
                 assertDetached(child_item);
 
                 const parent_node = &@field(parent_item.*, field);
                 const child_node = &@field(child_item.*, field);
+
                 if (parent_node.children.tail) |tail| {
                     std.debug.assert(tail != child_node);
                     tail.next_sibling = child_node;
                 } else {
                     parent_node.children.head = child_node;
                 }
+
                 parent_node.children.tail = child_node;
                 child_node.parent = parent_node;
             }
 
-            /// Item must be linked here. Descendants stay attached; removal scans siblings.
             pub fn remove(self: *Self, item: *T) void {
                 const node = &@field(item.*, field);
+
                 if (node.parent) |parent_node| {
                     removeFromNodeList(&parent_node.children, node);
                 } else {
                     removeFromRootList(&self.roots, item, node);
                 }
+
                 node.parent = null;
                 node.next_sibling = null;
             }
@@ -397,12 +396,14 @@ const Impl = struct {
         } else {
             self.roots.head = item;
         }
+
         self.roots.tail = item;
     }
 
     fn appendChild(comptime F: type, self: *F, parent: F.NodeID, child: F.NodeID) F.AppendError!void {
         const parent_links = try linkMut(F, self, parent);
         const child_links = try linkMut(F, self, child);
+
         if (parent == child or try isLinked(F, self, child, child_links)) {
             return error.AlreadyLinked;
         }
@@ -412,37 +413,43 @@ const Impl = struct {
         } else {
             parent_links.children.head = child;
         }
+
         parent_links.children.tail = child;
         child_links.parent = parent;
     }
 
     fn remove(comptime F: type, self: *F, item: F.NodeID) F.RemoveError!void {
         const links = try linkMut(F, self, item);
+
         if (links.parent) |parent| {
             const parent_links = try linkMut(F, self, parent);
             try removeFromList(F, self, &parent_links.children, item, links);
         } else {
             try removeFromList(F, self, &self.roots, item, links);
         }
+
         links.parent = null;
         links.sibling = null;
     }
 
     fn assertValid(comptime F: type, self: *const F) void {
         assertSiblingList(F, self, self.roots, null);
+
         for (self.links, 0..) |links, index| {
             if (links.parent) |parent| {
-                std.debug.assert(@intFromEnum(parent) < self.links.len);
+                std.debug.assert(@backingInt(parent) < self.links.len);
             }
+
             if (links.sibling) |next| {
-                std.debug.assert(@intFromEnum(next) < self.links.len);
+                std.debug.assert(@backingInt(next) < self.links.len);
             }
-            assertSiblingList(F, self, links.children, @enumFromInt(index));
+
+            assertSiblingList(F, self, links.children, @fromBackingInt(index));
         }
     }
 
     fn link(comptime F: type, self: *const F, item: F.NodeID) F.BoundsError!*const F.Links {
-        const index = @intFromEnum(item);
+        const index = @backingInt(item);
         if (index >= self.links.len) {
             return error.OutOfBounds;
         }
@@ -450,7 +457,7 @@ const Impl = struct {
     }
 
     fn linkMut(comptime F: type, self: *F, item: F.NodeID) F.BoundsError!*F.Links {
-        const index = @intFromEnum(item);
+        const index = @backingInt(item);
         if (index >= self.links.len) {
             return error.OutOfBounds;
         }
@@ -467,13 +474,17 @@ const Impl = struct {
     fn contains(comptime F: type, self: *const F, head: ?F.NodeID, item: F.NodeID) F.BoundsError!bool {
         var current = head;
         var steps: usize = 0;
+
         while (current) |candidate| : (steps += 1) {
             std.debug.assert(steps < self.links.len);
+
             if (candidate == item) {
                 return true;
             }
+
             current = (try link(F, self, candidate)).sibling;
         }
+
         return false;
     }
 
@@ -493,7 +504,7 @@ const Impl = struct {
 
             if (candidate == item) {
                 if (previous) |prev| {
-                    self.links[@intFromEnum(prev)].sibling = links.sibling;
+                    self.links[@backingInt(prev)].sibling = links.sibling;
                 } else {
                     list.head = links.sibling;
                 }
@@ -605,7 +616,7 @@ pub const unit = struct {
 
         const root = try forest.nodeId(0);
         const detached = try forest.nodeId(1);
-        const bad: F.NodeID = @enumFromInt(2);
+        const bad: F.NodeID = @fromBackingInt(2);
 
         try Impl.appendRoot(F, &forest, root);
 
@@ -648,11 +659,11 @@ pub const unit = struct {
         const F = Forest.Bounded();
         var links = [_]F.Links{
             .{
-                .parent = @enumFromInt(0),
-                .children = .{ .head = @enumFromInt(1), .tail = @enumFromInt(1) },
-                .sibling = @enumFromInt(1),
+                .parent = @fromBackingInt(0),
+                .children = .{ .head = @fromBackingInt(1), .tail = @fromBackingInt(1) },
+                .sibling = @fromBackingInt(1),
             },
-            .{ .parent = @enumFromInt(0) },
+            .{ .parent = @fromBackingInt(0) },
         };
 
         var forest = F.wrap(&links);
@@ -674,7 +685,7 @@ pub const unit = struct {
     test "unit: Forest.Bounded accepts empty backing" {
         const F = Forest.Bounded();
         var forest = F.wrap(&.{});
-        const bad: F.NodeID = @enumFromInt(0);
+        const bad: F.NodeID = @fromBackingInt(0);
 
         try testing.expect(forest.isEmpty());
         try testing.expectError(error.OutOfBounds, forest.nodeId(0));

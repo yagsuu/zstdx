@@ -60,14 +60,14 @@ pub fn Delegate(comptime Fn: type) type {
             return bind(Context, context, &@field(Context, method));
         }
 
-        pub const call = switch (signature.params.len) {
+        pub const call = switch (signature.param_types.len) {
             0 => struct {
                 fn call(self: Self) Return {
                     return self.invoke(self.context, .{});
                 }
             }.call,
             1 => struct {
-                fn call(self: Self, value: signature.params[0].type.?) Return {
+                fn call(self: Self, value: signature.param_types[0].?) Return {
                     return self.invoke(self.context, .{value});
                 }
             }.call,

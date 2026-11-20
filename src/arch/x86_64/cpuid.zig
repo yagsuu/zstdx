@@ -1,5 +1,3 @@
-//! unprivileged x86_64 CPUID queries and decoders.
-
 const std = @import("std");
 
 const target = @import("target.zig");
@@ -23,11 +21,11 @@ pub const Leaf = enum(u32) {
     const Self = @This();
 
     pub fn from(value: u32) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u32 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 };
 
@@ -703,13 +701,20 @@ pub fn addressSizes() AddressSizes {
 pub const unit = struct {
     const testing = std.testing;
 
+    const SignatureCase = struct {
+        eax: u32,
+        family: u12,
+        model: u8,
+    };
+
     test "signature extensions apply only to their base families" {
-        const cases = [_]struct { eax: u32, family: u12, model: u8 }{
+        const cases = [_]SignatureCase{
             .{ .eax = 0x0FF9_05A3, .family = 5, .model = 0xA },
             .{ .eax = 0x0FF9_06A3, .family = 6, .model = 0x9A },
             .{ .eax = 0x0FF9_0EA3, .family = 14, .model = 0xA },
             .{ .eax = 0x0FF9_0FA3, .family = 270, .model = 0x9A },
         };
+
         for (cases) |case| {
             const decoded = Version.decode(@bitCast(case.eax));
 
@@ -765,7 +770,7 @@ pub const unit = struct {
             .edx = 0xFFFF_FFFF,
         });
 
-        try testing.expectEqual(@as(u5, 7), @intFromEnum(decoded.kind));
+        try testing.expectEqual(@as(u5, 7), @backingInt(decoded.kind));
         try testing.expectEqual(@as(u3, 3), decoded.level);
         try testing.expectEqual(@as(u32, 64), decoded.line_size);
         try testing.expectEqual(@as(u32, 2), decoded.partitions);
@@ -802,5 +807,92 @@ pub const unit = struct {
         try testing.expectEqual(@as(u32, 1 << 15), structured.unknownBits());
         try testing.expectEqual(@as(u5, 17), structured.mawau);
         try testing.expectEqual(@as(u32, (1 << 15) | (17 << 17)), @as(u32, @bitCast(structured)));
+    }
+
+    test "unit: host vendor bytes follow architectural register order" {
+        if (!target.supported) {
+            return error.SkipZigTest;
+        }
+
+        const identity = query(.max_basic, 0);
+        const vendor_bytes = vendorString();
+
+        try testing.expectEqual(identity.ebx, std.mem.readInt(u32, vendor_bytes[0..4], .little));
+        try testing.expectEqual(identity.edx, std.mem.readInt(u32, vendor_bytes[4..8], .little));
+        try testing.expectEqual(identity.ecx, std.mem.readInt(u32, vendor_bytes[8..12], .little));
+    }
+
+    test "unit: host brand and address widths match available extended leaves" {
+        if (!target.supported) {
+            return error.SkipZigTest;
+        }
+
+        const maximum = maxExtendedLeaf();
+        const brand = brandString();
+        const widths = addressSizes();
+
+        if (maximum >= Leaf.brand_3.raw()) {
+            const bytes = brand.?;
+            inline for (.{ Leaf.brand_1, Leaf.brand_2, Leaf.brand_3 }, 0..) |which, index| {
+                const raw = query(which, 0);
+                const block = bytes[index * 16 ..][0..16];
+
+                try testing.expectEqual(raw.eax, std.mem.readInt(u32, block[0..4], .little));
+                try testing.expectEqual(raw.ebx, std.mem.readInt(u32, block[4..8], .little));
+                try testing.expectEqual(raw.ecx, std.mem.readInt(u32, block[8..12], .little));
+                try testing.expectEqual(raw.edx, std.mem.readInt(u32, block[12..16], .little));
+            }
+        } else {
+            try testing.expectEqual(@as(?[48]u8, null), brand);
+        }
+
+        if (maximum >= Leaf.address_sizes.raw()) {
+            const raw = query(.address_sizes, 0);
+
+            try testing.expectEqual(raw.eax & 0xFF, @as(u32, widths.physical_bits));
+            try testing.expectEqual((raw.eax >> 8) & 0xFF, @as(u32, widths.linear_bits));
+            try testing.expectEqual((raw.eax >> 16) & 0xFF, @as(u32, widths.guest_physical_bits));
+        } else {
+            try testing.expectEqual(AddressSizes{
+                .physical_bits = 32,
+                .linear_bits = 32,
+                .guest_physical_bits = 0,
+            }, widths);
+        }
+    }
+
+    test "unit: host cache iteration follows raw subleaves through the terminator" {
+        if (!target.supported) {
+            return error.SkipZigTest;
+        }
+
+        var iterator = caches();
+        if (maxBasicLeaf() < Leaf.cache_parameters.raw()) {
+            const descriptor = iterator.next();
+
+            try testing.expectEqual(@as(?Cache.Descriptor, null), descriptor);
+            return;
+        }
+
+        var index: u32 = 0;
+        while (iterator.next()) |descriptor| : (index += 1) {
+            const raw = query(.cache_parameters, index);
+
+            try testing.expectEqual(raw, Result{
+                .eax = descriptor.eax,
+                .ebx = descriptor.ebx,
+                .ecx = descriptor.ecx,
+                .edx = descriptor.edx,
+            });
+
+            try testing.expect(raw.eax & 31 != 0);
+        }
+
+        const terminator = query(.cache_parameters, index);
+        const exhausted = iterator.next();
+
+        try testing.expectEqual(@as(u32, 0), terminator.eax & 31);
+        try testing.expectEqual(index, iterator.subleaf);
+        try testing.expectEqual(@as(?Cache.Descriptor, null), exhausted);
     }
 };

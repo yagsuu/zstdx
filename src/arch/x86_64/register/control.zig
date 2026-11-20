@@ -60,11 +60,11 @@ pub const CR2 = enum(u64) {
     }
 
     pub fn from(value: u64) Self {
-        return @enumFromInt(value);
+        return @fromBackingInt(value);
     }
 
     pub fn raw(self: Self) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     /// Privilege: CPL 0.

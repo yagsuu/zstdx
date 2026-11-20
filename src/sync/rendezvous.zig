@@ -1,6 +1,5 @@
-//! reusable cyclic barriers
-
 const std = @import("std");
+const builtin = @import("builtin");
 
 const debug = @import("core").debug;
 
@@ -24,7 +23,7 @@ pub const State = struct {
     }
 
     pub fn observe(self: *const Self) Token {
-        return @enumFromInt(@as(u64, @bitCast(self.word.load(.acquire))));
+        return @fromBackingInt(@as(u64, @bitCast(self.word.load(.acquire))));
     }
 
     pub fn changedSince(self: *const Self, token: Token) bool {
@@ -46,12 +45,12 @@ pub const Token = enum(u64) {
     const Self = @This();
 
     pub fn pending(self: Self) u32 {
-        const word: Word = @bitCast(@intFromEnum(self));
+        const word: Word = @bitCast(@backingInt(self));
         return word.pending;
     }
 
     pub fn generation(self: Self) u32 {
-        const word: Word = @bitCast(@intFromEnum(self));
+        const word: Word = @bitCast(@backingInt(self));
         return word.generation;
     }
 };
@@ -237,6 +236,48 @@ pub const unit = struct {
         }
     };
 
+    const RendezvousRace = struct {
+        barrier: SpinBarrier = SpinBarrier.init(parties, .{}),
+        gate: std.atomic.Value(Gate) = .init(.waiting),
+        payload: [parties]usize = @splat(0),
+        failed: [parties]bool = @splat(false),
+
+        const Gate = enum(u8) {
+            waiting,
+            start,
+            abort,
+        };
+
+        const SpinBarrier = Rendezvous(@import("backend/spin.zig").Backend).Bounded;
+        const parties = 4;
+        const rounds = 8;
+
+        fn run(shared: *@This(), id: usize) void {
+            while (true) {
+                switch (shared.gate.load(.acquire)) {
+                    .waiting => std.atomic.spinLoopHint(),
+                    .start => break,
+                    .abort => return,
+                }
+            }
+
+            var failed = false;
+            for (1..rounds + 1) |round| {
+                shared.payload[id] = round * parties + id;
+                shared.barrier.arrive() catch unreachable;
+
+                for (shared.payload, 0..) |value, writer| {
+                    failed = failed or value != round * parties + writer;
+                }
+
+                // All readers must finish before the next round writes.
+                shared.barrier.arrive() catch unreachable;
+            }
+
+            shared.failed[id] = failed;
+        }
+    };
+
     test "canceled arrivals commit and final arrivals reset before wake across cycles" {
         var state = State.init(2);
         var backend: Backend = .{};
@@ -316,5 +357,46 @@ pub const unit = struct {
         try testing.expectEqual(@as(u32, 3), barrier.capacity());
         try testing.expectEqual(@as(u32, 2), barrier.pending());
         try testing.expectEqual(@as(u32, 0), barrier.stateRef().generation());
+    }
+
+    test "bounded rendezvous publishes per-thread payload across generations" {
+        if (builtin.single_threaded) {
+            return error.SkipZigTest;
+        }
+
+        const parties = RendezvousRace.parties;
+        const rounds = RendezvousRace.rounds;
+
+        var shared: RendezvousRace = .{};
+        var threads: [parties]std.Thread = undefined;
+        var spawned: usize = 0;
+
+        errdefer {
+            shared.gate.store(.abort, .release);
+            for (threads[0..spawned]) |thread| {
+                thread.join();
+            }
+        }
+
+        for (&threads, 0..) |*thread, id| {
+            thread.* = try std.Thread.spawn(.{}, RendezvousRace.run, .{ &shared, id });
+            spawned += 1;
+        }
+
+        shared.gate.store(.start, .release);
+
+        for (threads) |thread| {
+            thread.join();
+        }
+
+        spawned = 0;
+
+        for (shared.failed) |failed| {
+            try testing.expect(!failed);
+        }
+
+        try testing.expectEqual(@as(u32, parties), shared.barrier.capacity());
+        try testing.expectEqual(@as(u32, parties), shared.barrier.pending());
+        try testing.expectEqual(@as(u32, rounds * 2), shared.barrier.generation());
     }
 };

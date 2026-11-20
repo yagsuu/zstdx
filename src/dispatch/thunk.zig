@@ -33,7 +33,7 @@ pub fn functionInfo(comptime Fn: type, comptime label: []const u8) std.builtin.T
         );
     }
 
-    if (info.is_var_args) {
+    if (info.attrs.varargs) {
         @compileError(
             label ++ ": " ++ @typeName(Fn) ++
                 " is variadic; variadics are not supported",
@@ -47,8 +47,8 @@ pub fn functionInfo(comptime Fn: type, comptime label: []const u8) std.builtin.T
         );
     }
 
-    inline for (info.params, 0..) |p, i| {
-        if (p.type == null) {
+    inline for (info.param_types, 0..) |p, i| {
+        if (p == null) {
             @compileError(std.fmt.comptimePrint(
                 "{s}: {s} parameter {d} has no concrete type (anytype)",
                 .{ label, @typeName(Fn), i },
@@ -77,14 +77,14 @@ fn requireBound(
     const callee_info = functionInfo(Callee, label);
     const fn_info = functionInfo(Fn, label);
 
-    if (callee_info.params.len != fn_info.params.len + 1) {
+    if (callee_info.param_types.len != fn_info.param_types.len + 1) {
         @compileError(std.fmt.comptimePrint(
             "{s}: {s} has {d} parameters, expected {d} (context + signature)",
-            .{ label, @typeName(Callee), callee_info.params.len, fn_info.params.len + 1 },
+            .{ label, @typeName(Callee), callee_info.param_types.len, fn_info.param_types.len + 1 },
         ));
     }
 
-    const first = callee_info.params[0].type.?;
+    const first = callee_info.param_types[0].?;
 
     if (first != *Context) {
         @compileError(
@@ -93,9 +93,9 @@ fn requireBound(
         );
     }
 
-    inline for (fn_info.params, 0..) |p, i| {
-        const expected = p.type.?;
-        const got = callee_info.params[i + 1].type.?;
+    inline for (fn_info.param_types, 0..) |p, i| {
+        const expected = p.?;
+        const got = callee_info.param_types[i + 1].?;
 
         if (expected != got) {
             @compileError(std.fmt.comptimePrint(

@@ -54,7 +54,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Int) type {
                 if (!isAligned(address)) {
                     return error.Misaligned;
                 }
-                return @enumFromInt(address.raw());
+                return @fromBackingInt(address.raw());
             }
 
             pub fn fromInt(value: Int) Error!Self {
@@ -62,12 +62,12 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Int) type {
             }
 
             pub fn alignDown(address: Addr) Self {
-                return @enumFromInt(address.raw() & ~mask);
+                return @fromBackingInt(address.raw() & ~mask);
             }
 
             pub fn alignUp(address: Addr) Error!Self {
                 const added = std.math.add(Int, address.raw(), mask) catch return error.Overflow;
-                return @enumFromInt(added & ~mask);
+                return @fromBackingInt(added & ~mask);
             }
 
             pub fn addr(self: Self) Addr {
@@ -75,7 +75,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Int) type {
             }
 
             pub fn raw(self: Self) Int {
-                return @intFromEnum(self);
+                return @backingInt(self);
             }
 
             pub fn index(self: Self) Int {
@@ -134,7 +134,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Int) type {
             const Self = @This();
 
             pub fn from(value: Int) Self {
-                return @enumFromInt(value);
+                return @fromBackingInt(value);
             }
 
             pub fn fromBytes(value: Int) Error!Self {
@@ -159,7 +159,7 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Int) type {
             }
 
             pub fn raw(self: Self) Int {
-                return @intFromEnum(self);
+                return @backingInt(self);
             }
 
             pub fn bytes(self: Self) Error!Int {
@@ -217,12 +217,12 @@ pub fn Page(comptime Addr: type, comptime page_size: Addr.Int) type {
 
             pub fn first(self: Self) Base {
                 self.assertValid();
-                return @enumFromInt(self.bounds.start << shift);
+                return @fromBackingInt(self.bounds.start << shift);
             }
 
             pub fn last(self: Self) Base {
                 self.assertValid();
-                return @enumFromInt(self.bounds.end << shift);
+                return @fromBackingInt(self.bounds.end << shift);
             }
 
             pub fn count(self: Self) Count {
@@ -445,7 +445,7 @@ pub const unit = struct {
         try testing.expectError(error.Overflow, P.Base.alignUp(A.from(254)));
         try testing.expectError(error.Overflow, (try P.Base.fromInt(252)).add(P.Count.from(1)));
         try testing.expectError(error.Overflow, frame.sub(P.Count.from(3)));
-        try testing.expectError(error.Misaligned, @as(P.Base, @enumFromInt(1)).add(P.Count.zero()));
+        try testing.expectError(error.Misaligned, @as(P.Base, @fromBackingInt(1)).add(P.Count.zero()));
     }
 
     test "inclusive page ranges validate bounds and represent the final page" {
@@ -467,7 +467,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(?P.Range, null), try P.Range.containing(A.from(255), 0));
         try testing.expectError(error.Misaligned, P.Range.fromBytes(A.from(9), 4));
         try testing.expectError(error.Misaligned, P.Range.fromBytes(A.from(8), 5));
-        try testing.expectError(error.Misaligned, P.Range.init(@enumFromInt(1), last));
+        try testing.expectError(error.Misaligned, P.Range.init(@fromBackingInt(1), last));
         try testing.expectError(error.OutOfBounds, P.Range.init(last, first));
 
         const final_page = (try P.Range.fromBytes(A.from(252), 4)).?;
@@ -598,7 +598,7 @@ pub const unit = struct {
         try testing.expectEqual(@as(?P.Range, null), try P.Range.fromCount(last_page, P.Count.zero()));
         try testing.expectEqual(last_page, (try P.Range.fromCount(last_page, P.Count.from(1))).?.last());
         try testing.expectError(error.Overflow, P.Range.fromCount(last_page, P.Count.from(2)));
-        try testing.expectError(error.Misaligned, P.Range.fromCount(@enumFromInt(1), P.Count.from(1)));
+        try testing.expectError(error.Misaligned, P.Range.fromCount(@fromBackingInt(1), P.Count.from(1)));
     }
 
     test "slice containment derives its address and measures elements in bytes" {

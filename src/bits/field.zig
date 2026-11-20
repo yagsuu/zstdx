@@ -45,7 +45,7 @@ const Impl = struct {
         return if (count(schema, .trigger) != 0) struct {
             const Ops = Impl.Operations(T, schema, options);
 
-            const __StdxBitField = Ops.Metadata;
+            pub const __StdxBitField = Ops.Metadata;
 
             pub const Int = T;
             pub const Word = Ops.Word;
@@ -73,7 +73,7 @@ const Impl = struct {
         } else struct {
             const Ops = Impl.Operations(T, schema, options);
 
-            const __StdxBitField = Ops.Metadata;
+            pub const __StdxBitField = Ops.Metadata;
 
             pub const Int = T;
             pub const Word = Ops.Word;
@@ -103,7 +103,7 @@ const Impl = struct {
         return if (count(schema, .trigger) != 0) struct {
             const Ops = Impl.Operations(T, schema, options);
 
-            const __StdxBitField = Ops.Metadata;
+            pub const __StdxBitField = Ops.Metadata;
 
             pub const Int = T;
             pub const Word = Ops.Word;
@@ -135,7 +135,7 @@ const Impl = struct {
         } else struct {
             const Ops = Impl.Operations(T, schema, options);
 
-            const __StdxBitField = Ops.Metadata;
+            pub const __StdxBitField = Ops.Metadata;
 
             pub const Int = T;
             pub const Word = Ops.Word;
@@ -227,7 +227,7 @@ const Impl = struct {
 
         var names: [len][:0]const u8 = undefined;
         var types: [len]type = undefined;
-        var attributes: [len]std.builtin.Type.StructField.Attributes = undefined;
+        var attributes: [len]std.lang.Type.Struct.FieldAttributes = undefined;
 
         var index: usize = 0;
         var offset: usize = 0;
@@ -308,7 +308,7 @@ const Impl = struct {
 
         var names: [len][:0]const u8 = undefined;
         var types: [len]type = undefined;
-        var attributes: [len]std.builtin.Type.StructField.Attributes = undefined;
+        var attributes: [len]std.lang.Type.Struct.FieldAttributes = undefined;
         var index: usize = 0;
 
         for (schema) |field| {
@@ -356,8 +356,8 @@ const Impl = struct {
             var occupied: T = 0;
 
             for (schema) |field| {
-                for (std.meta.fields(PolicyMasks)) |category| {
-                    @field(policy, category.name) |= @field(field.policy, category.name) << field.offset;
+                inline for (@typeInfo(PolicyMasks).@"struct".field_names) |category| {
+                    @field(policy, category) |= @field(field.policy, category) << field.offset;
                 }
 
                 declared |= @as(T, field.declared) << field.offset;
@@ -412,11 +412,11 @@ const Impl = struct {
         var previous: usize = 0;
 
         for (entries(declarations), 0..) |entry, index| {
-            const Resolved = ResolveField(T, entry.name, @field(declarations, entry.name), cursor);
+            const Resolved = ResolveField(T, entry, @field(declarations, entry), cursor);
 
             const width = @bitSizeOf(Resolved.Int);
             const field: Field = .{
-                .name = entry.name,
+                .name = entry,
                 .offset = Resolved.offset,
                 .type = Resolved.Type,
                 .declared = Resolved.declared,
@@ -425,15 +425,15 @@ const Impl = struct {
             };
 
             if (field.offset < previous) {
-                @compileError(std.fmt.comptimePrint("BitField: field '{s}' is out of offset order", .{entry.name}));
+                @compileError(std.fmt.comptimePrint("BitField: field '{s}' is out of offset order", .{entry}));
             }
 
             if (field.offset < cursor) {
-                @compileError(std.fmt.comptimePrint("BitField: field '{s}' overlaps the previous field", .{entry.name}));
+                @compileError(std.fmt.comptimePrint("BitField: field '{s}' overlaps the previous field", .{entry}));
             }
 
             if (field.offset > @bitSizeOf(T) or width > @bitSizeOf(T) - field.offset) {
-                @compileError(std.fmt.comptimePrint("BitField: field '{s}' exceeds backing width", .{entry.name}));
+                @compileError(std.fmt.comptimePrint("BitField: field '{s}' exceeds backing width", .{entry}));
             }
 
             schema[index] = field;
@@ -457,16 +457,16 @@ const Impl = struct {
         const bare = @TypeOf(value) == type;
 
         if (!bare) {
-            for (std.meta.fields(@TypeOf(value))) |property| {
-                const known = std.mem.eql(u8, property.name, "offset") or
-                    std.mem.eql(u8, property.name, "type") or
-                    std.mem.eql(u8, property.name, "width") or
-                    std.mem.eql(u8, property.name, "access") or
-                    std.mem.eql(u8, property.name, "write") or
-                    std.mem.eql(u8, property.name, "default");
+            inline for (@typeInfo(@TypeOf(value)).@"struct".field_names) |property| {
+                const known = std.mem.eql(u8, property, "offset") or
+                    std.mem.eql(u8, property, "type") or
+                    std.mem.eql(u8, property, "width") or
+                    std.mem.eql(u8, property, "access") or
+                    std.mem.eql(u8, property, "write") or
+                    std.mem.eql(u8, property, "default");
 
                 if (!known) {
-                    @compileError(std.fmt.comptimePrint("BitField: unknown property '{s}'", .{property.name}));
+                    @compileError(std.fmt.comptimePrint("BitField: unknown property '{s}'", .{property}));
                 }
             }
         }
@@ -528,13 +528,13 @@ const Impl = struct {
                         @compileError("BitField: nested metadata backing type does not match field backing type");
                     }
 
-                    for (std.meta.fields(PolicyMasks)) |category| {
-                        const bits: comptime_int = @field(Meta.masks, category.name);
+                    for (@typeInfo(PolicyMasks).@"struct".field_names) |category| {
+                        const bits: comptime_int = @field(Meta.masks, category);
                         if (bits < 0 or bits > full) {
                             @compileError("BitField: nested policy mask exceeds field width");
                         }
 
-                        @field(result, category.name) = bits;
+                        @field(result, category) = bits;
                     }
 
                     break :blk result;
@@ -644,11 +644,11 @@ const Impl = struct {
                 result |= selectionMask(T, schema, Allowed, filter, item);
             }
         } else {
-            for (std.meta.fields(@TypeOf(selection))) |entry| {
-                const name: Allowed = @field(Allowed, entry.name);
+            inline for (info.@"struct".field_names) |entry| {
+                const name: Allowed = @field(Allowed, entry);
                 const field = lookup(schema, @tagName(name));
 
-                result |= nestedMask(T, field, filter, @field(selection, entry.name));
+                result |= nestedMask(T, field, filter, @field(selection, entry));
             }
         }
 
@@ -708,8 +708,8 @@ const Impl = struct {
             @compileError("BitField: enum fields require a positive-width unsigned tag");
         }
 
-        if (info.@"enum".is_exhaustive) {
-            const len: comptime_int = info.@"enum".fields.len;
+        if (info.@"enum".mode == .exhaustive) {
+            const len: comptime_int = info.@"enum".field_names.len;
 
             if (len == 0 or len - 1 != std.math.maxInt(Int)) {
                 @compileError("BitField: exhaustive enum must cover every tag value");
@@ -722,7 +722,7 @@ const Impl = struct {
     fn toBits(comptime T: type, value: anytype) T {
         return switch (@typeInfo(@TypeOf(value))) {
             .bool => @intFromBool(value),
-            .@"enum" => @intFromEnum(value),
+            .@"enum" => @backingInt(value),
             .@"struct" => @as(@typeInfo(@TypeOf(value)).@"struct".backing_integer.?, @bitCast(value)),
             else => value,
         };
@@ -733,7 +733,7 @@ const Impl = struct {
 
         return switch (@typeInfo(T)) {
             .bool => value != 0,
-            .@"enum" => @enumFromInt(value),
+            .@"enum" => @fromBackingInt(value),
             else => value,
         };
     }
@@ -760,13 +760,13 @@ const Impl = struct {
         return policyBits(field, filter) != 0;
     }
 
-    fn entries(comptime declarations: anytype) []const std.builtin.Type.StructField {
+    fn entries(comptime declarations: anytype) []const [:0]const u8 {
         const info = @typeInfo(@TypeOf(declarations));
-        if (info != .@"struct" or (info.@"struct".is_tuple and info.@"struct".fields.len != 0)) {
+        if (info != .@"struct" or (info.@"struct".is_tuple and info.@"struct".field_names.len != 0)) {
             @compileError("BitField requires a named-field record");
         }
 
-        return info.@"struct".fields;
+        return info.@"struct".field_names;
     }
 
     fn nested(comptime T: type) bool {
@@ -845,9 +845,10 @@ pub const unit = struct {
 
             const Tag = enum(T) { zero = 0, _ };
             const Typed = BitField(T, .{ .value = Tag });
-            const unknown: Tag = @enumFromInt(max);
 
-            try testing.expectEqual(max, @intFromEnum(Typed.from(max).value));
+            const unknown: Tag = @fromBackingInt(max);
+
+            try testing.expectEqual(max, @backingInt(Typed.from(max).value));
             try testing.expectEqual(max, Typed.encode(.{ .value = unknown }));
             try testing.expectEqual(@as(T, 0), Typed.raw(Typed.replace(Typed.from(max), .{ .value = .zero })));
         }
@@ -1012,7 +1013,7 @@ pub const unit = struct {
         const snapshot = S.from(0xabff);
         const unknown: Mode = snapshot.mode;
 
-        try testing.expectEqual(@as(u2, 3), @intFromEnum(unknown));
+        try testing.expectEqual(@as(u2, 3), @backingInt(unknown));
         try testing.expectEqual(@as(u16, 0x33), S.encode(.{ .mode = unknown }));
         try testing.expectEqual(@as(u16, 0xabdf), S.raw(S.replace(snapshot, .{ .mode = .polling })));
         try testing.expectEqual(@as(u16, 0x30), S.mask(.mode));
@@ -1234,8 +1235,8 @@ pub const unit = struct {
         const initial = comptime S.default();
 
         try testing.expectEqual(@as(u8, 0x30), S.raw(initial));
-        try testing.expectEqual(@as(u2, 0), @intFromEnum(initial.one));
-        try testing.expectEqual(@as(u2, 3), @intFromEnum(initial.zero));
+        try testing.expectEqual(@as(u2, 0), @backingInt(initial.one));
+        try testing.expectEqual(@as(u2, 3), @backingInt(initial.zero));
         try testing.expectEqual(@as(u8, 0x11), S.encode(.{ .one = .single, .zero = .single }));
         try testing.expectEqual(@as(u8, 0x11), S.ackAll(S.from(0x21)));
         try testing.expectEqual(@as(u8, 0x31), S.ack(S.from(0x21), .one));

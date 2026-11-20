@@ -30,7 +30,7 @@ const Impl = struct {
 
         var names: [members.len][:0]const u8 = undefined;
         var types: [members.len]type = undefined;
-        var attributes: [members.len]std.builtin.Type.StructField.Attributes = undefined;
+        var attributes: [members.len]std.lang.Type.Struct.FieldAttributes = undefined;
 
         for (members, 0..) |member, index| {
             const field_align = if (index == 0)
@@ -135,11 +135,11 @@ const Impl = struct {
         var prev_offset: usize = 0;
 
         for (entries(fields), 0..) |entry, field_index| {
-            const declaration = @field(fields, entry.name);
-            const Resolved = ResolveField(entry.name, declaration, offset);
+            const declaration = @field(fields, entry);
+            const Resolved = ResolveField(entry, declaration, offset);
 
             const field: Field = .{
-                .name = entry.name,
+                .name = entry,
                 .offset = Resolved.offset,
                 .type = Resolved.Type,
                 .default = Resolved.default,
@@ -173,13 +173,13 @@ const Impl = struct {
         const bare = @TypeOf(declaration) == type;
 
         if (!bare) {
-            for (std.meta.fields(@TypeOf(declaration))) |property| {
-                const known = std.mem.eql(u8, property.name, "offset") or
-                    std.mem.eql(u8, property.name, "type") or
-                    std.mem.eql(u8, property.name, "default");
+            inline for (@typeInfo(@TypeOf(declaration)).@"struct".field_names) |property| {
+                const known = std.mem.eql(u8, property, "offset") or
+                    std.mem.eql(u8, property, "type") or
+                    std.mem.eql(u8, property, "default");
 
                 if (!known) {
-                    @compileError(std.fmt.comptimePrint("Struct: unknown field property '{s}'", .{property.name}));
+                    @compileError(std.fmt.comptimePrint("Struct: unknown field property '{s}'", .{property}));
                 }
             }
         }
@@ -217,17 +217,17 @@ const Impl = struct {
         };
     }
 
-    fn entries(comptime fields: anytype) []const std.builtin.Type.StructField {
+    fn entries(comptime fields: anytype) []const [:0]const u8 {
         const info = @typeInfo(@TypeOf(fields));
         if (info != .@"struct") {
             @compileError("Struct: fields must be a named-field record");
         }
 
-        if (info.@"struct".is_tuple and info.@"struct".fields.len != 0) {
+        if (info.@"struct".is_tuple and info.@"struct".field_names.len != 0) {
             @compileError("Struct: fields must be a named-field record");
         }
 
-        return info.@"struct".fields;
+        return info.@"struct".field_names;
     }
 };
 
@@ -497,11 +497,11 @@ pub const unit = struct {
         @memset(std.mem.asBytes(&records), 0xa5);
         @memset(std.mem.asBytes(&records[1]), 0x5a);
 
-        try testing.expectEqualSlices(u8, &([_]u8{0} ** 8), std.mem.asBytes(&initialized));
+        try testing.expectEqualSlices(u8, &@as([8]u8, @splat(0)), std.mem.asBytes(&initialized));
         try testing.expectEqual(@as(usize, 0), std.mem.asBytes(&zero).len);
         try testing.expectEqual(@as(usize, 0), std.mem.asBytes(&aligned_zero).len);
-        try testing.expectEqualSlices(u8, &([_]u8{0xa5} ** 8), std.mem.asBytes(&records[0]));
-        try testing.expectEqualSlices(u8, &([_]u8{0x5a} ** 8), std.mem.asBytes(&records[1]));
+        try testing.expectEqualSlices(u8, &@as([8]u8, @splat(0xa5)), std.mem.asBytes(&records[0]));
+        try testing.expectEqualSlices(u8, &@as([8]u8, @splat(0x5a)), std.mem.asBytes(&records[1]));
         try testing.expectEqual(@as(usize, 8), @intFromPtr(&records[1]) - @intFromPtr(&records[0]));
         try testing.expectEqual(@as(usize, 4), @alignOf(Empty));
         try testing.expectEqual(@as(usize, 0), @sizeOf(Zero));

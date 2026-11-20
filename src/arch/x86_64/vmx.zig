@@ -274,7 +274,7 @@ pub fn invept(scope: Invept.Scope, descriptor: *const Invept.Descriptor) Error!v
         \\pushfq
         \\popq %[flags]
         : [flags] "=r" (flags),
-        : [scope] "r" (@intFromEnum(scope)),
+        : [scope] "r" (@backingInt(scope)),
           [descriptor] "r" (descriptor),
         : .{ .memory = true, .cc = true });
 
@@ -295,7 +295,7 @@ pub fn invvpid(scope: Invvpid.Scope, descriptor: *const Invvpid.Descriptor) Erro
         \\pushfq
         \\popq %[flags]
         : [flags] "=r" (flags),
-        : [scope] "r" (@intFromEnum(scope)),
+        : [scope] "r" (@backingInt(scope)),
           [descriptor] "r" (descriptor),
         : .{ .memory = true, .cc = true });
 

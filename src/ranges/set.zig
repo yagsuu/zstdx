@@ -477,7 +477,7 @@ pub const unit = struct {
 
         var buffer: [16]Range = undefined;
         var count: usize = 0;
-        var model = [_]bool{false} ** 32;
+        var model: [32]bool = @splat(false);
 
         var prng = std.Random.Xoshiro256.init(0x12345678);
         const random = prng.random();

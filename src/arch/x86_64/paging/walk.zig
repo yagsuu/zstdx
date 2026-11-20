@@ -1,6 +1,5 @@
-//! x86_64 page-walk state, results, and faults.
-
 const std = @import("std");
+
 const cpuid = @import("../cpuid.zig");
 const registers = @import("../registers.zig");
 const address = @import("address.zig");
@@ -358,6 +357,53 @@ const Impl = struct {
 pub const unit = struct {
     const testing = std.testing;
 
+    const TranslationCase = struct {
+        mode: Mode,
+        leaf: Level,
+        frame: u64,
+        reads: usize,
+    };
+
+    const FaultCase = struct {
+        slot: usize,
+        raw: u64,
+        nxe: bool,
+        reason: Fault.Reason,
+    };
+
+    const Storage = struct {
+        pml5: table.PML5.Storage = .init(),
+        pml4: table.PML4.Storage = .init(),
+        pdpt: table.PDPT.Storage = .init(),
+        pd: table.PD.Storage = .init(),
+        pt: table.PT.Storage = .init(),
+    };
+
+    const StorageReader = struct {
+        storage: *const Storage,
+        reads: usize = 0,
+
+        pub const Error = error{UnmappedTable};
+
+        pub fn readEntry(self: *StorageReader, entry_address: PhysAddr) Error!table.Entry {
+            const raw = entry_address.raw();
+            const index = Index.from(@intCast((raw & 0xfff) / 8));
+
+            const payload = switch (raw & ~@as(u64, 0xfff)) {
+                0x1000 => self.storage.pml5.get(index).raw(),
+                0x2000 => self.storage.pml4.get(index).raw(),
+                0x3000 => self.storage.pdpt.get(index).raw(),
+                0x4000 => self.storage.pd.get(index).raw(),
+                0x5000 => self.storage.pt.get(index).raw(),
+                else => return error.UnmappedTable,
+            };
+
+            self.reads += 1;
+
+            return .from(payload);
+        }
+    };
+
     const Fixture = struct {
         entries: [5]table.Entry = undefined,
         addresses: [5]PhysAddr = undefined,
@@ -370,13 +416,17 @@ pub const unit = struct {
         fn init(mode: Mode, leaf: Level) Fixture {
             var fixture = Fixture{};
             var level = mode.rootLevel();
+
             while (true) {
                 const slot = fixture.count;
                 const base = @as(u64, @intCast(slot + 1)) << 12;
                 const index = testLinear(mode).index(level);
+
                 fixture.addresses[slot] = .from(base + @as(u64, index.raw()) * @sizeOf(table.Entry));
+
                 const target: u64 = if (level == leaf) 0x4000_0000 else base + 0x1000;
                 fixture.entries[slot] = .from(target | 7);
+
                 if (level == leaf and leaf != .pt) {
                     fixture.entries[slot].page_size_or_pat = true;
                 }
@@ -385,20 +435,25 @@ pub const unit = struct {
                 if (level == leaf) {
                     break;
                 }
+
                 level = level.child().?;
             }
+
             return fixture;
         }
 
         fn readEntry(self: *Fixture, entry_address: PhysAddr) Error!table.Entry {
             const slot = self.calls;
             self.calls += 1;
+
             if (self.fail_at == slot) {
                 return error.Unavailable;
             }
+
             if (slot >= self.count or self.addresses[slot] != entry_address) {
                 return error.UnexpectedRead;
             }
+
             return self.entries[slot];
         }
     };
@@ -406,6 +461,7 @@ pub const unit = struct {
     fn testLinear(mode: Mode) LinearAddr {
         const low: u64 = (@as(u64, 1) << 39) | (@as(u64, 2) << 30) | (@as(u64, 3) << 21) |
             (@as(u64, 4) << 12) | 0xabc;
+
         return .from(low | (if (mode == .level5) @as(u64, 5) << 48 else 0));
     }
 
@@ -480,19 +536,22 @@ pub const unit = struct {
     }
 
     test "unit: absence and reserved encodings stop reads and preserve fault codes" {
-        const cases = [_]struct { slot: usize, raw: u64, nxe: bool, reason: Fault.Reason }{
+        const cases = [_]FaultCase{
             .{ .slot = 0, .raw = 0x8000_0000_0000_0080, .nxe = false, .reason = .not_present },
             .{ .slot = 0, .raw = 0x2087, .nxe = true, .reason = .reserved_bits },
             .{ .slot = 1, .raw = 0x8000_0000_0000_3007, .nxe = false, .reason = .reserved_bits },
             .{ .slot = 2, .raw = 0x4000_2087, .nxe = true, .reason = .reserved_bits },
         };
+
         for (cases) |case| {
             var fixture = Fixture.init(.level4, .pt);
             fixture.entries[0].user = false;
             fixture.entries[case.slot] = .from(case.raw);
             fixture.fail_at = case.slot + 1;
+
             var walker = try testWalker(&fixture, .level4);
             walker.nxe = case.nxe;
+
             const fault = (try Impl.translate(&walker, testLinear(.level4), .execute(.user))).fault;
 
             try testing.expectEqual(case.reason, fault.reason);
@@ -511,11 +570,16 @@ pub const unit = struct {
 
         try testing.expectError(error.NonCanonical, walker.translate(.from(@as(u64, 1) << 57), .read(.supervisor)));
         try testing.expectEqual(@as(usize, 0), fixture.calls);
+
         for ([_]usize{ 0, 4 }) |slot| {
             fixture.calls = 0;
             fixture.fail_at = slot;
 
-            try testing.expectError(error.Unavailable, Impl.translate(&walker, testLinear(.level5), .read(.supervisor)));
+            try testing.expectError(
+                error.Unavailable,
+                Impl.translate(&walker, testLinear(.level5), .read(.supervisor)),
+            );
+
             try testing.expectEqual(slot + 1, fixture.calls);
         }
     }
@@ -550,17 +614,121 @@ pub const unit = struct {
             .{ @as(u6, 24), error.UnsupportedPKS },
             .{ @as(u6, 28), error.UnsupportedLAM },
         };
+
         inline for (cases) |case| {
             const cr4 = registers.CR4.from(@as(u64, 1) << case[0]);
             try testing.expectError(case[1], Impl.requireSupportedControls(registers.CR3.from(0), cr4));
         }
+
         for ([_]u6{ 61, 62 }) |bit| {
             const cr3 = registers.CR3.from(@as(u64, 1) << bit);
             try testing.expectError(error.UnsupportedLAM, Impl.requireSupportedControls(cr3, registers.CR4.from(0)));
         }
+
         try Impl.requireSupportedControls(registers.CR3.from(0), registers.CR4.from(0));
+
         comptime {
             _ = &Walker(Fixture).initCurrent;
         }
+    }
+
+    test "unit: typed caller storage translates every leaf size without mutation" {
+        const cases = [_]TranslationCase{
+            .{ .mode = .level4, .leaf = .pt, .frame = 0x8000, .reads = 4 },
+            .{ .mode = .level5, .leaf = .pt, .frame = 0x8000, .reads = 5 },
+            .{ .mode = .level4, .leaf = .pd, .frame = 0x20_0000, .reads = 3 },
+            .{ .mode = .level4, .leaf = .pdpt, .frame = 0x4000_0000, .reads = 2 },
+        };
+
+        const raw_linear = (@as(u64, 5) << 48) |
+            (@as(u64, 1) << 39) |
+            (@as(u64, 2) << 30) |
+            (@as(u64, 3) << 21) |
+            (@as(u64, 4) << 12) |
+            0xabc;
+
+        const page_flags = table.PageFlags{
+            .user = true,
+            .pat = true,
+            .global = true,
+            .available_low = 0b101,
+            .available_high = 0x155,
+        };
+
+        for (cases) |case| {
+            var storage = Storage{};
+
+            const leaf_payload = try populateStorage(&storage, case.leaf, case.frame, page_flags);
+            const before = storage;
+
+            var reader = StorageReader{ .storage = &storage };
+            const walker = try Walker(StorageReader).init(.{
+                .root = .from(if (case.mode == .level5) 0x1000 else 0x2000),
+                .mode = case.mode,
+                .physical_width = .bits_48,
+                .allow_1gib = true,
+                .write_protect = true,
+            }, &reader);
+
+            const linear = try LinearAddr.fromCanonical(
+                if (case.mode == .level5) raw_linear else raw_linear & ((@as(u64, 1) << 48) - 1),
+                case.mode,
+            );
+
+            const result = try walker.translate(linear, .read(.user));
+            const mapped = switch (result) {
+                .mapped => |mapping| mapping,
+                .fault => return error.ExpectedMapping,
+            };
+
+            try testing.expectEqual(case.frame + (linear.raw() & case.leaf.offsetMask().?), mapped.physical.raw());
+            try testing.expectEqual(case.frame, mapped.frame.addressInt());
+            try testing.expectEqual(case.leaf, mapped.frame.level());
+            try testing.expectEqual(leaf_payload, mapped.step.entry.raw());
+            try testing.expect(mapped.attributes.pat);
+            try testing.expect(mapped.attributes.global);
+            try testing.expect(!mapped.permissions.writable);
+            try testing.expectEqual(case.reads, reader.reads);
+
+            const write_result = try walker.translate(linear, .write(.user));
+            switch (write_result) {
+                .mapped => return error.ExpectedFault,
+                .fault => |fault| try testing.expectEqual(.write_to_read_only, fault.reason),
+            }
+
+            try testing.expectEqualSlices(u8, std.mem.asBytes(&before), std.mem.asBytes(&storage));
+        }
+    }
+
+    fn populateStorage(storage: *Storage, leaf: Level, frame: u64, page_flags: table.PageFlags) !u64 {
+        const pml4 = try table.PML4.init(try Phys4K.Base.fromInt(0x2000));
+        const pdpt = try table.PDPT.init(try Phys4K.Base.fromInt(0x3000));
+        const pd = try table.PD.init(try Phys4K.Base.fromInt(0x4000));
+        const pt = try table.PT.init(try Phys4K.Base.fromInt(0x5000));
+        const table_flags = table.TableFlags{ .writable = true, .user = true };
+
+        storage.pml5.set(.from(5), table.PML5.tableEntry(pml4, table_flags));
+        storage.pml4.set(.from(1), table.PML4.tableEntry(pdpt, table_flags));
+        storage.pdpt.set(.from(2), table.PDPT.tableEntry(pd, table_flags));
+        storage.pd.set(.from(3), table.PD.tableEntry(pt, table_flags));
+
+        return switch (leaf) {
+            .pt => blk: {
+                const entry = try table.PT.pageEntry(try Phys4K.Base.fromInt(frame), page_flags);
+                storage.pt.set(.from(4), entry);
+                break :blk entry.raw();
+            },
+            .pd => blk: {
+                const entry = try table.PD.pageEntry(try address.Phys2M.Base.fromInt(frame), page_flags);
+                storage.pd.set(.from(3), entry);
+                break :blk entry.raw();
+            },
+            .pdpt => blk: {
+                const entry = try table.PDPT.pageEntry(try address.Phys1G.Base.fromInt(frame), page_flags);
+                storage.pdpt.set(.from(2), entry);
+                break :blk entry.raw();
+            },
+            else => unreachable,
+        };
     }
 };
