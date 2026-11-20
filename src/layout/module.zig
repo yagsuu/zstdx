@@ -9,17 +9,17 @@ pub const EndianInt = endian.EndianInt;
 pub const Le = endian.Le;
 pub const Be = endian.Be;
 
-pub const assertLayout = assert.assertLayout;
+pub const CacheAlign = cache.CacheAlign;
+pub const CachePad = cache.CachePad;
+
 pub const Struct = @import("struct.zig").Struct;
 
+pub const assertLayout = assert.assertLayout;
 pub const alignDown = alignment.alignDown;
 pub const alignDownDelta = alignment.alignDownDelta;
 pub const alignUp = alignment.alignUp;
 pub const alignUpDelta = alignment.alignUpDelta;
 pub const isAligned = alignment.isAligned;
-
-pub const CacheAlign = cache.CacheAlign;
-pub const CachePad = cache.CachePad;
 
 test {
     _ = alignment.unit;

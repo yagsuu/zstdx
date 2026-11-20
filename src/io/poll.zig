@@ -1,12 +1,13 @@
 const std = @import("std");
+
 const time = @import("time");
 
 const Deadline = time.Deadline;
 const Backoff = time.Backoff;
 
-pub const until = Impl.until;
-
 pub const Result = Impl.Result;
+
+pub const until = Impl.until;
 
 const Impl = struct {
     const ResultInfo = struct {

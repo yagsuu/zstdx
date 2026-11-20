@@ -51,7 +51,6 @@ pub const Mmio = struct {
             const Self = @This();
             const Pointer = *volatile Impl.Word(T);
 
-            /// checks alignment only; the caller supplies a live mapping.
             pub fn from(address: addr.VirtAddr) error{Misaligned}!Self {
                 return .{ .ptr = try addr.castAligned(Pointer, address) };
             }
@@ -102,6 +101,7 @@ const Impl = struct {
 
     fn Word(comptime T: type) type {
         const invalid = "Mmio.Register requires u8/u16/u32/u64, layout.Le/Be over those widths, or a packed struct backed by those widths";
+
         const Int = switch (@typeInfo(T)) {
             .int => T,
             .@"struct" => |info| if (info.layout == .@"packed")

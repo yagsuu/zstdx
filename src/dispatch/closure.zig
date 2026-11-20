@@ -1,6 +1,5 @@
-//! delegates with inline state
-
 const std = @import("std");
+
 const layout = @import("layout");
 
 const delegate = @import("delegate.zig");

@@ -54,11 +54,15 @@ const Impl = struct {
         const vtable = @typeInfo(Contract.Vtable).@"struct";
 
         for (vtable.field_names, vtable.field_types) |name, FieldType| {
-            requireOperation(Instance, name, if (@typeInfo(FieldType) == .optional)
-                @typeInfo(FieldType).optional.child
-            else
-                FieldType);
+            requireOperation(Instance, name, FieldType);
         }
+    }
+
+    fn OpPtr(comptime Slot: type) type {
+        return switch (@typeInfo(Slot)) {
+            .optional => |optional| optional.child,
+            else => Slot,
+        };
     }
 
     fn requireOperation(
@@ -67,7 +71,7 @@ const Impl = struct {
         comptime Pointer: type,
     ) void {
         const label = "Interface: operation '" ++ name ++ "'";
-        const pointer = switch (@typeInfo(Pointer)) {
+        const pointer = switch (@typeInfo(OpPtr(Pointer))) {
             .pointer => |p| p,
             else => @compileError(label ++ ": expected a const function pointer"),
         };
@@ -130,28 +134,44 @@ const Impl = struct {
                 var result: Contract.Vtable = undefined;
 
                 const vtable_info = @typeInfo(Contract.Vtable).@"struct";
-                for (vtable_info.field_names, vtable_info.field_types) |name, FieldType| {
-                    const optional = @typeInfo(FieldType) == .optional;
-                    const Signature = if (optional) @typeInfo(FieldType).optional.child else FieldType;
 
-                    const operation = if (@hasField(@TypeOf(overrides), name))
+                for (vtable_info.field_names, vtable_info.field_types) |name, FieldType| {
+                    const overridden = @hasField(@TypeOf(overrides), name);
+                    const optional = @typeInfo(FieldType) == .optional;
+
+                    if (!overridden and !@hasDecl(Provider, name)) {
+                        if (!optional) {
+                            @compileError("Interface: operation '" ++ name ++ "': missing provider method");
+                        }
+
+                        @field(result, name) = null;
+                        continue;
+                    }
+
+                    const operation = if (overridden)
                         @field(overrides, name)
-                    else if (@hasDecl(Provider, name))
-                        @field(Provider, name)
-                    else if (optional)
-                        null
                     else
-                        @compileError("Interface: operation '" ++ name ++ "': " ++ @typeName(Provider) ++ " has no matching method");
+                        @field(Provider, name);
 
                     if (@TypeOf(operation) == @TypeOf(null)) {
                         if (!optional) {
-                            @compileError("Interface.bindWith: required operation '" ++ name ++ "' cannot be null");
+                            @compileError(
+                                "Interface: operation '" ++ name ++ "': required operation cannot be null",
+                            );
                         }
+
                         @field(result, name) = null;
-                    } else {
-                        const Adapter = Impl.Method(Provider, name, Signature, operation);
-                        @field(result, name) = &Adapter.call;
+                        continue;
                     }
+
+                    const Adapter = Impl.Method(
+                        Provider,
+                        name,
+                        OpPtr(FieldType),
+                        operation,
+                    );
+
+                    @field(result, name) = &Adapter.call;
                 }
 
                 break :blk result;
@@ -175,12 +195,12 @@ const Impl = struct {
         comptime Signature: type,
         comptime operation: anytype,
     ) std.builtin.Type.Fn {
-        const label = "Interface: operation '" ++ name ++ "'";
         const Function = switch (@typeInfo(@TypeOf(operation))) {
             .pointer => |pointer| pointer.child,
             else => @TypeOf(operation),
         };
 
+        const label = "Interface: operation '" ++ name ++ "'";
         const actual = functionInfo(Function, label);
         const expected = @typeInfo(@typeInfo(Signature).pointer.child).@"fn";
 
@@ -279,6 +299,7 @@ pub const unit = struct {
                 self.value = 0;
             }
         };
+
         const Overrides = struct {
             fn multiply(self: *Provider, amount: u32) void {
                 self.value *= amount;
@@ -288,6 +309,7 @@ pub const unit = struct {
                 return self.value;
             }
         };
+
         const Contract = struct {
             instance: *anyopaque,
             vtable: *const Vtable,
@@ -321,6 +343,7 @@ pub const unit = struct {
         const Provider = struct {
             value: u8,
         };
+
         const Overrides = struct {
             fn read(self: *const Provider) u8 {
                 return self.value;
@@ -330,6 +353,7 @@ pub const unit = struct {
                 return @as(u16, self.value) * 2;
             }
         };
+
         const Contract = struct {
             instance: *const anyopaque,
             vtable: *const Vtable,
@@ -371,6 +395,7 @@ pub const unit = struct {
                 return self.value;
             }
         };
+
         const Contract = struct {
             instance: *anyopaque,
             vtable: *const Vtable,
