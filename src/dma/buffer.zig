@@ -1,23 +1,16 @@
-//! DMA buffer primitive. See `docs/specs/dma/buffer.md`.
-
 const std = @import("std");
 
-const address = @import("addr").address;
+const addr = @import("addr").address;
+const debug = @import("core").debug;
 
-const DmaAddr = address.DmaAddr;
-
-fn requireRuntimeValue(comptime T: type) void {
-    if (@sizeOf(T) == 0) @compileError("Buffer element type must have nonzero size");
-}
+const DmaAddr = addr.DmaAddr;
 
 pub fn Buffer(comptime T: type) type {
-    comptime requireRuntimeValue(T);
+    comptime Impl.requireRuntimeValue(T);
 
     return struct {
-        virt: []T,
-        dma: DmaAddr,
-
-        const Self = @This();
+        memory: []T,
+        address: DmaAddr,
 
         pub const Item = T;
         pub const Address = DmaAddr;
@@ -27,114 +20,167 @@ pub fn Buffer(comptime T: type) type {
         pub const SubError = error{ Overflow, OutOfBounds };
         pub const Error = InitError || OffsetError || SubError;
 
-        /// A subrange names an item window for `sub`. Both fields are item counts, not bytes.
-        pub const SubRange = struct {
-            offset_items: usize,
-            count_items: usize,
+        pub const SubArgs = struct {
+            offset: usize,
+            count: usize,
         };
 
-        /// Validates `dma` against `@alignOf(T)` and the buffer address range.
-        pub fn init(virt: []T, dma: Address) InitError!Self {
-            return initAlignedWith(virt, dma, @alignOf(T));
+        const Self = @This();
+
+        pub fn init(memory: []T, address: Address) InitError!Self {
+            return Impl.init(T, memory, address, @alignOf(T));
         }
 
-        /// Validates `dma` against `max(alignment, @alignOf(T))` and the buffer address range.
-        /// A zero or non-power-of-two alignment returns `error.Misaligned`.
-        pub fn initAligned(virt: []T, dma: Address, alignment: Address.Int) InitError!Self {
-            if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) return error.Misaligned;
-            return initAlignedWith(virt, dma, alignment);
+        pub fn initAligned(memory: []T, address: Address, alignment: Address.Int) InitError!Self {
+            if (alignment == 0 or !std.math.isPowerOfTwo(alignment)) {
+                return error.Misaligned;
+            }
+
+            return Impl.init(T, memory, address, alignment);
         }
 
-        fn initAlignedWith(virt: []T, dma: Address, alignment: Address.Int) InitError!Self {
-            const type_alignment: Address.Int = @alignOf(T);
-            const required = @max(alignment, type_alignment);
-            if ((dma.raw() & (required - 1)) != 0) return error.Misaligned;
+        pub fn slice(self: Self) []const T {
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
 
-            const elem_size: Address.Int = @sizeOf(T);
-            const virt_len: Address.Int = std.math.cast(Address.Int, virt.len) orelse return error.Overflow;
-            const byte_len = std.math.mul(Address.Int, virt_len, elem_size) catch return error.Overflow;
-            _ = std.math.add(Address.Int, dma.raw(), byte_len) catch return error.Overflow;
-
-            return .{ .virt = virt, .dma = dma };
+            return self.memory;
         }
 
-        pub fn slice(self: Self) []T {
-            self.assertValid();
-            return self.virt;
+        pub fn sliceMut(self: Self) []T {
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
+
+            return self.memory;
         }
 
-        pub fn constSlice(self: Self) []const T {
-            self.assertValid();
-            return self.virt;
+        pub fn bytes(self: Self) []const u8 {
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
+
+            return std.mem.sliceAsBytes(self.memory);
         }
 
-        pub fn bytes(self: Self) []u8 {
-            self.assertValid();
-            return std.mem.sliceAsBytes(self.virt);
-        }
+        pub fn bytesMut(self: Self) []u8 {
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
 
-        pub fn constBytes(self: Self) []const u8 {
-            self.assertValid();
-            return std.mem.sliceAsBytes(self.virt);
+            return std.mem.sliceAsBytes(self.memory);
         }
 
         pub fn len(self: Self) usize {
-            self.assertValid();
-            return self.virt.len;
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
+
+            return self.memory.len;
         }
 
-        /// Construction proves that the byte length does not overflow `Address.Int`.
         pub fn byteLen(self: Self) Address.Int {
-            self.assertValid();
-            const virt_len: Address.Int = @intCast(self.virt.len);
-            return virt_len * @sizeOf(T);
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
+
+            const count: Address.Int = @intCast(self.memory.len);
+            return count * @sizeOf(T);
         }
 
         pub fn isEmpty(self: Self) bool {
-            self.assertValid();
-            return self.virt.len == 0;
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
+
+            return self.memory.len == 0;
         }
 
         pub fn dmaAddr(self: Self) Address {
-            self.assertValid();
-            return self.dma;
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
+
+            return self.address;
         }
 
-        /// `len()` is a valid one-past-the-end item offset.
         pub fn dmaAddrAt(self: Self, offset_items: usize) OffsetError!Address {
-            self.assertValid();
-            if (offset_items > self.virt.len) return error.OutOfBounds;
-            const offset_raw: Address.Int = @intCast(offset_items);
-            const byte_offset = offset_raw * @sizeOf(T);
-            return self.dma.add(byte_offset) catch unreachable;
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
+
+            return Impl.dmaAddrAt(T, self.memory.len, self.address, offset_items);
         }
 
-        /// Returns a validated subrange that preserves the caller's contiguity claim.
-        pub fn sub(self: Self, range: SubRange) SubError!Self {
-            self.assertValid();
-            const end = std.math.add(
-                usize,
-                range.offset_items,
-                range.count_items,
-            ) catch return error.Overflow;
-            if (end > self.virt.len) return error.OutOfBounds;
+        pub fn sub(self: Self, args: SubArgs) SubError!Self {
+            if (debug.checksEnabled()) {
+                self.assertValid();
+            }
 
-            const offset_raw: Address.Int = @intCast(range.offset_items);
-            const byte_offset = offset_raw * @sizeOf(T);
+            const end = try Impl.subEnd(self.memory.len, args.offset, args.count);
+
             return .{
-                .virt = self.virt[range.offset_items..end],
-                .dma = self.dma.add(byte_offset) catch unreachable,
+                .memory = self.memory[args.offset..end],
+                .address = Impl.offset(T, self.address, args.offset),
             };
         }
 
         pub fn assertValid(self: Self) void {
-            std.debug.assert((self.dma.raw() & (@as(Address.Int, @alignOf(T)) - 1)) == 0);
-            const virt_len: Address.Int = std.math.cast(Address.Int, self.virt.len) orelse unreachable;
-            const byte_len = std.math.mul(Address.Int, virt_len, @sizeOf(T)) catch unreachable;
-            _ = std.math.add(Address.Int, self.dma.raw(), byte_len) catch unreachable;
+            std.debug.assert(self.address.isAligned(@alignOf(T)));
+
+            const count: Address.Int = std.math.cast(Address.Int, self.memory.len) orelse unreachable;
+            const byte_len = std.math.mul(Address.Int, count, @sizeOf(T)) catch unreachable;
+            _ = std.math.add(Address.Int, self.address.raw(), byte_len) catch unreachable;
         }
     };
 }
+
+const Impl = struct {
+    fn init(comptime T: type, memory: []T, address: DmaAddr, alignment: DmaAddr.Int) Buffer(T).InitError!Buffer(T) {
+        std.debug.assert(alignment != 0);
+        std.debug.assert(std.math.isPowerOfTwo(alignment));
+
+        const required = @max(alignment, @as(DmaAddr.Int, @alignOf(T)));
+        if (!address.isAligned(required)) {
+            return error.Misaligned;
+        }
+
+        const len: DmaAddr.Int = std.math.cast(DmaAddr.Int, memory.len) orelse return error.Overflow;
+        const bytes = std.math.mul(DmaAddr.Int, len, @sizeOf(T)) catch return error.Overflow;
+        _ = std.math.add(DmaAddr.Int, address.raw(), bytes) catch return error.Overflow;
+
+        return .{ .memory = memory, .address = address };
+    }
+
+    fn dmaAddrAt(comptime T: type, len: usize, address: DmaAddr, index: usize) Buffer(T).OffsetError!DmaAddr {
+        if (index > len) {
+            return error.OutOfBounds;
+        }
+
+        return offset(T, address, index);
+    }
+
+    fn offset(comptime T: type, address: DmaAddr, index: usize) DmaAddr {
+        const raw: DmaAddr.Int = @intCast(index);
+        return address.add(raw * @sizeOf(T)) catch unreachable;
+    }
+
+    fn subEnd(len: usize, start: usize, count: usize) error{ Overflow, OutOfBounds }!usize {
+        const end = std.math.add(usize, start, count) catch return error.Overflow;
+
+        if (end > len) {
+            return error.OutOfBounds;
+        }
+
+        return end;
+    }
+
+    fn requireRuntimeValue(comptime T: type) void {
+        if (@sizeOf(T) == 0) {
+            @compileError("Buffer element type must have nonzero size");
+        }
+    }
+};
 
 pub const unit = struct {
     const testing = std.testing;
@@ -159,15 +205,18 @@ pub const unit = struct {
         try testing.expectEqual(@as(usize, 3), buf.len());
         try testing.expectEqual(@as(u64, 6), buf.byteLen());
         try testing.expectEqual(@as(u64, 0x1000), buf.dmaAddr().raw());
-        try testing.expectEqualSlices(u16, &.{ 1, 2, 3 }, buf.constSlice());
+        try testing.expectEqualSlices(u16, &.{ 1, 2, 3 }, buf.slice());
 
-        buf.slice()[0] = 9;
+        buf.sliceMut()[0] = 9;
 
         try testing.expectEqual(@as(u16, 9), backing[0]);
         try testing.expectEqual(buf.byteLen(), buf.bytes().len);
-        try testing.expectEqual(buf.byteLen(), buf.constBytes().len);
+        try testing.expectEqual(buf.byteLen(), buf.bytesMut().len);
         try testing.expectEqual(@intFromPtr(&backing), @intFromPtr(buf.bytes().ptr));
-        try testing.expectEqual(@intFromPtr(&backing), @intFromPtr(buf.constBytes().ptr));
+        try testing.expectEqual(@intFromPtr(&backing), @intFromPtr(buf.bytesMut().ptr));
+
+        buf.bytesMut()[0] = 0;
+        try testing.expectEqual(@as(u8, 0), std.mem.sliceAsBytes(&backing)[0]);
 
         var entries: [2]WireEntry = undefined;
         const wire = try Buffer(WireEntry).init(&entries, DmaAddr.from(0x2000));
@@ -183,8 +232,8 @@ pub const unit = struct {
             try testing.expectError(error.Misaligned, Buffer(u8).initAligned(&bytes, DmaAddr.from(0x1000), alignment));
         }
 
-        try testing.expectError(error.Misaligned, Buffer(u8).initAligned(&bytes, DmaAddr.from(0x1008), 16));
-        _ = try Buffer(u8).initAligned(&bytes, DmaAddr.from(0x1000), 16);
+        try testing.expectError(error.Misaligned, Impl.init(u8, &bytes, DmaAddr.from(0x1008), 16));
+        _ = try Impl.init(u8, &bytes, DmaAddr.from(0x1000), 16);
 
         var backing: [4]u32 = undefined;
 
@@ -205,47 +254,43 @@ pub const unit = struct {
     test "construction rejects address overflow" {
         var backing: [4]u8 = undefined;
         const near_max = DmaAddr.from(std.math.maxInt(u64) - 2);
-        try testing.expectError(error.Overflow, Buffer(u8).init(&backing, near_max));
+        try testing.expectError(error.Overflow, Impl.init(u8, &backing, near_max, 1));
     }
 
     test "item addresses include the end cursor and reject larger offsets" {
-        var backing: [4]u32 = undefined;
-        const buf = try Buffer(u32).init(&backing, DmaAddr.from(0x1000));
+        const address = DmaAddr.from(0x1000);
 
         for ([_]usize{ 0, 1, 2, 4 }) |offset| {
-            try testing.expectEqual(@as(u64, 0x1000 + offset * @sizeOf(u32)), (try buf.dmaAddrAt(offset)).raw());
+            try testing.expectEqual(@as(u64, 0x1000 + offset * @sizeOf(u32)), (try Impl.dmaAddrAt(u32, 4, address, offset)).raw());
         }
 
-        try testing.expectError(error.OutOfBounds, buf.dmaAddrAt(5));
-        try testing.expectError(error.OutOfBounds, buf.dmaAddrAt(std.math.maxInt(usize)));
+        try testing.expectError(error.OutOfBounds, Impl.dmaAddrAt(u32, 4, address, 5));
+        try testing.expectError(error.OutOfBounds, Impl.dmaAddrAt(u32, 4, address, std.math.maxInt(usize)));
     }
 
     test "subranges preserve backing pointers and distinguish bounds from overflow" {
         var backing: [8]u32 = undefined;
         const buf = try Buffer(u32).init(&backing, DmaAddr.from(0x1000));
-        const full = try buf.sub(.{ .offset_items = 0, .count_items = buf.len() });
+        const full = try buf.sub(.{ .offset = 0, .count = buf.len() });
 
         try testing.expectEqual(buf.len(), full.len());
         try testing.expectEqual(buf.dmaAddr().raw(), full.dmaAddr().raw());
         try testing.expectEqual(buf.byteLen(), full.byteLen());
-        try testing.expectEqual(buf.constSlice().ptr, full.constSlice().ptr);
+        try testing.expectEqual(buf.slice().ptr, full.slice().ptr);
 
-        const sub = try buf.sub(.{ .offset_items = 2, .count_items = 3 });
+        const sub = try buf.sub(.{ .offset = 2, .count = 3 });
 
         try testing.expectEqual(@as(usize, 3), sub.len());
         try testing.expectEqual(@as(u64, 0x1008), sub.dmaAddr().raw());
-        try testing.expectEqual(&backing[2], &sub.constSlice()[0]);
+        try testing.expectEqual(&backing[2], &sub.slice()[0]);
 
-        const end = try buf.sub(.{ .offset_items = buf.len(), .count_items = 0 });
+        const end = try buf.sub(.{ .offset = buf.len(), .count = 0 });
 
         try testing.expect(end.isEmpty());
         try testing.expectEqual(@as(u64, 0x1020), end.dmaAddr().raw());
-        try testing.expectEqual(backing[backing.len..].ptr, end.constSlice().ptr);
-        try testing.expectError(error.OutOfBounds, buf.sub(.{ .offset_items = 6, .count_items = 3 }));
-        try testing.expectError(error.OutOfBounds, buf.sub(.{ .offset_items = 9, .count_items = 0 }));
-        try testing.expectError(error.Overflow, buf.sub(.{
-            .offset_items = 1,
-            .count_items = std.math.maxInt(usize),
-        }));
+        try testing.expectEqual(backing[backing.len..].ptr, end.slice().ptr);
+        try testing.expectError(error.OutOfBounds, Impl.subEnd(buf.len(), 6, 3));
+        try testing.expectError(error.OutOfBounds, Impl.subEnd(buf.len(), 9, 0));
+        try testing.expectError(error.Overflow, Impl.subEnd(buf.len(), 1, std.math.maxInt(usize)));
     }
 };

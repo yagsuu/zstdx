@@ -139,6 +139,9 @@ pub const Modules = struct {
 
         addImports(modules.dma, &.{
             .{ "addr", modules.addr },
+            .{ "core", modules.core },
+            .{ "layout", modules.layout },
+            .{ "ranges", modules.ranges },
         });
 
         addImports(modules.dispatch, &.{
