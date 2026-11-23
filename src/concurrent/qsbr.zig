@@ -1,4 +1,4 @@
-//! bounded quiescent-state-based reclamation
+//! Quiescent-state reclamation. See `docs/specs/concurrent/qsbr.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

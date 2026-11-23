@@ -1,4 +1,4 @@
-//! bounded multi-producer/single-consumer ring
+//! MPSC ring. See `docs/specs/concurrent/mpsc/ring.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");

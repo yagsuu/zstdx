@@ -7,17 +7,18 @@ and one consumer through fixed-capacity storage.
 
 Here, `Ring` denotes either type returned by the factories below.
 
-## What this spec is
+| Factory | Storage and initialization |
+| --- | --- |
+| `stdx.concurrent.spsc.Ring.Static(T, count)` | Owns inline slots. `count` must be nonzero and a power of two; invalid counts fail compilation. `stdx.concurrent.spsc.Ring.Static(T, count).init()` initializes an empty ring. The returned type exposes `bound = count`. |
+| `stdx.concurrent.spsc.Ring.Bounded(T)` | Borrows caller-owned `[]Slot`. `Ring.init(slots)` requires a nonempty, power-of-two slice. |
 
-This spec owns:
+`T` must have nonzero size. Allocate bounded storage as the returned type's `Slot`.
 
-- `concurrent.spsc.Ring.Static(T, N)` and `concurrent.spsc.Ring.Bounded(T)`;
-- caller-provided `Bounded(T).Slot` storage;
-- one-attempt producer enqueue and one-attempt consumer dequeue of published front items;
-- cache-line isolation of `head` and `tail` via `mem.CachePad`;
-- fixed-capacity, full-capacity, no-mutation-on-error, and pointer-stability contracts;
-- atomic slot-publication and slot-release ordering; and
-- required unit, model, ordering, and stress tests.
+Initialize the ring in place before use. Initialization and reinitialization
+require exclusive access. Reinitialization discards all queued items without
+cleanup. Do not copy an initialized ring or move it after sharing its address.
+Borrowed slots must remain alive, address-stable, and exclusive to the ring
+until all operations finish. Access slot contents only through ring operations.
 
 The ring does not allocate or destroy payloads. Push and pop copy `T` by value;
 pointer payloads retain their aliases. The caller manages referenced resources,
@@ -38,19 +39,16 @@ All slots contribute to usable capacity, including at capacity one. A failed
 push leaves the caller responsible for the item. A successful pop gives the
 caller the returned value; the ring can subsequently overwrite its old slot.
 
-```zig
-stdx.concurrent.spsc
-stdx.concurrent.spsc.Ring
-stdx.concurrent.spsc.Ring.Static
-stdx.concurrent.spsc.Ring.Bounded
-```
+Transfer operations take O(1) work plus copying `T`, without retry loops,
+allocation, or waiting. A stalled consumer can leave the ring full.
 
 ## Observations and diagnostics
 
 `Ring.capacity()` returns the fixed slot count and can be called from any
 context after initialization. It remains stable until reinitialization.
 
-`src/concurrent.zig` re-exports:
+`Ring.isEmpty()` reports consumer-side availability. A concurrent push can make
+an empty observation stale; a concurrent pop can make `error.Full` stale.
 
 `Ring.isValid()` requires exclusive or quiescent access. It returns whether
 capacity is nonzero and a power of two, and the modular distance from head to
@@ -64,8 +62,7 @@ consumer release-publishes the head; the producer acquire-loads the head before
 reusing released storage. Each role loads its own counter with monotonic
 ordering.
 
-`src/concurrent.zig` is a thin facade. It contains no logic beyond
-re-exporting.
+Counters wrap using `usize` arithmetic. Callers MUST preserve ring metadata.
 
 Notification and waiting policy belong to the caller. Producers must not use
 `Ring.isEmpty()` to decide whether to signal. The ring's release/acquire edges
@@ -75,11 +72,4 @@ with `Ring.popFront()` before waiting.
 
 ## References
 
-### `Static(T, capacity_items)` returned type
-
-    head: stdx.mem.CachePad(std.atomic.Value(usize)) =
-    tail: stdx.mem.CachePad(std.atomic.Value(usize)) =
-    head: stdx.mem.CachePad(std.atomic.Value(usize)) =
-    tail: stdx.mem.CachePad(std.atomic.Value(usize)) =
-`head` and `tail` are `stdx.mem.CachePad(std.atomic.Value(usize))`. Cache-line
-- keep `head` and `tail` in `stdx.mem.CachePad(std.atomic.Value(usize))`;
+- [SPSC ring](../../../../src/concurrent/spsc/ring.zig)

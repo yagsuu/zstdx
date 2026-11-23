@@ -7,9 +7,12 @@ consumer through a fixed-capacity FIFO ring.
 
 Here, `Ring` denotes either type returned by the factories below.
 
-## What this spec is
+| Factory | Storage and initialization |
+| --- | --- |
+| `stdx.concurrent.mpsc.Ring.Static(T, count)` | Owns inline slots. `count` must be nonzero and a power of two; invalid counts fail compilation. `stdx.concurrent.mpsc.Ring.Static(T, count).init()` initializes an empty ring. The returned type exposes `bound = count`. |
+| `stdx.concurrent.mpsc.Ring.Bounded(T)` | Borrows caller-owned `[]Slot`. `Ring.init(slots)` requires a nonempty, power-of-two slice. |
 
-This spec owns:
+`T` must have nonzero size. Allocate bounded storage as the returned type's `Slot`.
 
 `Ring.init()` requires exclusive access and initializes counters and slot
 publication metadata. Initialize the ring in place before use. Reinitialization
@@ -33,34 +36,27 @@ concurrently with the producers.
 | `Ring.tryPushBack(item)` | Reserves one FIFO position, writes the item, and publishes that position. It returns `error.Full` if the observed reservation distance from head fills capacity, or `error.Contended` if another producer changes tail before its single strong compare-and-swap succeeds. |
 | `Ring.popFront()` | Returns and removes one published front item, or returns `null` without mutation when the front position is unpublished. Removal releases capacity for reuse. |
 
-```zig
-stdx.concurrent.mpsc
-stdx.concurrent.mpsc.Ring
-stdx.concurrent.mpsc.Ring.Static
-stdx.concurrent.mpsc.Ring.Bounded
-```
+Push errors leave the ring unchanged by that attempt. The caller retains the item.
+Successful pop transfers the copied value; its old slot can be reused.
 
 All slots contribute to usable capacity, including at capacity one. Capacity
 includes both published items and unpublished reservations. FIFO order follows
 successful reservation order, even when later producers finish publication
 first. The consumer cannot skip an unpublished front reservation.
 
-```text
-src/concurrent.zig            -- domain facade
-src/concurrent/mpsc.zig       -- sub-namespace facade
-src/concurrent/mpsc/ring.zig  -- Ring implementation
-test/concurrent/mpsc/ring_test.zig
-```
-
+A producer that reserves a position MUST finish publication. A stalled or
+abandoned reservation blocks later consumption and can leave the ring full.
+Callers MUST ensure required producers can resume; interrupt-context retries
+must not wait for a producer they interrupted.
 
 ## Observations and progress
 
 `Ring.capacity()` returns the fixed slot count and can be called from any
 context after initialization. It remains stable until reinitialization.
 
-```zig
-const mpsc = stdx.concurrent.mpsc;
-```
+`Ring.isEmpty()` and a `null` pop report an unreadable front. Later items may
+already be published and producers may observe `error.Full`. Concurrent progress
+can make either availability observation stale.
 
 `Ring.isValid()` requires exclusive or quiescent access. It returns whether
 capacity is nonzero and a power of two, and the modular distance from head to
@@ -81,27 +77,14 @@ with `Ring.popFront()` before waiting.
 
 ## Publication and reuse ordering
 
-```zig
-pub const Self = struct {
-    slots: [item_capacity]Slot = undefined,
-    head: stdx.mem.CachePad(std.atomic.Value(usize)) =
-        .{ .value = std.atomic.Value(usize).init(0) },
-    tail: stdx.mem.CachePad(std.atomic.Value(usize)) =
-        .{ .value = std.atomic.Value(usize).init(0) },
+Reservation uses monotonic ordering. Producers acquire-observe released head
+advances before reusing storage. Publication release-orders each payload write;
+the consumer acquire-observes publication before copying the item and
+release-publishes its head advance after the copy.
 
-    pub const Slot = struct {
-        sequence: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-        item: T = undefined,
-    };
-    pub const Error = error{ Full, Contended };
-    pub const item_capacity = capacity_items;
-
+Counters and publication tickets wrap using `usize` arithmetic.
+Callers MUST preserve ring metadata.
 
 ## References
 
-    pub fn tryPushBack(self: *Self, item: T) Error!void;
-    pub fn popFront(self: *Self) ?T;
-
-    head: stdx.mem.CachePad(std.atomic.Value(usize)) =
-    tail: stdx.mem.CachePad(std.atomic.Value(usize)) =
-  on distinct cache lines via `stdx.mem.CachePad`, so that a producer's write
+- [MPSC ring](../../../../src/concurrent/mpsc/ring.zig)

@@ -1,4 +1,4 @@
-//! bounded single-producer/single-consumer ring
+//! SPSC ring. See `docs/specs/concurrent/spsc/ring.md`.
 
 const std = @import("std");
 const builtin = @import("builtin");
