@@ -1,5 +1,4 @@
-//! Bit primitives. See `docs/specs/bits/mask.md`, `docs/specs/bits/set/static.md`,
-//! and `docs/specs/bits/word.md`.
+//! Bit primitives.
 
 pub const mask = @import("mask.zig");
 pub const set = @import("set.zig");

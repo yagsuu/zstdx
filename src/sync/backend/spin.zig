@@ -1,4 +1,4 @@
-//! Spin-only wait/wake backend. See `docs/specs/sync/spin.md`.
+//! Spin-only wait/wake backend.
 
 const std = @import("std");
 const layout = @import("layout");

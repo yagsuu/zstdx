@@ -1,4 +1,4 @@
-//! Retry-delay generation. See `docs/specs/time/backoff.md`.
+//! Retry-delay generation.
 
 const std = @import("std");
 

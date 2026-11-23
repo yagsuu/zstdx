@@ -1,3 +1,5 @@
+//! Inline closure state.
+
 const std = @import("std");
 
 const layout = @import("layout");

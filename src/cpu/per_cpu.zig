@@ -1,4 +1,4 @@
-//! Caller-indexed padded storage. See `docs/specs/cpu/per_cpu.md`.
+//! Caller-indexed padded storage.
 
 const std = @import("std");
 

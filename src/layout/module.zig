@@ -1,4 +1,4 @@
-//! Data-layout primitives. See `docs/specs/layout/` and `docs/specs/mem/`.
+//! Data-layout primitives.
 
 pub const alignment = @import("alignment.zig");
 pub const assert = @import("assert.zig");

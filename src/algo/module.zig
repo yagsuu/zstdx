@@ -1,4 +1,4 @@
-//! Allocation algorithms. See `docs/specs/algo/alloc/`.
+//! Allocation algorithms.
 
 pub const alloc = @import("alloc.zig");
 

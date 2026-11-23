@@ -1,3 +1,5 @@
+//! AMD SVM operations.
+
 const layout = @import("layout");
 const addr = @import("addr");
 

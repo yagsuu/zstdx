@@ -1,3 +1,5 @@
+//! CPU identification.
+
 const std = @import("std");
 
 const target = @import("target.zig");

@@ -1,4 +1,4 @@
-//! placement over caller-owned free ranges
+//! Placement over free ranges.
 
 const std = @import("std");
 

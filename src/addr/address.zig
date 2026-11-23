@@ -1,4 +1,4 @@
-//! strongly typed unsigned addresses
+//! Strongly typed unsigned addresses.
 
 const std = @import("std");
 

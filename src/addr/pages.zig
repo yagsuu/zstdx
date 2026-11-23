@@ -1,4 +1,4 @@
-//! Page-sized address helpers. See `docs/specs/addr/pages.md`.
+//! Page-sized address helpers.
 
 const std = @import("std");
 

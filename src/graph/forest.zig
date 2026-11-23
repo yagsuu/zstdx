@@ -1,3 +1,5 @@
+//! Indexed rooted forests.
+
 const std = @import("std");
 
 pub const Forest = struct {

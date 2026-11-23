@@ -203,5 +203,5 @@ try writer.flush();
 
 ## Documentation
 
-See [`docs/specs/`](docs/specs/) for public API contracts and
+See [`docs/api/`](docs/api/) for public API contracts and
 [`docs/guidelines/`](docs/guidelines/) for project conventions.

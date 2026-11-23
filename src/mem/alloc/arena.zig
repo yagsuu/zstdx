@@ -1,3 +1,5 @@
+//! Arena allocation.
+
 const std = @import("std");
 
 const alignUp = @import("layout").alignment.alignUp;

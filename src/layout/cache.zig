@@ -1,4 +1,4 @@
-//! Memory cache-line alignment. See `docs/specs/mem/cache.md`.
+//! Cache-line alignment.
 
 const std = @import("std");
 

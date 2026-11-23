@@ -1,3 +1,5 @@
+//! Intrusive LIFO stack.
+
 const std = @import("std");
 
 const List = @import("list.zig").List;

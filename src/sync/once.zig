@@ -1,4 +1,4 @@
-//! One-time initialization. See `docs/specs/sync/once.md`.
+//! One-time initialization.
 
 const std = @import("std");
 const builtin = @import("builtin");

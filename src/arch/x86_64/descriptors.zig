@@ -1,3 +1,5 @@
+//! Descriptor formats.
+
 const std = @import("std");
 
 pub const PrivilegeLevel = enum(u2) {

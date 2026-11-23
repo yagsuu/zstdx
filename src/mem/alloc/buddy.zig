@@ -1,4 +1,4 @@
-//! fixed-unit buddy allocation
+//! Buddy allocation.
 
 const std = @import("std");
 

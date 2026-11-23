@@ -1,4 +1,4 @@
-//! Public stdx facade. See `docs/specs/stdx.md`.
+//! Public stdx package facade.
 
 pub const core = @import("core");
 pub const bits = @import("bits");

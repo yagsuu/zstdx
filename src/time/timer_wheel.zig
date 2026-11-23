@@ -1,4 +1,4 @@
-//! Timer wheels. See `docs/specs/time/timer_wheel.md`.
+//! Timer wheels.
 
 const std = @import("std");
 

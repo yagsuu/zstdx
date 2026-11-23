@@ -1,4 +1,4 @@
-//! x86_64 module index. See `docs/specs/arch/x86_64.md`.
+//! x86_64 module index.
 
 pub const cache = @import("x86_64/cache.zig");
 pub const cpu = @import("x86_64/cpu.zig");

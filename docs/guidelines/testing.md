@@ -60,6 +60,11 @@ Each implemented public type must include tests for:
 - `assertValid` success after public mutations;
 - debug assertion behavior where practical.
 
+Cover failure state, lifetime, ordering, progress, and representation where
+applicable. Match verification to the risk: deterministic unit or model tests
+establish outcomes and transitions; stress tests exercise contention but do not
+replace an ordering proof; layout tests verify contractual representation.
+
 ## Allocation contract tests
 
 Allocation behavior is part of the public contract.

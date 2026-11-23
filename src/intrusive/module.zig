@@ -1,6 +1,4 @@
-//! Intrusive collections. See `docs/specs/intrusive/list.md`,
-//! `docs/specs/intrusive/queue.md`, `docs/specs/intrusive/stack.md`,
-//! and `docs/specs/intrusive/heap.md`.
+//! Intrusive collections.
 
 pub const heap = @import("heap.zig");
 pub const list = @import("list.zig");

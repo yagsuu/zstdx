@@ -1,4 +1,4 @@
-//! Manual-reset signals. See `docs/specs/sync/signal.md`.
+//! Manual-reset signals.
 
 const std = @import("std");
 

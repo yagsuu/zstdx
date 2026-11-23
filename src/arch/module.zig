@@ -1,4 +1,4 @@
-//! Architecture-specific primitives. See `docs/specs/arch/x86_64.md`.
+//! Architecture-specific primitives.
 
 pub const x86_64 = @import("x86_64.zig");
 

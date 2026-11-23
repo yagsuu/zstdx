@@ -1,4 +1,4 @@
-//! Bounded polling. See `docs/specs/io/poll.md`.
+//! Bounded polling.
 
 const std = @import("std");
 

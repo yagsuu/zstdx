@@ -1,4 +1,4 @@
-//! Sorted range maps. See `docs/specs/ranges/map.md`.
+//! Sorted range maps.
 
 const std = @import("std");
 

@@ -1,4 +1,4 @@
-//! multi-region typed object cache.
+//! Multi-region object cache.
 
 const std = @import("std");
 

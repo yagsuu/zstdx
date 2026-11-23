@@ -1,4 +1,4 @@
-//! SPSC ring. See `docs/specs/concurrent/spsc/ring.md`.
+//! SPSC ring.
 
 const std = @import("std");
 const builtin = @import("builtin");

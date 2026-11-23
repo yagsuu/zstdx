@@ -1,4 +1,4 @@
-//! Strongly typed tag values for tag allocator domains. See `docs/specs/tags/allocator.md`.
+//! Strongly typed tag values for tag allocator domains.
 
 const std = @import("std");
 

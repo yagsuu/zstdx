@@ -1,4 +1,4 @@
-//! signature-typed delegates
+//! Signature-typed delegates.
 
 const std = @import("std");
 const layout = @import("layout");

@@ -1,4 +1,4 @@
-//! page-range allocation over a unit-index backend
+//! Page-range allocation.
 
 const std = @import("std");
 

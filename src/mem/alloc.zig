@@ -1,4 +1,4 @@
-//! Allocation primitives. See `docs/specs/mem/`.
+//! Allocation primitives.
 
 pub const arena = @import("alloc/arena.zig");
 pub const bitmap = @import("alloc/bitmap.zig");

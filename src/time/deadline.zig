@@ -1,4 +1,4 @@
-//! Deadlines. See `docs/specs/time/deadline.md`.
+//! Deadlines.
 
 const std = @import("std");
 

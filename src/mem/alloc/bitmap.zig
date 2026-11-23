@@ -1,4 +1,4 @@
-//! fixed-unit allocation with lowest-index first-fit placement
+//! Fixed-unit allocation.
 
 const std = @import("std");
 

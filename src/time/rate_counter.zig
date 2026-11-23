@@ -1,4 +1,4 @@
-//! Fixed-rate counter projection. See `docs/specs/time/rate_counter.md`.
+//! Fixed-rate counter projection.
 
 const std = @import("std");
 const layout = @import("layout");

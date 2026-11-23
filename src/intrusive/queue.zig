@@ -1,4 +1,4 @@
-//! Intrusive FIFO queue. See `docs/specs/intrusive/queue.md`.
+//! Intrusive FIFO queue.
 
 const std = @import("std");
 

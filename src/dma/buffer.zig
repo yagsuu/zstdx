@@ -1,4 +1,4 @@
-//! DMA buffer views. See `docs/specs/dma/buffer.md`.
+//! DMA buffer views.
 
 const std = @import("std");
 

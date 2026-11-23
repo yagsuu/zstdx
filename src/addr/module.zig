@@ -1,5 +1,4 @@
-//! Address primitives. See `docs/specs/addr/address.md` and
-//! `docs/specs/addr/pages.md`.
+//! Address primitives.
 
 pub const address = @import("address.zig");
 pub const pages = @import("pages.zig");

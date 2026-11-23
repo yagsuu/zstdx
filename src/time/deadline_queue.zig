@@ -1,4 +1,4 @@
-//! Deadline queues. See `docs/specs/time/deadline_queue.md`.
+//! Deadline queues.
 
 const std = @import("std");
 

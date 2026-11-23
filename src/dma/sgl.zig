@@ -1,3 +1,5 @@
+//! DMA scatter-gather entries, lists, and aligned builders.
+
 const std = @import("std");
 
 const address = @import("addr").address;

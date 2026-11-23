@@ -1,4 +1,4 @@
-//! Unsigned-integer alignment helpers. See `docs/specs/mem/align.md`.
+//! Unsigned-integer alignment helpers.
 
 const std = @import("std");
 

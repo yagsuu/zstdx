@@ -1,3 +1,5 @@
+//! Intrusive linked lists.
+
 const std = @import("std");
 
 pub const List = struct {

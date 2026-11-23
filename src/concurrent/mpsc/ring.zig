@@ -1,4 +1,4 @@
-//! MPSC ring. See `docs/specs/concurrent/mpsc/ring.md`.
+//! MPSC ring.
 
 const std = @import("std");
 const builtin = @import("builtin");

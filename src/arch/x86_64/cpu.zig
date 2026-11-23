@@ -1,3 +1,5 @@
+//! CPU operations.
+
 const addr = @import("addr");
 const layout = @import("layout");
 

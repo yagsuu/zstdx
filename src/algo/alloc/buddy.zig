@@ -1,3 +1,5 @@
+//! Buddy block arithmetic.
+
 const std = @import("std");
 
 pub const Error = error{

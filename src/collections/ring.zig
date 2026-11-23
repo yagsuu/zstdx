@@ -1,5 +1,4 @@
-//! Fixed-capacity FIFO ring buffers. See `docs/specs/collections/ring/static.md`
-//! and `docs/specs/collections/ring/bounded.md`.
+//! Fixed-capacity FIFO ring buffers.
 
 const std = @import("std");
 

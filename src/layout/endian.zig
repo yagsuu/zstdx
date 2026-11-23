@@ -1,3 +1,5 @@
+//! Endian integer storage.
+
 const std = @import("std");
 
 pub fn EndianInt(comptime T: type, comptime endian: std.builtin.Endian) type {

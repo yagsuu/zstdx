@@ -1,4 +1,4 @@
-//! Optional build-mode checks. See `docs/specs/core/debug.md`.
+//! Optional build-mode checks.
 
 const builtin = @import("builtin");
 

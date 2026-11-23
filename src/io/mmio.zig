@@ -1,4 +1,4 @@
-//! MMIO access. See `docs/specs/io/mmio.md`.
+//! MMIO access.
 
 const std = @import("std");
 

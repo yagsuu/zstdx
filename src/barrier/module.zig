@@ -1,4 +1,4 @@
-//! Memory ordering. See `docs/specs/barrier.md`.
+//! Memory ordering.
 
 pub const mmio = @import("mmio.zig");
 pub const dma = @import("dma.zig");

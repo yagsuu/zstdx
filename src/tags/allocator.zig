@@ -1,4 +1,4 @@
-//! strongly typed tag allocation
+//! Strongly typed tag allocation.
 
 const std = @import("std");
 

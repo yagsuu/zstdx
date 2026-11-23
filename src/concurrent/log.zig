@@ -1,4 +1,4 @@
-//! Event logs. See `docs/specs/concurrent/log.md`.
+//! Event logs.
 
 const std = @import("std");
 

@@ -1,4 +1,4 @@
-//! Strongly typed tag identifiers and allocators. See `docs/specs/tags/allocator.md`.
+//! Strongly typed tag identifiers and allocators.
 
 pub const tag = @import("tag.zig");
 pub const allocator = @import("allocator.zig");

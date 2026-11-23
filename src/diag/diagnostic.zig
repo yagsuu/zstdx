@@ -1,4 +1,4 @@
-//! Structured diagnostic frame stack. See `docs/specs/diag/diagnostic.md`.
+//! Structured diagnostic frame stack.
 
 const std = @import("std");
 

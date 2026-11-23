@@ -1,4 +1,4 @@
-//! Bit-mask construction. See `docs/specs/bits/mask.md`.
+//! Bit-mask construction.
 
 const std = @import("std");
 

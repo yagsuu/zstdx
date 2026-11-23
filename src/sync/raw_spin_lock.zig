@@ -1,4 +1,4 @@
-//! Raw spin lock. See `docs/specs/sync/raw_spin_lock.md`.
+//! Raw spin lock.
 
 const std = @import("std");
 const builtin = @import("builtin");

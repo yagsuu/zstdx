@@ -1,3 +1,5 @@
+//! Intel VMX operations.
+
 const std = @import("std");
 const addr = @import("addr");
 const layout = @import("layout");

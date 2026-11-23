@@ -1,4 +1,4 @@
-//! Intrusive binary heap. See `docs/specs/intrusive/heap.md`.
+//! Intrusive binary heap.
 
 const std = @import("std");
 

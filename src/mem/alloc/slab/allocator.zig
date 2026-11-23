@@ -1,4 +1,4 @@
-//! fixed-capacity typed object allocator with intrusive free lists.
+//! Typed object allocation.
 
 const std = @import("std");
 
