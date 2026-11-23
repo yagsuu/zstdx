@@ -17,9 +17,6 @@ Prior and subsequent accesses refer to program order on the calling CPU.
 | `stdx.barrier.mmio.acquire()`, `stdx.barrier.dma.acquire()` | Prior loads before subsequent loads | `lfence` |
 | `stdx.barrier.mmio.full()`, `stdx.barrier.dma.full()` | Prior loads and stores before subsequent loads and stores | `mfence` |
 
-Release does not supply load ordering. Acquire does not guarantee visibility of
-prior stores. Full ordering does not serialize instruction execution.
-
 ## Device protocols
 
 Place `stdx.barrier.mmio.release()` after related host stores and before the MMIO
@@ -36,13 +33,9 @@ directions.
 The caller's device protocol MUST define the publication or availability state
 and ensure that the device observes publication. The caller owns DMA mappings,
 buffer lifetime, ownership transfers, and notification. DMA mappings MUST be
-coherent, or the caller MUST perform the platform's required cache maintenance
-at the applicable ownership boundary. These barriers do not clean, flush, or
-invalidate caches.
-
-A barrier does not wait for posted-write or device completion and does not start,
-stop, or acknowledge DMA. Obtain completion through the device protocol before
-reusing or releasing device-owned resources.
+coherent, or the caller MUST perform required cache maintenance at ownership
+boundaries. Obtain device completion before reusing or releasing device-owned
+resources.
 
 These operations do not establish a host-thread synchronization edge by
 themselves. Use the owning synchronization primitive's publication and acquisition
@@ -54,7 +47,11 @@ protocol for shared host payloads.
 an x86_64 target. Calling one on another target causes a compile error from the
 architecture backend; importing `stdx.barrier` alone remains portable.
 
-All operations return `void`, allocate no memory, and perform no software waiting
-or callbacks. They require no serialization between callers and use no scheduler
-or privileged instruction. Hardware fences can delay execution until their
-ordering requirements are satisfied.
+Operations are unprivileged, reentrant, and allocation-free. Hardware fences
+can delay execution until their ordering requirements are satisfied.
+
+## References
+
+- [Compiler barrier](../../../src/barrier/compiler.zig)
+- [MMIO barriers](../../../src/barrier/mmio.zig)
+- [DMA barriers](../../../src/barrier/dma.zig)

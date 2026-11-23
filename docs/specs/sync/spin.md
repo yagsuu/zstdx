@@ -1,228 +1,79 @@
-# Sync spin backend
+# Wait/wake backends and `sync.spin.Backend`
 
-Status: Approved.
-
-`stdx.sync.spin.Backend` is the zero-state wait/wake backend that pairs with
-every wait-capable primitive in `stdx.sync` and `stdx.concurrent` when the
-caller wants spin-only behavior. It is the canonical minimal implementation of
-the shared wait/wake backend contract; other backends (scheduler-parking,
-futex-backed, timeout-aware) match the same shape.
-
-`sync.spin.Backend` exists because every wait-capable primitive would otherwise
-invent its own spin variant. Fixing the seam here means every consuming spec
-inherits spin-only composition for free.
-
-## Owned scope
-
-This spec owns:
-
-- the `stdx.sync.spin` submodule;
-- `sync.spin.Backend`, a zero-sized struct satisfying the shared wait/wake
-  backend contract;
-- `sync.spin.Backend.WaitError`, an empty error set;
-- the shared wait/wake backend contract used by `Signal.Manual`, `Once`,
-  `Barrier`, and every future wait-capable primitive under `stdx.sync` and
-  `stdx.concurrent`;
-- allocation, waiting, concurrency, and ordering contracts;
-- required tests.
-
-## Deferred scope and non-goals
-
-This spec does not own:
-
-- spinlocks (`sync.RawSpinLock`, `sync.TicketLock`, `sync.SpinLock`);
-- backoff or PAUSE policy beyond `std.atomic.spinLoopHint`;
-- deadlines, timeouts, cancellation, or interrupt policy;
-- IRQ save/restore (no `cli`/`sti`); the caller owns interrupt state;
-- metrics, observability, or telemetry hooks;
-- alternative backends (`sync.futex.Backend`, `sync.io.Backend`, etc.);
-
-## Public namespace
-
-`sync.spin` lives under `stdx.sync`:
-
-```zig
-stdx.sync.spin
-stdx.sync.spin.Backend
-```
-
-Source ownership:
-
-```text
-src/sync.zig
-src/sync/backend/spin.zig
-test/sync/spin_test.zig
-```
-
-`src/sync.zig` re-exports:
-
-```zig
-pub const spin = @import("sync/backend/spin.zig");
-```
-
-`src/sync.zig` is a thin facade. It contains no logic beyond re-exporting.
+Wait-capable primitives use a caller-supplied backend to separate state
+publication from waiting policy. `stdx.sync.spin.Backend` supplies spin-only
+waiting.
 
 ## Shared wait/wake backend contract
 
-Every wait-capable primitive in `stdx.sync` and `stdx.concurrent` that composes
-a caller-supplied backend expects the backend to satisfy this contract:
+Each primitive supplies its own `State` and `Token` types. A backend declares
+an explicit `WaitError` error set, `Backend.wait()`, and `Backend.wakeAll()`.
+`error{}` is valid; `anyerror` is not.
+
+The required call shape is:
 
 ```zig
-pub const WaitError: type = /* backend-owned; empty is legal */;
-
-pub fn wait(
-    self: *Backend,
-    state: *const State,   // primitive-specific type
-    observed: Token,       // primitive-specific type
-) WaitError!void;
-
-pub fn wakeAll(self: *Backend, state: *const State) void;
+backend.wait(state, observed) // WaitError!void
+backend.wakeAll(state)       // void
 ```
 
-Each consuming primitive substitutes its own `State` and `Token` types
-(`Signal.State`/`Signal.Token`, `sync.once.State`/`sync.once.Token`, and
-equivalent types). The primitive's `wait` and `wakeAll` calls are type-checked
-when those calls are compiled. A backend may accept the concrete primitive
-state/token types or more generic parameters such as `*const anyopaque` /
-`anytype` when it does not inspect them.
+Here `state` is a `*const State` identifying the primitive instance, and
+`observed` is a `Token` captured by that primitive. Methods can accept the
+concrete types or compatible generic parameters.
 
-`WaitError` must be an explicit error set. `anyerror` is not approved. An
-empty error set (`error{}`) is legal; the primitive-side `try` monomorphizes
-away when the concrete `WaitError` is empty.
+Primitives store the backend by value. A backend can reference shared resources,
+whose ownership and synchronization remain with the caller. The caller MUST
+keep the primitive at a stable address during shared use and keep its backend
+resources alive until operations and registered waiters have finished.
 
-`Backend` is stored by value inside the wait-capable primitive. Callers whose
-backend state is large, mutable, or shared elsewhere pass a pointer type as
-`Backend` (`*ParkingBackend`, `*FutexBackend`).
+### `Backend.wait()`
 
-Semantic requirements on `Backend.wait`:
+`Backend.wait()` may spin, yield, park, block, sleep, or return spuriously,
+according to the backend contract. It must support repeated calls by a waiter.
+A successful backend return requests a state recheck; the primitive decides
+whether its wait has completed.
 
-- may spin, yield, park, block, sleep, or return spuriously per the backend's
-  own contract;
-- must not park indefinitely if the primitive's state changed after `observed`
-  was captured (the "lost-wakeup contract" documented per consuming
-  primitive);
-- must be safe to call any number of times per waiter.
+A blocking backend MUST prevent a lost wakeup between observing state and
+parking. It registers the waiter, then checks
+`State.changedSince(observed)`. If the state changed, the backend removes that
+registration and returns success instead of parking. Registration, recheck,
+and parking MUST coordinate with `Backend.wakeAll()` so a wake after the
+recheck cannot leave the waiter parked indefinitely.
 
-Semantic requirements on `Backend.wakeAll`:
+The backend defines error meanings, deadlines, and cancellation. Each primitive
+specifies error propagation and its state after an error.
 
-- called by the primitive after publishing a state transition that could
-  unblock waiters for `state`;
-- must wake every waiter currently blocked in `Backend.wait` for the same
-  primitive instance identified by `state`, or otherwise make them return.
+### `Backend.wakeAll()`
 
-## API
+The primitive publishes an unblocking state transition before calling
+`Backend.wakeAll(state)`. The backend MUST make every waiter blocked for that
+state instance return. Publication can be visible before wake completion;
+preemption of the publishing caller can delay the wake call.
 
-```zig
-pub const Backend = struct {
-    pub const WaitError = error{};
+The backend contract defines allocation, locking, waiting, execution-context
+restrictions, scheduler interaction, and supported concurrent callers.
+Primitive-specific concurrency requirements still apply. Neither a wake nor
+a successful backend wait replaces the primitive's state observation and
+memory-ordering guarantees.
 
-    pub fn wait(
-        self: *Backend,
-        state: *const anyopaque,
-        observed: anytype,
-    ) WaitError!void;
+## `sync.spin.Backend`
 
-    pub fn wakeAll(self: *Backend, state: *const anyopaque) void;
-};
-```
+`sync.spin.Backend{}` constructs a zero-sized value with alignment 1.
+Values are interchangeable; `Backend.WaitError` is `error{}`.
 
-Implementation shape:
+| Operation | Contract |
+| --- | --- |
+| `Backend.wait()` | Executes one `std.atomic.spinLoopHint()` and returns success. |
+| `Backend.wakeAll()` | Returns immediately. |
 
-```zig
-const std = @import("std");
+Both operations are reentrant, allocation-free, non-blocking O(1) operations.
+The caller rechecks readiness. Spin hints are target-dependent.
 
-pub const Backend = struct {
-    pub const WaitError = error{};
+Interrupt and NMI callers MUST ensure progress can occur while they spin.
 
-    pub fn wait(
-        self: *Backend,
-        state: *const anyopaque,
-        observed: anytype,
-    ) WaitError!void {
-        _ = self;
-        _ = state;
-        _ = observed;
-        std.atomic.spinLoopHint();
-    }
+## References
 
-    pub fn wakeAll(self: *Backend, state: *const anyopaque) void {
-        _ = self;
-        _ = state;
-    }
-};
-```
-
-## Semantics
-
-`Backend` is a zero-sized struct. `@sizeOf(Backend) == 0`. Any two `Backend`
-values are interchangeable.
-
-`Backend{}` is the sole constructor. There is no `init` and no module-level
-singleton; callers instantiate `sync.spin.Backend{}` at the call site or store
-it inside a wait-capable primitive by value.
-
-`wait` accepts any `state` pointer and any `observed` value. `wakeAll` accepts
-any `state` pointer. The parameters are ignored by design so that
-`sync.spin.Backend` satisfies every consuming primitive's compile-time
-callability check without knowing the primitive's `State` and `Token` types.
-`wait` executes one `std.atomic.spinLoopHint()` and returns. The consuming
-primitive's algorithm supplies the outer loop; `wait` returning is not a wake
-signal.
-
-`std.atomic.spinLoopHint()` compiles to `pause` on x86_64, `yield` on aarch64,
-and target-appropriate hints elsewhere. It performs no memory access, no
-allocation, and no syscall. It is safe from any execution context including
-NMI.
-
-`wakeAll` is a no-op. Nothing is blocked on `Backend.wait` that requires
-waking; the caller's next `wait` iteration observes the primitive state on
-its own recheck.
-
-## Instantiation with consuming primitives
-
-Callers write:
-
-```zig
-var once: stdx.sync.Once(stdx.sync.spin.Backend) =
-    .init(stdx.sync.spin.Backend{});
-
-var signal: stdx.sync.Signal.Manual(stdx.sync.spin.Backend) =
-    .init(.unset, stdx.sync.spin.Backend{});
-```
-
-When `Signal.Manual` instantiates against `sync.spin.Backend`, the compile-
-time check that `backend.wait(state, token)` type-checks succeeds because
-`*const Signal.State` coerces to `*const anyopaque` and `anytype` accepts
-`Signal.Token`. The same reasoning applies to every future consuming
-primitive.
-
-Consuming specs cite this spec for the backend contract and add their own
-`State` / `Token` / `WaitError` requirements.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Concurrency | Ordering | Errors |
-| --- | --- | --- | --- | --- | --- | --- |
-| `Backend{}` | never | never | O(1) | value type | none | infallible |
-| `Backend.wait` | never | one `spinLoopHint` | O(1) | reentrant | none | infallible (`error{}`) |
-| `Backend.wakeAll` | never | never | O(1) | reentrant | none | infallible |
-
-`Backend` is safe from any execution context including NMI. It performs no
-memory access to its parameters, no allocation, no syscall, no lock, and no
-target probing.
-
-## std.Io lane
-
-`sync.spin.Backend` serves lane 2 exclusively: freestanding consumers where
-`std.Io` is unavailable — kernel init, hypervisor setup, firmware pre-runtime,
-controller polling loops, interrupt handlers. Lane-1 composition inside a
-`std.Io` backend requires a different backend that yields to the scheduler;
-that backend is a separate spec.
-
-## Testing
-
-Compile-time tests MUST verify that `Backend` has zero size, that `WaitError` is the explicit empty error set, and that the backend type-checks as the backend for every approved wait-capable primitive. These checks prove the representation and generic-backend contracts without depending on a scheduler.
-
-Deterministic runtime tests MUST call `wait` with arbitrary state and token types, then call `wakeAll`. The tests MUST verify that `wait` returns without an error after one `std.atomic.spinLoopHint()` iteration and that `wakeAll` does not access its state argument. These tests prove that the backend supplies recheck progress rather than a wake event.
-
-Cross-target compilation MUST include a non-x86 target. It proves that the contract relies on `std.atomic.spinLoopHint()` rather than target-specific assembly.
+- [Spin backend](../../../src/sync/backend/spin.zig)
+- [Backend declaration validation](../../../src/sync/backend/impl.zig)
+- [Signal](signal.md)
+- [Latch](latch.md)

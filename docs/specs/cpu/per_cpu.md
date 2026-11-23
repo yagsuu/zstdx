@@ -32,6 +32,8 @@ retains the slice without writing its payloads. The caller MUST initialize each
 undefined payload before reading it.
 
 `Static(T, N)` contains inline `[N]Padded` storage. `Bounded(T)` stores a borrowed `[]Padded` slice. For both factories, `Padded` is exactly `stdx.mem.CachePad(T)` and its public `value` field is the payload.
+All constructors are infallible and run callbacks synchronously. `PerCpu`
+performs no allocation or waiting; callback effects follow the caller's contract.
 
 Each padded slot has `@alignOf(Padded)` alignment. Adjacent slots have an address difference of exactly `@sizeOf(Padded)`. `@sizeOf(Padded)` is a multiple of the cache-line size defined by `stdx.mem.CachePad(T)`. Therefore, adjacent slots do not share a cache line on a supported target.
 
@@ -39,9 +41,7 @@ Each padded slot has `@alignOf(Padded)` alignment. Adjacent slots have an addres
 `Bounded`. Valid indexes are in `0..Store.capacity()`.
 
 `Store.get(index)` returns `*const T`; `Store.getMut(index)` returns `*T`.
-The caller MUST supply a valid index. These operations assert bounds when
-`stdx.core.debug.checksEnabled()` is true and remain subject to Zig's bounds-check
-policy.
+The caller MUST supply a valid index.
 
 `Store.at(index)` returns `*const T`; `Store.atMut(index)` returns `*T`.
 Both return `error.OutOfBounds` without mutation when the index is outside the
@@ -60,14 +60,14 @@ valid while the backing storage is alive and unmoved, independently of the
 wrapper's location. The caller MUST retain the backing storage for every use of
 the wrapper or its aliases.
 
-The caller selects every index and supplies the mapping from CPU identity to
-storage. `PerCpu` performs no CPU discovery, topology validation, or automatic
-current-CPU selection. Callers that require CPU-local access MUST keep their
-execution context consistent with the selected index.
+Callers supply CPU indexes and MUST keep their execution context consistent with
+the selected index when CPU-local access is required.
+The caller MUST synchronize conflicting payload access.
 
-```zig
 pub const Padded = stdx.mem.CachePad(T);
-pub const Error = error{OutOfBounds};
+## References
 
 pub const Padded = stdx.mem.CachePad(T);
 The implementation MUST use `stdx.mem.CachePad(T)` as the `Padded` type for both factories. `Static` MUST store `[N]Padded` inline. `Bounded` MUST borrow the supplied `[]Padded` storage and MUST NOT copy, allocate, resize, or free it.
+- [Per-CPU storage](../../../src/cpu/per_cpu.zig)
+- [Cache-line wrappers](../layout/cache.md)

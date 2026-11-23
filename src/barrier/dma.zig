@@ -1,3 +1,4 @@
+//! See `docs/specs/barrier/dma.md`.
 //! requires coherent DMA mappings or separate cache maintenance.
 //! does not wait for device completion.
 

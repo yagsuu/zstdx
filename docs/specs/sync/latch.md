@@ -315,9 +315,13 @@ Callers requiring NMI safety MUST use different primitives.
   the final release to zero;
 - acquire semantics on the wait-loop `State.observe` so that a returning
   waiter synchronizes-with the last arriver's release publication.
+The shared contract defines waiter registration, state recheck, lost-wakeup
+prevention, and wake completion. Once the pending count changes, it cannot
+return to a previous token value. Backend allocation, locking, waiting,
+interrupt, and scheduler behavior remains backend-owned. The latch layer
+performs no heap allocation.
 
 Writes sequenced before each arrival MUST be visible to a waiter that acquire-observes release. Arrivals accumulate publication through their acquire/release state transitions. Concurrent accesses outside this protocol require caller-owned synchronization.
-
 ## Behavior contract
 
 | Operation | Allocation | Waiting | Bounds | Concurrency | Ordering | Errors |

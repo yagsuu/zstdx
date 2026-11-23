@@ -1,3 +1,5 @@
+//! Reusable rendezvous. See `docs/specs/sync/rendezvous.md`.
+
 const std = @import("std");
 const builtin = @import("builtin");
 

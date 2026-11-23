@@ -1,422 +1,51 @@
-# Sync rendezvous
+# `sync.Rendezvous`
 
-Status: Approved.
+`stdx.sync.Rendezvous(Backend)` is a reusable barrier that completes each generation after a fixed number of arrivals.
 
-`stdx.sync.Rendezvous(Backend)` is a reusable N-way cyclic barrier. It gathers
-a fixed number of parties per generation; when the last party arrives, the
-generation advances, all waiters are released, and the primitive is armed
-again for the next round.
+## Variants and lifetime
 
-`stdx.sync.rendezvous.State` and `Token` provide the backend-independent state and observation types. Backend waiting behavior follows [the shared wait/wake contract](spin.md).
+Here, `Rendezvous` denotes either constructed variant.
 
-## API
+| Variant | Construction | Capacity |
+| --- | --- | --- |
+| `Rendezvous(Backend).Static(count)` | `Rendezvous(Backend).Static(count).init(backend)` | Compile-time `count`, exposed as `bound`; `1..maxInt(u32)`. |
+| `Rendezvous(Backend).Bounded` | `Rendezvous(Backend).Bounded.init(count, backend)` | Runtime `u32` count greater than zero. |
 
-```zig
-pub const State = struct {
-    word: std.atomic.Value(u64),
+Construction starts generation zero with the full capacity pending and stores the backend by value. Initialize before concurrent use. Do not copy an initialized rendezvous or move it after sharing its address. Keep the instance and backend resources alive until all arrivals and backend accesses finish.
 
-    pub fn init(capacity_parties: u32) State;
-    pub fn observe(self: *const State) Token;
-    pub fn changedSince(self: *const State, token: Token) bool;
-    pub fn remaining(self: *const State) u32;
-    pub fn generation(self: *const State) u32;
-};
+## `Rendezvous.arrive()`
 
-pub const Token = enum(u64) {
-    _,
+Each call commits one arrival to the current generation. Non-final callers wait until that generation changes. The final caller atomically restores the full pending count and advances the generation, then calls `Backend.wakeAll()` without entering the wait path. Capacity one completes every arrival.
 
-    pub fn remaining(self: Token) u32;
-    pub fn generation(self: Token) u32;
-};
+Generation publication precedes wake completion. Other callers may observe completion and begin the next generation before the final caller returns from `Backend.wakeAll()`.
 
-pub fn Rendezvous(comptime Backend: type) type;
-```
+A backend wait error returns unchanged after the arrival has committed. The arrival remains counted; the error does not cancel the generation or remove a participant from future generations. A retry is another arrival, potentially in the same generation. The caller must coordinate recovery with the other participants.
 
-### `Rendezvous(Backend)` returned type
+The barrier counts arrivals without participant identity or thread affinity. Callers must arrange the intended number of arrivals per generation and synchronize accesses between generations. Readers must finish using a generation's payload before a later generation overwrites it.
 
-```zig
-pub const Namespace = struct {
-    pub const WaitError = Backend.WaitError;
+Every completed generation restores the original capacity.
 
-    pub fn Static(comptime capacity_parties: usize) type;
-    pub const Bounded = struct { ... };
-};
-```
+## Ordering and observations
 
-### `Rendezvous(Backend).Static(N)` returned type
+Every committed arrival has acquire-release ordering. Successful completion makes writes before all arrivals in that generation visible to its completing participants. Non-final callers acquire-observe generation completion before successful return. A wait error does not establish completion.
 
-```zig
-pub const Self = struct {
-    state: State,
-    backend: Backend,
+`Rendezvous.pending()` acquire-loads the remaining arrivals; valid state never exposes zero. `Rendezvous.generation()` acquire-loads the wrapping `u32` generation. Separate queries need not describe the same instant. `Rendezvous.capacity()` returns the fixed capacity. Queries may run concurrently with arrivals.
 
-    pub const party_capacity: usize = capacity_parties;
-    pub const WaitError = Backend.WaitError;
+`Rendezvous.stateRef()` borrows the state for backend observation and remains valid only while the instance remains alive at the same address. `State.observe()` returns an acquire snapshot whose `Token.pending()` and `Token.generation()` describe one instant. `State.pending()` and `State.generation()` are acquire queries.
 
-    pub fn init(backend: Backend) Self;
+`State.changedSince(token)` acquire-loads and compares generations only. A pending-count decrement does not invalidate a token. Generation wrap can hide a multiple of `2^32` completions; backends must keep token lifetimes within that bound. `State.init(count)` requires a nonzero count. Callers must not modify live state directly.
 
-    pub fn arrive(self: *Self) WaitError!void;
-    pub fn pending(self: *const Self) u32;
-    pub fn capacity(self: *const Self) u32;
-    pub fn generation(self: *const Self) u32;
-    pub fn stateRef(self: *const Self) *const State;
-};
-```
+## Backend and execution context
 
-### `Rendezvous(Backend).Bounded` type
+`Backend` follows the [wait/wake contract](spin.md#shared-waitwake-backend-contract)
+with `sync.rendezvous.State` and `sync.rendezvous.Token`.
 
-```zig
-pub const Bounded = struct {
-    capacity_parties: u32,
-    state: State,
-    backend: Backend,
+`Rendezvous.arrive()` tolerates spurious successful waits by checking the generation again. Waiting and wake completion follow backend policy. The primitive adds no heap allocation. Contention retries and waiting have no fixed bound or fairness guarantee.
 
-    pub const WaitError = Backend.WaitError;
-
-    pub fn init(capacity_parties: u32, backend: Backend) Bounded;
-
-    pub fn arrive(self: *Bounded) WaitError!void;
-    pub fn pending(self: *const Bounded) u32;
-    pub fn capacity(self: *const Bounded) u32;
-    pub fn generation(self: *const Bounded) u32;
-    pub fn stateRef(self: *const Bounded) *const State;
-};
-```
+Use a backend safe for the calling context, and ensure every required participant can progress. `Rendezvous.arrive()` MUST NOT run in NMI or nested-interrupt context.
 
 `Static(0)` is a compile-time error, matching the `BitSet.Static(0)` rule in
 `docs/specs/bits/set/static.md`. `Static(capacity_parties)` with
-`capacity_parties > std.math.maxInt(u32)` is a compile-time error.
-`Bounded.init(0, backend)` is a caller-contract violation and traps under
-`stdx.core.debug.checksEnabled()`.
+## References
 
-The last arriver MUST return without entering the wait path.
-
-## Backend interface
-
-`Rendezvous(Backend)` requires `Backend` to satisfy the shared wait/wake
-backend contract defined in `docs/specs/sync/spin.md`, specialized to
-`sync.rendezvous.State` and `sync.rendezvous.Token`:
-
-```zig
-pub const WaitError = error{...};
-
-pub fn wait(
-    self: *Backend,
-    state: *const stdx.sync.rendezvous.State,
-    observed: stdx.sync.rendezvous.Token,
-) WaitError!void;
-
-pub fn wakeAll(self: *Backend, state: *const stdx.sync.rendezvous.State) void;
-```
-
-`WaitError` must be an explicit error set. `anyerror` is not approved. An
-empty error set (`error{}`, as `sync.spin.Backend` uses) is legal; the
-primitive-side `try` in `arrive` monomorphizes away for spin-only callers.
-
-`Backend` is stored by value in the primitive. If backend state is large,
-mutable, or shared elsewhere, callers should make `Backend` a pointer or
-small handle type.
-
-`Backend.wait` may block, sleep, park, yield, spin, or return spuriously
-according to the backend's own contract. `arrive` loops on spurious returns
-until the generation advances or a backend error is returned.
-
-`Backend.wakeAll` is called by the last arriver of a generation after the
-generation advance is release-published. It must wake every waiter that
-could be blocked in `Backend.wait` for this rendezvous instance, or otherwise
-make those waiters return according to the backend's contract.
-
-The allocation, waiting, locking, interrupt, and scheduler behavior of
-backend functions is backend-owned. The rendezvous layer adds no heap
-allocation and no hidden global scheduler policy.
-
-Spin-only callers MUST instantiate `Rendezvous(sync.spin.Backend)`. This API has no `.Spin` alias.
-
-## State and token representation
-
-`sync.rendezvous.State` contains one atomic `u64` word.
-
-Conceptually:
-
-```text
-bits  0..31  remaining: u32   parties still expected in the current generation
-bits 32..63  generation: u32  generation counter, wraps on overflow
-```
-
-`sync.rendezvous.Token` is a strong snapshot of that word.
-
-`State.observe()` acquire-loads the current word and returns it as a token.
-
-`State.changedSince(token)` acquire-loads the current word and compares the
-generation field with `token.generation()`. It returns true when the current
-generation differs from the token's generation.
-
-`State.remaining()` acquire-loads the current word and returns the remaining
-field. `State.generation()` acquire-loads and returns the generation field.
-
-Generation wrap can make `State.changedSince` report no change only after
-exactly `2^32` generation advances between a token observation and its
-comparison. Tests do not execute that many generation advances.
-
-## Construction
-
-`State.init(capacity_parties)` returns a state with `remaining =
-capacity_parties` and `generation = 0`. `capacity_parties` must be strictly
-positive; passing zero is a caller-contract violation and traps under
-`stdx.core.debug.checksEnabled()`.
-
-`Rendezvous(Backend).Static(capacity_parties).init(backend)` returns a `Self`
-with the state pre-armed for the first generation and the supplied backend
-stored by value. `capacity_parties` is a comptime constant; `Static(0)` is a
-compile-time error.
-
-`Rendezvous(Backend).Bounded.init(capacity_parties, backend)` returns a
-`Bounded` with the state pre-armed and the runtime `capacity_parties` stored
-in the struct. `capacity_parties == 0` is a caller-contract violation.
-
-`init` must complete before any concurrent use.
-
-After initialization, copying a rendezvous is outside the primitive's
-contract. Once any pointer to a rendezvous is shared with another execution
-context, moving it is outside the primitive's contract.
-
-## Arrival semantics
-
-`arrive()` decrements the remaining counter for the current generation and,
-when the caller is the last party of the generation, advances the generation
-and wakes waiters. Every other caller waits until the generation advances.
-
-Required algorithm shape:
-
-```zig
-pub fn arrive(self: *Self) WaitError!void {
-    var my_generation: u32 = undefined;
-
-    // Reservation loop: atomically decrement remaining, or roll the generation
-    // when we are the last party.
-    while (true) {
-        const observed = self.state.observe();
-        const rem = observed.remaining();
-        const gen = observed.generation();
-        my_generation = gen;
-
-        const next_word: u64 = if (rem == 1)
-            pack(self.capacityU32(), gen +% 1)
-        else
-            pack(rem - 1, gen);
-
-        if (self.state.tryTransition(observed, next_word, .acq_rel, .acquire)) {
-            if (rem == 1) {
-                self.backend.wakeAll(&self.state);
-                return;
-            }
-            break; // loser: proceed to wait loop
-        }
-        // CAS lost race; retry.
-    }
-
-    // Wait loop: block until the generation advances.
-    while (true) {
-        const token = self.state.observe();
-        if (token.generation() != my_generation) return;
-        try self.backend.wait(&self.state, token);
-    }
-}
-```
-
-Required behavior:
-
-- exactly one arriver per generation observes `remaining == 1` on its
-  successful CAS and is the "last arriver";
-- the last arriver installs `remaining = capacity_parties` and `generation =
-  observed.generation() +% 1` in one CAS, then calls
-  `backend.wakeAll(&self.state)`;
-- every non-last arriver waits until the observed generation differs from
-  the generation it committed against;
-- `arrive` never observes `remaining == 0`: the last arriver's CAS reinstalls
-  the full capacity before publishing, and the primitive's construction sets
-  `remaining = capacity_parties`;
-- CAS retries are bounded by contention with peer arrivers, not by the party
-  count;
-- `WaitError` from the backend propagates unchanged; the caller has already
-  committed its arrival CAS and the primitive does not roll it back;
-- `arrive` does not allocate.
-
-Static-only additional constraint: the `capacity_parties` argument passed to
-`Static(N)` must satisfy `N > 0` and `N <= std.math.maxInt(u32)`. Bounded
-enforces `capacity_parties > 0` at runtime under
-`stdx.core.debug.checksEnabled()`.
-
-## Lost-wakeup contract
-
-`Backend.wait(state, observed)` must not park if the state changed after
-`observed` was captured.
-
-Correct backend shape:
-
-1. register or enqueue the current waiter;
-2. recheck `state.changedSince(observed)` after registration;
-3. if changed, unregister/cancel the wait and return success;
-4. otherwise park, block, yield, or spin according to backend policy;
-5. return success after wake or spurious wake, or return a `WaitError`.
-
-A backend that cannot perform the post-registration recheck is not valid for
-`Rendezvous`.
-
-## Concurrency contract
-
-Any number of contexts may call `arrive` concurrently against the same
-rendezvous. Exactly one arriver per generation wins the "last arriver" CAS.
-
-`pending`, `capacity`, `generation`, `stateRef`, and `State.observe` /
-`State.changedSince` / `State.remaining` / `State.generation` are
-non-mutating and may be called concurrently with any other operation.
-
-`init` must complete before any concurrent use.
-
-The rendezvous does not distinguish parties by identity. Any thread of
-execution may play the role of any party in any generation; there is no
-per-thread affinity, no expected caller identity, and no per-party token.
-
-`arrive` is not safe from NMI or nested-interrupt context. A preempted
-arriver that has committed its CAS but not yet exited the wait loop can
-stall the next generation's release. Callers with NMI requirements use
-different primitives (e.g. a `sync.spin`-backed `AtomicCell` on a
-generation counter, or `concurrent.mpsc.AtomicRing` when applicable).
-
-## Ordering contract
-
-`Rendezvous.arrive` provides:
-
-- acquire semantics on every `State.observe` and on every CAS-failure reload;
-- release semantics via `.acq_rel` on the successful CAS that installs the
-  next state word, whether the transition is a plain decrement or a
-  generation advance;
-- acquire semantics on the wait-loop `State.observe` so that a returning
-  waiter synchronizes-with the last arriver's generation advance.
-
-Writes sequenced before each party's arrival MUST be visible to parties that acquire-observe that generation's completion. Accesses belonging to different generations require the caller to preserve the barrier protocol and avoid overlapping unsynchronized mutation.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Concurrency | Ordering | Errors |
-| --- | --- | --- | --- | --- | --- | --- |
-| `State.init` | never | never | O(1) | value type | none | infallible |
-| `State.observe` | never | never | O(1) | reader | acquire | infallible |
-| `State.changedSince` | never | never | O(1) | reader | acquire | infallible |
-| `State.remaining` | never | never | O(1) | reader | acquire | infallible |
-| `State.generation` | never | never | O(1) | reader | acquire | infallible |
-| `Static(N).init` | never | never | O(1) | single-owner | none | infallible |
-| `Static(N).party_capacity` | never | never | comptime | comptime | none | infallible |
-| `Bounded.init` | never | never | O(1) | single-owner | none | infallible |
-| `arrive` last | never | backend `wakeAll` | O(1) + contention | many callers | acq_rel transition | infallible in primitive |
-| `arrive` non-last | never | backend `wait` | O(1) + wait | many callers | acquire on observe | propagates `WaitError` |
-| `pending` | never | never | O(1) | reader | acquire | infallible |
-| `capacity` | never | never | O(1) | reader | none | infallible |
-| `generation` | never | never | O(1) | reader | acquire | infallible |
-| `stateRef` | never | never | O(1) | reader | none | infallible |
-
-The rendezvous layer performs no heap allocation, I/O, MMIO, volatile access,
-target probing, or hidden global scheduler access.
-
-## Error behavior
-
-`pending`, `capacity`, `generation`, `stateRef`, `State.observe`,
-`State.changedSince`, `State.remaining`, and `State.generation` are
-infallible.
-
-`arrive` returns only `Backend.WaitError`. A backend error returned from the
-wait loop leaves the state unchanged; the caller's arrival CAS has already
-committed. Callers must treat a returned `WaitError` as "the wait did not
-complete", not "the arrival was rolled back". The next arriver of the same
-generation still observes the committed decrement.
-
-Backend errors mean the backend-specific wait operation did not complete as
-a normal wake. This spec does not assign meanings such as timeout,
-interrupted, canceled, or unsupported; those belong to the backend error
-set.
-
-## Implementation constraints
-
-Implementation must:
-
-- store one atomic `u64` word in `sync.rendezvous.State`;
-- pack `remaining` in the low 32 bits and `generation` in the high 32 bits;
-- use a strong `Token` type rather than exposing raw `u64` tokens;
-- keep `Rendezvous(Backend)` free of runtime vtables;
-- at `Rendezvous(Backend)` factory instantiation, require `Backend` to declare `WaitError`, `wait`, and `wakeAll`, and require `WaitError` to be an explicit error set;
-- reserve `remaining` and install the next generation in one CAS on the
-  last-arrival path, so no observer ever sees `remaining == 0`;
-- call `wakeAll(&state)` only after the generation advance is release-
-  published;
-- loop in the wait path to tolerate spurious backend success returns;
-- never allocate in the rendezvous layer;
-- avoid hidden globals and target-specific waits in the rendezvous layer;
-- compile-error `Static(0)` and any `Static(N)` with `N > u32max`;
-- assert `capacity_parties > 0` in `Bounded.init` under
-  `stdx.core.debug.checksEnabled()`.
-
-## Examples
-
-Backend shape:
-
-```zig
-const WaitQueueBackend = struct {
-    queue: *WaitQueue,
-
-    pub const WaitError = error{Canceled};
-
-    pub fn wait(
-        self: *WaitQueueBackend,
-        state: *const stdx.sync.rendezvous.State,
-        observed: stdx.sync.rendezvous.Token,
-    ) WaitError!void {
-        self.queue.enqueueCurrent();
-        if (state.changedSince(observed)) {
-            self.queue.cancelCurrent();
-            return;
-        }
-        try self.queue.parkCurrent();
-    }
-
-    pub fn wakeAll(
-        self: *WaitQueueBackend,
-        state: *const stdx.sync.rendezvous.State,
-    ) void {
-        self.queue.wakeAll(state);
-    }
-};
-```
-
-Spin-only rendezvous in a freestanding context:
-
-```zig
-const Rv = stdx.sync.Rendezvous(stdx.sync.spin.Backend).Static(4);
-var rv = Rv.init(.{});
-
-// Called from four different CPUs.
-rv.arrive() catch unreachable; // spin backend WaitError == error{}
-```
-
-Bounded rendezvous with a scheduler backend:
-
-```zig
-const Rv = stdx.sync.Rendezvous(WaitQueueBackend).Bounded;
-var rv = Rv.init(worker_count, .{ .queue = &queue });
-
-// Every worker:
-try rv.arrive();
-```
-
-## Testing
-
-Tests MUST:
-
-- Reject zero/oversized capacities and invalid backends at compile time.
-- Exercise both storage variants with spin and controllable wait/wake backends.
-- Check initial state, non-final waiting, final reset/generation advance, one wake per generation, and cyclic reuse.
-- Verify that backend errors propagate without rolling back a committed arrival.
-- Model generation advance before/after waiter registration.
-- Publish payloads before arrivals and verify visibility after generation completion.
-- Run multiple parties across repeated generations and check exact advance/wake counts and completion.
-- Compile for a non-x86 target.
+- [Reusable rendezvous](../../../src/sync/rendezvous.zig)
