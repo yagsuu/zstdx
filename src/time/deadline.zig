@@ -1,4 +1,4 @@
-//! deadlines for poll loops
+//! Deadlines. See `docs/specs/time/deadline.md`.
 
 const std = @import("std");
 

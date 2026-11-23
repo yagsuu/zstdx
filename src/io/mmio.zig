@@ -1,3 +1,5 @@
+//! MMIO access. See `docs/specs/io/mmio.md`.
+
 const std = @import("std");
 
 const addr = @import("addr");

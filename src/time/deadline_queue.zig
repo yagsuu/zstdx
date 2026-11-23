@@ -1,4 +1,4 @@
-//! fixed-capacity deadline priority queue
+//! Deadline queues. See `docs/specs/time/deadline_queue.md`.
 
 const std = @import("std");
 

@@ -1,3 +1,5 @@
+//! Timer wheels. See `docs/specs/time/timer_wheel.md`.
+
 const std = @import("std");
 
 const debug = @import("core").debug;

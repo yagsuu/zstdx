@@ -1,3 +1,5 @@
+//! Event logs. See `docs/specs/concurrent/log.md`.
+
 const std = @import("std");
 
 const Atomic = std.atomic.Value;

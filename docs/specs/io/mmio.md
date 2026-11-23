@@ -1,154 +1,67 @@
-# IO MMIO register
+# `stdx.io.Mmio`
 
-Status: Approved.
+`Mmio` provides volatile register access through inline register overlays,
+standalone references, and borrowed byte windows.
 
-`stdx.io.MMIO.Register(T)` provides typed volatile access to one memory-mapped register lane. `stdx.io.MMIO.Window` borrows an MMIO byte range and produces typed register pointers at checked offsets.
+## Values and access width
 
-## Terminology
+`Mmio.Register(T)`, `Mmio.Ref(T)`, and `Mmio.RefMut(T)` accept `u8`, `u16`,
+`u32`, `u64`, [endian wrappers](../layout/endian.md) over those integers, and
+packed structs backed by those integers. Other types fail at compile time.
 
-- **Register lane:** One `Register(T)` object accessed at the width and alignment of `T`.
-- **Window:** A non-owning `Window(min_align_bytes)` value over a caller-owned MMIO mapping.
-- **Volatile access:** A Zig load or store through a `*volatile T` access path.
+Each load/store is one Zig volatile access of the backing integer's width and
+alignment. Device-bus transaction behavior depends on the target.
 
-## Cross-spec relationships
+Loads return `T` and stores accept `T`. Endian wrappers retain their device-byte
+representation; use their conversion methods for native values. Packed values
+use Zig's packed representation.
 
-`Register(T)` accepts the endian wrappers defined by `docs/specs/layout/endian.md`. `Register.load` and `Register.store` do not provide hardware ordering. A caller that requires ordering between MMIO, DMA-visible memory, or other MMIO operations MUST use the applicable operation from `docs/specs/barrier/dma.md`.
+`Mmio.Register(T)` is an extern struct containing the backing integer as `value`.
+Its size and alignment equal those of that integer. `Register.Value` is `T`,
+`Register.Int` is the backing integer, and `Register.size` is its byte size.
+`Register.load()` accepts a const volatile pointer; `Register.store()` requires
+a mutable volatile pointer.
 
-## Data structures and representation
+## References and windows
 
-`Register(T)` returns an `extern struct` with exactly one field:
+`Mmio.Ref(T).from(address)` and `Mmio.RefMut(T).from(address)` borrow a
+`VirtAddr`, returning `error.Misaligned` unless it satisfies backing-integer
+alignment. `Ref.load()` is read-only; `RefMut.load()` and `RefMut.store()` permit
+both operations. Construction does not access the device.
 
-```zig
-pub const Self = extern struct {
-    value: T align(@alignOf(T)),
+`Mmio.Window.from(bytes)` borrows `[]volatile u8` without accessing it. Copies of
+windows and references alias the same mapping.
 
-    pub const Native = T;
-    pub const width_bytes: comptime_int = @sizeOf(T);
+| Window operation | Result |
+| --- | --- |
+| `Window.reg(T, offset)` | Read-only `Ref(T)` at the byte offset. |
+| `Window.regMut(T, offset)` | Mutable `RefMut(T)` at the byte offset. |
+| `Window.field(Layout, name)` | Read-only reference at the named field's overlay offset. |
+| `Window.fieldMut(Layout, name)` | Mutable reference at the same offset. |
 
-    pub fn load(self: *const volatile Self) T;
-    pub fn store(self: *volatile Self, value: T) void;
-};
-```
+Register selection returns `error.OutOfBounds` if the lane does not fit entirely
+inside the window, including extreme offsets. Bounds errors precede alignment
+errors. An in-bounds lane returns `error.Misaligned` unless its actual address
+satisfies backing-integer alignment. The window base need not itself have that
+alignment.
 
-For every accepted `T`:
+Field selection requires an extern struct `Layout` with a named
+`Mmio.Register(T)` field. The overlay starts at the window base; only the selected
+field must fit in the window. Field selection applies the same bounds and
+alignment rules as register selection. Selection failures leave the window and
+mapped memory unchanged.
 
-```zig
-@sizeOf(stdx.io.MMIO.Register(T)) == @sizeOf(T)
-@alignOf(stdx.io.MMIO.Register(T)) == @alignOf(T)
-```
+## Device requirements and ordering
 
-`Window(min_align_bytes)` returns a value type with a `[*]align(min_align) volatile u8` base pointer and a `usize` byte length. It owns neither the mapping nor its lifetime. Copying a `Window` does not copy mapping storage or extend mapping lifetime.
+The caller MUST keep the mapping valid and accessible for each full-width access,
+with suitable device-memory attributes and read or write permission. Standalone
+references also require a mapped extent large enough for the lane. The caller
+MUST choose a width, representation, and operation allowed by the device.
 
-## Global invariants
+Callers MUST handle device read/write side effects, reserved bits, and update rules,
+serialize conflicting accesses, and supply required [MMIO barriers](../barrier/dma.md).
+Reference construction and selection perform no register access, allocation, or waiting.
 
-- MMIO primitives MUST NOT allocate, lock, sleep, block, call a scheduler, probe a target, or access hidden global state.
-- `Register.load` and `Register.store` are the only operations in this API that access the mapped device memory.
-- A pointer returned by `Window.register`, `Window.field`, or `Window.registerUnchecked` aliases `base + offset` and remains valid only while the caller keeps the underlying mapping valid.
-- The caller MUST serialize conflicting accesses to a register. This API provides no CPU-to-CPU, DMA-agent, or device synchronization.
-- All checked window failures occur before pointer creation. A failed checked operation does not mutate the window or mapped memory.
+## References
 
-## API
-
-```zig
-pub const MMIO = struct {
-    pub const default_align: usize = @alignOf(u64);
-
-    pub fn Register(comptime T: type) type;
-    pub fn Window(comptime min_align_bytes: usize) type;
-
-    pub const Window64 = Window(@alignOf(u64));
-    pub const Window32 = Window(@alignOf(u32));
-};
-```
-
-`MMIO.default_align` equals `@alignOf(u64)`. `MMIO.Window64` equals `MMIO.Window(@alignOf(u64))`. `MMIO.Window32` equals `MMIO.Window(@alignOf(u32))`.
-
-### `Register(T)`
-
-`T` MUST be one of the following:
-
-- `u8`, `u16`, `u32`, or `u64`;
-- `layout.Le(U)` or `layout.Be(U)`, where `U` is one of those unsigned integer types; or
-- a `packed struct(uN)` whose backing integer is `u8`, `u16`, `u32`, or `u64`.
-
-Any other `T` MUST produce `@compileError`. This includes signed integers, pointer-sized integers, unsupported integer widths, booleans, floating-point values, arrays, pointers, optionals, error unions, functions, unions, enums, unpacked structs, and packed structs with any other backing integer.
-
-`load` performs one volatile load of `T`. `store` performs one volatile store of `value`. Both operations use the natural width and alignment of `T`.
-
-The operations are compiler-ordered against other volatile accesses in the same translation unit. They MUST NOT emit an ISA fence. They do not order hardware access, synchronize CPUs, synchronize DMA agents, or provide atomic read-modify-write behavior.
-
-For endian-wrapper lanes, `load` returns the wrapper type and `store` accepts the wrapper type. The caller uses the wrapper API to convert between the device representation and native values. Packed-struct bit layout is the Zig packed-struct representation; this spec does not assign device bit meanings.
-
-### `Window(min_align_bytes)`
-
-`min_align_bytes` MUST be a non-zero power of two. Any other value MUST produce `@compileError`.
-
-The returned type provides:
-
-```zig
-pub const Self = struct {
-    base: [*]align(min_align) volatile u8,
-    len: usize,
-
-    pub const min_align: usize = min_align_bytes;
-    pub const Error = error{ OutOfBounds, Misaligned };
-
-    pub fn wrap(bytes: []align(min_align) volatile u8) Self;
-    pub fn byteLen(self: Self) usize;
-    pub fn register(self: Self, comptime T: type, offset: usize) Error!*volatile Register(T);
-    pub fn field(
-        self: Self,
-        comptime Layout: type,
-        comptime field_name: []const u8,
-    ) Error!*volatile Register(@FieldType(Layout, field_name));
-    pub fn registerUnchecked(
-        self: Self,
-        comptime T: type,
-        offset: usize,
-    ) *volatile Register(T);
-};
-```
-
-#### `wrap`
-
-`wrap` borrows `bytes` without allocation, copying, validation, or device access. The parameter alignment enforces the window's minimum alignment at compile time. A caller MUST provide a slice whose declared alignment is at least `min_align`; a lesser-aligned slice does not type-check.
-
-#### `byteLen`
-
-`byteLen` returns the borrowed byte extent unchanged.
-
-#### `register`
-
-`register(T, offset)` accepts only a `T` accepted by `Register(T)`. It also requires `@alignOf(T) <= min_align_bytes`; an over-aligned lane is rejected at compile time.
-
-The operation MUST return `error.OutOfBounds` when `@sizeOf(T) > self.len` or `offset > self.len - @sizeOf(T)`. The second check MUST occur only after the first check, so no `usize` addition or subtraction overflows.
-
-The operation MUST return `error.Misaligned` when `(@intFromPtr(self.base) + offset) % @alignOf(T) != 0`. Otherwise, it returns `*volatile Register(T)` at `base + offset`.
-
-#### `field`
-
-`field(Layout, field_name)` treats `Layout` as an overlay anchored at the window base and delegates its runtime checks to `register`. `Layout` MUST have `field_name`. The field type MUST be accepted by `Register`. The operation uses `@offsetOf(Layout, field_name)` as the offset and `@FieldType(Layout, field_name)` as `T`.
-
-At compile time, the operation MUST reject a missing field and a field whose `@offsetOf` plus size exceeds `@sizeOf(Layout)`. The operation otherwise has the same bounds, alignment, aliasing, lifetime, and error contract as `register`.
-
-#### `registerUnchecked`
-
-`registerUnchecked(T, offset)` returns the same pointer that a successful `register(T, offset)` returns. The caller MUST establish the accepted type, bounds, and address alignment before the call.
-
-When `stdx.core.debug.checksEnabled()` is true, the operation asserts the same bounds and alignment conditions enforced by `register`. When the check is false, it performs unchecked pointer arithmetic. A caller MUST NOT rely on debug assertions for release-mode validation.
-
-## Implementation constraints
-
-The implementation MUST use Zig volatile lowering for `load` and `store`; it MUST NOT use inline assembly. It MUST preserve the `Register(T)` representation and the checked-operation order stated above. `Window` state is limited to its base pointer and length. `field` performs its layout checks at compile time and delegates all runtime validation to `register`.
-
-## Testing
-
-Host tests use aligned ordinary byte buffers as a model of mapped storage. They verify wrapper representation, pointer arithmetic, byte representation, and volatile load/store behavior. They do not prove device side effects, bus transactions, ISA instruction counts, or hardware ordering; those properties require target-specific inspection and hardware validation.
-
-Compile-fail checks MUST cover rejected register types, invalid window alignments, over-aligned lanes, missing fields, and invalid field layouts.
-
-Boundary tests MUST cover the first valid offset, an exact fit, the first out-of-bounds offset, and an extreme `usize` offset. Alignment tests MUST cover aligned and misaligned addresses and `wrap`'s declared-alignment requirement.
-
-Representation tests MUST verify supported lane widths, endian-wrapper bytes, packed-struct lanes, and offsets in an `extern struct` overlay.
-
-State and error tests MUST check `error.OutOfBounds`, `error.Misaligned`, and aliasing of successful register pointers. Invalid `registerUnchecked` inputs require an isolated assertion process.
+- [MMIO declarations](../../../src/io/mmio.zig)

@@ -1,3 +1,5 @@
+//! Bounded polling. See `docs/specs/io/poll.md`.
+
 const std = @import("std");
 
 const time = @import("time");

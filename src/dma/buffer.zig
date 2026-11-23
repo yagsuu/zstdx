@@ -1,3 +1,5 @@
+//! DMA buffer views. See `docs/specs/dma/buffer.md`.
+
 const std = @import("std");
 
 const addr = @import("addr").address;

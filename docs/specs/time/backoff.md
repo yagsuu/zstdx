@@ -1,188 +1,60 @@
-# Time backoff
+# `time.Backoff`
 
-Status: Approved.
+`Backoff` generates retry actions with spin, yield, and bounded sleep phases.
+The caller performs each returned action.
 
-`stdx.time.Backoff` is a structured retry-delay generator. Each call to
-`next` returns a `Step` describing what the caller should do — spin,
-yield, sleep for a duration, or give up because the deadline has passed.
-The primitive owns the phase progression and deadline clipping; the caller
-owns the actual spin/yield/sleep.
+## Policy and state
 
-`Backoff` is a value, not a scheduler. It does not spin, does not yield,
-does not sleep, and never touches the clock beyond querying the deadline.
+`Backoff.Policy` groups a `spin` configuration, optional `yield`
+configuration, and `wait` configuration:
 
-## API
+- `spin.iterations` is the `u32` number of spin steps.
+- A non-null `yield` supplies a `u32` iteration count and a
+  `*const fn () void` hook. Null skips the yield phase. Zero iteration
+  counts skip the corresponding phase.
+- `wait.initial` and `wait.max` are non-negative signed-nanosecond
+  durations with `initial <= max`.
+- `wait.growth_shift` is `u3` (`0..7`). Each sleep step multiplies the next
+  wait by `2^growth_shift`, saturating at `wait.max`. Zero keeps waits
+  constant; an initial wait of zero remains zero.
 
-```zig
-pub const Backoff = struct {
-    pub const Policy = struct {
-        spin_iterations: u32,
-        yield_iterations: u32,
-        yield: ?*const fn () void,
-        initial_wait: Duration,
-        max_wait: Duration,
-        growth_shift: u3,
+The caller MUST keep `spin.iterations + yield.iterations` within `u32`.
+`Backoff.init(policy)` starts with zero attempts and `policy.wait.initial`.
+`Backoff.assertValid()` checks wait bounds.
 
-        pub fn assertValid(self: Policy) void;
-    };
+## Progression and deadlines
 
-    pub const Step = union(enum) {
-        spin,
-        yield,
-        sleep: Duration,
-        timeout,
-    };
+`Backoff.next(deadline, clock)` uses the [deadline clock contract](deadline.md).
+The caller MUST use a consistent clock domain and epoch for the deadline
+and successive calls. Finite remaining-time differences must fit `i64`.
 
-    policy: Policy,
-    attempt: u32,
-    next_wait: Duration,
+Each call selects an action in this order:
 
-    pub fn init(policy: Policy) Backoff;
-    pub fn reset(self: *Backoff) void;
+1. An expired deadline returns `.timeout`, including at the exact boundary.
+2. The configured spin steps return `.spin`.
+3. The configured yield steps return `.yield`.
+4. The sleep phase queries remaining time again. A non-positive result
+   returns `.timeout`. Otherwise it returns `.sleep` containing the smaller
+   of `next_wait` and the observed remaining duration, then grows `next_wait`.
 
-    pub fn next(
-        self: *Backoff,
-        deadline: Deadline,
-        clock: anytype,
-    ) Step;
+Sleep clipping uses the current reading; growth uses the stored wait.
+The caller executes returned actions.
 
-    pub fn attempts(self: *const Backoff) u32;
+Non-timeout steps increment the `u32` count returned by `Backoff.attempts()`.
+Reset before this count overflows. Timeout preserves attempts and `next_wait`.
 
-    pub fn assertValid(self: *const Backoff) void;
-};
-```
+`Backoff.reset()` restores zero attempts and `policy.wait.initial` without
+changing the policy. To replace a policy, assign a valid policy and reset
+before generating further steps. Public state must continue to satisfy
+the bounds above.
 
-`policy`, `attempt`, and `next_wait` are public fields. Callers may inspect
-`next_wait` between calls for logging or heuristic sizing, and may
-overwrite `policy` in place before calling `reset()` when they need to
-swap policies.
+## Costs and concurrency
 
-## Policy semantics
+Operations take O(1) work without allocation or waiting. `Backoff.next()` reads
+the clock once, and once more during sleep selection for a finite deadline.
+Serialize mutable access and satisfy the clock's execution-context requirements.
 
-`Policy.spin_iterations` is the number of `.spin` results returned before
-transitioning to the yield phase. Zero is legal.
+## References
 
-`Policy.yield_iterations` is the number of `.yield` results returned
-before transitioning to the sleep phase. Zero is legal.
+- [Retry backoff](../../../src/time/backoff.zig)
 
-`Policy.yield` is a nullable function pointer. When `null`, the yield
-phase is skipped entirely regardless of `yield_iterations`: `next` moves
-directly from spin to sleep. This lets freestanding callers set
-`yield: null` without altering `yield_iterations`.
-
-`Policy.initial_wait` is the first `.sleep(Duration)` value returned in
-the sleep phase. Must be non-negative.
-
-`Policy.max_wait` is the ceiling on `next_wait`. Growth saturates at this
-value. Must be `>= initial_wait`.
-
-`Policy.growth_shift` is the left-shift applied to `next_wait` after each
-sleep step. `0` produces a constant-wait backoff. Range is `u3` (0..7),
-allowing up to 128× growth per step. Values that would push `next_wait`
-past `max_wait` saturate.
-
-`Policy.assertValid` checks:
-
-- `initial_wait.nanos() >= 0`;
-- `max_wait.nanos() >= 0`;
-- `initial_wait.nanos() <= max_wait.nanos()`.
-
-Explicit `Policy.assertValid()` and `Backoff.assertValid()` calls MUST validate the policy. `Backoff.init()` performs automatic policy validation when `core.debug.checksEnabled()` is true.
-
-## Backoff semantics
-
-### Initialization
-
-`Backoff.init(policy)` returns a `Backoff` with `policy` stored,
-`attempt = 0`, `next_wait = policy.initial_wait`. Under
-`checksEnabled()`, `init` calls `policy.assertValid()`.
-
-### Step transitions
-
-`next(deadline, clock)` returns the next phase result. Logic, in order:
-
-1. If `deadline.expired(clock)` → return `.timeout`. `attempt` is
-   unchanged.
-2. Else if `attempt < policy.spin_iterations` → return `.spin`,
-   increment `attempt`.
-3. Else if `policy.yield != null` and
-   `attempt < policy.spin_iterations + policy.yield_iterations` →
-   return `.yield`, increment `attempt`.
-4. Else enter sleep phase:
-   - compute `remaining = deadline.remaining(clock)`;
-   - if `remaining.nanos() <= 0` → return `.timeout`, `attempt`
-     unchanged;
-   - compute `wait_ns = min(next_wait.nanos(), remaining.nanos())`;
-     this can never be negative because both operands are non-negative
-     (remaining is guaranteed positive at this point);
-   - grow `next_wait`: `new_ns = next_wait.nanos() << policy.growth_shift`
-     saturated at `policy.max_wait.nanos()`; overflow of the shift is
-     also saturated at `max_wait`;
-   - assign `next_wait = Duration.fromNanos(new_ns)`;
-   - increment `attempt`;
-   - return `.sleep(Duration.fromNanos(wait_ns))`.
-
-- The deadline check runs first. A deadline that is already expired produces
-  `.timeout` before any spin or yield step.
-- Sleep-phase clipping is per step. A returned `.sleep(Duration)` does not
-  exceed the deadline.
-- `.timeout` does not increment `attempt`; `attempts()` reports productive
-  steps rather than calls to `next`.
-
-### Reset
-
-`reset()` restores `attempt = 0` and `next_wait = policy.initial_wait`.
-`policy` is not modified. Callers who want to swap policies overwrite
-`self.policy` directly before calling `reset()`.
-
-### Attempts
-
-`attempts()` returns `self.attempt`, saturated at `maxInt(u32)`. The
-counter is not expected to overflow in practical workloads; the return
-type is `u32` matching the field.
-
-### `assertValid`
-
-`Backoff.assertValid` checks:
-
-- `self.policy.assertValid()`;
-- `self.next_wait.nanos() >= 0`;
-- `self.next_wait.nanos() <= self.policy.max_wait.nanos()`.
-
-Explicit validation uses `std.debug.assert`. Callers may gate the invocation with `checksEnabled()` as specified in [the Zig guidelines](../../guidelines/zig.md).
-
-## Clock parameter
-
-Every `next` call takes a `clock: anytype`. The clock's type must expose
-`pub fn now(self: *Self) stdx.time.Instant` matching the backend contract
-in `docs/specs/time/monotonic.md`. Compile-time signature check at each
-callsite. `anyerror` returns and error-union returns are rejected.
-
-Two `next` calls on the same `Backoff` should use the same clock. Mixing
-clocks is a caller contract violation. `Backoff` is not tagged; the
-primitive cannot detect the mix.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Concurrency | Ordering | Errors |
-| --- | --- | --- | --- | --- | --- | --- |
-| `Policy.assertValid` | never | never | O(1) | value type | none | asserts on invalid policy |
-| `Backoff.init` | never | never | O(1) | value type | none | asserts under `checksEnabled` |
-| `Backoff.reset` | never | never | O(1) | single-owner | none | infallible |
-| `Backoff.next` | never | never | O(1) + backend `now` | single-owner | backend-defined | infallible; returns `.timeout` on expiry |
-| `Backoff.attempts` | never | never | O(1) | reader | none | infallible |
-| `Backoff.assertValid` | never | never | O(1) | reader | none | asserts on invalid state |
-
-`Backoff` is safe from any execution context including NMI when the
-supplied clock backend and yield hook (if any) are safe from that
-context. The primitive itself performs no allocation, no locking, no
-syscall, and no atomic operation.
-
-## Testing
-
-Tests MUST use a caller-controlled clock to check phase selection and deadline clipping without executing spin, yield, or sleep.
-
-- Phase-transition tests exercise spin, configured yield, skipped yield, sleep, constant growth, geometric growth, and saturation. They verify that `next` returns the prescribed action and updates `attempt` and `next_wait` only for productive steps.
-- Deadline-boundary tests use already-expired, exact-boundary, and positive-remaining deadlines. They verify that timeout takes precedence, sleep duration is clipped to the remaining duration, and `.timeout` does not increment `attempt`.
-- Reset tests MUST verify restoration of `attempt` and `next_wait` and preservation of `policy`. Isolated validation tests MUST reject invalid policies and caller-mutated state.
-- Compile-time tests MUST reject invalid clock shapes and compile the module for a non-x86 target.

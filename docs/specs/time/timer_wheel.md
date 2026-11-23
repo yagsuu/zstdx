@@ -1,585 +1,122 @@
-# Time timer wheel
-
-Status: Approved.
-
-`stdx.time.TimerWheel` is a single-level, fixed-tick, fixed-capacity hashed
-timer wheel keyed by `stdx.time.Deadline`. It stores caller payloads, returns
-handles for cancellation and reprioritization, advances explicitly against a
-caller-supplied `Instant`, and drains entries whose quantized bucket is due.
-
-The caller advances and drains the wheel explicitly. Future deadlines round up to tick boundaries; processing latency depends on the caller.
-
-## Terminology
-
-A **tick** is one configured `tick_ns` interval measured from the wheel origin.
-Tick `0` starts at `origin`. Tick `k` starts at `origin + k * tick_ns`.
-
-The **cursor tick** is the greatest tick whose start instant is not later than
-the last `Instant` passed to `advanceTo`. The **cursor instant** is the start
-instant of the cursor tick.
-
-A **due tick** is the tick at which an entry becomes eligible to pop. Deadlines
-that do not fall exactly on a tick boundary are rounded up to the next tick.
-
-An entry is **expired** when its due tick is less than or equal to the cursor
-tick and it has not yet been popped or removed.
-
-A **live handle** is a handle returned by `insert` or `insertAssumeCapacity`
-whose entry has not been removed, popped, or cleared. A **stale handle** is any
-handle whose entry has already been removed, popped, cleared, or whose slot has
-been reused with a different generation.
-
-A **wheel horizon** is the set of due ticks accepted by insertion and update:
-`current_tick <= due_tick < current_tick + config.slot_count`.
-
-## Cross-spec relationships
-
-This spec depends on:
-
-- `docs/specs/time/monotonic.md` for `Instant` and its monotonic nanosecond
-  domain;
-- `docs/specs/time/deadline.md` for `Deadline` and `Deadline.never`.
-
-Use [DeadlineQueue](deadline_queue.md) for exact ordering or deadlines beyond the wheel horizon. Callers use `nextWake()` to arm a backend timer.
-
-## Data structures and representation
-
-The wheel is conceptually a ring of `config.slot_count` buckets. Each live entry
-is assigned to exactly one bucket by `due_tick % config.slot_count`. Entries in a
-bucket are unordered.
-
-Implementations may use any representation that satisfies the public behavior,
-complexity, handle-invalidation, and no-allocation contracts.
-
-The `Handle` integer encoding, slot fields, bucket fields, list layout, struct
-field order, and struct padding are not ABI, wire-format, or packed-layout
-guarantees. Callers may copy, compare, store, and pass `Handle` values returned
-by the wheel. Callers must not fabricate handles or depend on their encoded
-integer values.
-
-`Slot` and `Bucket` are public only to provide caller storage to `Bounded(T)`.
-Callers must treat slot and bucket contents as implementation-owned after
-passing storage to `wrap`.
-
-## Global invariants
-
-Every initialized wheel preserves these invariants:
-
-- `len() <= capacity()`;
-- `remaining() == capacity() - len()`;
-- `isEmpty() == (len() == 0)`;
-- `isFull() == (len() == capacity())`;
-- `config.tick_ns > 0`;
-- `config.slot_count >= 2`;
-- `config.slot_count` is a power of two;
-- the cursor tick never decreases;
-- `cursor()` is the start instant of the cursor tick;
-- every live non-expired entry has a due tick inside the wheel horizon at the
-  time it is inserted or updated;
-- every live entry has exactly one live handle;
-- every live handle identifies exactly one live entry;
-- stale handles do not identify any live entry;
-- `popExpired()` never pops an entry before its due tick;
-- original deadlines are never expired early; non-boundary deadlines expire at
-  the next tick boundary after the deadline;
-- bucket pop order is unspecified;
-- no operation allocates, frees heap memory, waits, sleeps, parks, wakes,
-  invokes callbacks, calls a clock backend, touches hidden global state, or
-  performs scheduler interaction.
-
-`Deadline.never` is not accepted by the wheel. Insertion or update to
-`Deadline.never` returns `error.OutOfRange` and leaves the wheel unchanged.
-
-## API
-
-```zig
-pub const TimerWheel = struct {
-    pub const Config = struct {
-        tick_ns: u64,
-        slot_count: usize,
-    };
-
-    pub fn Static(
-        comptime T: type,
-        comptime capacity_items: usize,
-        comptime config: Config,
-    ) type;
-
-    pub fn Bounded(
-        comptime T: type,
-        comptime config: Config,
-    ) type;
-};
-```
-
-### Common associated types
-
-Both returned types expose these associated types:
-
-```zig
-pub const Handle = enum(u128) { _ };
-
-pub const Entry = struct {
-    deadline: time.Deadline,
-    item: T,
-};
-
-pub const Error = error{ Full, OutOfRange };
-pub const RangeError = error{ OutOfRange };
-```
-
-`Handle` is a strong value type. Native equality compares handle identity. The
-encoding is implementation-owned and has no stable ABI meaning.
-
-`Entry` is returned by removal and pop operations. It contains the original
-unquantized deadline and payload. It does not contain the handle because the
-handle is stale once the entry is removed.
-
-`T` may be any Zig value type, including zero-sized types. Callers who need
-stable external object identity store a pointer, index, or other handle as `T`.
-The wheel exposes no live payload pointer API.
-
-### `Static(T, capacity_items, config)` returned type
-
-```zig
-pub const Self = struct {
-    pub const item_capacity = capacity_items;
-    pub const wheel_config = config;
-
-    pub const Handle = enum(u128) { _ };
-    pub const Entry = struct {
-        deadline: time.Deadline,
-        item: T,
-    };
-    pub const Error = error{ Full, OutOfRange };
-    pub const RangeError = error{ OutOfRange };
-
-    pub fn init(origin: time.Instant) Self;
-
-    pub fn len(self: *const Self) usize;
-    pub fn capacity(self: *const Self) usize;
-    pub fn remaining(self: *const Self) usize;
-    pub fn isEmpty(self: *const Self) bool;
-    pub fn isFull(self: *const Self) bool;
-
-    pub fn origin(self: *const Self) time.Instant;
-    pub fn cursor(self: *const Self) time.Instant;
-
-    pub fn clearRetainingCapacity(self: *Self) void;
-
-    pub fn advanceTo(self: *Self, now: time.Instant) void;
-
-    pub fn insert(
-        self: *Self,
-        deadline: time.Deadline,
-        item: T,
-    ) Error!Handle;
-
-    pub fn insertAssumeCapacity(
-        self: *Self,
-        deadline: time.Deadline,
-        item: T,
-    ) RangeError!Handle;
-
-    pub fn nextWake(self: *const Self) ?time.Instant;
-
-    pub fn popExpired(self: *Self) ?Entry;
-
-    pub fn remove(self: *Self, handle: Handle) ?Entry;
-
-    pub fn updateDeadline(
-        self: *Self,
-        handle: Handle,
-        deadline: time.Deadline,
-    ) RangeError!bool;
-
-    pub fn contains(self: *const Self, handle: Handle) bool;
-
-    pub fn assertValid(self: *const Self) void;
-};
-```
-
-### `Bounded(T, config)` returned type
-
-```zig
-pub const Self = struct {
-    pub const wheel_config = config;
-
-    pub const Slot = struct { /* implementation-owned fields */ };
-    pub const Bucket = struct { /* implementation-owned fields */ };
-
-    pub const Handle = enum(u128) { _ };
-    pub const Entry = struct {
-        deadline: time.Deadline,
-        item: T,
-    };
-    pub const Error = error{ Full, OutOfRange };
-    pub const RangeError = error{ OutOfRange };
-
-    pub fn wrap(
-        slots: []Slot,
-        buckets: []Bucket,
-        origin: time.Instant,
-    ) Self;
-
-    pub fn len(self: *const Self) usize;
-    pub fn capacity(self: *const Self) usize;
-    pub fn remaining(self: *const Self) usize;
-    pub fn isEmpty(self: *const Self) bool;
-    pub fn isFull(self: *const Self) bool;
-
-    pub fn origin(self: *const Self) time.Instant;
-    pub fn cursor(self: *const Self) time.Instant;
-
-    pub fn clearRetainingCapacity(self: *Self) void;
-
-    pub fn advanceTo(self: *Self, now: time.Instant) void;
-
-    pub fn insert(
-        self: *Self,
-        deadline: time.Deadline,
-        item: T,
-    ) Error!Handle;
-
-    pub fn insertAssumeCapacity(
-        self: *Self,
-        deadline: time.Deadline,
-        item: T,
-    ) RangeError!Handle;
-
-    pub fn nextWake(self: *const Self) ?time.Instant;
-
-    pub fn popExpired(self: *Self) ?Entry;
-
-    pub fn remove(self: *Self, handle: Handle) ?Entry;
-
-    pub fn updateDeadline(
-        self: *Self,
-        handle: Handle,
-        deadline: time.Deadline,
-    ) RangeError!bool;
-
-    pub fn contains(self: *const Self, handle: Handle) bool;
-
-    pub fn assertValid(self: *const Self) void;
-};
-```
-
-`Bounded(T, config).wrap(slots, buckets, origin)` requires
-`buckets.len == config.slot_count`. Length mismatch is a caller contract
-violation and traps when `core.debug.checksEnabled()` is true.
-`slots.len == 0` is valid and produces a zero-entry-capacity wheel.
-
-## Config validation
-
-`Config.tick_ns` is the fixed tick size in nanoseconds. It must be greater than
-zero.
-
-`Config.slot_count` is the number of buckets in the wheel. It must be at least
-`2` and a power of two.
-
-Invalid config values are compile errors when `Static` or `Bounded` is
-instantiated.
-
-The implementation must reject configs whose accepted due-instant arithmetic
-cannot be represented in the `Instant` `u64` nanosecond domain.
-
-## Initialization
-
-`Static(T, N, config).init(origin)` returns an empty wheel with entry capacity
-`N`, bucket count `config.slot_count`, and cursor tick `0` at `origin`. `N`
-must be greater than zero.
-
-`Bounded(T, config).wrap(slots, buckets, origin)` returns an empty wheel with
-entry capacity `slots.len`, bucket count `buckets.len`, and cursor tick `0` at
-`origin`.
-
-Initialization performs no allocation and no clock read. A zero-entry-capacity
-bounded wheel is both empty and full. `insert` returns `error.Full` unless an
-out-of-range deadline returns `error.OutOfRange` first.
-
-## Capacity and accessors
-
-`len()` returns the number of live entries, including expired entries not yet
-popped.
-
-`capacity()` returns `capacity_items` for `Static` and `slots.len` for
-`Bounded`.
-
-`remaining()` returns `capacity() - len()`.
-
-`isEmpty()` returns `len() == 0`.
-
-`isFull()` returns `len() == capacity()`.
-
-`origin()` returns the wheel origin passed to `init` or `wrap`.
-
-`cursor()` returns the start instant of the current cursor tick.
-
-These operations are infallible, never allocate, never wait, and never mutate
-logical wheel state.
-
-## Tick quantization and range
-
-For a deadline `d`, the wheel computes a due tick against the wheel origin and
-current cursor.
-
-If `d.isNever()` is true, the deadline is out of range.
-
-If `d.instant().nanos() <= cursor().nanos()`, the due tick is the current cursor
-tick. Inserting or updating to such a deadline makes the entry immediately
-expired and available to `popExpired()`.
-
-Otherwise, the due tick is:
+# `time.TimerWheel`
+
+`stdx.time.TimerWheel` stores fixed-capacity payloads with tick-quantized
+deadlines and handles for cancellation and rescheduling. Callers advance time
+and drain expired entries explicitly. Use [DeadlineQueue](deadline_queue.md)
+for exact deadline ordering or deadlines beyond the wheel horizon.
+
+## Configuration and storage
+
+`TimerWheel.Config.tick_ns` is the tick interval in nanoseconds and must be
+nonzero. `bucket_count` must be a power of two of at least two.
+`(bucket_count - 1) * tick_ns` must fit in `u64`. Invalid configurations fail
+at compile time.
+
+| Variant | Construction and capacity |
+| --- | --- |
+| `TimerWheel.Static(T, count, config)` | `TimerWheel.Static(T, count, config).init(start)` creates an empty wheel with inline storage; `count > 0`. `bound` is the entry capacity. |
+| `TimerWheel.Bounded(T, config)` | `TimerWheel.Bounded(T, config).wrap(slots, buckets, start)` initializes borrowed `[]Slot` and `[]Bucket`. `buckets.len` MUST equal `config.bucket_count`. Capacity is `slots.len`; zero capacity is both empty and full. |
+
+Keep borrowed slices live and exclusive to the wheel.
+`Wheel.*` denotes operations shared by both variants.
+Payloads enter and leave by value, including zero-sized values.
+Callers manage resources referenced by payloads.
+
+## Time and accepted deadlines
+
+`Wheel.origin()` is `start`. Tick `k` starts at
+`start.nanos() + k * config.tick_ns`. The initial cursor is tick zero;
+`Wheel.cursor()` returns the current tick's start instant.
+
+For a finite deadline at or before the cursor, the due tick is the current
+tick. For a later deadline, the due tick is
+`ceil((deadline.instant().nanos() - start.nanos()) / config.tick_ns)`.
+The accepted horizon is:
 
 ```text
-ceil((d.instant().nanos() - origin().nanos()) / config.tick_ns)
+current_tick <= due_tick < current_tick + config.bucket_count
 ```
 
-The due instant is:
+`Deadline.never`, a due tick outside this horizon, or an unrepresentable due
+instant produces `error.OutOfRange`, subject to the insertion precedence below.
+Future deadlines round up by less than one tick; exact tick boundaries have no
+rounding error. Late advancement or draining delays delivery.
 
-```text
-origin().nanos() + due_tick * config.tick_ns
-```
+`Wheel.advanceTo(now)` moves the cursor to the greatest tick start at or before
+`now` and makes all entries due at or before that tick eligible to pop.
+It does not remove entries. The caller MUST pass `now >= Wheel.cursor()`;
+debug checks assert this requirement. Passing a later instant within the same
+tick leaves the cursor unchanged.
 
-The due tick is accepted only when:
+`Wheel.popExpired()` removes one eligible entry, or returns `null` without
+mutation when none is pending. It uses the existing cursor: call
+`Wheel.advanceTo()` to account for elapsed time before draining.
+Pop order is unspecified, including among entries with different original
+deadlines or due ticks. Each returned `Entry` contains the original,
+unquantized `deadline` and stored `item`.
 
-```text
-current_tick <= due_tick < current_tick + config.slot_count
-```
+`Wheel.nextWake()` returns `null` when empty, the cursor with pending expired
+entries, or the earliest future quantized due instant.
 
-If the due tick falls outside that horizon, or if computing the due instant
-would overflow the `Instant` domain, insertion or update returns
-`error.OutOfRange` and leaves the wheel unchanged.
+## Insertion, cancellation, and rescheduling
 
-Entries MUST NOT expire before their original deadline. A future deadline's rounding error MUST be less than `config.tick_ns`; an exact tick boundary has zero error. Already-due deadlines expire at the current cursor. The wheel does not bound delay caused by late advancement or draining.
+`Wheel.insert(deadline, item)` returns a live handle.
+`error.Full` and `error.OutOfRange` leave the wheel unchanged.
 
-## Cursor advancement
+Error precedence differs by storage variant:
 
-`advanceTo(now)` advances the wheel cursor to include all ticks whose start
-instant is not later than `now`.
+| Operation | Precedence |
+| --- | --- |
+| `Static.insert()` | A full wheel returns `error.Full` before checking the deadline. |
+| `Bounded.insert()` | An invalid deadline returns `error.OutOfRange` before checking capacity. |
 
-It computes:
+`Wheel.insertAssumeCapacity()` requires available capacity and returns
+`error.OutOfRange` for an invalid deadline without mutation.
 
-```text
-target_tick = floor((now.nanos() - origin().nanos()) / config.tick_ns)
-```
+`Wheel.remove(handle)` cancels a live entry and returns its `Entry`, whether
+the entry is future or already expired.
 
-when `now >= origin()`. Passing `now` before `cursor()` is a caller contract
-violation and traps when `core.debug.checksEnabled()` is true.
-Release builds do not guarantee recovery from backwards time.
+`Wheel.updateDeadline(handle, deadline)` reschedules a live entry, preserving
+its payload and handle, and returns true. Due deadlines become immediately
+eligible; future deadlines postpone delivery. Stale handles return false.
+An invalid deadline for a live handle returns `error.OutOfRange` without mutation.
 
-If `target_tick == current_tick`, `advanceTo` does not move the cursor.
+## Handles and clearing
 
-If `target_tick > current_tick`, `advanceTo` moves the cursor forward and makes
-every live entry with `due_tick <= target_tick` expired. It does not return
-entries; callers drain them with `popExpired()`.
+Handles belong to the instance and initialization that issued them.
+Callers MUST use returned handles without altering their encoding.
 
-If the tick jump is greater than or equal to `config.slot_count`, the
-implementation may scan every bucket once and move all due entries instead of
-iterating one tick at a time. Runtime must remain bounded by
-`O(min(ticks_advanced, slot_count) + entries_moved_due)`.
+`Wheel.contains(handle)` reports whether a handle is live. Successful removal
+and pop invalidate the affected handle before returning. A stale same-instance
+handle returns `false` from `Wheel.contains()` and `null` from `Wheel.remove()`
+without mutation. Insertion, advancement, and updates preserve other live handles.
 
-`advanceTo` performs no clock read. Callers read the clock once and pass the
-result:
+`Wheel.clearRetainingCapacity()` discards entries and invalidates their handles,
+retaining storage, capacity, origin, and cursor. Callers MUST release payload-owned
+resources before clearing. Slot generations are 64-bit; callers MUST retire stale
+handles before generation reuse.
 
-```zig
-const now = clock.now();
-wheel.advanceTo(now);
-while (wheel.popExpired()) |entry| {
-    dispatch(entry.item);
-}
-```
+`Wheel.len()` includes expired entries not yet removed or popped.
+`Wheel.remaining()` is capacity minus length; `Wheel.isEmpty()` and
+`Wheel.isFull()` test zero length and full capacity. `Wheel.isValid()` returns
+whether the wheel's internal state is consistent.
 
-## Insertion
+## Execution and cost
 
-`insert(deadline, item)` adds a live entry keyed by `deadline` and returns a new
-live handle.
+Operations perform no allocation or waiting. Callers supply time and dispatch
+returned payloads, and MUST synchronize conflicting access.
 
-`insert` checks deadline range before capacity:
+For entry capacity `c`, bucket count `b`, ticks advanced `t`, and entries made
+expired `e`:
 
-1. If `deadline` is `Deadline.never`, outside the wheel horizon, or would
-   overflow due-instant arithmetic, return `error.OutOfRange` and leave the
-   wheel unchanged.
-2. Else if the wheel is full, return `error.Full` and leave the wheel
-   unchanged.
-3. Else insert the entry into the expired list or the appropriate bucket and
-   return its handle.
+| Operation | Cost |
+| --- | --- |
+| `Static.init()`, `Bounded.wrap()`, `Wheel.clearRetainingCapacity()`, `Wheel.isValid()` | O(c + b) |
+| `Wheel.advanceTo()` | O(min(t, b) + e) |
+| `Wheel.nextWake()` | O(b), or O(1) with pending expired entries |
+| Insertion, pop, removal, update, containment, capacity and cursor queries | O(1) |
 
-`insertAssumeCapacity(deadline, item)` performs the same deadline range check
-and returns `error.OutOfRange` on range failure. Calling it when `isFull()` is
-true and the deadline is in range is a caller contract violation and traps when
-`core.debug.checksEnabled()` is true.
+## References
 
-The returned handle remains live until the entry is removed by `remove`,
-`popExpired`, or `clearRetainingCapacity`. Later insertions do not invalidate
-existing live handles.
-
-## Expired pop
-
-`popExpired()` removes and returns one expired entry.
-
-If no expired entry is pending, it returns `null` and leaves the wheel unchanged.
-
-`popExpired()` does not call `advanceTo` and does not read a clock. Callers must
-call `advanceTo(now)` before draining time that has passed.
-
-When an entry is popped, its handle becomes stale before `popExpired` returns.
-The returned `Entry` owns the removed payload value.
-
-Bucket order and same-tick order are unspecified. Tests and consumers must not
-rely on FIFO ordering within a bucket.
-
-## Removal
-
-`remove(handle)` removes the entry identified by a live handle from a bucket or
-from the expired list and returns its `Entry`.
-
-The caller MUST use handles returned by this wheel instance. A stale same-instance handle MUST return `null` without mutation. Foreign or fabricated handles are outside the contract; handle encodings do not identify their originating instance.
-
-When removal succeeds, the handle becomes stale before `remove` returns. Other
-live handles remain valid.
-
-`remove` is the cancellation primitive. It performs no cancellation propagation,
-wake dispatch, callback, or scheduler action.
-
-## Deadline update
-
-`updateDeadline(handle, deadline)` changes the deadline of the entry identified
-by a live handle.
-
-A stale same-instance handle MUST return `false` without mutation.
-
-If `deadline` is `Deadline.never`, outside the wheel horizon, or would overflow
-due-instant arithmetic, `updateDeadline` returns `error.OutOfRange` and leaves
-the wheel unchanged.
-
-On success, `updateDeadline` moves the entry to the expired list or target
-bucket, preserves the handle's liveness, and returns `true`. Updating to an
-earlier deadline, a later deadline, the same deadline, or an already-due deadline
-is valid when the new due tick is in range.
-
-`updateDeadline` does not mutate the payload.
-
-## Next wake
-
-`nextWake()` returns a coarse wake instant for the next caller-owned
-advance/drain attempt.
-
-It returns `null` when no live entries exist and no expired entries are pending.
-
-If expired entries are pending, it returns `cursor()`.
-
-Otherwise `nextWake()` returns the due instant for an earliest non-empty future
-bucket. The returned instant is the bucket's quantized due instant, not
-necessarily any entry's original deadline. It may be later than an original
-deadline by less than `config.tick_ns` nanoseconds.
-
-`nextWake()` does not arm a timer, sleep, or call a backend. Hardware timer or
-scheduler programming is caller-owned.
-
-## Handle containment
-
-`contains(handle)` returns `true` iff `handle` is live in this wheel instance at
-the time of the call.
-
-`contains` performs no mutation. It is a convenience check only; in concurrent
-programs, callers still need external synchronization around any later mutating
-operation.
-
-## Clearing
-
-`clearRetainingCapacity()` removes every live entry and invalidates every live
-handle. Capacity, bucket storage, slot storage, origin, and cursor tick are
-retained.
-
-It does not return payloads, call destructors, invoke callbacks, wake waiters,
-or free memory. Callers that own resources through payload values must remove or
-pop entries before clearing if they need to recover payloads.
-
-After clearing, the wheel is empty and accepts new insertions up to the same
-capacity and within the current cursor horizon. Handles created before clearing
-are stale and must not affect new entries.
-
-## Handle invalidation and generation reuse
-
-Implementations must prevent stale handles from affecting newly inserted entries
-after slot reuse. Slot reuse must change a generation component so a handle
-removed from an old occupant does not remove or update a later occupant of the
-same slot.
-
-The generation domain must be at least 64 bits. After a slot generation wraps,
-stale-handle protection for handles from earlier generations is unspecified.
-
-The following operations invalidate handles:
-
-- `remove(handle)` invalidates `handle` on success;
-- `popExpired()` invalidates the popped entry's handle;
-- `clearRetainingCapacity()` invalidates every live handle.
-
-The following operations do not invalidate other live handles:
-
-- `advanceTo`;
-- `insert`;
-- `insertAssumeCapacity`;
-- `nextWake`;
-- `updateDeadline`;
-- `contains`;
-- accessors;
-- `assertValid`.
-
-## Behavior contract
-
-| Operation | Allocation | Waiting | Bounds | Concurrency | Ordering | Errors |
-| --- | --- | --- | --- | --- | --- | --- |
-| `init` | never | never | O(capacity + slot_count) or better | single-owner | none | infallible |
-| `wrap` | never | never | O(capacity + slot_count) or better | single-owner | none | asserts on bucket length mismatch |
-| accessors | never | never | O(1) | reader under external synchronization | none | infallible |
-| `clearRetainingCapacity` | never | never | O(capacity + slot_count) or better | exclusive owner | none | infallible |
-| `advanceTo` | never | never | O(min(ticks advanced, slot_count) + entries moved due) | exclusive owner | none | asserts on backwards time |
-| `insert` | never | never | O(1) | exclusive owner | none | `OutOfRange`, `Full`; no mutation on error |
-| `insertAssumeCapacity` | never | never | O(1) | exclusive owner | none | `OutOfRange`; asserts if full |
-| `nextWake` | never | never | O(slot_count) or better | reader under external synchronization | none | infallible |
-| `popExpired` | never | never | O(1) | exclusive owner | none | infallible |
-| `remove` | never | never | O(1) | exclusive owner | none | infallible; null on stale |
-| `updateDeadline` | never | never | O(1) | exclusive owner | none | `OutOfRange`; false on stale; no mutation on failure |
-| `contains` | never | never | O(1) | reader under external synchronization | none | infallible |
-| `assertValid` | never | never | O(capacity + slot_count) | reader under external synchronization | none | asserts on invariant break |
-
-## Implementation constraints
-
-Mutating operations require exclusive ownership of the wheel. The primitive does
-not provide internal synchronization. Concurrent callers must serialize
-externally.
-
-The primitive performs no atomic operation and establishes no inter-thread
-happens-before relationship. Publication of payload contents to another thread
-is the caller's synchronization responsibility.
-
-Operations are safe from interrupt or NMI context only when the caller
-guarantees exclusive access without blocking and copying `T` is valid in that
-context. The primitive itself adds no context-unsafe side effect.
-
-Implementations must not expose live payload pointers. Whether the internal
-representation moves bytes is not observable except through returned `Entry`
-values.
-
-## Testing
-
-Tests MUST use caller-controlled `Instant` values and a reference model that quantizes deadlines to due ticks.
-
-### Configuration, capacity, and range boundaries
-
-Tests MUST reject invalid configurations at compile time, cover both storage variants and zero entry capacity, and check initial cursor and enabled bucket-length assertions. Insertion tests MUST verify range-before-capacity error precedence and no mutation on range/capacity errors.
-
-### Quantization and cursor transitions
-
-Boundary tests MUST cover already-due deadlines, exact tick boundaries, rounding within a tick, the last accepted due tick, and the first rejected due tick. Advancement tests MUST cover same-tick movement, exact due ticks, skipped ticks, and jumps of at least one wheel revolution. Check no early expiration and less-than-one-tick rounding error for future deadlines; isolate enabled-check rejection of backwards time.
-
-### Expiration, ordering, and next wake
-
-Tests MUST advance then drain entries, remove entries before/after expiry, and check empty/pending state. Compare same-bucket membership/count without assuming order. Check `nextWake` for empty, pending, and future states.
-
-### Handle and reference-model tests
-
-Tests MUST cover removal, update, clear, stale-handle queries, and slot reuse, checking invalidation, liveness preservation, returned payloads, and no mutation on stale/range errors. Mixed operations MUST match a quantized reference model with unordered same-bucket entries. Include `void` and pointer payloads and invariant validation after mutations.
+- [Timer wheels](../../../src/time/timer_wheel.zig)
+- [Monotonic time](monotonic.md) and [deadlines](deadline.md)

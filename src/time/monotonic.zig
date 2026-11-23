@@ -1,4 +1,4 @@
-//! monotonic clocks and time values
+//! Monotonic clocks and time values. See `docs/specs/time/monotonic.md`.
 
 const std = @import("std");
 
