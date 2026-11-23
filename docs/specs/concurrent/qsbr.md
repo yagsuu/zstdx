@@ -1,37 +1,41 @@
-# Concurrent QSBR
+# `stdx.concurrent.qsbr`
 
-Status: Approved.
+`stdx.concurrent.qsbr.Domain` tracks participant quiescence across grace periods
+for caller-managed reclamation of objects removed from shared structures.
 
-`stdx.concurrent.qsbr.Domain` is a bounded quiescent-state-based reclamation
-substrate. It tracks participant progress across grace periods so callers can
-determine when objects removed from read-mostly shared structures are safe to
-reclaim.
+## Variants and storage
 
-## Terminology
+In this contract, `Domain` operation names apply to both `Domain.Static(count)`
+and `Domain.Bounded`.
 
-A **participant** is one caller-owned execution-context slot in a QSBR domain.
-Participant assignment is caller-owned.
+| Variant | Construction and storage |
+| --- | --- |
+| `Domain.Static(count)` | `Domain.Static(count).init()` owns `count` inline slots. `count` must be in `1...2^32`, subject to the target's `usize` range; invalid capacities fail at compile time. The returned type exposes `bound = count`. |
+| `Domain.Bounded` | `Domain.Bounded.wrap(slots)` borrows a nonempty slice of `Domain.Bounded.Slot`, with at most `2^32` elements. It overwrites every slot. |
 
 A participant is **online** when it can hold protected references and must be
 observed before grace periods complete.
 
-A participant is **offline** when it promises it holds no protected references
-and does not block grace periods.
+Keep borrowed slots alive, address-stable, correctly aligned for
+`Domain.Bounded.Slot`, and exclusively assigned to the domain until all uses
+finish. Do not overlap slot storage between live domains or access slot contents
+outside the domain operations. Slots and the generation word use
+[cache padding](../layout/cache.md).
 
-A **quiescent state** is a caller-known point where the participant holds no
-references acquired from QSBR-protected shared structures before that point.
+Do not copy an initialized domain. Once a domain address is shared, do not move
+the domain. Reinitialization requires exclusive access, no remaining protected
+references, and abandonment of the previous domain's grace-period tokens.
 
-A **grace period** is a target generation. It completes after every online
-participant reports a quiescent state at or beyond that generation, or goes
-offline.
+## Participants and protected references
 
 A **retired object** is an object that has been removed from a shared structure
 but not yet reclaimed because a grace period is still pending.
 
-A **reclaimed object** is a retired object whose required grace period has
-completed and whose storage may be reused or freed by the caller.
 
-## Cross-spec relationships
+An online participant may hold references to protected objects. An offline
+participant promises to hold none and does not delay grace periods. A quiescent
+state is a point at which the participant has finished using protected references
+acquired before that point.
 
 This spec depends on `docs/specs/mem/cache.md` for `stdx.mem.CachePad`.
 Participant slots and the global generation word are individually padded to
@@ -39,44 +43,51 @@ avoid false sharing between independently contended atomic fields.
 
 This spec composes with, but does not own:
 
-- retired-object storage and delayed freeing;
-- pointer, table, mapping, seqlock, spinlock, or caller-owned synchronization
-  that publishes or mutates protected structures;
-- caller-owned backoff, wait, or scheduler mechanisms that poll `isComplete`.
+## Grace periods and reclamation
 
 QSBR does not publish payloads or serialize payload mutation.
 
-## Data structures and representation
+`Domain.beginGracePeriod()` advances the generation by one and returns a
+`GracePeriod` for the new target. `GracePeriod.generation()` returns that target
+as a `u64`. Concurrent calls return distinct, increasing targets. Generations
+range from zero through `2^63 - 1`; the caller must prevent further advancement
+at that maximum, including concurrent attempts. Generations do not wrap.
+Advancement does not change participant state.
 
-Conceptually, a QSBR domain contains one global generation and a fixed set of
-participant slots:
+`Domain.isComplete(period)` returns true if each observed slot is offline or
+reports a generation at least equal to the target. It acquire-loads slots and
+can return false as soon as it observes a blocker. The observations are not an
+atomic snapshot. A false result can become obsolete immediately.
 
 ```text
 Domain
 ├── global_generation: u63
 └── participants: [participant_capacity]ParticipantSlot
 
-ParticipantSlot = offline | online(last_reported_generation: u63)
-GracePeriod     = target_generation: u63
-```
+Remove an object from the protected structure before
+`Domain.beginGracePeriod()`, and keep its storage valid until the required
+grace period completes. The caller owns shared-structure publication, removal
+ordering, payload synchronization, and the read-side visibility needed to prevent
+new readers from acquiring removed objects. Readers must obey the participant
+lifetime rules above. QSBR does not serialize payload mutation.
 
 The required representation uses one padded atomic word for the global
 generation and one padded atomic word per participant slot:
 
-```zig
-const Word = u64;
-const offline_bit: Word = @as(Word, 1) << 63;
-const generation_mask: Word = offline_bit - 1;
+## Ordering, concurrency, and progress
 
 pub const Slot = stdx.mem.CachePad(std.atomic.Value(Word));
 ```
 
-Participant slot encoding:
+Advancement release-orders prior removal before participants that acquire the
+advanced generation. Completion acquires observed release-published reports and
+offline transitions. These orderings must be composed with the caller's
+shared-structure synchronization and read-side visibility rules.
 
-```text
-word & offline_bit != 0  => offline
-word & offline_bit == 0  => online, generation = word & generation_mask
-```
+After publication, accessors, grace-period creation, and completion polling can
+run concurrently with each other and with participant operations. Participant
+operations on distinct slots can run concurrently. `Domain.capacity()`,
+`Domain.participant()`, and token accessors perform no atomic operations.
 
 `global_generation` stores only generation bits and never stores
 `offline_bit`. Implementations must not expose the encoded words as public API.
@@ -112,562 +123,9 @@ generation into `offline_bit`.
 - After any pointer to a domain is shared with another execution context,
   moving the domain is outside the primitive's contract.
 
-## API
-
-```zig
-pub const GracePeriod = enum(u64) {
-    _,
-
-    pub fn generation(self: GracePeriod) u64;
-};
-
-pub const Participant = enum(u32) {
-    _,
-
-    pub fn index(self: Participant) u32;
-};
-
-pub const Domain = struct {
-    pub fn Static(comptime capacity_participants: usize) type;
-
-    pub const Bounded = struct { ... };
-};
-```
-
-### `Domain.Static(capacity_participants)` returned type
-
-```zig
-pub const Self = struct {
     global_generation: stdx.mem.CachePad(std.atomic.Value(u64)),
-    slots: [participant_capacity]Slot,
-
     pub const Slot = stdx.mem.CachePad(std.atomic.Value(u64));
-    pub const participant_capacity = capacity_participants;
-
-    pub fn init() Self;
-
-    pub fn capacity(self: *const Self) usize;
-    pub fn generation(self: *const Self) u64;
-
-    pub fn participant(self: *const Self, index: usize) Participant;
-
-    pub fn online(self: *Self, participant: Participant) void;
-    pub fn offline(self: *Self, participant: Participant) void;
-    pub fn quiescent(self: *Self, participant: Participant) void;
-
-    pub fn beginGracePeriod(self: *Self) GracePeriod;
-    pub fn isComplete(self: *const Self, grace_period: GracePeriod) bool;
-};
-```
-
-### `Domain.Bounded` type
-
-```zig
-pub const Bounded = struct {
     global_generation: stdx.mem.CachePad(std.atomic.Value(u64)),
-    slots: []Slot,
-
     pub const Slot = stdx.mem.CachePad(std.atomic.Value(u64));
-
-    pub fn wrap(slots: []Slot) Bounded;
-
-    pub fn capacity(self: *const Bounded) usize;
-    pub fn generation(self: *const Bounded) u64;
-
-    pub fn participant(self: *const Bounded, index: usize) Participant;
-
-    pub fn online(self: *Bounded, participant: Participant) void;
-    pub fn offline(self: *Bounded, participant: Participant) void;
-    pub fn quiescent(self: *Bounded, participant: Participant) void;
-
-    pub fn beginGracePeriod(self: *Bounded) GracePeriod;
-    pub fn isComplete(self: *const Bounded, grace_period: GracePeriod) bool;
-};
-```
-
-### Token accessors
-
-```zig
-pub fn generation(self: GracePeriod) u64;
-pub fn index(self: Participant) u32;
-```
-
-`GracePeriod.generation` returns the token's target generation.
-`Participant.index` returns the token's slot index.
-
-Both accessors are O(1), wait-free, non-allocating, and perform no atomic
-operation.
-
-### `Static.init`
-
-#### Contract
-
-Returns a QSBR domain with `global_generation = 0` and every participant slot
-offline.
-
-`Static(0)` is a compile-time error. `Static(capacity_participants)` where the
-capacity cannot be represented by `Participant` is a compile-time error.
-
-#### Errors and fault behavior
-
-Returns no error. Invalid static capacities fail at compile time.
-
-#### Memory ordering
-
-Initialization performs ordinary construction stores. `init` must happen-before
-any concurrent operation by caller-owned publication outside QSBR.
-
-#### Invalidation and lifetime
-
-After initialization, copying the domain is outside the contract. After any
-pointer to the domain is shared with another execution context, moving it is
-outside the contract.
-
-#### Complexity/progress
-
-O(`participant_capacity`) to initialize participant slots. Bounded and
-wait-free with respect to other execution contexts because no concurrent use is
-allowed during initialization.
-
-### `Bounded.wrap`
-
-#### Contract
-
-Borrows caller-provided participant slots and returns a QSBR domain with
-`global_generation = 0` and every participant slot offline.
-
-`slots.len` is the participant capacity. The slice must be non-empty and must be
-representable by `Participant`.
-
-#### State transitions
-
-Every supplied slot is overwritten with the offline state. Existing slot state
-is discarded.
-
-#### Errors and fault behavior
-
-Returns no error. Passing an empty slice or a slice whose length cannot be
-represented by `Participant` is a caller-contract violation and traps/asserts
-when checks are enabled.
-
-#### Memory ordering
-
-Initialization performs ordinary construction stores. `wrap` must happen-before
-any concurrent operation by caller-owned publication outside QSBR.
-
-#### Invalidation and lifetime
-
-The borrowed slot slice must remain alive, at the same address, and exclusively
-owned by this domain for the domain lifetime and for every concurrent operation.
-Reusing the slot slice for another domain before all operations on this domain
-finish is outside the contract.
-
-After initialization, copying the domain is outside the contract. After any
-pointer to the domain is shared with another execution context, moving it is
-outside the contract.
-
-#### Complexity/progress
-
-O(`slots.len`) to initialize participant slots. Bounded and wait-free with
-respect to other execution contexts because no concurrent use is allowed during
-initialization.
-
-### Accessors
-
-```zig
-pub fn capacity(self: *const Self) usize;
-pub fn generation(self: *const Self) u64;
-pub fn participant(self: *const Self, index: usize) Participant;
-```
-
-#### Contract
-
-`capacity` returns the fixed participant capacity.
-
-`generation` returns the current global generation.
-
-`participant` returns a typed participant-slot token for `index`. The token
-carries only the numeric index; it does not reserve, register, lock, or claim
-the slot.
-
-#### Errors and fault behavior
-
-These functions return no error. `participant(index)` with `index >= capacity()`
-or `index > std.math.maxInt(u32)` is a caller-contract violation and
-traps/asserts when checks are enabled.
-
-#### Locking and waiting
-
-Never lock and never wait.
-
-#### Allocation behavior
-
-Never allocate and never free.
-
-#### NMI/interrupt safety
-
-Safe from NMI and interrupt context.
-
-#### Memory ordering
-
-`capacity` and `participant` perform no atomic operation.
-
-`generation` acquire-loads the global generation and masks out no bits because
-the global word never stores `offline_bit`.
-
-#### Concurrency effects
-
-Safe to call concurrently with any QSBR operation. `participant` does not
-serialize slot ownership; callers own the one-execution-context-per-slot rule.
-
-#### Invalidation and lifetime
-
-A `Participant` remains meaningful only for domains whose capacity includes its
-index. It carries no domain identity. Passing a participant token to the wrong
-domain is outside the contract unless the caller intentionally uses the same
-numeric slot mapping for that domain.
-
-#### Complexity/progress
-
-O(1), wait-free.
-
-### `online`
-
-#### Contract
-
-Marks `participant` online at the current global generation.
-
-Preconditions:
-
-- `participant.index() < capacity()`;
-- the caller owns the participant slot;
-- no other execution context is concurrently using the same slot;
-- the participant does not rely on QSBR protection before `online` returns.
-
-Postconditions:
-
-- the participant is online;
-- the participant reports the generation observed by `online`;
-- grace periods at or below that reported generation do not wait on this
-  participant solely because it came online after they began.
-
-#### State transitions
-
-```text
-offline or online(old_generation) -> online(current_global_generation)
-```
-
-Calling `online` for an already-online participant owned by the caller updates
-that participant's reported generation to the current global generation. It
-does not create a nested online state.
-
-#### Errors and fault behavior
-
-Returns no error. An out-of-capacity participant or duplicate concurrent slot
-ownership is a caller-contract violation. Duplicate ownership is not required
-to be detected.
-
-#### NMI/interrupt safety
-
-Safe from NMI and interrupt context when that context owns the participant slot
-and can perform atomic loads and stores. It is unsafe to share one participant
-slot between interrupted and interrupting contexts.
-
-#### Memory ordering
-
-`online` acquire-loads the global generation, then release-stores the encoded
-online participant state. The release store publishes the participant's online
-state to `isComplete` acquire scans.
-
-#### Concurrency effects
-
-May run concurrently with operations on other participant slots and with
-`beginGracePeriod` and `isComplete`. It must not run concurrently with any other
-operation on the same participant slot unless the caller externally serializes
-that slot.
-
-#### Complexity/progress
-
-O(1), wait-free.
-
-### `offline`
-
-#### Contract
-
-Marks `participant` offline.
-
-Preconditions:
-
-- `participant.index() < capacity()`;
-- the caller owns the participant slot;
-- the participant has reached a quiescent state and holds no protected
-  references.
-
-Postconditions:
-
-- the participant is offline;
-- the participant no longer blocks any current or future grace period until it
-  is marked online again.
-
-#### State transitions
-
-```text
-online(reported_generation) -> offline
-offline -> offline
-```
-
-`offline` is idempotent for a caller-owned slot.
-
-#### Errors and fault behavior
-
-Returns no error. Calling `offline` while the participant still holds protected
-references is a caller-contract violation and can lead to use-after-free by the
-caller. QSBR is not required to detect this violation.
-
-#### NMI/interrupt safety
-
-Safe from NMI and interrupt context when that context owns the participant slot
-and has reached a quiescent state. It is unsafe to share one participant slot
-between interrupted and interrupting contexts.
-
-#### Memory ordering
-
-`offline` release-stores the encoded offline state. `isComplete` acquire-loads
-participant slots, so a completed grace period observes the participant's
-release-published offline transition.
-
-#### Concurrency effects
-
-May run concurrently with operations on other participant slots and with
-`beginGracePeriod` and `isComplete`. It must not run concurrently with any other
-operation on the same participant slot unless the caller externally serializes
-that slot.
-
-#### Complexity/progress
-
-O(1), wait-free.
-
-### `quiescent`
-
-#### Contract
-
-Reports that `participant` has passed through a quiescent state at the current
-global generation.
-
-Preconditions:
-
-- `participant.index() < capacity()`;
-- the caller owns the participant slot;
-- the participant is online;
-- the participant currently holds no protected references acquired before the
-  quiescent state being reported.
-
-Postconditions:
-
-- the participant remains online;
-- the participant reports the current global generation;
-- grace periods at or below that reported generation no longer wait on this
-  participant.
-
-#### State transitions
-
-```text
-online(old_generation) -> online(current_global_generation)
-```
-
-Calling `quiescent` for an offline participant is a caller-contract violation.
-Checked builds trap/assert after detecting the offline state. Unchecked builds
-do not guarantee behavior after this violation.
-
-#### Errors and fault behavior
-
-Returns no error. Reporting quiescence while still holding protected references
-is a caller-contract violation and can lead to use-after-free by the caller.
-QSBR is not required to detect this violation.
-
-#### NMI/interrupt safety
-
-Safe from NMI and interrupt context when that context owns the participant slot
-and can prove the quiescent-state precondition. It is unsafe to share one
-participant slot between interrupted and interrupting contexts.
-
-#### Memory ordering
-
-`quiescent` acquire-loads the global generation, then release-stores the
-encoded online participant state. `isComplete` acquire-loads participant slots,
-so grace-period completion observes the participant's release-published
-quiescent report.
-
-#### Concurrency effects
-
-May run concurrently with operations on other participant slots and with
-`beginGracePeriod` and `isComplete`. It must not run concurrently with any other
-operation on the same participant slot unless the caller externally serializes
-that slot.
-
-#### Complexity/progress
-
-O(1), wait-free.
-
-### `beginGracePeriod`
-
-#### Contract
-
-Advances the global generation and returns a `GracePeriod` token for the new
-target generation.
-
-Preconditions:
-
-- the domain is initialized;
-- advancing the generation will not set `offline_bit` or wrap the usable
-  generation space.
-
-Postconditions:
-
-- `global_generation` is increased by one;
-- the returned token names the new generation;
-- a retired object removed before this call may be reclaimed after
-  `isComplete` returns true for the returned token, assuming the caller's
-  publication and mutation contracts are correct.
-
-#### State transitions
-
-```text
-global_generation = G -> global_generation = G + 1
-```
-
-Participant slots are not modified.
-
-#### Errors and fault behavior
-
-Returns no error. Generation exhaustion is a caller/environment-contract
-violation. Checked builds trap/assert before exhaustion can publish a generation
-that encodes as offline.
-
-#### NMI/interrupt safety
-
-Safe from NMI and interrupt context as a non-blocking atomic operation. Actual
-reclamation after completion is caller-owned and may have stricter context
-rules.
-
-#### Memory ordering
-
-`beginGracePeriod` performs an acquire-release atomic increment of the global
-generation. The release side orders the caller's prior removal from the
-protected structure before participants that acquire-load the new generation in
-`quiescent` or `online`. The acquire side participates in ordering with other
-grace-period begin operations.
-
-QSBR does not publish payload data. Callers own the atomic ordering used to
-remove objects from protected structures before calling `beginGracePeriod`.
-
-#### Concurrency effects
-
-May be called concurrently by multiple writers. Concurrent calls produce
-distinct monotonically increasing grace-period tokens. Completing a later grace
-period implies completion of every earlier grace period whose generation is less
-than or equal to the later token.
-
-`beginGracePeriod` does not serialize writers against each other for payload or
-table mutation.
-
-#### Invalidation and lifetime
-
-Returned `GracePeriod` tokens remain valid for polling as long as the domain
-itself remains alive and the generation space has not been exhausted.
-
-#### Complexity/progress
-
-O(1). Lock-free with respect to other `beginGracePeriod` callers according to
-the target's atomic `fetchAdd` progress. Never scans participant slots.
-
-### `isComplete`
-
-#### Contract
-
-Returns whether the supplied grace period has completed.
-
-A grace period is complete when every participant slot satisfies at least one
-of these conditions:
-
-- the slot is offline;
-- the slot is online and its reported generation is greater than or equal to
-  `grace_period.generation()`.
-
-#### State transitions
-
-Does not mutate QSBR state.
-
-#### Errors and fault behavior
-
-Returns no error. Passing a `GracePeriod` from another domain is outside the
-contract unless the caller intentionally compares against the same generation
-space and accepts the result. `GracePeriod` carries no domain identity.
-
-`isComplete` MUST perform one bounded scan of the participant slots.
-
-#### NMI/interrupt safety
-
-Safe from NMI and interrupt context when an O(`capacity`) bounded scan is
-acceptable in that context. It does not block, but large participant capacities
-may make the scan inappropriate for latency-sensitive handlers.
-
-#### Memory ordering
-
-`isComplete` acquire-loads every participant slot it examines. When it returns
-true, it has observed release-published `offline` or `quiescent` transitions
-from every slot that could block the grace period.
-
-This establishes the QSBR lifetime edge: every online participant observed by
-the scan has passed through a quiescent state at or beyond the target
-generation. It does not establish payload consistency beyond the caller's own
-publication and synchronization rules.
-
-#### Concurrency effects
-
-May run concurrently with `online`, `offline`, `quiescent`, and
-`beginGracePeriod`. The result is a snapshot-style predicate over the loaded
-slot states. A false result may become true immediately after the scan. A true
-result for a grace period remains true with respect to participants that were
-online before or during that grace period; later `online` calls do not make the
-already-completed grace period incomplete.
-
-#### Invalidation and lifetime
-
-Does not invalidate any token or participant. The domain and, for `Bounded`, its
-borrowed slot slice must remain alive throughout the scan.
-
-#### Complexity/progress
-
-O(`capacity`) loads. Bounded, wait-free with respect to participant progress,
-and non-blocking. It can return false forever if an online participant never
-reports quiescence and never goes offline.
-
-## Implementation constraints
-
-Implementation must:
-
 - store the global generation in one `stdx.mem.CachePad(std.atomic.Value(u64))`;
 - store each participant slot in one `stdx.mem.CachePad(std.atomic.Value(u64))`;
-- use the high bit of participant slots as the offline marker and keep global
-  generations below that bit;
-- initialize all participant slots offline;
-- perform no heap allocation;
-- call no user callbacks;
-- perform no scheduler, futex, wait, wake, yield, deadline, timeout, or
-  cancellation operation;
-- expose no public access to encoded slot words;
-- avoid hidden global registries or process-wide QSBR state.
-
-## Testing
-
-Tests MUST use a reference model of offline/online participants and reported generations.
-
-- Cover capacity one, all-offline state, multiple participants, repeated online/offline reports, and overlapping targets.
-- Verify that each online participant blocks a target until it reports at or above that target or goes offline.
-- Compare reports before and after a grace-period increment, including reports that race with that increment.
-- Reject invalid static capacities at compile time and invalid bounded capacities/indexes under enabled checks.
-- Check generation zero and offline slots after construction.
-- Run distinct participant slots concurrently with grace-period creation and polling; concurrent creators MUST return unique generations.
-- Keep one participant online without reporting and verify that polling returns false without waiting.
-- Verify padded slot/global-generation representation and offline-bit encoding.
