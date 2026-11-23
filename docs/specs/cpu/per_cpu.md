@@ -1,163 +1,73 @@
-# CPU per-CPU storage
+# `stdx.cpu.PerCpu`
 
-Status: Approved.
+`stdx.cpu.PerCpu` provides fixed-capacity, cache-line-padded storage indexed by a
+caller-supplied CPU index.
 
-`stdx.cpu.PerCPU` provides fixed-capacity, cache-line-padded storage for one typed value per caller-selected CPU index.
+In this contract, `Static` means `stdx.cpu.PerCpu.Static(T, count)` and `Bounded`
+means `stdx.cpu.PerCpu.Bounded(T)`. `Store` denotes either resulting type.
 
-`Static(T, N)` owns inline storage for exactly `N` slots. `Bounded(T)` borrows caller-provided padded slots. The caller selects CPU indexes and supplies any payload synchronization, for example through `stdx.sync.AtomicCell(T)`.
+## Storage and construction
 
-## Terminology
+Both variants expose `Padded` as `stdx.layout.cache.CachePad(T)`. Each slot holds
+its payload in `Padded.value`. `T` must have nonzero size, must not be `void`, and
+must have natural alignment no greater than `std.atomic.cache_line`.
 
 - **slot:** One `Padded` element and its `value` payload, selected by a `usize` CPU index.
 - **payload:** The `T` value in a slot's public `Padded.value` field.
 - **padded slot:** A `stdx.mem.CachePad(T)` value.
 
-## Cross-spec relationships
+| Variant | Storage | Construction |
+| --- | --- | --- |
+| `Static` | Inline `[count]Padded`; `count` must be positive at compile time | `Static.init()`, `Static.initFn()`, `Static.initEach()`, `Static.initUndefined()` |
+| `Bounded` | Borrowed `[]Padded`; empty storage is valid | `Bounded.wrap()`, `Bounded.wrapFn()`, `Bounded.wrapEach()`, `Bounded.wrapUndefined()` |
 
 `PerCPU` depends on `docs/specs/mem/cache.md` for `stdx.mem.CachePad(T)`. That specification defines the padded-slot layout and the target-dependent `std.atomic.cache_line` alignment value.
 
-`PerCPU` composes with synchronization primitives, including `stdx.sync.AtomicCell(T)`, but does not own their atomic ordering or synchronization contracts. Callers can combine `PerCPU` with architecture-specific current-CPU or topology mechanisms, but those mechanisms select indexes outside this contract.
+Pointers supplied to `Static.initEach()` callbacks MUST NOT outlive the call,
+because the initialized storage is returned by value. `Bounded.wrapEach()`
+callback pointers refer to the caller's backing storage.
 
-## Data structures and representation
+`Static.initUndefined()` leaves payloads undefined. `Bounded.wrapUndefined()`
+retains the slice without writing its payloads. The caller MUST initialize each
+undefined payload before reading it.
 
 `Static(T, N)` contains inline `[N]Padded` storage. `Bounded(T)` stores a borrowed `[]Padded` slice. For both factories, `Padded` is exactly `stdx.mem.CachePad(T)` and its public `value` field is the payload.
 
 Each padded slot has `@alignOf(Padded)` alignment. Adjacent slots have an address difference of exactly `@sizeOf(Padded)`. `@sizeOf(Padded)` is a multiple of the cache-line size defined by `stdx.mem.CachePad(T)`. Therefore, adjacent slots do not share a cache line on a supported target.
 
-The cache-line size can vary by target. This specification does not define a numeric cache-line size, a CPU count, a CPU numbering scheme, or a mapping from hardware CPUs to indexes.
+`Store.capacity()` returns `count` for `Static` and the backing-slice length for
+`Bounded`. Valid indexes are in `0..Store.capacity()`.
 
-## Global invariants
+`Store.get(index)` returns `*const T`; `Store.getMut(index)` returns `*T`.
+The caller MUST supply a valid index. These operations assert bounds when
+`stdx.core.debug.checksEnabled()` is true and remain subject to Zig's bounds-check
+policy.
 
-- `Static(T, N)` accepts only `N > 0`; `Static(T, 0)` is a compile error.
-- A `Static` instance has exactly `N` slots for its lifetime.
-- A `Bounded` instance has exactly `backing.len` slots for the lifetime of its borrowed backing slice.
-- `capacity()` and `len()` return the same value.
-- Every valid index is in the half-open range `0..capacity()`.
-- An initializer that writes payloads processes each slot once in ascending index order.
-- `at` and `atPtr` do not mutate storage when they return `error.OutOfBounds`.
-- `PerCPU` performs no CPU discovery, target probing, allocation, waiting, locking, system calls, scheduler calls, callbacks other than the initializer supplied by the caller, atomic operation, or memory barrier.
+`Store.at(index)` returns `*const T`; `Store.atMut(index)` returns `*T`.
+Both return `error.OutOfBounds` without mutation when the index is outside the
+valid range, including every index for empty `Bounded` storage.
 
-## API
+`Store.slots()` returns `[]const Padded`; `Store.slotsMut()` returns `[]Padded`.
+These views cover every slot, preserve padded stride, and expose each payload
+through `value`. Capacity, indexed access, and view creation take constant time.
 
-```zig
-pub const PerCPU = struct {
-    pub fn Static(comptime T: type, comptime N: usize) type;
-    pub fn Bounded(comptime T: type) type;
-};
-```
+## Lifetime and concurrency
 
-### `PerCPU.Static(T, N)`
+Copying `Static` copies its inline payload storage. Its pointers and views remain
+valid only while the originating storage is alive and unmoved. Copying `Bounded`
+copies the slice and aliases the same payloads. Its pointers and views remain
+valid while the backing storage is alive and unmoved, independently of the
+wrapper's location. The caller MUST retain the backing storage for every use of
+the wrapper or its aliases.
 
-`Static` returns a type with the following public declarations:
-
-```zig
-pub const Padded = stdx.mem.CachePad(T);
-pub const Error = error{OutOfBounds};
-
-pub fn init(default: T) Self;
-pub fn initFn(comptime make: fn (index: usize) T) Self;
-pub fn initEach(comptime fill: fn (index: usize, slot: *T) void) Self;
-pub fn initUndefined() Self;
-
-pub fn capacity(self: *const Self) usize;
-pub fn len(self: *const Self) usize;
-
-pub fn get(self: *const Self, index: usize) T;
-pub fn getPtr(self: *Self, index: usize) *T;
-pub fn at(self: *const Self, index: usize) Error!T;
-pub fn atPtr(self: *Self, index: usize) Error!*T;
-
-pub fn slots(self: *Self) []Padded;
-pub fn slotsConst(self: *const Self) []const Padded;
-pub fn assertValid(self: *const Self) void;
-```
-
-### `PerCPU.Bounded(T)`
-
-`Bounded` returns a type with the following public declarations:
+The caller selects every index and supplies the mapping from CPU identity to
+storage. `PerCpu` performs no CPU discovery, topology validation, or automatic
+current-CPU selection. Callers that require CPU-local access MUST keep their
+execution context consistent with the selected index.
 
 ```zig
 pub const Padded = stdx.mem.CachePad(T);
 pub const Error = error{OutOfBounds};
 
-pub fn init(backing: []Padded, default: T) Self;
-pub fn initFn(backing: []Padded, comptime make: fn (index: usize) T) Self;
-pub fn initEach(backing: []Padded, comptime fill: fn (index: usize, slot: *T) void) Self;
-pub fn initUndefined(backing: []Padded) Self;
-
-pub fn capacity(self: *const Self) usize;
-pub fn len(self: *const Self) usize;
-
-pub fn get(self: *const Self, index: usize) T;
-pub fn getPtr(self: *Self, index: usize) *T;
-pub fn at(self: *const Self, index: usize) Error!T;
-pub fn atPtr(self: *Self, index: usize) Error!*T;
-
-pub fn slots(self: *Self) []Padded;
-pub fn slotsConst(self: *const Self) []const Padded;
-pub fn assertValid(self: *const Self) void;
-```
-
-### Initialization
-
-`Static.init(default)` MUST copy `default` into every slot payload.
-
-`Static.initFn(make)` MUST call `make(index)` once for each index in ascending order. `Static.initFn(make)` MUST store each returned value in that index's payload.
-
-`Static.initEach(fill)` MUST call `fill(index, slot)` once for each index in ascending order. The `slot` argument MUST point to that index's payload.
-
-`Static.initUndefined()` leaves every payload undefined. The caller MUST write a payload before reading it.
-
-`Bounded.init`, `Bounded.initFn`, `Bounded.initEach`, and `Bounded.initUndefined` have the corresponding `Static` initialization behavior. Each `Bounded` initializer MUST retain the supplied backing slice. `Bounded.initUndefined(backing)` MUST not write the backing payloads.
-
-All initializers are infallible. They allocate and wait never. `make` and `fill` are the only callbacks that an initializer invokes.
-
-A `Bounded` caller MUST provide a `backing` slice aligned for `Padded`. The caller MUST keep the backing storage alive for every use of the returned `Bounded` value and all views and pointers derived from it. A zero-length `backing` slice is valid.
-
-Copying a `Static` copies its payload storage. Copying a `Bounded` copies the borrowed slice; copies observe the same backing storage.
-
-### Indexed access
-
-The caller selects every `index`; `PerCPU` does not translate, validate against CPU topology, or associate an index with the current CPU.
-
-`get(index)` returns the payload at `index`. `getPtr(index)` returns a mutable pointer to the payload at `index`. Both operations require `index < capacity()`. When the caller violates that precondition, their behavior follows the ambient Zig bounds-check policy: the operation traps in Debug and ReleaseSafe builds and has undefined behavior in ReleaseFast and ReleaseSmall builds.
-
-`at(index)` returns the payload at `index` when `index < capacity()`. Otherwise, it returns `error.OutOfBounds` without mutation. `atPtr(index)` returns a mutable pointer to the payload at `index` when `index < capacity()`. Otherwise, it returns `error.OutOfBounds` without mutation.
-
-The accessors allocate and wait never. They provide no synchronization or memory ordering. A caller MUST synchronize conflicting access to the same payload according to `T`'s contract and Zig's concurrency rules. Accesses to different slots are accesses to distinct padded-slot storage, but `PerCPU` does not establish ordering between them.
-
-A pointer returned by `getPtr` or `atPtr`, and a slice returned by `slots` or `slotsConst`, remains valid only while its originating `PerCPU` storage remains alive and unmoved. For `Bounded`, validity also requires that the caller retain the backing storage. A subsequent payload write changes the value observed through all aliases to that payload.
-
-### Padded-slot views
-
-`slots()` returns every slot as a mutable `[]Padded`. `slotsConst()` returns the same slots as `[]const Padded`. The slices have length `capacity()`, preserve padded-slot stride, and expose payloads as `slot.value`.
-
-The API provides no `[]T` view. The caller MUST access a payload in a padded-slot view through `value`.
-
-### Capacity and validation
-
-`capacity()` returns `N` for `Static` and the backing-slice length for `Bounded`. `len()` returns the same value. Both operations are `O(1)`, infallible, non-allocating, and non-waiting.
-
-`assertValid()` asserts that the slot-storage base is aligned to `@alignOf(Padded)`. When at least two slots exist, it also asserts that the first two slots are exactly `@sizeOf(Padded)` bytes apart. `assertValid()` runs its assertions whenever the caller invokes it; the caller can gate the invocation with `stdx.core.debug.checksEnabled()`.
-
-## Implementation constraints
-
+pub const Padded = stdx.mem.CachePad(T);
 The implementation MUST use `stdx.mem.CachePad(T)` as the `Padded` type for both factories. `Static` MUST store `[N]Padded` inline. `Bounded` MUST borrow the supplied `[]Padded` storage and MUST NOT copy, allocate, resize, or free it.
-
-The implementation MUST call `make` and `fill` in ascending index order exactly once per slot. It MUST return `error.OutOfBounds` from checked accessors when `index >= capacity()` without modifying storage. It MUST preserve the padded representation when it returns a slot view or payload pointer.
-
-The implementation MUST remain target-independent: it MUST NOT read CPU identity, probe target topology, require x86 instructions, or depend on a target-specific CPU-count facility.
-
-## Testing
-
-Layout tests MUST verify inline storage, `Padded` alignment, and adjacent payload-pointer stride against `CachePad`. A compile-fail check MUST reject `Static(u64, 0)`.
-
-Initialization tests must verify that each initializer writes the required payloads, that callback initializers invoke their callback once per slot in ascending index order, and that undefined initialization is written before it is read. Equivalent tests for `Bounded` must verify that initialization uses the caller's storage and that copies sharing a backing slice observe each other's writes.
-
-Access tests must verify the first valid index, the last valid index, and the exclusive `capacity()` boundary. They must verify that `at` and `atPtr` return `error.OutOfBounds` at and above that boundary without mutation, that checked pointers mutate the selected payload, and that padded-slot views have length `capacity()` and expose the same payloads as indexed access.
-
-Validation tests must verify that `assertValid` succeeds for aligned `Static` and `Bounded` storage. A misaligned hand-constructed `Bounded` slice must demonstrate the violated alignment precondition; a test that executes the expected assertion trap must isolate that trap from the normal test process.
-
-A concurrency model test may use one writer per distinct non-atomic slot and verify the final sum after all writers join. The test must verify padded stride structurally and must not use wall-clock timing to infer false-sharing behavior. A separate atomic-payload model test must use the payload type's documented synchronization operations and a completion edge before a reader sums the slots. Stress tests must not assume thread scheduling.
-
-A target-independence compilation test MUST instantiate both factories on a non-x86 target.
