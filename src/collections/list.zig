@@ -16,8 +16,6 @@ pub const List = struct {
             buffer: [capacity_items]T = undefined,
             count: usize = 0,
 
-            pub const item_capacity = capacity_items;
-
             const Self = @This();
 
             pub const Error = error{ Full, OutOfBounds };
@@ -33,7 +31,7 @@ pub const List = struct {
 
             pub fn capacity(self: *const Self) usize {
                 _ = self;
-                return item_capacity;
+                return capacity_items;
             }
 
             pub fn remaining(self: *const Self) usize {
@@ -45,15 +43,15 @@ pub const List = struct {
             }
 
             pub fn isFull(self: *const Self) bool {
-                return self.len() == item_capacity;
+                return self.len() == capacity_items;
             }
 
-            pub fn asSlice(self: *const Self) []const T {
+            pub fn slice(self: *const Self) []const T {
                 self.assertValid();
                 return self.buffer[0..self.count];
             }
 
-            pub fn asSliceMut(self: *Self) []T {
+            pub fn sliceMut(self: *Self) []T {
                 self.assertValid();
                 return self.buffer[0..self.count];
             }
@@ -101,7 +99,7 @@ pub const List = struct {
             }
 
             pub fn assertValid(self: *const Self) void {
-                std.debug.assert(self.count <= item_capacity);
+                std.debug.assert(self.count <= capacity_items);
             }
         };
     }
@@ -143,12 +141,12 @@ pub const List = struct {
                 return self.len() == self.capacity();
             }
 
-            pub fn asSlice(self: *const Self) []const T {
+            pub fn slice(self: *const Self) []const T {
                 self.assertValid();
                 return self.buffer[0..self.count];
             }
 
-            pub fn asSliceMut(self: *Self) []T {
+            pub fn sliceMut(self: *Self) []T {
                 self.assertValid();
                 return self.buffer[0..self.count];
             }
@@ -364,8 +362,8 @@ pub const unit = struct {
 
         try testing.expectEqual(@as(usize, 3), list.capacity());
         try testing.expect(list.isFull());
-        try testing.expectEqualSlices(u8, &.{ 1, 4, 3 }, list.asSlice());
-        try testing.expect(&list.asSliceMut()[0] == &list.buffer[0]);
+        try testing.expectEqualSlices(u8, &.{ 1, 4, 3 }, list.slice());
+        try testing.expect(&list.sliceMut()[0] == &list.buffer[0]);
         list.assertValid();
 
         list.clearRetainingCapacity();
@@ -385,7 +383,7 @@ pub const unit = struct {
         try list.appendSlice(&.{ 1, 2 });
         (try list.atMut(1)).* = 3;
 
-        try testing.expectEqualSlices(u32, &.{ 1, 3 }, list.asSlice());
+        try testing.expectEqualSlices(u32, &.{ 1, 3 }, list.slice());
         try testing.expectEqualSlices(u32, &.{ 1, 3, 30, 40 }, &buffer);
         try testing.expect((try list.at(0)) == &buffer[0]);
         list.assertValid();

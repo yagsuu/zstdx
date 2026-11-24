@@ -21,8 +21,6 @@ pub const Ring = struct {
 
             pub const Error = error{Full};
 
-            pub const item_capacity = capacity_items;
-
             pub fn init() Self {
                 return .{};
             }
@@ -34,7 +32,7 @@ pub const Ring = struct {
 
             pub fn capacity(self: *const Self) usize {
                 _ = self;
-                return item_capacity;
+                return capacity_items;
             }
 
             pub fn remaining(self: *const Self) usize {
@@ -46,7 +44,7 @@ pub const Ring = struct {
             }
 
             pub fn isFull(self: *const Self) bool {
-                return self.len() == item_capacity;
+                return self.len() == capacity_items;
             }
 
             pub fn pushBack(self: *Self, item: T) Error!void {
@@ -89,7 +87,7 @@ pub const Ring = struct {
             }
 
             pub fn assertValid(self: *const Self) void {
-                Impl.assertValid(item_capacity, self.head, self.count);
+                Impl.assertValid(capacity_items, self.head, self.count);
             }
         };
     }

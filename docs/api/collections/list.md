@@ -10,7 +10,7 @@ Fixed-capacity sequences with an initialized prefix and ordered insertion.
 | --- | --- | --- |
 | Storage | Inline `[N]T` | Borrowed caller-provided `[]T` |
 | Construction | `List.Static(T, N).init()` or `.{}` creates an empty list with undefined spare storage | `List.Bounded(T).wrap(buffer)` creates an empty list without changing the buffer |
-| Capacity | Comptime `N > 0`, exposed as `item_capacity`. Zero is a compile error | Runtime `buffer.len`. Zero is valid and makes the list both empty and full |
+| Capacity | Comptime `N > 0`, returned by `capacity()`. Zero is a compile error | Runtime `buffer.len`. Zero is valid and makes the list both empty and full |
 | Copying | Independent inline storage | Shared backing storage, independent count |
 
 `T` MUST be a runtime value type with `@sizeOf(T) > 0`. A zero-sized element
@@ -39,7 +39,7 @@ Length, capacity, and remaining space count elements.
 
 | Operation | Contract |
 | --- | --- |
-| `List.asSlice()` / `List.asSliceMut()` | Return read-only / mutable views of the initialized prefix, excluding spare storage. |
+| `List.slice()` / `List.sliceMut()` | Return read-only / mutable views of the initialized prefix, excluding spare storage. |
 | `List.at(index)` / `List.atMut(index)` | Return const / mutable element pointers. `index >= count` returns `error.OutOfBounds`. |
 | `List.clearRetainingCapacity()` | Sets `count` to zero without zeroing memory. Retains storage and capacity. |
 
@@ -62,7 +62,7 @@ Length, capacity, and remaining space count elements.
 
 `List.orderedRemove()` and `List.swapRemove()` return `error.OutOfBounds` when
 `index >= count`. All error returns leave the list unchanged. Vacated slots
-become spare storage. Iteration follows `List.asSlice()` order.
+become spare storage. Iteration follows `List.slice()` order.
 
 ## Lifetime and invalidation
 

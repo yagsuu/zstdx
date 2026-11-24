@@ -4,106 +4,104 @@ const std = @import("std");
 
 const RangeType = @import("range.zig").Range;
 
-pub const RangeSet = struct {
-    pub fn Static(comptime T: type, comptime capacity_ranges: usize) type {
-        comptime {
-            if (capacity_ranges == 0) {
-                @compileError("RangeSet.Static capacity_ranges must be non-zero");
+pub fn RangeSet(comptime T: type) type {
+    return struct {
+        pub const Range = RangeType(T);
+
+        pub fn Static(comptime capacity_ranges: usize) type {
+            comptime {
+                if (capacity_ranges == 0) {
+                    @compileError("RangeSet.Static capacity_ranges must be non-zero");
+                }
             }
+
+            return struct {
+                buffer: [capacity_ranges]Range = undefined,
+                count: usize = 0,
+
+                const Self = @This();
+
+                pub const Error = error{ Full, InvalidRange };
+
+                pub fn init() Self {
+                    return .{};
+                }
+
+                pub fn len(self: *const Self) usize {
+                    return self.count;
+                }
+
+                pub fn capacity(self: *const Self) usize {
+                    _ = self;
+                    return capacity_ranges;
+                }
+
+                pub fn remaining(self: *const Self) usize {
+                    return self.capacity() - self.len();
+                }
+
+                pub fn isEmpty(self: *const Self) bool {
+                    return self.len() == 0;
+                }
+
+                pub fn isFull(self: *const Self) bool {
+                    return self.len() == capacity_ranges;
+                }
+
+                pub fn slice(self: *const Self) []const Range {
+                    return self.buffer[0..self.count];
+                }
+
+                pub fn clearRetainingCapacity(self: *Self) void {
+                    self.count = 0;
+                }
+
+                /// An empty range is a no-op. On success, prior slices are invalid. On error, the set is unchanged.
+                pub fn insert(self: *Self, range: Range) Error!void {
+                    try Impl.insertRange(Range, self.buffer[0..], &self.count, range);
+                }
+
+                /// Empty or disjoint ranges are no-ops. On success, prior slices are invalid. On error, the set is unchanged.
+                pub fn remove(self: *Self, range: Range) Error!void {
+                    try Impl.removeRange(Range, self.buffer[0..], &self.count, range);
+                }
+
+                pub fn contains(self: *const Self, value: T) bool {
+                    return self.findContaining(value) != null;
+                }
+
+                pub fn containsRange(self: *const Self, range: Range) bool {
+                    return Impl.containsRangeInSlice(Range, self.slice(), range);
+                }
+
+                pub fn overlaps(self: *const Self, range: Range) bool {
+                    return self.findIntersecting(range) != null;
+                }
+
+                pub fn findContaining(self: *const Self, value: T) ?Range {
+                    return Impl.findContainingValue(Range, self.slice(), value);
+                }
+
+                /// Returns the first non-empty intersection in ascending order, or `null` if no stored range intersects.
+                pub fn findIntersecting(self: *const Self, range: Range) ?Range {
+                    return Impl.findIntersectingRange(Range, self.slice(), range);
+                }
+
+                pub fn assertValid(self: *const Self) void {
+                    Impl.assertCanonical(Range, self.buffer[0..], self.count);
+                }
+            };
         }
 
-        return struct {
-            buffer: [capacity_ranges]Range = undefined,
-            count: usize = 0,
-
-            const Self = @This();
-
-            pub const Range = RangeType(T);
-            pub const Error = error{ Full, InvalidRange };
-
-            pub const range_capacity = capacity_ranges;
-
-            pub fn init() Self {
-                return .{};
-            }
-
-            pub fn len(self: *const Self) usize {
-                return self.count;
-            }
-
-            pub fn capacity(self: *const Self) usize {
-                _ = self;
-                return range_capacity;
-            }
-
-            pub fn remaining(self: *const Self) usize {
-                return self.capacity() - self.len();
-            }
-
-            pub fn isEmpty(self: *const Self) bool {
-                return self.len() == 0;
-            }
-
-            pub fn isFull(self: *const Self) bool {
-                return self.len() == range_capacity;
-            }
-
-            pub fn asSlice(self: *const Self) []const Range {
-                return self.buffer[0..self.count];
-            }
-
-            pub fn clearRetainingCapacity(self: *Self) void {
-                self.count = 0;
-            }
-
-            /// An empty range is a no-op. On success, prior slices are invalid. On error, the set is unchanged.
-            pub fn insert(self: *Self, range: Range) Error!void {
-                try Impl.insertRange(Range, self.buffer[0..], &self.count, range);
-            }
-
-            /// Empty or disjoint ranges are no-ops. On success, prior slices are invalid. On error, the set is unchanged.
-            pub fn remove(self: *Self, range: Range) Error!void {
-                try Impl.removeRange(Range, self.buffer[0..], &self.count, range);
-            }
-
-            pub fn contains(self: *const Self, value: T) bool {
-                return self.findContaining(value) != null;
-            }
-
-            pub fn containsRange(self: *const Self, range: Range) bool {
-                return Impl.containsRangeInSlice(Range, self.asSlice(), range);
-            }
-
-            pub fn overlaps(self: *const Self, range: Range) bool {
-                return self.findIntersecting(range) != null;
-            }
-
-            pub fn findContaining(self: *const Self, value: T) ?Range {
-                return Impl.findContainingValue(Range, self.asSlice(), value);
-            }
-
-            /// Returns the first non-empty intersection in ascending order, or `null` if no stored range intersects.
-            pub fn findIntersecting(self: *const Self, range: Range) ?Range {
-                return Impl.findIntersectingRange(Range, self.asSlice(), range);
-            }
-
-            pub fn assertValid(self: *const Self) void {
-                Impl.assertCanonical(Range, self.buffer[0..], self.count);
-            }
-        };
-    }
-
-    pub fn Bounded(comptime T: type) type {
-        return struct {
+        pub const Bounded = struct {
             buffer: []Range,
             count: usize = 0,
 
             const Self = @This();
 
-            pub const Range = RangeType(T);
             pub const Error = error{ Full, InvalidRange };
 
-            pub fn wrap(buffer: []Range) Self {
+            pub fn init(buffer: []Range) Self {
                 return .{ .buffer = buffer };
             }
 
@@ -127,7 +125,7 @@ pub const RangeSet = struct {
                 return self.len() == self.capacity();
             }
 
-            pub fn asSlice(self: *const Self) []const Range {
+            pub fn slice(self: *const Self) []const Range {
                 return self.buffer[0..self.count];
             }
 
@@ -148,7 +146,7 @@ pub const RangeSet = struct {
             }
 
             pub fn containsRange(self: *const Self, range: Range) bool {
-                return Impl.containsRangeInSlice(Range, self.asSlice(), range);
+                return Impl.containsRangeInSlice(Range, self.slice(), range);
             }
 
             pub fn overlaps(self: *const Self, range: Range) bool {
@@ -156,20 +154,20 @@ pub const RangeSet = struct {
             }
 
             pub fn findContaining(self: *const Self, value: T) ?Range {
-                return Impl.findContainingValue(Range, self.asSlice(), value);
+                return Impl.findContainingValue(Range, self.slice(), value);
             }
 
             /// Returns the first non-empty intersection in ascending order, or `null` if no stored range intersects.
             pub fn findIntersecting(self: *const Self, range: Range) ?Range {
-                return Impl.findIntersectingRange(Range, self.asSlice(), range);
+                return Impl.findIntersectingRange(Range, self.slice(), range);
             }
 
             pub fn assertValid(self: *const Self) void {
                 Impl.assertCanonical(Range, self.buffer, self.count);
             }
         };
-    }
-};
+    };
+}
 
 const Impl = struct {
     fn insertRange(comptime Range: type, buffer: []Range, count: *usize, range: Range) error{ Full, InvalidRange }!void {
@@ -360,15 +358,16 @@ pub const unit = struct {
     const testing = std.testing;
 
     test "variants retain static and borrowed capacity across clear" {
-        var static = RangeSet.Static(u8, 1).init();
-        var backing: [1]RangeSet.Bounded(u8).Range = undefined;
-        var bounded = RangeSet.Bounded(u8).wrap(&backing);
+        const Ranges = RangeSet(u8);
+        var static = Ranges.Static(1).init();
+        var backing: [1]Ranges.Range = undefined;
+        var bounded = Ranges.Bounded.init(&backing);
 
         inline for (.{ &static, &bounded }) |set| {
-            const Range = @TypeOf(set.*).Range;
+            const Range = Ranges.Range;
 
             try set.insert(Range.of(10, 30));
-            try testing.expect(set.asSlice().ptr == set.buffer[0..].ptr);
+            try testing.expect(set.slice().ptr == set.buffer[0..].ptr);
             try testing.expectEqual(@as(usize, 1), set.capacity());
 
             set.clearRetainingCapacity();
@@ -376,14 +375,14 @@ pub const unit = struct {
             try testing.expect(set.isEmpty());
             try testing.expectEqual(@as(usize, 1), set.capacity());
             try testing.expectEqual(@as(usize, 1), set.remaining());
-            try testing.expectEqual(@as(usize, 0), set.asSlice().len);
+            try testing.expectEqual(@as(usize, 0), set.slice().len);
             set.assertValid();
         }
 
-        try testing.expect(bounded.asSlice().ptr == backing[0..].ptr);
+        try testing.expect(bounded.slice().ptr == backing[0..].ptr);
 
-        var zero_backing: [0]RangeSet.Bounded(u8).Range = .{};
-        var zero = RangeSet.Bounded(u8).wrap(&zero_backing);
+        var zero_backing: [0]Ranges.Range = .{};
+        var zero = Ranges.Bounded.init(&zero_backing);
 
         try testing.expect(zero.isEmpty());
         try testing.expect(zero.isFull());
@@ -527,11 +526,12 @@ pub const unit = struct {
 
     test "comptime: static ranges merge at compile time" {
         comptime {
-            const Set = RangeSet.Static(u8, 4);
+            const Ranges = RangeSet(u8);
+            const Set = Ranges.Static(4);
 
             var set = Set.init();
-            try set.insert(Set.Range.of(1, 3));
-            try set.insert(Set.Range.of(3, 5));
+            try set.insert(Ranges.Range.of(1, 3));
+            try set.insert(Ranges.Range.of(3, 5));
 
             std.debug.assert(set.len() == 1);
             std.debug.assert(set.contains(4));

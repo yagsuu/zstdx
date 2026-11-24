@@ -1,18 +1,20 @@
 # `stdx.ranges.RangeSet`
 
 A fixed-capacity union of unsigned half-open [ranges](../core/range.md).
-In this page, `Set` means either concrete variant below.
+In this page, `Set` means either concrete storage variant of `RangeSet(T)` below.
 
 ## Storage and lifetime
 
 | Variant | Construction and storage |
 | --- | --- |
-| `RangeSet.Static(T, N)` | `Static.init()` creates an empty set with inline capacity `N`. `N` must be nonzero. |
-| `RangeSet.Bounded(T)` | `Bounded.wrap(buffer)` creates an empty set over caller-owned `[]Set.Range` storage. A zero-length buffer is valid: the set is both empty and full. |
+| `RangeSet(T).Static(N)` | `RangeSet(T).Static(N).init()` creates an empty set with inline capacity `N`. `N` must be nonzero. |
+| `RangeSet(T).Bounded` | `RangeSet(T).Bounded.init(buffer)` creates an empty set over caller-owned `[]RangeSet(T).Range` storage without changing buffer contents. A zero-length buffer is valid: the set is both empty and full. |
 
-Use unsigned integer endpoints. `Set.Range` is `stdx.ranges.Range(T)`.
+Use unsigned integer endpoints. `RangeSet(T).Range` is `stdx.ranges.Range(T)`.
+Both variants use this family-owned type; neither re-exports it. Helpers that
+accept `[]const RangeSet(T).Range` can inspect either variant's `Set.slice()` result.
 Stored ranges are non-empty, sorted by start, non-overlapping, and non-adjacent.
-`Set.asSlice()` returns a read-only view of initialized ranges.
+`Set.slice()` returns a read-only view of initialized ranges.
 
 Keep borrowed storage alive and at a stable address while the set or its views
 are in use. Bounded copies share storage but track lengths independently: use
@@ -61,7 +63,7 @@ Range-taking queries require valid bounds.
 
 ## Cost
 
-Construction, capacity accessors, clearing, and `Set.asSlice()` are O(1).
+Construction, capacity accessors, clearing, and `Set.slice()` are O(1).
 Insertion and invariant checks are O(n). Removal is O(n²) in the worst case.
 Point and intersection queries are O(log n). `Set.containsRange()` is O(log n)
 for non-empty input and O(n) for empty input, where `n` is the stored range count.

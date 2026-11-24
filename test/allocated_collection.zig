@@ -18,7 +18,7 @@ test "integration: arena-backed lists preserve values through collection and all
     try first.appendSlice(&.{ 10, 20, 30, 40 });
 
     try testing.expectError(error.Full, first.append(50));
-    try testing.expectEqualSlices(u32, &.{ 10, 20, 30, 40 }, first.asSlice());
+    try testing.expectEqualSlices(u32, &.{ 10, 20, 30, 40 }, first.slice());
 
     var second = List.wrap(try arena.allocSlice(u32, 12));
     defer second.clearRetainingCapacity();
@@ -30,11 +30,11 @@ test "integration: arena-backed lists preserve values through collection and all
 
     try testing.expectError(error.OutOfMemory, arena.allocSlice(u32, 1));
     try testing.expectEqual(used, arena.used());
-    try testing.expectEqualSlices(u32, &.{ 10, 20, 30, 40 }, first.asSlice());
-    try testing.expectEqualSlices(u32, &.{ 0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33 }, second.asSlice());
+    try testing.expectEqualSlices(u32, &.{ 10, 20, 30, 40 }, first.slice());
+    try testing.expectEqualSlices(u32, &.{ 0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33 }, second.slice());
 
     (try first.atMut(1)).* = 99;
-    try testing.expectEqualSlices(u32, &.{ 10, 99, 30, 40 }, first.asSlice());
+    try testing.expectEqualSlices(u32, &.{ 10, 99, 30, 40 }, first.slice());
     try testing.expectEqual(@as(u32, 3), (try second.at(1)).*);
 }
 
@@ -58,7 +58,7 @@ test "integration: arena checkpoint reclaims temporary list storage without chan
         try temporary.appendSlice(&.{ 11, 22, 33 });
 
         try testing.expectEqual(@as(u32, 22), try temporary.orderedRemove(1));
-        try testing.expectEqualSlices(u32, &.{ 11, 33 }, temporary.asSlice());
+        try testing.expectEqualSlices(u32, &.{ 11, 33 }, temporary.slice());
         try testing.expectEqual(@as(usize, 0), arena.remaining());
     }
 
@@ -68,6 +68,6 @@ test "integration: arena checkpoint reclaims temporary list storage without chan
     defer replacement.clearRetainingCapacity();
 
     try replacement.appendSlice(&.{ 101, 102, 103 });
-    try testing.expectEqualSlices(u32, &.{ 101, 102, 103 }, replacement.asSlice());
-    try testing.expectEqualSlices(u32, &.{ 2, 4, 6, 8 }, retained.asSlice());
+    try testing.expectEqualSlices(u32, &.{ 101, 102, 103 }, replacement.slice());
+    try testing.expectEqualSlices(u32, &.{ 2, 4, 6, 8 }, retained.slice());
 }

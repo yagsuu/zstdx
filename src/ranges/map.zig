@@ -7,144 +7,136 @@ const core = @import("core");
 const RangeType = @import("range.zig").Range;
 const Allocator = std.mem.Allocator;
 
-pub const RangeMap = struct {
-    pub fn Static(comptime T: type, comptime V: type, comptime capacity_entries: usize) type {
-        comptime if (capacity_entries == 0) {
-            @compileError("RangeMap.Static capacity_entries must be non-zero");
+pub fn RangeMap(comptime T: type, comptime V: type) type {
+    comptime Impl.requireRuntimeValue(V);
+
+    return struct {
+        pub const Range = RangeType(T);
+
+        pub const Entry = struct {
+            range: Range,
+            value: V,
         };
 
-        comptime Impl.requireRuntimeValue(V);
-
-        return struct {
-            buffer: [capacity_entries]Entry = undefined,
-            count: usize = 0,
-
-            const Self = @This();
-
-            pub const Range = RangeType(T);
-            pub const Entry = struct {
-                range: Range,
-                value: V,
+        pub fn Static(comptime capacity_entries: usize) type {
+            comptime if (capacity_entries == 0) {
+                @compileError("RangeMap.Static capacity_entries must be non-zero");
             };
 
-            pub const Error = error{ Full, InvalidRange, Overlap };
-            pub const UpdateError = error{ Full, InvalidRange };
+            return struct {
+                buffer: [capacity_entries]Entry = undefined,
+                count: usize = 0,
 
-            pub const entry_capacity = capacity_entries;
+                const Self = @This();
 
-            pub fn init() Self {
-                return .{};
-            }
+                pub const Error = error{ Full, InvalidRange, Overlap };
+                pub const UpdateError = error{ Full, InvalidRange };
 
-            pub fn len(self: *const Self) usize {
-                return self.count;
-            }
-
-            pub fn capacity(self: *const Self) usize {
-                _ = self;
-                return entry_capacity;
-            }
-
-            pub fn remaining(self: *const Self) usize {
-                return self.capacity() - self.len();
-            }
-
-            pub fn isEmpty(self: *const Self) bool {
-                return self.len() == 0;
-            }
-
-            pub fn isFull(self: *const Self) bool {
-                return self.len() == entry_capacity;
-            }
-
-            pub fn asSlice(self: *const Self) []const Entry {
-                return self.buffer[0..self.count];
-            }
-
-            pub fn clearRetainingCapacity(self: *Self) void {
-                self.count = 0;
-            }
-
-            pub fn insert(self: *Self, range: Range, value: V) Error!void {
-                const plan = try Impl.planInsert(Range, Entry, self.asSlice(), range) orelse return;
-                if (plan.count > self.capacity()) {
-                    return error.Full;
+                pub fn init() Self {
+                    return .{};
                 }
 
-                Impl.insertAtAssumeCapacity(Entry, self.buffer[0..], &self.count, plan.index, .{ .range = range, .value = value });
-            }
-
-            pub fn assign(self: *Self, range: Range, value: V) UpdateError!void {
-                const plan = try Impl.planAssign(Range, Entry, self.asSlice(), range) orelse return;
-                if (plan.count > self.capacity()) {
-                    return error.Full;
+                pub fn len(self: *const Self) usize {
+                    return self.count;
                 }
 
-                Impl.assignAssumeCapacity(Range, Entry, self.buffer[0..], &self.count, range, value);
-            }
-
-            pub fn remove(self: *Self, range: Range) UpdateError!void {
-                const plan = try Impl.planRemove(Range, Entry, self.asSlice(), range) orelse return;
-                if (plan.count > self.capacity()) {
-                    return error.Full;
+                pub fn capacity(self: *const Self) usize {
+                    _ = self;
+                    return capacity_entries;
                 }
 
-                Impl.removeAssumeCapacity(Range, Entry, self.buffer[0..], &self.count, range);
-            }
+                pub fn remaining(self: *const Self) usize {
+                    return self.capacity() - self.len();
+                }
 
-            pub fn coalesceAdjacent(self: *Self, context: anytype, comptime eql: core.Eql(@TypeOf(context), V)) void {
-                Impl.coalesceEntry(Entry, V, self.buffer[0..], &self.count, context, eql);
-            }
+                pub fn isEmpty(self: *const Self) bool {
+                    return self.len() == 0;
+                }
 
-            pub fn contains(self: *const Self, value: T) bool {
-                return self.findContaining(value) != null;
-            }
+                pub fn isFull(self: *const Self) bool {
+                    return self.len() == capacity_entries;
+                }
 
-            pub fn get(self: *const Self, value: T) ?*const V {
-                const entry = self.findContaining(value) orelse return null;
-                return &entry.value;
-            }
+                pub fn slice(self: *const Self) []const Entry {
+                    return self.buffer[0..self.count];
+                }
 
-            pub fn containsRange(self: *const Self, range: Range) bool {
-                return Impl.containsMappedRange(Range, Entry, self.asSlice(), range);
-            }
+                pub fn clearRetainingCapacity(self: *Self) void {
+                    self.count = 0;
+                }
 
-            pub fn overlaps(self: *const Self, range: Range) bool {
-                return self.findIntersecting(range) != null;
-            }
+                pub fn insert(self: *Self, range: Range, value: V) Error!void {
+                    const plan = try Impl.planInsert(Range, Entry, self.slice(), range) orelse return;
+                    if (plan.count > self.capacity()) {
+                        return error.Full;
+                    }
 
-            pub fn findContaining(self: *const Self, value: T) ?*const Entry {
-                return Impl.findContainingEntry(Entry, self.asSlice(), value);
-            }
+                    Impl.insertAtAssumeCapacity(Entry, self.buffer[0..], &self.count, plan.index, .{ .range = range, .value = value });
+                }
 
-            pub fn findIntersecting(self: *const Self, range: Range) ?*const Entry {
-                return Impl.findIntersectingEntry(Range, Entry, self.asSlice(), range);
-            }
+                pub fn assign(self: *Self, range: Range, value: V) UpdateError!void {
+                    const plan = try Impl.planAssign(Range, Entry, self.slice(), range) orelse return;
+                    if (plan.count > self.capacity()) {
+                        return error.Full;
+                    }
 
-            pub fn assertValid(self: *const Self) void {
-                Impl.assertEntries(Entry, self.buffer[0..], self.count);
-            }
-        };
-    }
+                    Impl.assignAssumeCapacity(Range, Entry, self.buffer[0..], &self.count, range, value);
+                }
 
-    pub fn Bounded(comptime T: type, comptime V: type) type {
-        comptime Impl.requireRuntimeValue(V);
-        return struct {
+                pub fn remove(self: *Self, range: Range) UpdateError!void {
+                    const plan = try Impl.planRemove(Range, Entry, self.slice(), range) orelse return;
+                    if (plan.count > self.capacity()) {
+                        return error.Full;
+                    }
+
+                    Impl.removeAssumeCapacity(Range, Entry, self.buffer[0..], &self.count, range);
+                }
+
+                pub fn coalesceAdjacent(self: *Self, context: anytype, comptime eql: core.Eql(@TypeOf(context), V)) void {
+                    Impl.coalesceEntry(Entry, V, self.buffer[0..], &self.count, context, eql);
+                }
+
+                pub fn contains(self: *const Self, value: T) bool {
+                    return self.findContaining(value) != null;
+                }
+
+                pub fn get(self: *const Self, value: T) ?*const V {
+                    const entry = self.findContaining(value) orelse return null;
+                    return &entry.value;
+                }
+
+                pub fn containsRange(self: *const Self, range: Range) bool {
+                    return Impl.containsMappedRange(Range, Entry, self.slice(), range);
+                }
+
+                pub fn overlaps(self: *const Self, range: Range) bool {
+                    return self.findIntersecting(range) != null;
+                }
+
+                pub fn findContaining(self: *const Self, value: T) ?*const Entry {
+                    return Impl.findContainingEntry(Entry, self.slice(), value);
+                }
+
+                pub fn findIntersecting(self: *const Self, range: Range) ?*const Entry {
+                    return Impl.findIntersectingEntry(Range, Entry, self.slice(), range);
+                }
+
+                pub fn assertValid(self: *const Self) void {
+                    Impl.assertEntries(Entry, self.buffer[0..], self.count);
+                }
+            };
+        }
+
+        pub const Bounded = struct {
             buffer: []Entry,
             count: usize = 0,
 
             const Self = @This();
 
-            pub const Range = RangeType(T);
-            pub const Entry = struct {
-                range: Range,
-                value: V,
-            };
-
             pub const Error = error{ Full, InvalidRange, Overlap };
             pub const UpdateError = error{ Full, InvalidRange };
 
-            pub fn wrap(buffer: []Entry) Self {
+            pub fn init(buffer: []Entry) Self {
                 return .{ .buffer = buffer };
             }
 
@@ -168,7 +160,7 @@ pub const RangeMap = struct {
                 return self.len() == self.capacity();
             }
 
-            pub fn asSlice(self: *const Self) []const Entry {
+            pub fn slice(self: *const Self) []const Entry {
                 return self.buffer[0..self.count];
             }
 
@@ -177,26 +169,29 @@ pub const RangeMap = struct {
             }
 
             pub fn insert(self: *Self, range: Range, value: V) Error!void {
-                const plan = try Impl.planInsert(Range, Entry, self.asSlice(), range) orelse return;
+                const plan = try Impl.planInsert(Range, Entry, self.slice(), range) orelse return;
                 if (plan.count > self.capacity()) {
                     return error.Full;
                 }
+
                 Impl.insertAtAssumeCapacity(Entry, self.buffer, &self.count, plan.index, .{ .range = range, .value = value });
             }
 
             pub fn assign(self: *Self, range: Range, value: V) UpdateError!void {
-                const plan = try Impl.planAssign(Range, Entry, self.asSlice(), range) orelse return;
+                const plan = try Impl.planAssign(Range, Entry, self.slice(), range) orelse return;
                 if (plan.count > self.capacity()) {
                     return error.Full;
                 }
+
                 Impl.assignAssumeCapacity(Range, Entry, self.buffer, &self.count, range, value);
             }
 
             pub fn remove(self: *Self, range: Range) UpdateError!void {
-                const plan = try Impl.planRemove(Range, Entry, self.asSlice(), range) orelse return;
+                const plan = try Impl.planRemove(Range, Entry, self.slice(), range) orelse return;
                 if (plan.count > self.capacity()) {
                     return error.Full;
                 }
+
                 Impl.removeAssumeCapacity(Range, Entry, self.buffer, &self.count, range);
             }
 
@@ -214,7 +209,7 @@ pub const RangeMap = struct {
             }
 
             pub fn containsRange(self: *const Self, range: Range) bool {
-                return Impl.containsMappedRange(Range, Entry, self.asSlice(), range);
+                return Impl.containsMappedRange(Range, Entry, self.slice(), range);
             }
 
             pub fn overlaps(self: *const Self, range: Range) bool {
@@ -222,31 +217,23 @@ pub const RangeMap = struct {
             }
 
             pub fn findContaining(self: *const Self, value: T) ?*const Entry {
-                return Impl.findContainingEntry(Entry, self.asSlice(), value);
+                return Impl.findContainingEntry(Entry, self.slice(), value);
             }
 
             pub fn findIntersecting(self: *const Self, range: Range) ?*const Entry {
-                return Impl.findIntersectingEntry(Range, Entry, self.asSlice(), range);
+                return Impl.findIntersectingEntry(Range, Entry, self.slice(), range);
             }
 
             pub fn assertValid(self: *const Self) void {
                 Impl.assertEntries(Entry, self.buffer, self.count);
             }
         };
-    }
-    pub fn Unmanaged(comptime T: type, comptime V: type) type {
-        comptime Impl.requireRuntimeValue(V);
-        return struct {
+
+        pub const Unmanaged = struct {
             buffer: []Entry = &.{},
             count: usize = 0,
 
             const Self = @This();
-
-            pub const Range = RangeType(T);
-            pub const Entry = struct {
-                range: Range,
-                value: V,
-            };
 
             pub const Error = error{ OutOfMemory, InvalidRange, Overlap };
             pub const UpdateError = error{ OutOfMemory, InvalidRange };
@@ -286,7 +273,7 @@ pub const RangeMap = struct {
                 return self.len() == self.capacity();
             }
 
-            pub fn asSlice(self: *const Self) []const Entry {
+            pub fn slice(self: *const Self) []const Entry {
                 return self.buffer[0..self.count];
             }
 
@@ -326,19 +313,19 @@ pub const RangeMap = struct {
             }
 
             pub fn insert(self: *Self, allocator: Allocator, range: Range, value: V) Error!void {
-                const plan = try Impl.planInsert(Range, Entry, self.asSlice(), range) orelse return;
+                const plan = try Impl.planInsert(Range, Entry, self.slice(), range) orelse return;
                 try self.ensureTotalCapacity(allocator, plan.count);
                 Impl.insertAtAssumeCapacity(Entry, self.buffer, &self.count, plan.index, .{ .range = range, .value = value });
             }
 
             pub fn assign(self: *Self, allocator: Allocator, range: Range, value: V) UpdateError!void {
-                const plan = try Impl.planAssign(Range, Entry, self.asSlice(), range) orelse return;
+                const plan = try Impl.planAssign(Range, Entry, self.slice(), range) orelse return;
                 try self.ensureTotalCapacity(allocator, plan.count);
                 Impl.assignAssumeCapacity(Range, Entry, self.buffer, &self.count, range, value);
             }
 
             pub fn remove(self: *Self, allocator: Allocator, range: Range) UpdateError!void {
-                const plan = try Impl.planRemove(Range, Entry, self.asSlice(), range) orelse return;
+                const plan = try Impl.planRemove(Range, Entry, self.slice(), range) orelse return;
                 try self.ensureTotalCapacity(allocator, plan.count);
                 Impl.removeAssumeCapacity(Range, Entry, self.buffer, &self.count, range);
             }
@@ -357,7 +344,7 @@ pub const RangeMap = struct {
             }
 
             pub fn containsRange(self: *const Self, range: Range) bool {
-                return Impl.containsMappedRange(Range, Entry, self.asSlice(), range);
+                return Impl.containsMappedRange(Range, Entry, self.slice(), range);
             }
 
             pub fn overlaps(self: *const Self, range: Range) bool {
@@ -365,40 +352,35 @@ pub const RangeMap = struct {
             }
 
             pub fn findContaining(self: *const Self, value: T) ?*const Entry {
-                return Impl.findContainingEntry(Entry, self.asSlice(), value);
+                return Impl.findContainingEntry(Entry, self.slice(), value);
             }
 
             pub fn findIntersecting(self: *const Self, range: Range) ?*const Entry {
-                return Impl.findIntersectingEntry(Range, Entry, self.asSlice(), range);
+                return Impl.findIntersectingEntry(Range, Entry, self.slice(), range);
             }
 
             pub fn assertValid(self: *const Self) void {
                 Impl.assertEntries(Entry, self.buffer, self.count);
             }
         };
-    }
 
-    pub fn Managed(comptime T: type, comptime V: type) type {
-        const UnmanagedMap = Unmanaged(T, V);
-        return struct {
+        pub const Managed = struct {
             allocator: Allocator,
-            map: UnmanagedMap,
+            map: Unmanaged,
 
             const Self = @This();
 
-            pub const Range = UnmanagedMap.Range;
-            pub const Entry = UnmanagedMap.Entry;
-            pub const Error = UnmanagedMap.Error;
-            pub const UpdateError = UnmanagedMap.UpdateError;
+            pub const Error = Unmanaged.Error;
+            pub const UpdateError = Unmanaged.UpdateError;
 
             pub fn init(allocator: Allocator) Self {
-                return .{ .allocator = allocator, .map = UnmanagedMap.init() };
+                return .{ .allocator = allocator, .map = Unmanaged.init() };
             }
 
             pub fn initCapacity(allocator: Allocator, capacity_entries: usize) Allocator.Error!Self {
                 return .{
                     .allocator = allocator,
-                    .map = try UnmanagedMap.initCapacity(allocator, capacity_entries),
+                    .map = try Unmanaged.initCapacity(allocator, capacity_entries),
                 };
             }
 
@@ -427,8 +409,8 @@ pub const RangeMap = struct {
                 return self.map.isFull();
             }
 
-            pub fn asSlice(self: *const Self) []const Entry {
-                return self.map.asSlice();
+            pub fn slice(self: *const Self) []const Entry {
+                return self.map.slice();
             }
 
             pub fn clearRetainingCapacity(self: *Self) void {
@@ -487,8 +469,8 @@ pub const RangeMap = struct {
                 self.map.assertValid();
             }
         };
-    }
-};
+    };
+}
 
 const Impl = struct {
     const InsertPlan = struct {
@@ -808,26 +790,26 @@ pub const unit = struct {
     }
 
     test "unit: RangeMap construction and capacity" {
-        var backing: [3]RangeMap.Bounded(u64, Kind).Entry = undefined;
-        var bounded = RangeMap.Bounded(u64, Kind).wrap(&backing);
+        var backing: [3]RangeMap(u64, Kind).Entry = undefined;
+        var bounded = RangeMap(u64, Kind).Bounded.init(&backing);
 
         try testing.expectEqual(@as(usize, 3), bounded.capacity());
 
-        try bounded.insert(@TypeOf(bounded).Range.of(1, 2), .a);
+        try bounded.insert(RangeMap(u64, Kind).Range.of(1, 2), .a);
         bounded.clearRetainingCapacity();
 
         try testing.expect(bounded.isEmpty());
         try testing.expectEqual(@as(usize, 3), bounded.capacity());
 
-        var zero_backing: [0]RangeMap.Bounded(u8, Kind).Entry = .{};
-        var zero_bounded = RangeMap.Bounded(u8, Kind).wrap(&zero_backing);
+        var zero_backing: [0]RangeMap(u8, Kind).Entry = .{};
+        var zero_bounded = RangeMap(u8, Kind).Bounded.init(&zero_backing);
         try testing.expect(zero_bounded.isEmpty());
         try testing.expect(zero_bounded.isFull());
     }
 
     test "unit: RangeMap dynamic construction capacity and release" {
-        const Unmanaged = RangeMap.Unmanaged(u64, Kind);
-        const UnmanagedRange = Unmanaged.Range;
+        const Unmanaged = RangeMap(u64, Kind).Unmanaged;
+        const UnmanagedRange = RangeMap(u64, Kind).Range;
 
         var unmanaged = Unmanaged.init();
         defer unmanaged.deinit(testing.allocator);
@@ -845,8 +827,8 @@ pub const unit = struct {
         unmanaged.clearAndFree(testing.allocator);
         try testing.expectEqual(@as(usize, 0), unmanaged.capacity());
 
-        const Managed = RangeMap.Managed(u64, Kind);
-        const ManagedRange = Managed.Range;
+        const Managed = RangeMap(u64, Kind).Managed;
+        const ManagedRange = RangeMap(u64, Kind).Range;
 
         var managed = try Managed.initCapacity(testing.allocator, 2);
         defer managed.deinit();
@@ -878,25 +860,27 @@ pub const unit = struct {
     }
 
     fn dynamicAllocationFailures(allocator: std.mem.Allocator) !void {
-        const Map = RangeMap.Unmanaged(u8, Kind);
-        const Range = Map.Range;
+        const Family = RangeMap(u8, Kind);
+        const Map = Family.Unmanaged;
+        const Range = Family.Range;
 
         var map = Map.init();
         defer map.deinit(allocator);
 
         try map.insert(allocator, Range.of(0, 5), .a);
-        var before: [1]Map.Entry = undefined;
-        @memcpy(before[0..], map.asSlice());
+        var before: [1]Family.Entry = undefined;
+        @memcpy(before[0..], map.slice());
 
         map.ensureTotalCapacity(allocator, map.capacity() + 1) catch |err| {
-            try testing.expectEqualSlices(Map.Entry, &before, map.asSlice());
+            try testing.expectEqualSlices(Family.Entry, &before, map.slice());
             return err;
         };
     }
 
     fn expectDynamicInsertOutOfMemory() !void {
-        const Map = RangeMap.Unmanaged(u8, Kind);
-        const Range = Map.Range;
+        const Family = RangeMap(u8, Kind);
+        const Map = Family.Unmanaged;
+        const Range = Family.Range;
 
         var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1, .resize_fail_index = 0 });
         const allocator = failing.allocator();
@@ -910,16 +894,17 @@ pub const unit = struct {
             try map.insert(allocator, try Range.init(start, start + 5), .a);
         }
 
-        var before: [8]Map.Entry = undefined;
-        @memcpy(before[0..], map.asSlice());
+        var before: [8]Family.Entry = undefined;
+        @memcpy(before[0..], map.slice());
 
         try testing.expectError(error.OutOfMemory, map.insert(allocator, Range.of(80, 85), .b));
-        try testing.expectEqualSlices(Map.Entry, &before, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &before, map.slice());
     }
 
     fn expectDynamicAssignOutOfMemory() !void {
-        const Map = RangeMap.Unmanaged(u8, Kind);
-        const Range = Map.Range;
+        const Family = RangeMap(u8, Kind);
+        const Map = Family.Unmanaged;
+        const Range = Family.Range;
 
         var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1, .resize_fail_index = 0 });
         const allocator = failing.allocator();
@@ -933,16 +918,17 @@ pub const unit = struct {
             try map.insert(allocator, try Range.init(start, start + 5), .a);
         }
 
-        var before: [8]Map.Entry = undefined;
-        @memcpy(before[0..], map.asSlice());
+        var before: [8]Family.Entry = undefined;
+        @memcpy(before[0..], map.slice());
 
         try testing.expectError(error.OutOfMemory, map.assign(allocator, Range.of(1, 4), .b));
-        try testing.expectEqualSlices(Map.Entry, &before, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &before, map.slice());
     }
 
     fn expectDynamicRemoveOutOfMemory() !void {
-        const Map = RangeMap.Unmanaged(u8, Kind);
-        const Range = Map.Range;
+        const Family = RangeMap(u8, Kind);
+        const Map = Family.Unmanaged;
+        const Range = Family.Range;
 
         var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1, .resize_fail_index = 0 });
         const allocator = failing.allocator();
@@ -956,163 +942,170 @@ pub const unit = struct {
             try map.insert(allocator, try Range.init(start, start + 5), .a);
         }
 
-        var before: [8]Map.Entry = undefined;
-        @memcpy(before[0..], map.asSlice());
+        var before: [8]Family.Entry = undefined;
+        @memcpy(before[0..], map.slice());
 
         try testing.expectError(error.OutOfMemory, map.remove(allocator, Range.of(1, 4)));
-        try testing.expectEqualSlices(Map.Entry, &before, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &before, map.slice());
     }
 
     test "unit: RangeMap insert sorts allows adjacency and rejects overlap" {
-        const Map = RangeMap.Static(u64, Kind, 4);
-        const Range = Map.Range;
+        const Family = RangeMap(u64, Kind);
+        const Map = Family.Static(4);
+        const Range = Family.Range;
 
         var map = Map.init();
 
-        const last = (try Impl.planInsert(Range, Map.Entry, map.asSlice(), Range.of(30, 40))).?;
-        Impl.insertAtAssumeCapacity(Map.Entry, &map.buffer, &map.count, last.index, .{ .range = Range.of(30, 40), .value = .c });
+        const last = (try Impl.planInsert(Range, Family.Entry, map.slice(), Range.of(30, 40))).?;
+        Impl.insertAtAssumeCapacity(Family.Entry, &map.buffer, &map.count, last.index, .{ .range = Range.of(30, 40), .value = .c });
 
-        const first = (try Impl.planInsert(Range, Map.Entry, map.asSlice(), Range.of(10, 20))).?;
-        Impl.insertAtAssumeCapacity(Map.Entry, &map.buffer, &map.count, first.index, .{ .range = Range.of(10, 20), .value = .a });
+        const first = (try Impl.planInsert(Range, Family.Entry, map.slice(), Range.of(10, 20))).?;
+        Impl.insertAtAssumeCapacity(Family.Entry, &map.buffer, &map.count, first.index, .{ .range = Range.of(10, 20), .value = .a });
 
-        const middle = (try Impl.planInsert(Range, Map.Entry, map.asSlice(), Range.of(20, 30))).?;
-        Impl.insertAtAssumeCapacity(Map.Entry, &map.buffer, &map.count, middle.index, .{ .range = Range.of(20, 30), .value = .a });
+        const middle = (try Impl.planInsert(Range, Family.Entry, map.slice(), Range.of(20, 30))).?;
+        Impl.insertAtAssumeCapacity(Family.Entry, &map.buffer, &map.count, middle.index, .{ .range = Range.of(20, 30), .value = .a });
 
-        try testing.expectEqualSlices(Map.Entry, &.{
+        try testing.expectEqualSlices(Family.Entry, &.{
             .{ .range = Range.of(10, 20), .value = .a },
             .{ .range = Range.of(20, 30), .value = .a },
             .{ .range = Range.of(30, 40), .value = .c },
-        }, map.asSlice());
+        }, map.slice());
 
-        try testing.expect((try Impl.planInsert(Range, Map.Entry, map.asSlice(), Range.empty(25))) == null);
+        try testing.expect((try Impl.planInsert(Range, Family.Entry, map.slice(), Range.empty(25))) == null);
         try testing.expectEqual(@as(usize, 3), map.len());
 
-        try testing.expectError(error.Overlap, Impl.planInsert(Range, Map.Entry, map.asSlice(), Range.of(19, 21)));
-        try testing.expectError(error.InvalidRange, Impl.planInsert(Range, Map.Entry, map.asSlice(), .{ .start = 9, .end = 8 }));
+        try testing.expectError(error.Overlap, Impl.planInsert(Range, Family.Entry, map.slice(), Range.of(19, 21)));
+        try testing.expectError(error.InvalidRange, Impl.planInsert(Range, Family.Entry, map.slice(), .{ .start = 9, .end = 8 }));
 
-        try testing.expectEqualSlices(Map.Entry, &.{
+        try testing.expectEqualSlices(Family.Entry, &.{
             .{ .range = Range.of(10, 20), .value = .a },
             .{ .range = Range.of(20, 30), .value = .a },
             .{ .range = Range.of(30, 40), .value = .c },
-        }, map.asSlice());
+        }, map.slice());
     }
 
     test "unit: RangeMap insert full leaves unchanged" {
-        const Map = RangeMap.Static(u8, Kind, 1);
-        const Range = Map.Range;
+        const Family = RangeMap(u8, Kind);
+        const Map = Family.Static(1);
+        const Range = Family.Range;
 
         var map = Map.init();
         try map.insert(Range.of(10, 20), .a);
 
         try testing.expectError(error.Full, map.insert(Range.of(30, 40), .b));
 
-        try testing.expectEqualSlices(Map.Entry, &.{.{ .range = Range.of(10, 20), .value = .a }}, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &.{.{ .range = Range.of(10, 20), .value = .a }}, map.slice());
     }
 
     test "unit: RangeMap assign overlays gaps and entries without auto-coalescing" {
-        const Map = RangeMap.Static(u64, Kind, 8);
-        const Range = Map.Range;
+        const Family = RangeMap(u64, Kind);
+        const Map = Family.Static(8);
+        const Range = Family.Range;
 
         var map = Map.init();
 
-        try testing.expect((try Impl.planAssign(Range, Map.Entry, map.asSlice(), Range.empty(3))) == null);
+        try testing.expect((try Impl.planAssign(Range, Family.Entry, map.slice(), Range.empty(3))) == null);
         try testing.expect(map.isEmpty());
 
-        Impl.assignAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(0, 10), .a);
-        Impl.assignAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(20, 30), .b);
-        Impl.assignAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(5, 25), .c);
+        Impl.assignAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(0, 10), .a);
+        Impl.assignAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(20, 30), .b);
+        Impl.assignAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(5, 25), .c);
 
-        try testing.expectEqualSlices(Map.Entry, &.{
+        try testing.expectEqualSlices(Family.Entry, &.{
             .{ .range = Range.of(0, 5), .value = .a },
             .{ .range = Range.of(5, 25), .value = .c },
             .{ .range = Range.of(25, 30), .value = .b },
-        }, map.asSlice());
+        }, map.slice());
 
         map.clearRetainingCapacity();
 
-        Impl.assignAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(0, 100), .a);
-        Impl.assignAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(40, 60), .b);
+        Impl.assignAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(0, 100), .a);
+        Impl.assignAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(40, 60), .b);
 
-        try testing.expectEqualSlices(Map.Entry, &.{
+        try testing.expectEqualSlices(Family.Entry, &.{
             .{ .range = Range.of(0, 40), .value = .a },
             .{ .range = Range.of(40, 60), .value = .b },
             .{ .range = Range.of(60, 100), .value = .a },
-        }, map.asSlice());
+        }, map.slice());
 
-        Impl.assignAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(100, 110), .a);
+        Impl.assignAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(100, 110), .a);
 
         try testing.expectEqual(@as(usize, 4), map.len());
         map.assertValid();
     }
 
     test "unit: RangeMap assign full and invalid leave unchanged" {
-        const Map = RangeMap.Static(u8, Kind, 2);
-        const Range = Map.Range;
+        const Family = RangeMap(u8, Kind);
+        const Map = Family.Static(2);
+        const Range = Family.Range;
 
         var map = Map.init();
         try map.insert(Range.of(0, 10), .a);
 
         try testing.expectError(error.Full, map.assign(Range.of(3, 7), .b));
-        try testing.expectEqualSlices(Map.Entry, &.{.{ .range = Range.of(0, 10), .value = .a }}, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &.{.{ .range = Range.of(0, 10), .value = .a }}, map.slice());
 
         try testing.expectError(error.InvalidRange, map.assign(.{ .start = 8, .end = 7 }, .b));
-        try testing.expectEqualSlices(Map.Entry, &.{.{ .range = Range.of(0, 10), .value = .a }}, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &.{.{ .range = Range.of(0, 10), .value = .a }}, map.slice());
     }
 
     test "unit: RangeMap remove deletes shrinks splits spans and preserves values" {
-        const Map = RangeMap.Static(u64, Kind, 6);
-        const Range = Map.Range;
+        const Family = RangeMap(u64, Kind);
+        const Map = Family.Static(6);
+        const Range = Family.Range;
         var map = Map.init();
 
         try map.insert(Range.of(10, 30), .a);
 
-        try testing.expect((try Impl.planRemove(Range, Map.Entry, map.asSlice(), Range.empty(11))) == null);
+        try testing.expect((try Impl.planRemove(Range, Family.Entry, map.slice(), Range.empty(11))) == null);
 
-        Impl.removeAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(40, 50));
+        Impl.removeAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(40, 50));
 
-        try testing.expectEqualSlices(Map.Entry, &.{.{ .range = Range.of(10, 30), .value = .a }}, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &.{.{ .range = Range.of(10, 30), .value = .a }}, map.slice());
 
-        Impl.removeAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(10, 15));
-        Impl.removeAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(25, 30));
-        Impl.removeAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(18, 20));
+        Impl.removeAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(10, 15));
+        Impl.removeAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(25, 30));
+        Impl.removeAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(18, 20));
 
-        try testing.expectEqualSlices(Map.Entry, &.{
+        try testing.expectEqualSlices(Family.Entry, &.{
             .{ .range = Range.of(15, 18), .value = .a },
             .{ .range = Range.of(20, 25), .value = .a },
-        }, map.asSlice());
+        }, map.slice());
 
         try map.insert(Range.of(40, 50), .b);
         try map.insert(Range.of(60, 70), .c);
 
-        Impl.removeAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(17, 65));
+        Impl.removeAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(17, 65));
 
-        try testing.expectEqualSlices(Map.Entry, &.{
+        try testing.expectEqualSlices(Family.Entry, &.{
             .{ .range = Range.of(15, 17), .value = .a },
             .{ .range = Range.of(65, 70), .value = .c },
-        }, map.asSlice());
+        }, map.slice());
 
-        Impl.removeAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, Range.of(15, 17));
+        Impl.removeAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, Range.of(15, 17));
 
-        try testing.expectEqualSlices(Map.Entry, &.{.{ .range = Range.of(65, 70), .value = .c }}, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &.{.{ .range = Range.of(65, 70), .value = .c }}, map.slice());
     }
 
     test "unit: RangeMap remove full split and invalid leave unchanged" {
-        const Map = RangeMap.Static(u8, Kind, 1);
-        const Range = Map.Range;
+        const Family = RangeMap(u8, Kind);
+        const Map = Family.Static(1);
+        const Range = Family.Range;
 
         var map = Map.init();
         try map.insert(Range.of(10, 30), .a);
 
         try testing.expectError(error.Full, map.remove(Range.of(15, 20)));
-        try testing.expectEqualSlices(Map.Entry, &.{.{ .range = Range.of(10, 30), .value = .a }}, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &.{.{ .range = Range.of(10, 30), .value = .a }}, map.slice());
 
         try testing.expectError(error.InvalidRange, map.remove(.{ .start = 8, .end = 7 }));
-        try testing.expectEqualSlices(Map.Entry, &.{.{ .range = Range.of(10, 30), .value = .a }}, map.asSlice());
+        try testing.expectEqualSlices(Family.Entry, &.{.{ .range = Range.of(10, 30), .value = .a }}, map.slice());
     }
 
     test "unit: RangeMap queries cover adjacent entries and gaps" {
-        const Map = RangeMap.Static(u64, Kind, 4);
-        const Range = Map.Range;
+        const Family = RangeMap(u64, Kind);
+        const Map = Family.Static(4);
+        const Range = Family.Range;
 
         var map = Map.init();
 
@@ -1120,25 +1113,26 @@ pub const unit = struct {
         try map.insert(Range.of(20, 30), .b);
         try map.insert(Range.of(40, 50), .c);
 
-        try testing.expect(Impl.findContainingEntry(Map.Entry, map.asSlice(), 10) != null);
-        try testing.expect(Impl.findContainingEntry(Map.Entry, map.asSlice(), 30) == null);
-        try testing.expectEqual(Kind.a, Impl.findContainingEntry(Map.Entry, map.asSlice(), @as(u64, 19)).?.value);
-        try testing.expect(Impl.findContainingEntry(Map.Entry, map.asSlice(), @as(u64, 30)) == null);
-        try testing.expectEqual(Range.of(20, 30), Impl.findContainingEntry(Map.Entry, map.asSlice(), 20).?.range);
-        try testing.expect(Impl.containsMappedRange(Range, Map.Entry, map.asSlice(), Range.of(12, 18)));
-        try testing.expect(Impl.containsMappedRange(Range, Map.Entry, map.asSlice(), Range.of(12, 30)));
-        try testing.expect(!Impl.containsMappedRange(Range, Map.Entry, map.asSlice(), Range.of(12, 40)));
-        try testing.expect(Impl.containsMappedRange(Range, Map.Entry, map.asSlice(), Range.empty(10)));
-        try testing.expect(Impl.containsMappedRange(Range, Map.Entry, map.asSlice(), Range.empty(30)));
-        try testing.expect(!Impl.containsMappedRange(Range, Map.Entry, map.asSlice(), Range.empty(35)));
-        try testing.expect(Impl.findIntersectingEntry(Range, Map.Entry, map.asSlice(), Range.of(30, 40)) == null);
-        try testing.expect(Impl.findIntersectingEntry(Range, Map.Entry, map.asSlice(), Range.empty(15)) == null);
-        try testing.expectEqual(Range.of(40, 50), Impl.findIntersectingEntry(Range, Map.Entry, map.asSlice(), Range.of(35, 45)).?.range);
+        try testing.expect(Impl.findContainingEntry(Family.Entry, map.slice(), 10) != null);
+        try testing.expect(Impl.findContainingEntry(Family.Entry, map.slice(), 30) == null);
+        try testing.expectEqual(Kind.a, Impl.findContainingEntry(Family.Entry, map.slice(), @as(u64, 19)).?.value);
+        try testing.expect(Impl.findContainingEntry(Family.Entry, map.slice(), @as(u64, 30)) == null);
+        try testing.expectEqual(Range.of(20, 30), Impl.findContainingEntry(Family.Entry, map.slice(), 20).?.range);
+        try testing.expect(Impl.containsMappedRange(Range, Family.Entry, map.slice(), Range.of(12, 18)));
+        try testing.expect(Impl.containsMappedRange(Range, Family.Entry, map.slice(), Range.of(12, 30)));
+        try testing.expect(!Impl.containsMappedRange(Range, Family.Entry, map.slice(), Range.of(12, 40)));
+        try testing.expect(Impl.containsMappedRange(Range, Family.Entry, map.slice(), Range.empty(10)));
+        try testing.expect(Impl.containsMappedRange(Range, Family.Entry, map.slice(), Range.empty(30)));
+        try testing.expect(!Impl.containsMappedRange(Range, Family.Entry, map.slice(), Range.empty(35)));
+        try testing.expect(Impl.findIntersectingEntry(Range, Family.Entry, map.slice(), Range.of(30, 40)) == null);
+        try testing.expect(Impl.findIntersectingEntry(Range, Family.Entry, map.slice(), Range.empty(15)) == null);
+        try testing.expectEqual(Range.of(40, 50), Impl.findIntersectingEntry(Range, Family.Entry, map.slice(), Range.of(35, 45)).?.range);
     }
 
     test "unit: RangeMap coalesceAdjacent is explicit and callback-driven" {
-        const Map = RangeMap.Static(u64, Kind, 5);
-        const Range = Map.Range;
+        const Family = RangeMap(u64, Kind);
+        const Map = Family.Static(5);
+        const Range = Family.Range;
 
         var map = Map.init();
 
@@ -1149,38 +1143,40 @@ pub const unit = struct {
 
         try testing.expectEqual(@as(usize, 4), map.len());
 
-        Impl.coalesceEntry(Map.Entry, Kind, &map.buffer, &map.count, {}, neverEql);
+        Impl.coalesceEntry(Family.Entry, Kind, &map.buffer, &map.count, {}, neverEql);
 
         try testing.expectEqual(@as(usize, 4), map.len());
 
-        Impl.coalesceEntry(Map.Entry, Kind, &map.buffer, &map.count, {}, eqlKind);
+        Impl.coalesceEntry(Family.Entry, Kind, &map.buffer, &map.count, {}, eqlKind);
 
-        try testing.expectEqualSlices(Map.Entry, &.{
+        try testing.expectEqualSlices(Family.Entry, &.{
             .{ .range = Range.of(0, 20), .value = .a },
             .{ .range = Range.of(20, 30), .value = .b },
             .{ .range = Range.of(40, 50), .value = .a },
-        }, map.asSlice());
+        }, map.slice());
     }
 
     test "unit: RangeMap coalesceAdjacent merges complete adjacent runs" {
-        const Map = RangeMap.Static(u64, Kind, 3);
-        const Range = Map.Range;
+        const Family = RangeMap(u64, Kind);
+        const Map = Family.Static(3);
+        const Range = Family.Range;
 
         var map = Map.init();
         try map.insert(Range.of(0, 10), .a);
         try map.insert(Range.of(10, 20), .a);
         try map.insert(Range.of(20, 30), .a);
 
-        Impl.coalesceEntry(Map.Entry, Kind, &map.buffer, &map.count, {}, eqlKind);
+        Impl.coalesceEntry(Family.Entry, Kind, &map.buffer, &map.count, {}, eqlKind);
 
-        try testing.expectEqualSlices(Map.Entry, &.{
+        try testing.expectEqualSlices(Family.Entry, &.{
             .{ .range = Range.of(0, 30), .value = .a },
-        }, map.asSlice());
+        }, map.slice());
     }
 
     test "model: RangeMap matches optional array over small domain" {
-        const Map = RangeMap.Static(u8, Kind, 32);
-        const Range = Map.Range;
+        const Family = RangeMap(u8, Kind);
+        const Map = Family.Static(32);
+        const Range = Family.Range;
 
         var map = Map.init();
         var model: [32]?Kind = @splat(null);
@@ -1204,10 +1200,10 @@ pub const unit = struct {
             };
 
             switch (random.uintLessThan(u8, 4)) {
-                0 => if (Impl.planInsert(Range, Map.Entry, map.asSlice(), range)) |maybe_plan| {
+                0 => if (Impl.planInsert(Range, Family.Entry, map.slice(), range)) |maybe_plan| {
                     if (maybe_plan) |plan| {
                         std.debug.assert(plan.count <= map.buffer.len);
-                        Impl.insertAtAssumeCapacity(Map.Entry, &map.buffer, &map.count, plan.index, .{ .range = range, .value = value });
+                        Impl.insertAtAssumeCapacity(Family.Entry, &map.buffer, &map.count, plan.index, .{ .range = range, .value = value });
                     }
                     for (model[start..end]) |*slot| {
                         slot.* = value;
@@ -1217,9 +1213,9 @@ pub const unit = struct {
                     else => return err,
                 },
                 1, 2 => {
-                    if (try Impl.planAssign(Range, Map.Entry, map.asSlice(), range)) |plan| {
+                    if (try Impl.planAssign(Range, Family.Entry, map.slice(), range)) |plan| {
                         std.debug.assert(plan.count <= map.buffer.len);
-                        Impl.assignAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, range, value);
+                        Impl.assignAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, range, value);
                     }
 
                     for (model[start..end]) |*slot| {
@@ -1227,9 +1223,9 @@ pub const unit = struct {
                     }
                 },
                 else => {
-                    if (try Impl.planRemove(Range, Map.Entry, map.asSlice(), range)) |plan| {
+                    if (try Impl.planRemove(Range, Family.Entry, map.slice(), range)) |plan| {
                         std.debug.assert(plan.count <= map.buffer.len);
-                        Impl.removeAssumeCapacity(Range, Map.Entry, &map.buffer, &map.count, range);
+                        Impl.removeAssumeCapacity(Range, Family.Entry, &map.buffer, &map.count, range);
                     }
 
                     for (model[start..end]) |*slot| {
@@ -1239,19 +1235,19 @@ pub const unit = struct {
             }
 
             if (random.boolean()) {
-                Impl.coalesceEntry(Map.Entry, Kind, &map.buffer, &map.count, {}, eqlKind);
+                Impl.coalesceEntry(Family.Entry, Kind, &map.buffer, &map.count, {}, eqlKind);
             }
 
             for (model, 0..) |slot, index| {
-                const got = Impl.findContainingEntry(Map.Entry, map.asSlice(), @as(u8, @intCast(index)));
+                const got = Impl.findContainingEntry(Family.Entry, map.slice(), @as(u8, @intCast(index)));
                 if (slot) |want| {
                     try testing.expectEqual(want, got.?.value);
                 } else {
-                    try testing.expectEqual(@as(?*const Map.Entry, null), got);
+                    try testing.expectEqual(@as(?*const Family.Entry, null), got);
                 }
             }
 
-            for (map.asSlice()) |entry| {
+            for (map.slice()) |entry| {
                 try testing.expect(entry.range.start < entry.range.end);
                 for (entry.range.start..entry.range.end) |index| {
                     try testing.expectEqual(entry.value, model[index].?);
@@ -1262,8 +1258,9 @@ pub const unit = struct {
 
     test "comptime: RangeMap mutates at compile time" {
         comptime {
-            const Map = RangeMap.Static(u8, enum { a, b }, 4);
-            const Range = Map.Range;
+            const Family = RangeMap(u8, enum { a, b });
+            const Map = Family.Static(4);
+            const Range = Family.Range;
 
             var map = Map.init();
             try map.insert(Range.of(1, 3), .a);

@@ -108,7 +108,8 @@ zstdx public names use the baseline Zig naming rules with these package terms:
   `MmioRegister`;
 - `Static`, `Bounded`, `Managed`, and `Unmanaged` are nested under the family they specialize: `List.Static`, not
   `StaticList`;
-- slice exposure uses `asSlice` / `asConstSlice` unless a contract deliberately exposes fields;
+- ordinary element views use `slice()` for read-only access and `sliceMut()` for
+  mutable access where mutation preserves the type's invariants;
 - list-like containers use directional verbs `pushBack` / `popFront` / `pushFront` / `popBack` and `front` / `back` accessors;
 - stack-like containers push/pop;
 - queue, ring, and deque containers use the same directional names: `pushBack`, `popFront`, `pushFront`, `popBack`, `front`, `back`;
@@ -117,6 +118,23 @@ zstdx public names use the baseline Zig naming rules with these package terms:
 Collection APIs SHOULD expose applicable length, capacity, empty/full, clearing,
 and invariant-validation operations unless their owning contract defines a
 narrower surface. Intrusive memberships require distinct embedded nodes.
+
+Types with identical semantics and representation across storage variants belong
+to the semantic family. Only variant-specific types belong to the variant.
+Put each type at the narrowest family scope that determines its meaning and
+representation. Do not repeat family-owned types as variant aliases.
+Generic families bind shared semantic parameters before storage selection, for
+example `RangeMap(T, V).Static(N)` and `RangeMap(T, V).Bounded`.
+Shared ID types do not imply cross-instance validity.
+
+Slice views borrow live logical contents, excluding spare capacity. Keep specific
+names for representations and subsets: `bytes` / `bytesMut`, `words`,
+`slots` / `slotsMut`, and `remainingBytes` / `remainingBytesMut`.
+These accessors do not copy, allocate, or transfer ownership. Owning contracts
+define view lifetime and invalidation. Do not add mutable views that bypass
+structural invariants or contiguous views for non-contiguous representations.
+Do not provide `asSlice`, `asConstSlice`, or legacy aliases for ordinary element
+views. Name ownership transfer explicitly, for example `toOwnedSlice`.
 
 ## Callback contracts
 
@@ -141,16 +159,24 @@ value conversion MUST use `std.mem`.
 
 ## Constructors
 
-zstdx constructor vocabulary is closed. Pick the verb by argument shape and fallibility:
+Constructor names describe the operation, not fallibility. An error-union return
+type expresses fallibility; do not add `tryInit` or `tryFrom` names.
 
-- `Type.init(...)` — infallible. No allocation, no argument validation. Includes the no-arg form `Type.init()` for inline-storage static containers.
-- `Type.initCapacity(allocator, n)` — may allocate or reserve capacity if the owning contract says so.
-- `Type.wrap(storage)` — infallible, borrows caller-owned storage. Used by every `Bounded` container and any type that takes a backing buffer at runtime.
-- `Type.fromX(input)` — single-input reinterpretation. Use `fromInt`, `fromNative`, `fromBytes`, `fromAddress`, etc. May be infallible (`Type.fromInt(value: Int) Self`) or fallible (`Type.fromAddress(addr: Addr) Error!Self`).
-- `Type.fromXY(a, b) Error!Self` — multi-input validating constructor. Pick a domain-specific verb: `fromStartLen`, `fromBounds`, `fromBaseCount`, `fromAddressBytes`.
-- `deinit` releases resources owned by the value.
+- `Type.init(...)` initializes a fresh logical object without backing allocation.
+  It may validate arguments and initialize supplied storage. State whether it
+  changes supplied contents.
+- `Type.initCapacity(allocator, n)` initializes with allocator-backed capacity.
+- `Type.initInPlace(self, ...)` initializes an existing value at its final address
+  when its lifecycle requires in-place initialization.
+- `Type.wrap(...)` borrows an existing representation without clearing or
+  initializing its contents. Validation is permitted.
+- `Type.from*` converts a value or representation. Name the source or bounds when
+  useful: `fromInt`, `fromNative`, `fromBytes`, `fromAddress`, `fromStartLen`.
+- `Type.bind(...)` associates callable behavior with an existing provider.
+- `deinit` ends the initialized lifetime and releases owned resources.
 
-Any constructor that returns an error union is named `from*`, never `init`. There is no `Type.initUnchecked` variant — callers with proven validity use a struct literal.
+Borrowing does not imply mapping, pinning, or ownership transfer. There is no
+`Type.initUnchecked` variant; callers with proven validity use a struct literal.
 
 ## Error vocabulary
 
@@ -187,12 +213,9 @@ Per-operation error sets may narrow the type-level union when a method can only 
 
 ## Capacity vocabulary
 
-Static containers expose their comptime capacity as a `pub const` on the returned type. The constant name uses the singular element noun plus `_capacity`:
-
-- `item_capacity` for element containers (`List.Static`, `Ring.Static`).
-- `range_capacity` for range containers (`RangeSet.Static`).
-- `entry_capacity` for key-value containers (`RangeMap.Static`).
-- `bit_capacity` for bitsets (`BitSet.Static`).
+Containers with a `capacity()` method do not also expose a public constant for
+the same capacity. Static implementations use the comptime factory parameter
+internally; callers use `capacity()` at runtime or comptime.
 
 The comptime factory parameter name matches: `comptime capacity_items`, `capacity_ranges`, `capacity_entries`, `capacity_bits`.
 

@@ -1,20 +1,24 @@
 # `stdx.ranges.RangeMap`
 
 A sorted map from non-overlapping unsigned half-open
-[ranges](../core/range.md) to values. In this page, `Map` means any concrete
-variant below.
+[ranges](../core/range.md) to values. `Map` means any concrete storage variant
+of `RangeMap(T, V)`.
 
 ## Storage and lifetime
 
 | Variant | Construction and storage |
 | --- | --- |
-| `RangeMap.Static(T, V, N)` | `Static.init()` creates an empty map with inline capacity `N`. `N` must be nonzero. |
-| `RangeMap.Bounded(T, V)` | `Bounded.wrap(buffer)` creates an empty map over caller-owned `[]Map.Entry` storage. Zero capacity is valid and initially full. |
-| `RangeMap.Unmanaged(T, V)` | `Unmanaged.init()` creates an empty, unallocated map. Allocation, release, and fallible mutation methods take an allocator. |
-| `RangeMap.Managed(T, V)` | `Managed.init(allocator)` creates an empty map and retains its allocator for subsequent operations. |
+| `RangeMap(T, V).Static(N)` | `RangeMap(T, V).Static(N).init()` creates an empty map with inline capacity `N`. `N` must be nonzero. |
+| `RangeMap(T, V).Bounded` | `RangeMap(T, V).Bounded.init(buffer)` creates an empty map over caller-owned `[]RangeMap(T, V).Entry` storage without changing buffer contents. Zero capacity is valid and initially full. |
+| `RangeMap(T, V).Unmanaged` | `RangeMap(T, V).Unmanaged.init()` creates an empty, unallocated map. Allocation, release, and fallible mutation methods take an allocator. |
+| `RangeMap(T, V).Managed` | `RangeMap(T, V).Managed.init(allocator)` creates an empty map and retains its allocator for subsequent operations. |
 
 Use unsigned integer endpoints and a nonzero-sized `V`.
-`Map.Range` is `stdx.ranges.Range(T)`. `Map.Entry` contains `range` and `value`.
+`RangeMap(T, V).Range` is `stdx.ranges.Range(T)`. `RangeMap(T, V).Entry`
+contains `range` and `value`. These types are shared by all storage variants and
+are not re-exported on the variants. Helpers that accept
+`[]const RangeMap(T, V).Entry` can inspect any
+variant's `Map.slice()` result.
 Initialized entries have valid, non-empty ranges in ascending start order.
 Entries never overlap, but adjacent entries are valid and remain separate
 unless explicitly coalesced.
